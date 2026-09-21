@@ -33,6 +33,18 @@ Start the web application with:
 pnpm dev
 ```
 
+## Testing
+
+`pnpm check` is the routine gate. Its contract step skips the invariant suite so the loop stays fast.
+
+```bash
+pnpm check           # routine: lint, typecheck, build, unit and fuzz tests
+pnpm check:full      # milestone: routine check plus the invariant suite
+```
+
+Invariant runs can also be taken on their own with `pnpm contracts:test:invariant`, and the entire
+Forge suite with `pnpm contracts:test:full`.
+
 ## Network safety
 
 Development begins locally and on Arbitrum Sepolia. Arbitrum One remains read-only until the launch gate is approved. No script may broadcast a mainnet transaction by default.
