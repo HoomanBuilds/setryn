@@ -20,3 +20,16 @@ enum Side {
     Buy,
     Sell
 }
+
+/// @dev RegistryStatus gates future qualification only. A paused or deprecated definition never
+/// invalidates historical positions, unwind, fixing, or settlement, and a registry never deletes a
+/// definition. Unspecified is the nonexistent sentinel, so it is never a reachable stored state.
+///
+/// @dev Ordinals are append-only. A later member may be added at the end, never reordered or
+/// removed, because stored values and indexed event topics are compared against these numbers.
+enum RegistryStatus {
+    Unspecified,
+    Active,
+    Paused,
+    Deprecated
+}

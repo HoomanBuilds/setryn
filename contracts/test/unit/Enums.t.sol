@@ -3,7 +3,7 @@ pragma solidity 0.8.37;
 
 import {Test} from "forge-std/Test.sol";
 
-import {AssetClass, Side} from "../../src/types/Enums.sol";
+import {AssetClass, RegistryStatus, Side} from "../../src/types/Enums.sol";
 
 contract EnumsTest is Test {
     function test_AssetClassOrdinalsAreStable() public pure {
@@ -23,11 +23,20 @@ contract EnumsTest is Test {
         assertEq(uint8(Side.Sell), 2);
     }
 
+    function test_RegistryStatusOrdinalsAreStable() public pure {
+        assertEq(uint8(RegistryStatus.Unspecified), 0);
+        assertEq(uint8(RegistryStatus.Active), 1);
+        assertEq(uint8(RegistryStatus.Paused), 2);
+        assertEq(uint8(RegistryStatus.Deprecated), 3);
+    }
+
     function test_DefaultValuesAreUnspecified() public pure {
         AssetClass assetClass;
         Side side;
+        RegistryStatus registryStatus;
 
         assertEq(uint8(assetClass), uint8(AssetClass.Unspecified));
         assertEq(uint8(side), uint8(Side.Unspecified));
+        assertEq(uint8(registryStatus), uint8(RegistryStatus.Unspecified));
     }
 }
