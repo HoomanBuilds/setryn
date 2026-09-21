@@ -1,6 +1,7 @@
 # Local planning and reference material
 /docs/
 /inspiration/
+.claude-logs/
 
 # Secrets and credentials
 .env
