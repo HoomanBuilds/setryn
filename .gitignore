@@ -1,0 +1,42 @@
+# Local planning and reference material
+/docs/
+/inspiration/
+
+# Secrets and credentials
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.key
+*.pem
+
+# JavaScript and TypeScript
+node_modules/
+.pnpm-store/
+.turbo/
+.next/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Foundry
+/contracts/out/
+/contracts/cache/
+/contracts/broadcast/
+/contracts/coverage/
+
+# Local deployments and runtime data
+/deployments/local/
+*.log
+
+# Test and hosting output
+/test-results/
+/playwright-report/
+.vercel/
+
+# Editor and operating system files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
