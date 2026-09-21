@@ -1,0 +1,21 @@
+{
+  "name": "setryn",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.24.0",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @setryn/web dev",
+    "build": "pnpm run contracts:build && pnpm run web:build",
+    "check": "pnpm run lint && pnpm run typecheck && pnpm run build && pnpm run contracts:test",
+    "lint": "pnpm --filter @setryn/web lint && pnpm run contracts:fmt:check",
+    "typecheck": "pnpm --filter @setryn/web typecheck",
+    "web:build": "pnpm --filter @setryn/web build",
+    "contracts:build": "forge build --root contracts",
+    "contracts:test": "forge test --root contracts",
+    "contracts:fmt": "forge fmt --root contracts",
+    "contracts:fmt:check": "forge fmt --root contracts --check"
+  }
+}
