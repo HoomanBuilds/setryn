@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
+import { GlobalHeader } from "@/components/terminal/GlobalHeader";
+import { StatusStrip } from "@/components/terminal/StatusStrip";
 import "./globals.css";
 
 const plexSans = IBM_Plex_Sans({
@@ -19,8 +21,7 @@ const plexMono = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   title: "Setryn Terminal",
-  description:
-    "Package-native dated risk exchange terminal. Arbitrum Sepolia preview market data.",
+  description: "Package-native dated risk exchange terminal. Arbitrum Sepolia preview market data.",
 };
 
 export const viewport: Viewport = {
@@ -31,7 +32,14 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="en" className={`${plexSans.variable} ${plexMono.variable}`}>
-      <body>{children}</body>
+      <body>
+        {/* One app frame for every route: the document never scrolls, panels do. */}
+        <div className="flex h-dvh w-full flex-col overflow-hidden bg-app">
+          <GlobalHeader />
+          <StatusStrip />
+          {children}
+        </div>
+      </body>
     </html>
   );
 }

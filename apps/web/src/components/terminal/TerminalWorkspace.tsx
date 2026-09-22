@@ -1,17 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { AnalysisPanel, type VizTab } from "@/components/terminal/AnalysisPanel";
 import { ConsolePanel } from "@/components/terminal/ConsolePanel";
-import { GlobalHeader } from "@/components/terminal/GlobalHeader";
-import {
-  ContractSpec,
-  MarketHeader,
-  MarketStatGrid,
-} from "@/components/terminal/MarketHeader";
+import { ContractSpec, MarketHeader, MarketStatGrid } from "@/components/terminal/MarketHeader";
 import { OrderBookPanel } from "@/components/terminal/OrderBookPanel";
 import { OrderTicket } from "@/components/terminal/OrderTicket";
-import { StatusStrip } from "@/components/terminal/StatusStrip";
 import { Disclosure, Tabs } from "@/components/terminal/primitives";
 import { ACCOUNT } from "@/lib/terminal/account";
 import {
@@ -23,7 +18,7 @@ import {
   type StageState,
   type TicketState,
 } from "@/lib/terminal/economics";
-import { DEFAULT_MARKET_ID, findMarket } from "@/lib/terminal/markets";
+import { tradeHref } from "@/lib/terminal/markets";
 import type { BookRow, ConsoleTabId, PackageMarket } from "@/lib/terminal/types";
 
 type MobileTab = "market" | "book" | "order" | "positions";
@@ -47,19 +42,29 @@ function initialTicket(market: PackageMarket): TicketState {
   };
 }
 
-export function TerminalWorkspace() {
-  const [marketId, setMarketId] = useState(DEFAULT_MARKET_ID);
-  const market = findMarket(marketId);
+/** The route owns the selected market. Nothing here mirrors it into state. */
+export function TerminalWorkspace({ market }: { market: PackageMarket }) {
+  const router = useRouter();
 
   const [vizTab, setVizTab] = useState<VizTab>("price");
   const [consoleTab, setConsoleTab] = useState<ConsoleTabId>("strategies");
   const [consoleScoped, setConsoleScoped] = useState(true);
   const [mobileTab, setMobileTab] = useState<MobileTab>("market");
-  const [ticket, setTicket] = useState<TicketState>(() =>
-    initialTicket(findMarket(DEFAULT_MARKET_ID)),
-  );
+  const [ticket, setTicket] = useState<TicketState>(() => initialTicket(market));
   const [stage, setStage] = useState<StageState>({ kind: "IDLE" });
   const [snapshotOffset, setSnapshotOffset] = useState(0);
+  const [pricedMarketId, setPricedMarketId] = useState(market.id);
+
+  /* A route change repoints the ticket during the same render, so a limit price
+     from the previous market is never painted under the new one. View
+     preferences are not market state and survive the switch. */
+  if (pricedMarketId !== market.id) {
+    setPricedMarketId(market.id);
+    setTicket(initialTicket(market));
+    setStage({ kind: "IDLE" });
+    setSnapshotOffset(0);
+    setConsoleScoped(true);
+  }
 
   /** Preview snapshots age visibly, then roll over, so freshness is never presented as live. */
   useEffect(() => {
@@ -90,13 +95,7 @@ export function TerminalWorkspace() {
     return Math.max(1, Math.min(byCollateral, byCapacity));
   }, [market, route]);
 
-  const selectMarket = useCallback((next: PackageMarket) => {
-    setMarketId(next.id);
-    setTicket(initialTicket(next));
-    setStage({ kind: "IDLE" });
-    setSnapshotOffset(0);
-    setConsoleScoped(true);
-  }, []);
+  const selectMarket = useCallback((next: PackageMarket) => router.push(tradeHref(next)), [router]);
 
   const patchTicket = useCallback(
     (patch: Partial<TicketState>) => {
@@ -116,9 +115,7 @@ export function TerminalWorkspace() {
           const nextRoute =
             market.routes.find((candidate) => candidate.id === next.routeId) ?? null;
           next.limitInput = (
-            nextRoute
-              ? routePrice(nextRoute, next.intent)
-              : bestReferencePrice(market, next.intent)
+            nextRoute ? routePrice(nextRoute, next.intent) : bestReferencePrice(market, next.intent)
           ).toFixed(market.priceDecimals);
         }
         return next;
@@ -167,9 +164,7 @@ export function TerminalWorkspace() {
   const activePrice = Number.parseFloat(ticket.limitInput);
 
   return (
-    <div className="flex h-dvh w-full flex-col overflow-hidden bg-app">
-      <GlobalHeader />
-      <StatusStrip />
+    <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-app">
       <MarketHeader market={market} onSelectMarket={selectMarket} />
 
       <nav

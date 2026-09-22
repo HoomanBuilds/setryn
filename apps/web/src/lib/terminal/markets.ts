@@ -286,7 +286,75 @@ function buildMarket(spec: MarketSpec): PackageMarket {
   };
 }
 
-const SPECS: MarketSpec[] = [
+interface MaturityVariant {
+  /** Replaces the anchor's maturity token in the id, the code, and every leg. */
+  token: string;
+  tenorLabel: string;
+  expiryIso: string;
+  mid: number;
+  priorNetPrice: number;
+  spreadTicks: number;
+  collateralPerLot: number;
+  residualPerLot: number;
+  openInterestLots: number;
+  snapshotAgeSeconds: number;
+  seed: number;
+  qualification: Qualification;
+  qualificationNote: string;
+  /** Marks that move with the maturity, by leg id. A spot leg keeps its anchor mark. */
+  legMarks?: Record<string, number>;
+}
+
+const MATURITY_TOKEN = /\d{2}[A-Z]{3}\d{2}/g;
+
+/**
+ * A maturity variant is its anchor re-dated: identity, quote, size, dispersion,
+ * and every leg maturity move together. A new tenor is one row of data and a new
+ * family is one more anchor, so neither has to reach a component.
+ */
+function maturity(anchor: MarketSpec, variant: MaturityVariant): MarketSpec {
+  const redate = (text: string) => text.replace(MATURITY_TOKEN, variant.token);
+  /* Dispersion and accrued carry are both quoted against the level, so both follow it. */
+  const scale = variant.mid / anchor.mid;
+
+  return {
+    ...anchor,
+    id: redate(anchor.id),
+    code: redate(anchor.code),
+    mid: variant.mid,
+    priorNetPrice: variant.priorNetPrice,
+    spreadTicks: variant.spreadTicks,
+    expiryIso: variant.expiryIso,
+    tenorLabel: variant.tenorLabel,
+    qualification: variant.qualification,
+    qualificationNote: variant.qualificationNote,
+    snapshotAgeSeconds: variant.snapshotAgeSeconds,
+    collateralPerLot: variant.collateralPerLot,
+    residualPerLot: variant.residualPerLot,
+    openInterestLots: variant.openInterestLots,
+    drift: round(anchor.drift * scale, 5),
+    noise: round(anchor.noise * scale, 3),
+    seed: variant.seed,
+    impliedOrigin: redate(anchor.impliedOrigin),
+    legs: anchor.legs.map((leg) => ({
+      ...leg,
+      instrument: redate(leg.instrument),
+      mark: variant.legMarks?.[leg.id] ?? leg.mark,
+      /* The dated leg is what qualifies or not, so it carries the package state. */
+      qualification: leg.family === "FORWARD" ? variant.qualification : leg.qualification,
+    })),
+    payoff: { ...anchor.payoff, base: round(anchor.payoff.base * scale, 1) },
+  };
+}
+
+/** One family, anchor included, in maturity order. */
+function ladder(anchor: MarketSpec, variants: MaturityVariant[]): MarketSpec[] {
+  return [anchor, ...variants.map((variant) => maturity(anchor, variant))].sort((a, b) =>
+    a.expiryIso.localeCompare(b.expiryIso),
+  );
+}
+
+const ANCHORS: MarketSpec[] = [
   {
     id: "BTC-YC-24DEC26",
     name: "BTC Yield Carry",
@@ -523,7 +591,8 @@ const SPECS: MarketSpec[] = [
     settlementClass: "CASH_USDC_NDF",
     fixingSource: "Qualified benchmark set EURUSD-WMR-1600LDN",
     qualification: "QUALIFIED",
-    qualificationNote: "Benchmark, session calendar, and settlement asset all qualified for this tenor.",
+    qualificationNote:
+      "Benchmark, session calendar, and settlement asset all qualified for this tenor.",
     snapshotAgeSeconds: 2,
     notionalPerLot: 100_000,
     collateralPerLot: 2_600,
@@ -636,10 +705,238 @@ const SPECS: MarketSpec[] = [
   },
 ];
 
+/**
+ * Preview depth. Every entry is a real maturity of its anchor family, priced on
+ * one term structure: the near tenors quote through to the far ones, and the
+ * prior close moves as a shift of the same curve rather than per-row noise.
+ */
+const MATURITIES: Record<string, MaturityVariant[]> = {
+  "BTC-YC-24DEC26": [
+    {
+      token: "26MAR27",
+      tenorLabel: "MAR 27",
+      expiryIso: "2027-03-26",
+      mid: 648.5,
+      priorNetPrice: 634.2,
+      spreadTicks: 8,
+      collateralPerLot: 2_480,
+      residualPerLot: 61.4,
+      openInterestLots: 2_640,
+      snapshotAgeSeconds: 4,
+      seed: 10_037,
+      qualification: "QUALIFIED",
+      qualificationNote: "Benchmark, oracle, and settlement asset all qualified for this tenor.",
+      legMarks: { "btc-fwd": 124_590, "usdc-term": 508 },
+    },
+    {
+      token: "25JUN27",
+      tenorLabel: "JUN 27",
+      expiryIso: "2027-06-25",
+      mid: 671,
+      priorNetPrice: 659.5,
+      spreadTicks: 10,
+      collateralPerLot: 2_880,
+      residualPerLot: 78.6,
+      openInterestLots: 1_180,
+      snapshotAgeSeconds: 6,
+      seed: 10_061,
+      qualification: "CONDITIONAL",
+      qualificationNote:
+        "Benchmark attestation runs one tenor short of this maturity. Entry is allowed, position size is capped.",
+      legMarks: { "btc-fwd": 130_700, "usdc-term": 524 },
+    },
+  ],
+  "ETH-FC-25SEP26": [
+    {
+      token: "27NOV26",
+      tenorLabel: "NOV 26",
+      expiryIso: "2026-11-27",
+      mid: 462.8,
+      priorNetPrice: 471.6,
+      spreadTicks: 6,
+      collateralPerLot: 1_560,
+      residualPerLot: 28.9,
+      openInterestLots: 1_860,
+      snapshotAgeSeconds: 4,
+      seed: 20_029,
+      qualification: "QUALIFIED",
+      qualificationNote: "Benchmark, oracle, and settlement asset all qualified for this tenor.",
+      legMarks: { "eth-fwd": 4_161.5, "eth-funding": 329.4, "eth-fin": 472 },
+    },
+    {
+      token: "24DEC26",
+      tenorLabel: "DEC 26",
+      expiryIso: "2026-12-24",
+      mid: 478.4,
+      priorNetPrice: 484.9,
+      spreadTicks: 8,
+      collateralPerLot: 1_680,
+      residualPerLot: 33.6,
+      openInterestLots: 2_210,
+      snapshotAgeSeconds: 6,
+      seed: 20_047,
+      qualification: "QUALIFIED",
+      qualificationNote: "Benchmark, oracle, and settlement asset all qualified for this tenor.",
+      legMarks: { "eth-fwd": 4_177.3, "eth-funding": 341, "eth-fin": 486 },
+    },
+    {
+      token: "26MAR27",
+      tenorLabel: "MAR 27",
+      expiryIso: "2027-03-26",
+      mid: 501.5,
+      priorNetPrice: 505.8,
+      spreadTicks: 10,
+      collateralPerLot: 1_960,
+      residualPerLot: 44.2,
+      openInterestLots: 980,
+      snapshotAgeSeconds: 9,
+      seed: 20_063,
+      qualification: "CONDITIONAL",
+      qualificationNote:
+        "Funding index history is shorter than the qualification floor at this tenor. Entry is allowed, position size is capped.",
+      legMarks: { "eth-fwd": 4_231.9, "eth-funding": 358.2, "eth-fin": 508 },
+    },
+  ],
+  "ARB-BS-26MAR27": [
+    {
+      token: "24DEC26",
+      tenorLabel: "DEC 26",
+      expiryIso: "2026-12-24",
+      mid: 241.6,
+      priorNetPrice: 218.6,
+      spreadTicks: 4,
+      collateralPerLot: 720,
+      residualPerLot: 8.4,
+      openInterestLots: 2_040,
+      snapshotAgeSeconds: 8,
+      seed: 30_029,
+      qualification: "CONDITIONAL",
+      qualificationNote:
+        "Benchmark window is thinner than the qualification floor for this tenor. Entry is allowed, position size is capped.",
+      legMarks: { "arb-fwd": 0.9051 },
+    },
+    {
+      token: "25JUN27",
+      tenorLabel: "JUN 27",
+      expiryIso: "2027-06-25",
+      mid: 322.4,
+      priorNetPrice: 294.6,
+      spreadTicks: 10,
+      collateralPerLot: 1_180,
+      residualPerLot: 17.9,
+      openInterestLots: 640,
+      snapshotAgeSeconds: 9,
+      seed: 30_041,
+      qualification: "CONDITIONAL",
+      qualificationNote:
+        "Benchmark window is thin and the forward book is one solver deep at this tenor. Entry is allowed, position size is capped.",
+      legMarks: { "arb-fwd": 0.9215 },
+    },
+  ],
+  "EURUSD-FW-30DEC26": [
+    {
+      token: "31MAR27",
+      tenorLabel: "MAR 27",
+      expiryIso: "2027-03-31",
+      mid: 271.8,
+      priorNetPrice: 264.5,
+      spreadTicks: 8,
+      collateralPerLot: 4_150,
+      residualPerLot: 158.6,
+      openInterestLots: 3_180,
+      snapshotAgeSeconds: 3,
+      seed: 40_031,
+      qualification: "QUALIFIED",
+      qualificationNote:
+        "Benchmark, session calendar, and settlement asset all qualified for this tenor.",
+      legMarks: { "eur-fwd": 1.09538 },
+    },
+    {
+      token: "29SEP27",
+      tenorLabel: "SEP 27",
+      expiryIso: "2027-09-29",
+      mid: 526.4,
+      priorNetPrice: 514.9,
+      spreadTicks: 12,
+      collateralPerLot: 6_900,
+      residualPerLot: 302.4,
+      openInterestLots: 1_540,
+      snapshotAgeSeconds: 5,
+      seed: 40_053,
+      qualification: "CONDITIONAL",
+      qualificationNote:
+        "The fixing calendar is published only to JUN 27, so the tail of this tenor is conditional. Entry is allowed, position size is capped.",
+      legMarks: { "eur-fwd": 1.09762 },
+    },
+  ],
+  "XAUUSD-FW-29JUN27": [
+    {
+      token: "30DEC26",
+      tenorLabel: "DEC 26",
+      expiryIso: "2026-12-30",
+      mid: 14.8,
+      priorNetPrice: 15.7,
+      spreadTicks: 4,
+      collateralPerLot: 1_240,
+      residualPerLot: 17.2,
+      openInterestLots: 3_460,
+      snapshotAgeSeconds: 5,
+      seed: 50_039,
+      qualification: "QUALIFIED",
+      qualificationNote: "Benchmark, calendar, and settlement asset all qualified for this tenor.",
+      legMarks: { "xau-fwd": 3_385.4, "xau-fin": 468 },
+    },
+    {
+      token: "30DEC27",
+      tenorLabel: "DEC 27",
+      expiryIso: "2027-12-30",
+      mid: 69.25,
+      priorNetPrice: 73.45,
+      spreadTicks: 10,
+      collateralPerLot: 5_020,
+      residualPerLot: 76.4,
+      openInterestLots: 860,
+      snapshotAgeSeconds: 10,
+      seed: 50_057,
+      qualification: "CONDITIONAL",
+      qualificationNote:
+        "The fixing calendar is published only to JUN 27, so this tenor settles on a provisional session. Entry is allowed, position size is capped.",
+      legMarks: { "xau-fwd": 3_439.85, "xau-fin": 526 },
+    },
+  ],
+};
+
+const SPECS: MarketSpec[] = ANCHORS.flatMap((anchor) =>
+  ladder(anchor, MATURITIES[anchor.id] ?? []),
+);
+
 export const MARKETS: PackageMarket[] = SPECS.map(buildMarket);
 
 export const DEFAULT_MARKET_ID = MARKETS[0].id;
 
 export function findMarket(id: string): PackageMarket {
   return MARKETS.find((market) => market.id === id) ?? MARKETS[0];
+}
+
+/** Market ids are already uppercase and URL-safe, so the id is the route slug. */
+export function marketSlug(market: PackageMarket): string {
+  return market.id;
+}
+
+export function tradeHref(market: PackageMarket): string {
+  return `/trade/${encodeURIComponent(marketSlug(market))}`;
+}
+
+export const DEFAULT_MARKET_SLUG = marketSlug(MARKETS[0]);
+
+export const DEFAULT_TRADE_HREF = tradeHref(MARKETS[0]);
+
+/**
+ * Resolution is case-insensitive so a hand-typed URL still finds its market,
+ * but only the canonical slug renders: the route redirects anything else.
+ * A slug that matches nothing is a 404, never a fallback to another market.
+ */
+export function marketBySlug(slug: string): PackageMarket | null {
+  const needle = slug.trim().toLowerCase();
+  return MARKETS.find((market) => marketSlug(market).toLowerCase() === needle) ?? null;
 }

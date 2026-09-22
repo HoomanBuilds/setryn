@@ -1,20 +1,43 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { ChevronDown, Menu, Wallet, X } from "lucide-react";
 import { DataRow, SectionLabel, StatusDot } from "@/components/terminal/primitives";
 import { ACCOUNT, ENVIRONMENT } from "@/lib/terminal/account";
 import { formatCompactUsd, formatNumber } from "@/lib/terminal/format";
+import { DEFAULT_TRADE_HREF } from "@/lib/terminal/markets";
 
-const NAV = [
-  { id: "trade", label: "Trade" },
-  { id: "markets", label: "Markets" },
+interface NavItem {
+  id: string;
+  label: string;
+  /** Route prefix that owns this item. Absent while the slice is unbuilt. */
+  prefix?: string;
+  href?: string;
+}
+
+const NAV: NavItem[] = [
+  { id: "trade", label: "Trade", prefix: "/trade", href: DEFAULT_TRADE_HREF },
+  { id: "markets", label: "Markets", prefix: "/markets", href: "/markets" },
   { id: "portfolio", label: "Portfolio" },
   { id: "activity", label: "Activity" },
 ];
 
-const INACTIVE_NAV_HINT = "This preview build ships the Trade terminal only.";
-const NAV_HINT_ID = "nav-inactive-hint";
+const UNAVAILABLE_HINT = "Portfolio and Activity are not built in this preview.";
+const NAV_HINT_ID = "nav-unavailable-hint";
+
+function isActive(item: NavItem, pathname: string): boolean {
+  if (!item.prefix) return false;
+  return pathname === item.prefix || pathname.startsWith(`${item.prefix}/`);
+}
+
+/** Trade keeps the market already on screen, so the tab never jumps markets. */
+function hrefFor(item: NavItem, pathname: string): string {
+  if (!item.href) return "";
+  if (item.id === "trade" && isActive(item, pathname)) return pathname;
+  return item.href;
+}
 
 function Mark() {
   return (
@@ -37,13 +60,14 @@ function EnvironmentChip({ className = "" }: { className?: string }) {
 }
 
 export function GlobalHeader() {
+  const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
 
   return (
     <header className="relative z-40 shrink-0 border-b border-line bg-panel">
       <span id={NAV_HINT_ID} className="sr-only">
-        {INACTIVE_NAV_HINT}
+        {UNAVAILABLE_HINT}
       </span>
 
       <div className="flex h-12 items-center gap-2 px-2 sm:px-3 lg:gap-3 lg:px-4">
@@ -66,25 +90,43 @@ export function GlobalHeader() {
 
         <nav aria-label="Primary" className="ml-3 hidden items-center md:flex">
           {NAV.map((item) => {
-            const active = item.id === "trade";
+            const active = isActive(item, pathname);
+            const underline = (
+              <span
+                aria-hidden="true"
+                className={`absolute inset-x-2 bottom-0 h-[2px] ${active ? "bg-brand" : "bg-transparent"}`}
+              />
+            );
+
+            if (!item.href) {
+              return (
+                <span
+                  key={item.id}
+                  tabIndex={0}
+                  role="link"
+                  aria-disabled="true"
+                  aria-describedby={NAV_HINT_ID}
+                  title={UNAVAILABLE_HINT}
+                  className="focus-ring relative flex h-12 cursor-default items-center px-3 text-sm text-off transition-colors hover:text-faint"
+                >
+                  {item.label}
+                  {underline}
+                </span>
+              );
+            }
+
             return (
-              <button
+              <Link
                 key={item.id}
-                type="button"
+                href={hrefFor(item, pathname)}
                 aria-current={active ? "page" : undefined}
-                aria-disabled={active ? undefined : true}
-                aria-describedby={active ? undefined : NAV_HINT_ID}
-                title={active ? undefined : INACTIVE_NAV_HINT}
-                className={`focus-ring relative h-12 px-3 text-sm transition-colors ${
-                  active ? "text-ink" : "cursor-default text-off hover:text-faint"
+                className={`focus-ring relative flex h-12 items-center px-3 text-sm transition-colors ${
+                  active ? "text-ink" : "text-dim hover:text-ink"
                 }`}
               >
                 {item.label}
-                <span
-                  aria-hidden="true"
-                  className={`absolute inset-x-2 bottom-0 h-[2px] ${active ? "bg-brand" : "bg-transparent"}`}
-                />
-              </button>
+                {underline}
+              </Link>
             );
           })}
         </nav>
@@ -170,18 +212,32 @@ export function GlobalHeader() {
 
             <nav aria-label="Primary">
               {NAV.map((item) => {
-                const active = item.id === "trade";
+                const active = isActive(item, pathname);
+
+                if (!item.href) {
+                  return (
+                    <span
+                      key={item.id}
+                      tabIndex={0}
+                      role="link"
+                      aria-disabled="true"
+                      aria-describedby={NAV_HINT_ID}
+                      title={UNAVAILABLE_HINT}
+                      className="focus-ring flex h-11 w-full cursor-default items-center rounded-md px-3 text-sm text-off"
+                    >
+                      {item.label}
+                    </span>
+                  );
+                }
+
                 return (
-                  <button
+                  <Link
                     key={item.id}
-                    type="button"
+                    href={hrefFor(item, pathname)}
                     aria-current={active ? "page" : undefined}
-                    aria-disabled={active ? undefined : true}
-                    aria-describedby={active ? undefined : NAV_HINT_ID}
-                    title={active ? undefined : INACTIVE_NAV_HINT}
-                    onClick={active ? () => setMenuOpen(false) : undefined}
+                    onClick={() => setMenuOpen(false)}
                     className={`focus-ring flex h-11 w-full items-center justify-between rounded-md px-3 text-sm transition-colors ${
-                      active ? "bg-raised text-ink" : "cursor-default text-off"
+                      active ? "bg-raised text-ink" : "text-dim"
                     }`}
                   >
                     {item.label}
@@ -191,7 +247,7 @@ export function GlobalHeader() {
                         className="h-[6px] w-[6px] shrink-0 rounded-full bg-brand"
                       />
                     ) : null}
-                  </button>
+                  </Link>
                 );
               })}
             </nav>

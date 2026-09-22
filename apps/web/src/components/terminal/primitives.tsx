@@ -198,8 +198,8 @@ export function Tabs({
             aria-controls={`${idBase}-panel-${item.id}`}
             tabIndex={selected ? 0 : -1}
             onClick={() => onChange(item.id)}
-            className={`focus-ring relative inline-flex h-11 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap text-sm transition-colors lg:h-9 ${
-              grow ? "min-w-0 flex-1 px-1 lg:flex-none lg:px-3" : "px-3"
+            className={`focus-ring relative inline-flex h-11 items-center justify-center gap-1.5 whitespace-nowrap text-sm transition-colors lg:h-9 ${
+              grow ? "min-w-0 flex-1 px-1 lg:flex-none lg:shrink-0 lg:px-3" : "shrink-0 px-3"
             } ${selected ? "text-ink" : "text-faint hover:text-dim"}`}
           >
             {item.label}
