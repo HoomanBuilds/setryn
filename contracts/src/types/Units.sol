@@ -7,6 +7,13 @@ uint256 constant WAD = 1e18;
 
 uint256 constant BPS_DENOMINATOR = 1e4;
 
+/// @dev PPM_DENOMINATOR is the single denominator for every fee rate in this protocol. Parts per
+/// million is the professional fee precision: one tenth of a basis point is expressible exactly, so
+/// a venue never has to round a quoted maker rebate or taker charge to fit the encoding. It is
+/// published as an inspectable constant precisely so an offchain quoting engine and an onchain fee
+/// model can never disagree about the scale a stored rate was written in.
+uint256 constant PPM_DENOMINATOR = 1e6;
+
 /// @dev Basis points convert to WAD exactly because 1e18 divides into 1e4 equal integer steps, so a
 /// rate expressed in basis points never loses precision in either direction.
 uint256 constant WAD_PER_BPS = 1e14;
@@ -44,6 +51,31 @@ type TickSizeMinor is uint128;
 /// leverage factors, growth factors, and multipliers are legitimate rates above 100 percent. A
 /// caller that genuinely needs a share of a whole must assert that bound itself.
 type Rate is uint64;
+
+/// @dev FeeRatePpm is an unsigned fee rate against PPM_DENOMINATOR. It is deliberately unsigned:
+/// a charge and a rebate are two separate nonnegative bounds rather than one signed number, so a
+/// sign flip can never turn a fee the protocol collects into a fee the protocol pays. uint32 holds
+/// four thousand times the whole, so a rate can never overflow its own scale, and a product of a
+/// rate with a uint128 money amount stays far inside uint256.
+type FeeRatePpm is uint32;
+
+library FeeRatePpmLib {
+    function unwrap(FeeRatePpm rate) internal pure returns (uint256) {
+        return uint256(FeeRatePpm.unwrap(rate));
+    }
+
+    function isZero(FeeRatePpm rate) internal pure returns (bool) {
+        return FeeRatePpm.unwrap(rate) == 0;
+    }
+
+    /// @dev A fee rate is meant to be a share of a whole, but raw UDVT wrapping cannot enforce that
+    /// semantics: any uint32 can be wrapped. FeeScheduleDefinitionLib validates the at-most-one
+    /// bound on the definitions it accepts; any other consumer must call isAtMostOne or apply its
+    /// own exact validation before using a raw value.
+    function isAtMostOne(FeeRatePpm rate) internal pure returns (bool) {
+        return uint256(FeeRatePpm.unwrap(rate)) <= PPM_DENOMINATOR;
+    }
+}
 
 library LotsLib {
     function unwrap(Lots lots) internal pure returns (uint256) {

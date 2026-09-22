@@ -7,6 +7,7 @@ import {
     AssetId,
     BenchmarkId,
     CalendarId,
+    FeeScheduleId,
     InstrumentId,
     MarketId,
     PackageId,
@@ -33,6 +34,7 @@ library IdLib {
     bytes32 internal constant INSTRUMENT_ID_TYPE_TAG = keccak256("SetrynInstrumentIdV1(bytes32 definitionHash)");
     bytes32 internal constant SERIES_ID_TYPE_TAG = keccak256("SetrynSeriesIdV1(bytes32 definitionHash)");
     bytes32 internal constant PACKAGE_ID_TYPE_TAG = keccak256("SetrynPackageIdV1(bytes32 definitionHash)");
+    bytes32 internal constant FEE_SCHEDULE_ID_TYPE_TAG = keccak256("SetrynFeeScheduleIdV1(bytes32 definitionHash)");
 
     function deriveAssetId(bytes32 definitionHash) internal pure returns (AssetId) {
         return AssetId.wrap(_derive(ASSET_ID_TYPE_TAG, definitionHash));
@@ -72,6 +74,10 @@ library IdLib {
 
     function derivePackageId(bytes32 definitionHash) internal pure returns (PackageId) {
         return PackageId.wrap(_derive(PACKAGE_ID_TYPE_TAG, definitionHash));
+    }
+
+    function deriveFeeScheduleId(bytes32 definitionHash) internal pure returns (FeeScheduleId) {
+        return FeeScheduleId.wrap(_derive(FEE_SCHEDULE_ID_TYPE_TAG, definitionHash));
     }
 
     function _derive(bytes32 typeTag, bytes32 definitionHash) private pure returns (bytes32) {

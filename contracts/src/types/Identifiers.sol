@@ -45,3 +45,22 @@ type InstrumentId is bytes32;
 type SeriesId is bytes32;
 
 type PackageId is bytes32;
+
+type FeeScheduleId is bytes32;
+
+/// @dev An open, namespaced identifier for one fee model, never a closed enum, so a flat per-action
+/// charge, an ad valorem rate, a maker-taker split, a volume-tiered ladder, or a model invented
+/// after this deployment all qualify through the same path. It is economic policy rather than
+/// identity, so it lives in the immutable version and not in the schedule lineage key, and IdLib
+/// deliberately publishes no derivation for it: a producer namespaces its own model offchain. Any
+/// nonzero value is accepted at registration and hashing, and a consumer must explicitly recognize
+/// the exact models it implements and fail closed on the rest.
+type FeeModelId is bytes32;
+
+/// @dev An open, namespaced tag for one chargeable or rebatable action, never a closed enum, so a
+/// maker fill, taker fill, settlement, exercise, assignment, liquidation, funding payment, or a not
+/// yet invented action can be priced without redeploying or reordering anything. It never appears in
+/// a stored fee schedule: the schedule commits to a rules hash, and a fee model proves concrete
+/// per-action data against that commitment at charge time. Any nonzero value is meaningful, and a
+/// consumer must explicitly recognize the exact actions it supports and fail closed on the rest.
+type FeeActionId is bytes32;
