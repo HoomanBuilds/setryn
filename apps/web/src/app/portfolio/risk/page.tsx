@@ -1,0 +1,12 @@
+import type { Metadata } from "next";
+import { RiskView } from "@/components/portfolio/RiskView";
+
+export const metadata: Metadata = {
+  title: "Risk / Portfolio / Setryn",
+  description:
+    "Exposure concentration, modeled scenario risk with its binding shock, and the expiry and cash ladder over the Arbitrum Sepolia preview fixture.",
+};
+
+export default function PortfolioRiskPage() {
+  return <RiskView />;
+}

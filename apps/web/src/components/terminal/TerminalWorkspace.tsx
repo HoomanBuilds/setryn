@@ -8,7 +8,7 @@ import { ContractSpec, MarketHeader, MarketStatGrid } from "@/components/termina
 import { OrderBookPanel } from "@/components/terminal/OrderBookPanel";
 import { OrderTicket } from "@/components/terminal/OrderTicket";
 import { Disclosure, Tabs } from "@/components/terminal/primitives";
-import { ACCOUNT } from "@/lib/terminal/account";
+import { COLLATERAL_TOTALS } from "@/lib/terminal/account";
 import {
   bestReferencePrice,
   buildPreview,
@@ -90,7 +90,7 @@ export function TerminalWorkspace({ market }: { market: PackageMarket }) {
 
   const maxLots = useMemo(() => {
     const multiple = route?.collateralMultiple ?? 1;
-    const byCollateral = Math.floor(ACCOUNT.available / (market.collateralPerLot * multiple));
+    const byCollateral = Math.floor(COLLATERAL_TOTALS.available / (market.collateralPerLot * multiple));
     const byCapacity = route ? route.availableLots : market.firmDepthLots;
     return Math.max(1, Math.min(byCollateral, byCapacity));
   }, [market, route]);

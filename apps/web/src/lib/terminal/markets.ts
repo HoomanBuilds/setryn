@@ -54,6 +54,7 @@ interface MarketSpec {
   qualificationNote: string;
   snapshotAgeSeconds: number;
   notionalPerLot: number;
+  contractMultiplier: number;
   collateralPerLot: number;
   residualPerLot: number;
   openInterestLots: number;
@@ -272,6 +273,7 @@ function buildMarket(spec: MarketSpec): PackageMarket {
     qualificationNote: spec.qualificationNote,
     snapshotAgeSeconds: spec.snapshotAgeSeconds,
     notionalPerLot: spec.notionalPerLot,
+    contractMultiplier: spec.contractMultiplier,
     collateralPerLot: spec.collateralPerLot,
     residualPerLot: spec.residualPerLot,
     openInterestLots: spec.openInterestLots,
@@ -376,6 +378,7 @@ const ANCHORS: MarketSpec[] = [
     qualificationNote: "Benchmark, oracle, and settlement asset all qualified for this tenor.",
     snapshotAgeSeconds: 3,
     notionalPerLot: 25_000,
+    contractMultiplier: 2.5,
     collateralPerLot: 1_950,
     residualPerLot: 38.25,
     openInterestLots: 4_180,
@@ -453,6 +456,7 @@ const ANCHORS: MarketSpec[] = [
       "Qualified for this tenor. The fixing window opens in under 72 hours, so new entries are near-dated.",
     snapshotAgeSeconds: 5,
     notionalPerLot: 20_000,
+    contractMultiplier: 2,
     collateralPerLot: 1_420,
     residualPerLot: 21.4,
     openInterestLots: 2_940,
@@ -530,6 +534,7 @@ const ANCHORS: MarketSpec[] = [
       "Benchmark window is thinner than the qualification floor for this tenor. Entry is allowed, position size is capped.",
     snapshotAgeSeconds: 11,
     notionalPerLot: 10_000,
+    contractMultiplier: 1,
     collateralPerLot: 940,
     residualPerLot: 12.8,
     openInterestLots: 1_260,
@@ -595,6 +600,7 @@ const ANCHORS: MarketSpec[] = [
       "Benchmark, session calendar, and settlement asset all qualified for this tenor.",
     snapshotAgeSeconds: 2,
     notionalPerLot: 100_000,
+    contractMultiplier: 10,
     collateralPerLot: 2_600,
     residualPerLot: 84.5,
     openInterestLots: 6_420,
@@ -660,6 +666,7 @@ const ANCHORS: MarketSpec[] = [
       "Fixing session falls on a scheduled market holiday. The calendar registry applies the next good business day.",
     snapshotAgeSeconds: 8,
     notionalPerLot: 50_000,
+    contractMultiplier: 14.5,
     collateralPerLot: 3_150,
     residualPerLot: 46.9,
     openInterestLots: 2_105,
@@ -921,6 +928,11 @@ export function findMarket(id: string): PackageMarket {
 /** Market ids are already uppercase and URL-safe, so the id is the route slug. */
 export function marketSlug(market: PackageMarket): string {
   return market.id;
+}
+
+/** Product name plus tenor, which is how a desk names the package it holds. */
+export function packageLabel(market: PackageMarket): string {
+  return `${market.name} ${market.tenorLabel}`;
 }
 
 export function tradeHref(market: PackageMarket): string {

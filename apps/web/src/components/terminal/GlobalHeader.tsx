@@ -6,7 +6,8 @@ import { usePathname } from "next/navigation";
 import { ChevronDown, Menu, Wallet, X } from "lucide-react";
 import { DataRow, SectionLabel, StatusDot } from "@/components/terminal/primitives";
 import { ACCOUNT, ENVIRONMENT } from "@/lib/terminal/account";
-import { formatCompactUsd, formatNumber } from "@/lib/terminal/format";
+import { ACCOUNT_SUMMARY } from "@/lib/portfolio/model";
+import { formatCompactUsd, formatMultiple } from "@/lib/terminal/format";
 import { DEFAULT_TRADE_HREF } from "@/lib/terminal/markets";
 
 interface NavItem {
@@ -20,11 +21,11 @@ interface NavItem {
 const NAV: NavItem[] = [
   { id: "trade", label: "Trade", prefix: "/trade", href: DEFAULT_TRADE_HREF },
   { id: "markets", label: "Markets", prefix: "/markets", href: "/markets" },
-  { id: "portfolio", label: "Portfolio" },
+  { id: "portfolio", label: "Portfolio", prefix: "/portfolio", href: "/portfolio" },
   { id: "activity", label: "Activity" },
 ];
 
-const UNAVAILABLE_HINT = "Portfolio and Activity are not built in this preview.";
+const UNAVAILABLE_HINT = "Activity is not built in this preview.";
 const NAV_HINT_ID = "nav-unavailable-hint";
 
 function isActive(item: NavItem, pathname: string): boolean {
@@ -170,26 +171,36 @@ export function GlobalHeader() {
                   </p>
 
                   <div className="mt-3 divide-y divide-line border-t border-line">
+                    <DataRow label="Equity" value={formatCompactUsd(ACCOUNT_SUMMARY.equity)} />
                     <DataRow
-                      label="Total collateral"
-                      value={formatCompactUsd(ACCOUNT.totalCollateral)}
+                      label="Eligible collateral"
+                      value={formatCompactUsd(ACCOUNT_SUMMARY.eligible)}
                     />
-                    <DataRow label="Available" value={formatCompactUsd(ACCOUNT.available)} />
-                    <DataRow label="Reserved" value={formatCompactUsd(ACCOUNT.reserved)} />
+                    <DataRow label="Available" value={formatCompactUsd(ACCOUNT_SUMMARY.available)} />
+                    <DataRow label="Reserved" value={formatCompactUsd(ACCOUNT_SUMMARY.reserved)} />
                     <DataRow
                       label="Initial margin"
-                      value={formatCompactUsd(ACCOUNT.initialMargin)}
+                      value={formatCompactUsd(ACCOUNT_SUMMARY.initialMargin)}
                     />
                     <DataRow
                       label="Maintenance margin"
-                      value={formatCompactUsd(ACCOUNT.maintenanceMargin)}
+                      value={formatCompactUsd(ACCOUNT_SUMMARY.maintenanceMargin)}
                     />
                     <DataRow
                       label="Health factor"
-                      value={`${formatNumber(ACCOUNT.healthFactor, 2)}x`}
+                      value={formatMultiple(ACCOUNT_SUMMARY.healthFactor)}
                     />
                     <DataRow label="Risk domain" value={ACCOUNT.riskDomain} tone="muted" />
                   </div>
+
+                  <Link
+                    href="/portfolio"
+                    onClick={() => setAccountOpen(false)}
+                    className="focus-ring mt-3 flex h-11 items-center justify-between rounded-md border border-line px-2.5 text-xs text-dim transition-colors hover:border-line-strong hover:text-ink lg:h-9"
+                  >
+                    Open portfolio
+                    <ChevronDown size={13} aria-hidden="true" className="-rotate-90 shrink-0" />
+                  </Link>
                 </div>
               </>
             ) : null}

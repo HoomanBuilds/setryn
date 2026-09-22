@@ -57,6 +57,13 @@ export function StatusDot({ ok }: { ok: boolean }) {
   );
 }
 
+/** Exactly zero is not a gain: it stays neutral so only real moves take colour. */
+export function tone(value: number): string {
+  if (value > 0) return "text-up";
+  if (value < 0) return "text-down";
+  return "text-dim";
+}
+
 export function Delta({ value, className = "" }: { value: number; className?: string }) {
   const positive = value >= 0;
   return (

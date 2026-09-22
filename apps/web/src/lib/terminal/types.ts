@@ -98,6 +98,8 @@ export interface PackageMarket {
   /** Age in seconds of the fixture snapshot at page construction. */
   snapshotAgeSeconds: number;
   notionalPerLot: number;
+  /** USDC of package value per 1.00 of quoted package price, per lot. */
+  contractMultiplier: number;
   collateralPerLot: number;
   residualPerLot: number;
   openInterestLots: number;
@@ -119,17 +121,33 @@ export type ConsoleTabId =
   | "recovery"
   | "receipts";
 
+export type PositionSide = "LONG" | "SHORT";
+
+export type PositionState = "ACTIVE" | "FIXING_WINDOW" | "CLOSING";
+
+/**
+ * Everything a position contributes to profit and loss except the price term,
+ * which is derived from the entry price against the current package mark.
+ */
+export interface PnlAttribution {
+  carry: number;
+  funding: number;
+  fees: number;
+  residual: number;
+}
+
 export interface StrategyRecord {
   id: string;
   marketId: string;
-  package: string;
+  side: PositionSide;
   lots: number;
-  entry: string;
-  mark: string;
-  unrealised: number;
-  collateral: string;
+  /** All-in package price at entry, in the price unit of its market. */
+  entryPrice: number;
+  initialMargin: number;
+  maintenanceMargin: number;
+  attribution: PnlAttribution;
   nextEvent: string;
-  state: "ACTIVE" | "FIXING_WINDOW" | "CLOSING";
+  state: PositionState;
 }
 
 export interface OrderRecord {

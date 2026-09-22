@@ -1,9 +1,18 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { EmptyState, SOURCE_LABEL, SourceMark, Tabs } from "@/components/terminal/primitives";
+import { EmptyState, SOURCE_LABEL, SourceMark, Tabs, tone } from "@/components/terminal/primitives";
 import { CONSOLE, CONSOLE_TABS } from "@/lib/terminal/console";
-import { formatDuration, formatLots, formatSignedUsd } from "@/lib/terminal/format";
+import {
+  formatDuration,
+  formatLots,
+  formatNumber,
+  formatSigned,
+  formatSignedUsd,
+  priceUnitSuffix,
+} from "@/lib/terminal/format";
+import { findMarket, packageLabel } from "@/lib/terminal/markets";
+import { strategyPnl } from "@/lib/portfolio/model";
 import type { ConsoleTabId, PackageMarket } from "@/lib/terminal/types";
 
 const ADVERSE = new Set(["REJECTED", "SUBMISSION_UNKNOWN", "RECONCILING", "EXPIRED", "CANCELLED"]);
@@ -145,29 +154,36 @@ export function ConsolePanel({
                 { label: "Lots", numeric: true },
                 { label: "Entry", numeric: true },
                 { label: "Mark", numeric: true },
-                { label: "Unrealised", numeric: true },
+                { label: "Total PnL", numeric: true },
                 { label: "State" },
                 { label: "Next lifecycle event" },
               ]}
             >
-              {strategies.map((row) => (
+              {strategies.map((row) => {
+                const rowMarket = findMarket(row.marketId);
+                const unit = priceUnitSuffix(rowMarket.priceUnit);
+                const pnl = strategyPnl(row);
+                return (
                 <Tr key={row.id} highlight={!scoped && row.marketId === market.id}>
                   <td className={`${TD} tnum font-mono whitespace-nowrap text-faint`}>{row.id}</td>
-                  <td className={`${TD} whitespace-nowrap text-ink`}>{row.package}</td>
-                  <td className={NUM}>{formatLots(row.lots)}</td>
-                  <td className={NUM}>{row.entry}</td>
-                  <td className={NUM}>{row.mark}</td>
-                  <td
-                    className={`${NUM} ${row.unrealised >= 0 ? "text-up" : "text-down"}`}
-                  >
-                    {formatSignedUsd(row.unrealised, 2)}
+                  <td className={`${TD} whitespace-nowrap text-ink`}>{packageLabel(rowMarket)}</td>
+                  <td className={NUM}>{formatSigned(row.lots, 0)}</td>
+                  <td className={NUM}>
+                    {`${formatNumber(row.entryPrice, rowMarket.priceDecimals)} ${unit}`}
+                  </td>
+                  <td className={NUM}>
+                    {`${formatNumber(rowMarket.netPrice, rowMarket.priceDecimals)} ${unit}`}
+                  </td>
+                  <td className={`${NUM} ${tone(pnl)}`}>
+                    {formatSignedUsd(pnl, 2)}
                   </td>
                   <td className={`${TD} whitespace-nowrap`}>
                     <State value={row.state} />
                   </td>
                   <td className={`${TD} text-faint`}>{row.nextEvent}</td>
                 </Tr>
-              ))}
+                );
+              })}
             </Table>
           )
         ) : null}

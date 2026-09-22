@@ -49,6 +49,20 @@ export function formatCompactUsd(value: number): string {
   return formatUsd(value, 0);
 }
 
+export function formatSignedCompactUsd(value: number): string {
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${sign}${formatCompactUsd(Math.abs(value))}`;
+}
+
+/** Unsigned share of a whole, for concentration and utilisation reads. */
+export function formatShare(fraction: number, decimals = 1): string {
+  return `${formatNumber(fraction * 100, decimals)}%`;
+}
+
+export function formatMultiple(value: number, decimals = 2): string {
+  return `${formatNumber(value, decimals)}x`;
+}
+
 export function formatLots(value: number): string {
   return formatNumber(value, 0);
 }
