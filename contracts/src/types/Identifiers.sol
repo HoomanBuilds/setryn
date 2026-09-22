@@ -18,6 +18,15 @@ type WindowKindId is bytes32;
 
 type AdapterId is bytes32;
 
+/// @dev An open, namespaced capability category for one kind of adapter, never a closed enum, so a
+/// benchmark, venue, settlement, delivery, curve, risk, privacy, or not-yet-invented adapter kind
+/// can be qualified without redeploying or reordering anything. It is a component of the adapter
+/// lineage key rather than a lineage identifier itself, so IdLib deliberately publishes no
+/// derivation for it: a producer namespaces its own kind offchain. Any nonzero value is accepted at
+/// registration and hashing, and a consumer must explicitly recognize the kinds and capabilities it
+/// supports and fail closed on the rest.
+type AdapterKindId is bytes32;
+
 type RiskDomainId is bytes32;
 
 type MarketId is bytes32;
