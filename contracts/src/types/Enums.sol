@@ -33,3 +33,19 @@ enum RegistryStatus {
     Paused,
     Deprecated
 }
+
+/// @dev LockStatus is the terminal lifecycle of one collateral lock. Unspecified is the never
+/// created sentinel and is never a reachable stored state. Released is an early give-back by the
+/// operator that created the lock, Expired is a permissionless give-back at or after the expiry, and
+/// Consumed means the pledge was fully settled to another account. A lock that is partially consumed
+/// stays Active, because the remainder is still pledged.
+///
+/// @dev Ordinals are append-only. A later member may be added at the end, never reordered or
+/// removed, because stored values and indexed event topics are compared against these numbers.
+enum LockStatus {
+    Unspecified,
+    Active,
+    Released,
+    Consumed,
+    Expired
+}

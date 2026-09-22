@@ -73,3 +73,24 @@ type FeeModelId is bytes32;
 /// per-action data against that commitment at charge time. Any nonzero value is meaningful, and a
 /// consumer must explicitly recognize the exact actions it supports and fail closed on the rest.
 type FeeActionId is bytes32;
+
+/// @dev A chain-local custody account handle, never a cross-chain identity. It is derived from the
+/// vault address and chainId precisely so the same creator and salt name different accounts in two
+/// deployments, which is the opposite of what IdLib guarantees. That is why these three identifiers
+/// are derived by CollateralIdLib and must never be routed through IdLib.
+type AccountId is bytes32;
+
+/// @dev The exact settlement binding one balance is denominated in: one canonical AssetId at one
+/// immutable binding version of one chain-local settlement registry. Two binding versions naming the
+/// same physical ERC-20 are two different CollateralIds, so a replacement or requalification can
+/// never silently merge an older balance into a newer binding.
+type CollateralId is bytes32;
+
+/// @dev A chain-local handle for one collateral lock, derived by the vault from the lock operator
+/// and that operator's own nonzero reference. The operator address is hashed in precisely so one
+/// lock manager can never claim, and therefore can never grief, a handle another manager was going
+/// to use: two managers may pick the same reference and still get two different locks. A manager
+/// keeps its own correlation key in the reference, and the vault enforces that each derived handle
+/// is claimed exactly once. Like AccountId and CollateralId it is derived by CollateralIdLib, never
+/// by IdLib, because it is scoped to one deployment on one chain.
+type CollateralLockId is bytes32;
