@@ -5,6 +5,15 @@ type AssetId is bytes32;
 
 type BenchmarkId is bytes32;
 
+/// @dev An open, namespaced category for one kind of economic reference benchmark, never a closed
+/// enum, so a spot, perpetual mark, index, NAV, redemption, reference rate, settlement fixing, or
+/// not-yet-invented benchmark kind can be qualified without redeploying or reordering anything. It
+/// is a component of the benchmark lineage key rather than a lineage identifier itself, so IdLib
+/// deliberately publishes no derivation for it: a producer namespaces its own kind offchain. Any
+/// nonzero value is accepted at registration and hashing, and a consumer must explicitly recognize
+/// the kinds it supports and fail closed on the rest.
+type BenchmarkKindId is bytes32;
+
 type CalendarId is bytes32;
 
 type SessionId is bytes32;
