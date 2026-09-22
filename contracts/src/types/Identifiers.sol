@@ -38,6 +38,15 @@ type AdapterKindId is bytes32;
 
 type RiskDomainId is bytes32;
 
+/// @dev An open, namespaced identifier for one risk model, never a closed enum, so isolated margin,
+/// portfolio margin, a scenario grid, a fully collateralized domain, or a model invented after this
+/// deployment all qualify through the same path. It is risk policy rather than identity, so it lives
+/// in the immutable version and not in the domain lineage key, and IdLib deliberately publishes no
+/// derivation for it: a producer namespaces its own model offchain. Any nonzero value is accepted at
+/// registration and hashing, and a risk engine must explicitly recognize the exact models it
+/// implements and fail closed on the rest.
+type RiskModelId is bytes32;
+
 type MarketId is bytes32;
 
 type InstrumentId is bytes32;
