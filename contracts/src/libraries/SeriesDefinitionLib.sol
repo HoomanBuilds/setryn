@@ -87,6 +87,10 @@ library SeriesDefinitionLib {
         FixingSelectionRuleId.wrap(keccak256("SetrynFixingSelectionRuleV1:ArithmeticMean"));
     FixingSelectionRuleId internal constant FIXING_SELECTION_TIME_WEIGHTED_MEAN =
         FixingSelectionRuleId.wrap(keccak256("SetrynFixingSelectionRuleV1:TimeWeightedMean"));
+    FixingSelectionRuleId internal constant FIXING_SELECTION_VOLUME_WEIGHTED_MEAN =
+        FixingSelectionRuleId.wrap(keccak256("SetrynFixingSelectionRuleV1:VolumeWeightedMean"));
+    FixingSelectionRuleId internal constant FIXING_SELECTION_MEDIAN =
+        FixingSelectionRuleId.wrap(keccak256("SetrynFixingSelectionRuleV1:Median"));
 
     DateAdjustmentConventionId internal constant DATE_ADJUSTMENT_UNADJUSTED =
         DateAdjustmentConventionId.wrap(keccak256("SetrynDateAdjustmentV1:Unadjusted"));
@@ -435,7 +439,11 @@ library SeriesDefinitionLib {
         bool isMean = FixingSelectionRuleId.unwrap(candidate.selectionRuleId)
                 == FixingSelectionRuleId.unwrap(FIXING_SELECTION_ARITHMETIC_MEAN)
             || FixingSelectionRuleId.unwrap(candidate.selectionRuleId)
-                == FixingSelectionRuleId.unwrap(FIXING_SELECTION_TIME_WEIGHTED_MEAN);
+                == FixingSelectionRuleId.unwrap(FIXING_SELECTION_TIME_WEIGHTED_MEAN)
+            || FixingSelectionRuleId.unwrap(candidate.selectionRuleId)
+                == FixingSelectionRuleId.unwrap(FIXING_SELECTION_VOLUME_WEIGHTED_MEAN)
+            || FixingSelectionRuleId.unwrap(candidate.selectionRuleId)
+                == FixingSelectionRuleId.unwrap(FIXING_SELECTION_MEDIAN);
         if (!requiresOneObservation && !isMean) {
             revert UnsupportedFixingSelectionRule(slot, candidateIndex, candidate.selectionRuleId);
         }
