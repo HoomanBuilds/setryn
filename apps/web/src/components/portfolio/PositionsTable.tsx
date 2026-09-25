@@ -16,6 +16,7 @@ import {
   priceUnitSuffix,
 } from "@/lib/terminal/format";
 import type { Position, PositionGroup } from "@/lib/portfolio/types";
+import { positionOrigin } from "@/lib/portfolio/runtime";
 
 const COLUMNS = [
   { label: "Package", numeric: false, width: "w-[230px]" },
@@ -157,9 +158,10 @@ export function PositionsTable({
                         className="focus-ring flex min-h-10 min-w-0 flex-1 flex-col justify-center py-1.5 text-left"
                       >
                         <span className="truncate text-[13px] text-ink">{position.label}</span>
-                        <span className="tnum truncate font-mono text-xs text-faint">
-                          {position.market.code}
-                        </span>
+                      <span className="tnum truncate font-mono text-xs text-faint">
+                        {position.market.code}
+                      </span>
+                      <span className="truncate text-xs text-off">{positionOrigin(position)}</span>
                       </button>
                       <Link
                         href={position.href}
@@ -292,6 +294,7 @@ export function PositionsList({
                           {formatSignedUsd(position.pnl.total, 0)}
                         </span>
                       </span>
+                      <span className="truncate text-xs text-off">{positionOrigin(position)}</span>
                       <span className="flex items-baseline justify-between gap-3">
                         <span className="tnum truncate font-mono text-xs text-faint">
                           {`${formatSigned(position.signedLots, 0)} lots / ${price(position, position.markPrice)} ${unitOf(position)}`}

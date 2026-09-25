@@ -49,6 +49,9 @@ export interface Position {
   daysToExpiry: number;
   nextEvent: string;
   href: string;
+  source?: "RUNTIME_SIMULATION" | "REFERENCE_OBSERVATION";
+  provenance?: string;
+  receiptId?: string;
 }
 
 export interface PositionGroup {

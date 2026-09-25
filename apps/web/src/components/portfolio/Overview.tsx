@@ -1,318 +1,184 @@
 "use client";
 
 import Link from "next/link";
+import { useGatewaySnapshot } from "@/components/gateway/InternalGatewayProvider";
 import {
   Aggregate,
   DivergingBar,
-  NUM,
   Panel,
   PlaneFooter,
   PlaneNote,
   ShareBar,
   StateTag,
   TABLE,
-  TD,
-  TH,
 } from "@/components/portfolio/panels";
 import { SummaryStrip, type SummaryMetric } from "@/components/portfolio/SummaryStrip";
 import { DataRow, tone } from "@/components/terminal/primitives";
 import {
   formatCompactUsd,
-  formatExpiry,
   formatMultiple,
-  formatPrice,
   formatShare,
-  formatSigned,
   formatSignedUsd,
   formatUsd,
-  priceUnitSuffix,
 } from "@/lib/terminal/format";
-import {
-  ACCOUNT_SUMMARY,
-  NEXT_EXPIRY,
-  PORTFOLIO_PNL,
-  POSITIONS,
-} from "@/lib/portfolio/model";
-import { MARK_AGE } from "@/lib/portfolio/provenance";
+import { portfolioRuntime, positionOrigin } from "@/lib/portfolio/runtime";
 import type { PnlBreakdown, Position } from "@/lib/portfolio/types";
 
-const ACCOUNT_METRICS: SummaryMetric[] = [
-  {
-    label: "Equity",
-    value: formatUsd(ACCOUNT_SUMMARY.equity, 0),
-    note: `${formatSignedUsd(PORTFOLIO_PNL.total, 0)} open`,
-    noteTone: tone(PORTFOLIO_PNL.total),
-  },
-  {
-    label: "Available collateral",
-    value: formatUsd(ACCOUNT_SUMMARY.available, 0),
-    note: `${formatShare(ACCOUNT_SUMMARY.available / ACCOUNT_SUMMARY.eligible)} of eligible`,
-  },
-  {
-    label: "Initial margin",
-    value: formatUsd(ACCOUNT_SUMMARY.initialMargin, 0),
-    note: `${formatShare(ACCOUNT_SUMMARY.marginUsage)} of eligible`,
-  },
-  {
-    label: "Health factor",
-    value: formatMultiple(ACCOUNT_SUMMARY.healthFactor),
-    note: "equity to maintenance",
-  },
-];
-
 const COMPONENTS: { key: keyof Omit<PnlBreakdown, "total">; label: string }[] = [
-  { key: "price", label: "Price" },
+  { key: "price", label: "Mark to market" },
   { key: "carry", label: "Carry" },
   { key: "funding", label: "Funding" },
   { key: "fees", label: "Fees" },
   { key: "residual", label: "Residual" },
 ];
 
-const PNL_SCALE = Math.max(
-  ...COMPONENTS.map((component) => Math.abs(PORTFOLIO_PNL[component.key])),
-  1,
-);
-
-function mark(position: Position): string {
-  return `${formatPrice(position.markPrice, position.market)} ${priceUnitSuffix(position.market.priceUnit)}`;
+function Metrics({ portfolio }: { portfolio: ReturnType<typeof portfolioRuntime> }) {
+  const { account, runtimePnl } = portfolio;
+  const metrics: SummaryMetric[] = [
+    {
+      label: "Account equity",
+      value: formatUsd(account.equity, 0),
+      note: "runtime account value",
+    },
+    {
+      label: "Eligible collateral",
+      value: formatUsd(account.eligible, 0),
+      note: "USDC only in this session",
+    },
+    {
+      label: "Reserved",
+      value: formatUsd(account.reserved, 0),
+      note: `${formatShare(account.marginUsage)} of eligible`,
+    },
+    {
+      label: "Available",
+      value: formatUsd(account.available, 0),
+      note: `${formatSignedUsd(runtimePnl.total, 0)} runtime PnL`,
+      noteTone: tone(runtimePnl.total),
+    },
+  ];
+  return <SummaryStrip metrics={metrics} />;
 }
 
-function sideTone(position: Position): string {
-  return position.side === "LONG" ? "text-up" : "text-down";
-}
-
-function PositionsSnapshot() {
+function PositionRows({ positions }: { positions: Position[] }) {
+  if (positions.length === 0) {
+    return (
+      <div className="px-3 py-7 text-center text-xs text-faint lg:px-4">
+        No runtime packages yet. Reference observations remain available in the full position book.
+      </div>
+    );
+  }
   return (
-    <Panel
-      title="Positions"
-      note={`${POSITIONS.length} open packages`}
-      aside={
-        <Link
-          href="/portfolio/positions"
-          className="focus-ring text-xs text-dim transition-colors hover:text-ink"
-        >
-          View all positions
-        </Link>
-      }
-    >
-      <div className="scroll-thin hidden overflow-x-auto lg:block">
-        <table className={`${TABLE} min-w-[560px] table-fixed`}>
-          <caption className="sr-only">
-            Every open package with its signed size, current mark, total profit and loss, risk
-            buffer, and lifecycle state. The positions view carries the full book.
-          </caption>
-          <thead className="bg-panel">
-            <tr className="border-b border-line">
-              <th scope="col" className={TH}>
-                Package
-              </th>
-              <th scope="col" className={`${TH} w-[96px] text-right`}>
-                Size
-              </th>
-              <th scope="col" className={`${TH} w-[116px] text-right`}>
-                Mark
-              </th>
-              <th scope="col" className={`${TH} w-[116px] text-right`}>
-                Total PnL
-              </th>
-              <th scope="col" className={`${TH} w-[100px] text-right`}>
-                Risk buffer
-              </th>
-              <th scope="col" className={`${TH} w-[112px]`}>
-                State
-              </th>
-            </tr>
-          </thead>
+    <table className={`${TABLE} min-w-[600px] table-fixed`}>
+      <thead className="bg-panel text-faint">
+        <tr className="border-b border-line">
+          <th className="h-8 px-3 text-left text-xs font-normal">Package</th>
+          <th className="h-8 px-2 text-right text-xs font-normal">Lots</th>
+          <th className="h-8 px-2 text-right text-xs font-normal">Entry</th>
+          <th className="h-8 px-2 text-right text-xs font-normal">PnL</th>
+          <th className="h-8 px-3 text-left text-xs font-normal">Lifecycle</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-line-soft">
+        {positions.map((position) => (
+          <tr key={position.id} className="hover:bg-raised/60">
+            <th className="px-3 py-2 text-left text-xs font-normal">
+              <Link href={position.href} className="focus-ring flex min-w-0 flex-col">
+                <span className="truncate text-ink">{position.label}</span>
+                <span className="truncate font-mono text-xs text-faint">{positionOrigin(position)}</span>
+              </Link>
+            </th>
+            <td className={`px-2 py-2 text-right font-mono text-xs ${position.side === "LONG" ? "text-up" : "text-down"}`}>
+              {`${position.signedLots > 0 ? "+" : ""}${position.signedLots}`}
+            </td>
+            <td className="px-2 py-2 text-right font-mono text-xs text-dim">{position.entryPrice.toLocaleString()}</td>
+            <td className={`px-2 py-2 text-right font-mono text-xs ${tone(position.pnl.total)}`}>
+              {formatSignedUsd(position.pnl.total, 0)}
+            </td>
+            <td className="px-3 py-2 text-xs"><StateTag state={position.state} /></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function RuntimeHealth({ portfolio }: { portfolio: ReturnType<typeof portfolioRuntime> }) {
+  const { account, runtimePnl } = portfolio;
+  const scale = Math.max(...COMPONENTS.map((component) => Math.abs(runtimePnl[component.key])), 1);
+  return (
+    <aside className="flex min-w-0 flex-col border-line lg:border-l">
+      <Panel title="Runtime account" note="Observable local session state">
+        <div className="px-3 py-3 lg:px-4">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-xs text-dim">Reservation utilisation</span>
+            <span className="font-mono text-sm text-ink">{formatShare(account.marginUsage)}</span>
+          </div>
+          <div className="mt-2 mb-3"><ShareBar value={account.marginUsage} /></div>
+          <div className="divide-y divide-line border-t border-line">
+            <DataRow label="Posted" value={formatUsd(account.postedValue, 0)} />
+            <DataRow label="Eligible" value={formatUsd(account.eligible, 0)} />
+            <DataRow label="Reserved" value={formatUsd(account.reserved, 0)} />
+            <DataRow label="Available" value={formatUsd(account.available, 0)} />
+            <DataRow label="Runtime packages" value={String(portfolio.runtimePositions.length)} />
+            <DataRow
+              label="Maintenance health"
+              value={account.maintenanceMargin === 0 ? "No active requirement" : formatMultiple(account.healthFactor)}
+              tone="muted"
+            />
+          </div>
+        </div>
+      </Panel>
+      <Panel title="Runtime PnL" note="Marks are simulated, not oracle observations">
+        <table className={TABLE}>
           <tbody className="divide-y divide-line-soft">
-            {POSITIONS.map((position) => (
-              <tr key={position.id} className="transition-colors hover:bg-raised/60">
-                <th scope="row" className={`${TD} h-12 text-left font-normal`}>
-                  <Link
-                    href={position.href}
-                    aria-label={`Open the ${position.label} terminal`}
-                    className="focus-ring flex min-w-0 flex-col"
-                  >
-                    <span className="truncate text-[13px] text-ink">{position.label}</span>
-                    <span className="tnum truncate font-mono text-xs text-faint">
-                      {position.market.code}
-                    </span>
-                  </Link>
-                </th>
-                <td className={`${NUM} ${sideTone(position)}`}>
-                  {formatSigned(position.signedLots, 0)}
-                </td>
-                <td className={`${NUM} text-dim`}>{mark(position)}</td>
-                <td className={`${NUM} ${tone(position.pnl.total)}`}>
-                  {formatSignedUsd(position.pnl.total, 0)}
-                </td>
-                <td className={`${NUM} text-dim`}>{formatShare(position.bufferShare, 0)}</td>
-                <td className={TD}>
-                  <StateTag state={position.state} />
-                </td>
-              </tr>
-            ))}
+            {COMPONENTS.map((component) => {
+              const value = runtimePnl[component.key];
+              return (
+                <tr key={component.key}>
+                  <th className="px-3 py-2 text-left text-xs font-normal text-dim lg:px-4">{component.label}</th>
+                  <td className="w-[34%] px-2 py-2"><DivergingBar value={value} scale={scale} /></td>
+                  <td className={`px-3 py-2 text-right font-mono text-xs lg:px-4 ${tone(value)}`}>{formatSignedUsd(value, 0)}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
-      </div>
-
-      <ul className="lg:hidden">
-        {POSITIONS.map((position) => (
-          <li key={position.id} className="border-b border-line">
-            <Link
-              href={position.href}
-              aria-label={`Open the ${position.label} terminal`}
-              className="focus-ring flex min-h-11 flex-col justify-center gap-1 px-3 py-2"
-            >
-              <span className="flex items-baseline justify-between gap-3">
-                <span className="truncate text-sm text-ink">{position.label}</span>
-                <span className={`tnum shrink-0 font-mono text-xs ${tone(position.pnl.total)}`}>
-                  {formatSignedUsd(position.pnl.total, 0)}
-                </span>
-              </span>
-              <span className="flex items-baseline justify-between gap-3">
-                <span className="tnum truncate font-mono text-xs text-faint">
-                  <span className={sideTone(position)}>
-                    {formatSigned(position.signedLots, 0)}
-                  </span>
-                  {` lots / ${mark(position)}`}
-                </span>
-                <span className="tnum shrink-0 font-mono text-xs text-dim">
-                  {`${formatShare(position.bufferShare, 0)} buffer`}
-                </span>
-              </span>
-              <StateTag state={position.state} />
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </Panel>
-  );
-}
-
-function BookHealth() {
-  return (
-    <Panel title="Book health" note="Margin is isolated per position">
-      <div className="flex flex-col px-3 py-3 lg:px-4">
-        <div className="flex items-baseline justify-between gap-3">
-          <span className="text-xs text-dim">Initial margin utilisation</span>
-          <span className="tnum font-mono text-sm text-ink">
-            {formatShare(ACCOUNT_SUMMARY.marginUsage)}
-          </span>
-        </div>
-        <div className="mt-2 mb-3">
-          <ShareBar value={ACCOUNT_SUMMARY.marginUsage} />
-        </div>
-
-        <div className="divide-y divide-line border-t border-line">
-          <DataRow
-            label="Reserved collateral"
-            value={formatUsd(ACCOUNT_SUMMARY.reserved, 0)}
-          />
-          <DataRow
-            label="Maintenance margin"
-            value={formatUsd(ACCOUNT_SUMMARY.maintenanceMargin, 0)}
-          />
-          <DataRow
-            label="Stress headroom"
-            value={formatUsd(ACCOUNT_SUMMARY.stressHeadroom, 0)}
-            title={`${formatMultiple(ACCOUNT_SUMMARY.stressHealthFactor)} modeled health factor`}
-          />
-          <DataRow
-            label="Binding scenario"
-            value={ACCOUNT_SUMMARY.bindingLabel}
-            tone="muted"
-          />
-          <DataRow
-            label="Next expiry"
-            value={`${formatExpiry(NEXT_EXPIRY.expiryIso)}, ${NEXT_EXPIRY.days}d`}
-            tone="muted"
-            title={NEXT_EXPIRY.positions.map((position) => position.label).join(", ")}
-          />
-        </div>
-      </div>
-    </Panel>
-  );
-}
-
-function PnlAttribution() {
-  return (
-    <Panel title="PnL attribution" note="Estimated, preview snapshot">
-      <table className={`${TABLE} table-fixed`}>
-        <caption className="sr-only">
-          Profit and loss of the whole book split into its price, carry, funding, fee, and residual
-          components. Estimated from the preview snapshot.
-        </caption>
-        <tbody className="divide-y divide-line-soft">
-          {COMPONENTS.map((component) => {
-            const value = PORTFOLIO_PNL[component.key];
-            return (
-              <tr key={component.key}>
-                <th
-                  scope="row"
-                  className="py-2 pl-3 text-left text-xs font-normal text-dim lg:pl-4"
-                >
-                  {component.label}
-                </th>
-                <td className="w-[38%] px-3 py-2">
-                  <DivergingBar value={value} scale={PNL_SCALE} />
-                </td>
-                <td
-                  className={`tnum w-[128px] py-2 pr-3 text-right font-mono text-xs lg:pr-4 ${tone(value)}`}
-                >
-                  {formatSignedUsd(value, 0)}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-        <tfoot>
-          <tr className="border-t border-line bg-inset">
-            <th scope="row" className="py-2 pl-3 text-left text-xs font-normal text-ink lg:pl-4">
-              Total
-            </th>
-            <td />
-            <td
-              className={`tnum py-2 pr-3 text-right font-mono text-xs lg:pr-4 ${tone(PORTFOLIO_PNL.total)}`}
-            >
-              {formatSignedUsd(PORTFOLIO_PNL.total, 0)}
-            </td>
-          </tr>
-        </tfoot>
-      </table>
-    </Panel>
+      </Panel>
+    </aside>
   );
 }
 
 export function OverviewView() {
+  const snapshot = useGatewaySnapshot();
+  const portfolio = portfolioRuntime(snapshot);
+
   return (
     <div className="scroll-thin flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto lg:overflow-hidden">
-      <SummaryStrip metrics={ACCOUNT_METRICS} />
-
-      <div className="flex min-w-0 shrink-0 flex-col lg:grid lg:min-h-0 lg:shrink lg:grow lg:basis-0 lg:grid-cols-[minmax(0,1fr)_minmax(320px,360px)] lg:overflow-hidden xl:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="scroll-thin flex min-w-0 shrink-0 flex-col lg:min-h-0 lg:overflow-y-auto">
-          <PositionsSnapshot />
+      <Metrics portfolio={portfolio} />
+      <div className="flex min-w-0 flex-col lg:min-h-0 lg:flex-1 lg:flex-row lg:overflow-hidden">
+        <section className="scroll-thin flex min-w-0 flex-1 flex-col lg:overflow-y-auto">
+          <Panel
+            title="Runtime packages"
+            note="Created through this browser session"
+            aside={<Link href="/portfolio/positions" className="focus-ring text-xs text-dim hover:text-ink">Full book</Link>}
+          >
+            <div className="scroll-thin overflow-x-auto"><PositionRows positions={portfolio.runtimePositions} /></div>
+          </Panel>
+          <Panel title="Reference package observations" note="Simulated market and attribution data, separate from account equity">
+            <div className="scroll-thin overflow-x-auto"><PositionRows positions={portfolio.referencePositions.slice(0, 4)} /></div>
+          </Panel>
           <PlaneFooter>
-            <Aggregate label="Packages" value={String(POSITIONS.length)} />
-            <Aggregate label="Collateral" value={formatCompactUsd(ACCOUNT_SUMMARY.reserved)} />
-            <Aggregate
-              label="Open PnL"
-              value={formatSignedUsd(PORTFOLIO_PNL.total, 0)}
-              valueTone={tone(PORTFOLIO_PNL.total)}
-            />
+            <Aggregate label="Runtime gross" value={formatCompactUsd(portfolio.runtimeGross)} />
+            <Aggregate label="Runtime net" value={formatSignedUsd(portfolio.runtimeNet, 0)} valueTone={tone(portfolio.runtimeNet)} />
+            <Aggregate label="Reference PnL" value={formatSignedUsd(portfolio.referencePnl.total, 0)} valueTone={tone(portfolio.referencePnl.total)} />
           </PlaneFooter>
-        </div>
-
-        <aside
-          aria-label="Account summary"
-          className="scroll-thin flex min-w-0 shrink-0 flex-col border-line lg:min-h-0 lg:overflow-y-auto lg:border-l"
-        >
-          <BookHealth />
-          <div className="shrink-0 border-t border-line">
-            <PnlAttribution />
-          </div>
-          <PlaneNote>{`Preview fixture, ${MARK_AGE}`}</PlaneNote>
-        </aside>
+        </section>
+        <RuntimeHealth portfolio={portfolio} />
       </div>
+      <PlaneNote>
+        Runtime account values come from the local execution gateway. Reference observations are retained for market analysis and are not withdrawable balances or live settlement data.
+      </PlaneNote>
     </div>
   );
 }

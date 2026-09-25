@@ -15,6 +15,7 @@ import {
   priceUnitSuffix,
 } from "@/lib/terminal/format";
 import { positionScenarioImpact } from "@/lib/portfolio/model";
+import { positionOrigin } from "@/lib/portfolio/runtime";
 import type { PnlBreakdown, Position, ScenarioResult } from "@/lib/portfolio/types";
 
 const COMPONENTS: { key: keyof Omit<PnlBreakdown, "total">; label: string }[] = [
@@ -186,7 +187,7 @@ export function PositionDetail({
             aria-label={`Open the ${position.label} terminal`}
             className="focus-ring flex h-11 shrink-0 items-center gap-1.5 rounded-md border border-line px-2.5 text-xs text-dim transition-colors hover:border-line-strong hover:text-ink lg:h-8"
           >
-            Open market
+            Manage package
             <ArrowUpRight size={13} aria-hidden="true" className="shrink-0" />
           </Link>
         </div>
@@ -194,10 +195,19 @@ export function PositionDetail({
         <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <StateTag state={position.state} />
           <span className="text-xs text-faint">{position.market.strategyLabel}</span>
+          <span className="text-xs text-off">{positionOrigin(position)}</span>
           <span className="tnum font-mono text-xs text-off">
             {`${formatExpiry(position.market.expiryIso)}, ${position.daysToExpiry}d`}
           </span>
         </div>
+        {position.receiptId ? (
+          <Link
+            href={`/activity/receipts/${position.receiptId}`}
+            className="focus-ring mt-2 inline-flex text-xs text-dim underline underline-offset-2 hover:text-ink"
+          >
+            Inspect execution receipt
+          </Link>
+        ) : null}
       </div>
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 border-y border-line py-2.5">
@@ -239,7 +249,9 @@ export function PositionDetail({
       <div className="min-w-0">
         <div className="flex items-baseline justify-between gap-3">
           <SectionLabel>PnL attribution</SectionLabel>
-          <span className="truncate text-xs text-off">Estimated, preview snapshot</span>
+          <span className="truncate text-xs text-off">
+            {position.source === "RUNTIME_SIMULATION" ? "Runtime mark estimate" : "Reference observation"}
+          </span>
         </div>
         <div className="mt-1">
           <Attribution selected={position.pnl} portfolio={portfolioPnl} label={position.label} />
