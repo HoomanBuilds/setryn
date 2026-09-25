@@ -146,6 +146,7 @@ contract CollateralAwareRouteEngine is ICollateralAwareRouteEngine, AccessContro
             totalFeeMinor: route.totalFeeMinor,
             riskDomainId: route.riskDomainId,
             riskDomainVersion: route.riskDomainVersion,
+            riskBindingsHash: route.riskBindingsHash,
             guaranteeClassId: route.guaranteeClassId,
             executionReference: executionReference
         });
@@ -163,22 +164,8 @@ contract CollateralAwareRouteEngine is ICollateralAwareRouteEngine, AccessContro
         );
         RouteRiskBinding[] storage bindings = _riskBindings[settlement.routeId];
         for (uint256 i; i < bindings.length; ++i) {
-            _riskEngine.consumeAdmission(bindings[i].admissionId, settlement.settlementReference);
-            if (bindings[i].openInterestReductionBaseUnits != 0) {
-                _riskEngine.reduceExposure(
-                    bindings[i].accountId,
-                    bindings[i].riskDomainId,
-                    bindings[i].riskDomainVersion,
-                    bindings[i].openInterestReductionBaseUnits,
-                    keccak256(
-                        abi.encode(
-                            settlement.settlementReference,
-                            RiskAdmissionId.unwrap(bindings[i].admissionId),
-                            bindings[i].openInterestReductionBaseUnits
-                        )
-                    )
-                );
-            }
+            RiskAdmission memory admission = _riskEngine.getAdmission(bindings[i].admissionId);
+            if (admission.status != RiskAdmissionStatus.Consumed) revert InvalidRiskBinding();
         }
         RouteStatus previous = reservation.status;
         reservation.status = RouteStatus.Settled;
@@ -239,6 +226,8 @@ contract CollateralAwareRouteEngine is ICollateralAwareRouteEngine, AccessContro
                     || admission.openInterestBaseUnits != binding.openInterestIncreaseBaseUnits
                     || admission.terminalLiabilityBaseUnits != binding.terminalLiabilityIncreaseBaseUnits
                     || admission.resultHash != RouteLib.riskResultHash(binding)
+                    || admission.reservedResultCommitment != admission.resultHash
+                    || admission.deadline < candidate.route.expiry
             ) revert InvalidRiskBinding();
         }
     }

@@ -4,6 +4,7 @@ pragma solidity 0.8.37;
 import {AccountId, AssetId, CollateralLockId, FeeScheduleId, FillId} from "./Identifiers.sol";
 import {PackageLeg} from "./PackageDefinition.sol";
 import {Lots, PriceTicks} from "./Units.sol";
+import {RiskAdmissionId} from "./RiskTypes.sol";
 
 enum ClearingEntryKind {
     Unspecified,
@@ -35,6 +36,10 @@ struct BilateralMatch {
     bytes32 makerOrderHash;
     Lots fillLots;
     PriceTicks executionPriceTicks;
+    RiskAdmissionId longAdmissionId;
+    bytes32 longAdmissionResultHash;
+    RiskAdmissionId shortAdmissionId;
+    bytes32 shortAdmissionResultHash;
     OrderFunding takerFunding;
     OrderFunding makerFunding;
     ClearingFeeFunding takerFeeFunding;
@@ -74,6 +79,10 @@ struct ClearingAdmission {
     uint32 targetVersion;
     Lots fillLots;
     PriceTicks executionPriceTicks;
+    RiskAdmissionId longAdmissionId;
+    bytes32 longAdmissionResultHash;
+    RiskAdmissionId shortAdmissionId;
+    bytes32 shortAdmissionResultHash;
     bool isPackage;
 }
 

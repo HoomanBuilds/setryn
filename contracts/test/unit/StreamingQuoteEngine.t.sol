@@ -25,6 +25,7 @@ import {
     SeriesId
 } from "../../src/types/Identifiers.sol";
 import {OrderTargetKind} from "../../src/types/OrderTypes.sol";
+import {RiskAdmissionId} from "../../src/types/RiskTypes.sol";
 import {
     StreamFill,
     StreamId,
@@ -155,6 +156,10 @@ contract StreamingQuoteEngineTest is Test {
             chargeLockId: CollateralLockId.wrap(bytes32(0)),
             budgetLockId: CollateralLockId.wrap(bytes32(0))
         });
+        RiskAdmissionId longAdmissionId = RiskAdmissionId.wrap(keccak256("long admission"));
+        RiskAdmissionId shortAdmissionId = RiskAdmissionId.wrap(keccak256("short admission"));
+        bytes32 longResultHash = keccak256("long result");
+        bytes32 shortResultHash = keccak256("short result");
         return StreamFill({
             streamId: streamId,
             sequence: 1,
@@ -163,7 +168,18 @@ contract StreamingQuoteEngineTest is Test {
             takerOrderHash: keccak256("taker order"),
             fillLots: Lots.wrap(2),
             expectedPriceTicks: PriceTicks.wrap(102),
-            fundingHash: keccak256(abi.encode(noFunding, noFunding, noFeeFunding, noFeeFunding))
+            fundingHash: keccak256(
+                abi.encode(
+                    noFunding,
+                    noFunding,
+                    noFeeFunding,
+                    noFeeFunding,
+                    longAdmissionId,
+                    longResultHash,
+                    shortAdmissionId,
+                    shortResultHash
+                )
+            )
         });
     }
 
@@ -187,6 +203,10 @@ contract StreamingQuoteEngineTest is Test {
                 makerOrderHash: policy.makerOrderHash,
                 fillLots: fill.fillLots,
                 executionPriceTicks: fill.expectedPriceTicks,
+                longAdmissionId: RiskAdmissionId.wrap(keccak256("long admission")),
+                longAdmissionResultHash: keccak256("long result"),
+                shortAdmissionId: RiskAdmissionId.wrap(keccak256("short admission")),
+                shortAdmissionResultHash: keccak256("short result"),
                 takerFunding: noFunding,
                 makerFunding: noFunding,
                 takerFeeFunding: noFeeFunding,

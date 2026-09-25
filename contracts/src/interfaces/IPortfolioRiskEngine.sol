@@ -10,6 +10,7 @@ import {
     PortfolioPositionWitness,
     PortfolioRiskResult,
     RiskAdmission,
+    RiskAdmissionConsumption,
     RiskAdmissionId,
     RiskAdmissionRequest,
     RiskObservation
@@ -26,10 +27,12 @@ interface IPortfolioRiskEngine {
         bytes32 requestHash,
         bytes32 resultHash,
         uint128 openInterestBaseUnits,
-        uint128 terminalLiabilityBaseUnits
+        uint128 terminalLiabilityBaseUnits,
+        uint64 deadline
     );
     event RiskAdmissionConsumed(RiskAdmissionId indexed admissionId, bytes32 indexed executionReference);
     event RiskAdmissionReleased(RiskAdmissionId indexed admissionId, bytes32 indexed releaseReference);
+    event RiskAdmissionExpired(RiskAdmissionId indexed admissionId, uint64 indexed deadline);
     event ExposureReduced(
         AccountId indexed accountId,
         RiskDomainId indexed riskDomainId,
@@ -65,8 +68,12 @@ interface IPortfolioRiskEngine {
     error DuplicateRiskAdmission(RiskAdmissionId admissionId);
     error UnknownRiskAdmission(RiskAdmissionId admissionId);
     error InvalidRiskAdmissionState(RiskAdmissionId admissionId);
+    error RiskAdmissionExpiredForConsumption(RiskAdmissionId admissionId, uint64 deadline);
+    error RiskAdmissionNotExpired(RiskAdmissionId admissionId, uint64 deadline);
+    error RiskAdmissionConsumptionMismatch(RiskAdmissionId admissionId);
     error RiskNonceAlreadyUsed(AccountId accountId, uint256 nonce);
     error ExposureUnderflow(uint128 current, uint128 requestedReduction);
+    error ReductionWitnessRequired();
     error ZeroReference();
     error InvalidDefaultRiskProof();
     error UnknownDefaultRiskState(PositionId positionId, AccountId accountId);
@@ -76,8 +83,9 @@ interface IPortfolioRiskEngine {
         PortfolioPositionWitness[] calldata positions,
         RiskObservation[] calldata observations
     ) external returns (RiskAdmissionId admissionId, PortfolioRiskResult memory result);
-    function consumeAdmission(RiskAdmissionId admissionId, bytes32 executionReference) external;
+    function consumeAdmission(RiskAdmissionConsumption calldata consumption) external;
     function releaseAdmission(RiskAdmissionId admissionId, bytes32 releaseReference) external;
+    function expireAdmission(RiskAdmissionId admissionId) external;
     function reduceExposure(
         AccountId accountId,
         RiskDomainId riskDomainId,

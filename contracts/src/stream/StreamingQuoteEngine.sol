@@ -12,9 +12,8 @@ import {PackageDefinitionLib} from "../libraries/PackageDefinitionLib.sol";
 import {StreamHashLib} from "../libraries/StreamHashLib.sol";
 import {StreamPricingLib} from "../libraries/StreamPricingLib.sol";
 import {
+    BilateralMatch,
     ClearingChannelKind,
-    ClearingFeeFunding,
-    OrderFunding,
     PackageClearingRequest,
     SeriesClearingRequest
 } from "../types/ClearingTypes.sol";
@@ -249,12 +248,7 @@ contract StreamingQuoteEngine is IStreamingQuoteEngine, AccessControl, Reentranc
             request.matchData.makerOrderHash,
             request.matchData.fillLots,
             request.matchData.executionPriceTicks,
-            _fundingHash(
-                request.matchData.takerFunding,
-                request.matchData.makerFunding,
-                request.matchData.takerFeeFunding,
-                request.matchData.makerFeeFunding
-            )
+            _fundingHash(request.matchData)
         );
         bytes32 quoteHash = _consumeEphemeralQuote(record.policy, fill, consumption);
         fillId = _atomicClearingEngine.clearSeries(request);
@@ -280,12 +274,7 @@ contract StreamingQuoteEngine is IStreamingQuoteEngine, AccessControl, Reentranc
             request.matchData.makerOrderHash,
             request.matchData.fillLots,
             request.matchData.executionPriceTicks,
-            _fundingHash(
-                request.matchData.takerFunding,
-                request.matchData.makerFunding,
-                request.matchData.takerFeeFunding,
-                request.matchData.makerFeeFunding
-            )
+            _fundingHash(request.matchData)
         );
         bytes32 quoteHash = _consumeEphemeralQuote(record.policy, fill, consumption);
         fillId = _atomicClearingEngine.clearPackage(request);
@@ -427,13 +416,19 @@ contract StreamingQuoteEngine is IStreamingQuoteEngine, AccessControl, Reentranc
         );
     }
 
-    function _fundingHash(
-        OrderFunding calldata takerFunding,
-        OrderFunding calldata makerFunding,
-        ClearingFeeFunding calldata takerFeeFunding,
-        ClearingFeeFunding calldata makerFeeFunding
-    ) private pure returns (bytes32) {
-        return keccak256(abi.encode(takerFunding, makerFunding, takerFeeFunding, makerFeeFunding));
+    function _fundingHash(BilateralMatch calldata matchData) private pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                matchData.takerFunding,
+                matchData.makerFunding,
+                matchData.takerFeeFunding,
+                matchData.makerFeeFunding,
+                matchData.longAdmissionId,
+                matchData.longAdmissionResultHash,
+                matchData.shortAdmissionId,
+                matchData.shortAdmissionResultHash
+            )
+        );
     }
 
     function _requireStream(StreamId streamId) private view returns (StreamRecord storage record) {

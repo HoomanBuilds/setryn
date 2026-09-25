@@ -25,6 +25,7 @@ import {
     PortfolioRiskMetrics,
     PortfolioRiskResult,
     RiskAdmission,
+    RiskAdmissionConsumption,
     RiskAdmissionId,
     RiskAdmissionStatus
 } from "../../src/types/RiskTypes.sol";
@@ -83,6 +84,7 @@ contract RouteLibTest is Test {
     function test_RouteReservationConsumesExactRiskAndSourceOnce() public {
         RouteCandidate memory candidate = _candidate();
         _setAdmission(candidate.riskBindings[0]);
+        _setAdmission(candidate.riskBindings[1]);
         RouteCandidate[] memory candidates = new RouteCandidate[](1);
         candidates[0] = candidate;
         RouteSelectionBounds memory bounds = _bounds(candidate.route);
@@ -90,6 +92,8 @@ contract RouteLibTest is Test {
         assertEq(uint8(engine.getReservation(routeId).status), uint8(RouteStatus.Reserved));
 
         engine.consumeHandoff(routeId, keccak256("execution"));
+        _consumeAdmission(candidate.riskBindings[0], keccak256("fill"));
+        _consumeAdmission(candidate.riskBindings[1], keccak256("fill"));
         engine.finalizeRoute(
             RouteSettlement({
                 routeId: routeId,
@@ -141,8 +145,9 @@ contract RouteLibTest is Test {
         RouteComponent[] memory components = new RouteComponent[](2);
         components[0] = _component(legs[0], Side.Buy, 100, 0);
         components[1] = _component(legs[1], Side.Sell, 50, 1);
-        RouteRiskBinding[] memory bindings = new RouteRiskBinding[](1);
-        bindings[0] = _riskBinding();
+        RouteRiskBinding[] memory bindings = new RouteRiskBinding[](2);
+        bindings[0] = _riskBinding(1, 11);
+        bindings[1] = _riskBinding(2, 12);
         candidate = RouteCandidate({
             route: ExecutableRoute({
                 packageId: PackageId.wrap(keccak256("package")),
@@ -177,12 +182,29 @@ contract RouteLibTest is Test {
             RiskAdmission({
                 requestHash: keccak256("request"),
                 resultHash: PortfolioRiskLib.hashResult(binding.result),
+                reservedResultCommitment: PortfolioRiskLib.hashResult(binding.result),
                 accountId: binding.accountId,
                 riskDomainId: binding.riskDomainId,
                 riskDomainVersion: binding.riskDomainVersion,
                 openInterestBaseUnits: binding.openInterestIncreaseBaseUnits,
                 terminalLiabilityBaseUnits: binding.terminalLiabilityIncreaseBaseUnits,
+                deadline: uint64(block.timestamp + 1 days),
                 status: RiskAdmissionStatus.Reserved
+            })
+        );
+    }
+
+    function _consumeAdmission(RouteRiskBinding memory binding, bytes32 executionReference) private {
+        risk.consumeAdmission(
+            RiskAdmissionConsumption({
+                admissionId: binding.admissionId,
+                expectedResultHash: PortfolioRiskLib.hashResult(binding.result),
+                expectedAccountId: binding.accountId,
+                expectedRiskDomainId: binding.riskDomainId,
+                expectedRiskDomainVersion: binding.riskDomainVersion,
+                expectedOpenInterestBaseUnits: binding.openInterestIncreaseBaseUnits,
+                expectedTerminalLiabilityBaseUnits: binding.terminalLiabilityIncreaseBaseUnits,
+                executionReference: executionReference
             })
         );
     }
@@ -235,10 +257,10 @@ contract RouteLibTest is Test {
         });
     }
 
-    function _riskBinding() private pure returns (RouteRiskBinding memory) {
+    function _riskBinding(uint256 accountKey, uint256 admissionKey) private pure returns (RouteRiskBinding memory) {
         return RouteRiskBinding({
-            accountId: AccountId.wrap(keccak256("account")),
-            admissionId: RiskAdmissionId.wrap(keccak256("admission")),
+            accountId: AccountId.wrap(bytes32(accountKey)),
+            admissionId: RiskAdmissionId.wrap(bytes32(admissionKey)),
             riskDomainId: RiskDomainId.wrap(keccak256("risk")),
             riskDomainVersion: 1,
             openInterestIncreaseBaseUnits: 10,

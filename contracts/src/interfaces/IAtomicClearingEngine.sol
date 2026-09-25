@@ -18,6 +18,7 @@ import {
     SeriesClearingRequest
 } from "../types/ClearingTypes.sol";
 import {AccountId, CollateralLockId, FillId, PositionId} from "../types/Identifiers.sol";
+import {IPortfolioRiskEngine} from "./IPortfolioRiskEngine.sol";
 
 interface IAtomicClearingEngine {
     event FillCleared(FillId indexed fillId, FillRecord record, address indexed submitter);
@@ -122,4 +123,5 @@ interface IAtomicClearingEngine {
     function collateralVault() external view returns (ICollateralVault);
     function admissionGate() external view returns (IClearingAdmissionGate);
     function fundedFeeEngine() external view returns (IFundedFeeEngine);
+    function riskEngine() external view returns (IPortfolioRiskEngine);
 }

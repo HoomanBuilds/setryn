@@ -25,6 +25,7 @@ import {
     PortfolioRiskMetrics,
     PortfolioRiskResult,
     RiskAdmission,
+    RiskAdmissionConsumption,
     RiskAdmissionId,
     RiskAdmissionRequest,
     RiskAdmissionStatus,
@@ -107,11 +108,13 @@ contract PortfolioRiskEngine is
         _admissions[admissionId] = RiskAdmission({
             requestHash: requestHash,
             resultHash: resultHash,
+            reservedResultCommitment: resultHash,
             accountId: request.accountId,
             riskDomainId: request.riskDomainId,
             riskDomainVersion: request.riskDomainVersion,
             openInterestBaseUnits: request.openInterestIncreaseBaseUnits,
             terminalLiabilityBaseUnits: request.terminalLiabilityIncreaseBaseUnits,
+            deadline: request.deadline,
             status: RiskAdmissionStatus.Reserved
         });
         emit RiskAdmissionReserved(
@@ -122,7 +125,8 @@ contract PortfolioRiskEngine is
             requestHash,
             resultHash,
             request.openInterestIncreaseBaseUnits,
-            request.terminalLiabilityIncreaseBaseUnits
+            request.terminalLiabilityIncreaseBaseUnits,
+            request.deadline
         );
     }
 
@@ -134,13 +138,25 @@ contract PortfolioRiskEngine is
         return _evaluate(request, positions, observations, true);
     }
 
-    function consumeAdmission(RiskAdmissionId admissionId, bytes32 executionReference)
+    function consumeAdmission(RiskAdmissionConsumption calldata consumption)
         external
         onlyRole(RISK_CONSUMER_ROLE)
         nonReentrant
     {
-        if (executionReference == bytes32(0)) revert ZeroReference();
-        RiskAdmission storage admission = _requireReserved(admissionId);
+        if (consumption.executionReference == bytes32(0)) revert ZeroReference();
+        RiskAdmission storage admission = _requireReserved(consumption.admissionId);
+        if (block.timestamp > admission.deadline) {
+            revert RiskAdmissionExpiredForConsumption(consumption.admissionId, admission.deadline);
+        }
+        if (
+            admission.reservedResultCommitment != consumption.expectedResultHash
+                || admission.resultHash != consumption.expectedResultHash
+                || admission.accountId != consumption.expectedAccountId
+                || admission.riskDomainId != consumption.expectedRiskDomainId
+                || admission.riskDomainVersion != consumption.expectedRiskDomainVersion
+                || admission.openInterestBaseUnits != consumption.expectedOpenInterestBaseUnits
+                || admission.terminalLiabilityBaseUnits != consumption.expectedTerminalLiabilityBaseUnits
+        ) revert RiskAdmissionConsumptionMismatch(consumption.admissionId);
         if (!_riskDomainRegistry.isLifecycleEnabled(admission.riskDomainId, admission.riskDomainVersion)) {
             revert RiskDomainNotLifecycleEnabled(admission.riskDomainId, admission.riskDomainVersion);
         }
@@ -150,7 +166,7 @@ contract PortfolioRiskEngine is
             admission.accountId
         ][admission.riskDomainId][admission.riskDomainVersion] += admission.openInterestBaseUnits;
         admission.status = RiskAdmissionStatus.Consumed;
-        emit RiskAdmissionConsumed(admissionId, executionReference);
+        emit RiskAdmissionConsumed(consumption.admissionId, consumption.executionReference);
     }
 
     function releaseAdmission(RiskAdmissionId admissionId, bytes32 releaseReference)
@@ -165,33 +181,22 @@ contract PortfolioRiskEngine is
         emit RiskAdmissionReleased(admissionId, releaseReference);
     }
 
-    function reduceExposure(
-        AccountId accountId,
-        RiskDomainId riskDomainId,
-        uint32 riskDomainVersion,
-        uint128 openInterestReductionBaseUnits,
-        bytes32 reductionReference
-    ) external onlyRole(RISK_CONSUMER_ROLE) nonReentrant {
-        if (reductionReference == bytes32(0) || openInterestReductionBaseUnits == 0) {
-            revert InvalidRiskRequest();
+    function expireAdmission(RiskAdmissionId admissionId) external nonReentrant {
+        RiskAdmission storage admission = _requireReserved(admissionId);
+        if (block.timestamp <= admission.deadline) {
+            revert RiskAdmissionNotExpired(admissionId, admission.deadline);
         }
-        if (!_riskDomainRegistry.isLifecycleEnabled(riskDomainId, riskDomainVersion)) {
-            revert RiskDomainNotLifecycleEnabled(riskDomainId, riskDomainVersion);
-        }
-        uint128 accountCurrent = _accountLiveOpenInterest[accountId][riskDomainId][riskDomainVersion];
-        uint128 aggregateCurrent = _liveOpenInterest[riskDomainId][riskDomainVersion];
-        if (openInterestReductionBaseUnits > accountCurrent) {
-            revert ExposureUnderflow(accountCurrent, openInterestReductionBaseUnits);
-        }
-        if (openInterestReductionBaseUnits > aggregateCurrent) {
-            revert ExposureUnderflow(aggregateCurrent, openInterestReductionBaseUnits);
-        }
-        _accountLiveOpenInterest[accountId][riskDomainId][riskDomainVersion] =
-            accountCurrent - openInterestReductionBaseUnits;
-        _liveOpenInterest[riskDomainId][riskDomainVersion] = aggregateCurrent - openInterestReductionBaseUnits;
-        emit ExposureReduced(
-            accountId, riskDomainId, riskDomainVersion, openInterestReductionBaseUnits, reductionReference
-        );
+        _releaseReservations(admission);
+        admission.status = RiskAdmissionStatus.Released;
+        emit RiskAdmissionExpired(admissionId, admission.deadline);
+    }
+
+    function reduceExposure(AccountId, RiskDomainId, uint32, uint128, bytes32)
+        external
+        onlyRole(RISK_CONSUMER_ROLE)
+        nonReentrant
+    {
+        revert ReductionWitnessRequired();
     }
 
     function riskDomainRegistry() external view returns (IRiskDomainRegistry) {
@@ -326,7 +331,10 @@ contract PortfolioRiskEngine is
                 || request.riskDomainVersion == 0 || request.openInterestIncreaseBaseUnits == 0
                 || request.salt == bytes32(0)
         ) revert InvalidRiskRequest();
-        if (request.deadline < block.timestamp) revert RiskRequestExpired(request.deadline, block.timestamp);
+        if (
+            request.deadline <= block.timestamp
+                || uint256(request.deadline) > block.timestamp + uint256(maximumObservationAge)
+        ) revert RiskRequestExpired(request.deadline, block.timestamp);
         if (requireOpen && !_riskDomainRegistry.isOpenForNewRisk(request.riskDomainId, request.riskDomainVersion)) {
             revert RiskDomainNotOpen(request.riskDomainId, request.riskDomainVersion);
         }

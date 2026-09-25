@@ -2,7 +2,12 @@
 pragma solidity 0.8.37;
 
 import {RouteLib} from "../../src/libraries/RouteLib.sol";
-import {RiskAdmission, RiskAdmissionId, RiskAdmissionStatus} from "../../src/types/RiskTypes.sol";
+import {
+    RiskAdmission,
+    RiskAdmissionConsumption,
+    RiskAdmissionId,
+    RiskAdmissionStatus
+} from "../../src/types/RiskTypes.sol";
 import {PackageLeg} from "../../src/types/PackageDefinition.sol";
 import {CoincidencePlan, ExecutableRoute, RouteComponent, RouteId} from "../../src/types/RoutingTypes.sol";
 
@@ -75,9 +80,16 @@ contract RouteRiskEngineMock {
         return _admissions[admissionId];
     }
 
-    function consumeAdmission(RiskAdmissionId admissionId, bytes32) external {
-        require(_admissions[admissionId].status == RiskAdmissionStatus.Reserved);
-        _admissions[admissionId].status = RiskAdmissionStatus.Consumed;
+    function consumeAdmission(RiskAdmissionConsumption calldata consumption) external {
+        RiskAdmission storage admission = _admissions[consumption.admissionId];
+        require(admission.status == RiskAdmissionStatus.Reserved);
+        require(admission.resultHash == consumption.expectedResultHash);
+        require(admission.accountId == consumption.expectedAccountId);
+        require(admission.riskDomainId == consumption.expectedRiskDomainId);
+        require(admission.riskDomainVersion == consumption.expectedRiskDomainVersion);
+        require(admission.openInterestBaseUnits == consumption.expectedOpenInterestBaseUnits);
+        require(admission.terminalLiabilityBaseUnits == consumption.expectedTerminalLiabilityBaseUnits);
+        admission.status = RiskAdmissionStatus.Consumed;
     }
 
     function releaseAdmission(RiskAdmissionId admissionId, bytes32) external {

@@ -83,12 +83,35 @@ struct RiskAdmissionRequest {
 struct RiskAdmission {
     bytes32 requestHash;
     bytes32 resultHash;
+    bytes32 reservedResultCommitment;
     AccountId accountId;
     RiskDomainId riskDomainId;
     uint32 riskDomainVersion;
     uint128 openInterestBaseUnits;
     uint128 terminalLiabilityBaseUnits;
+    uint64 deadline;
     RiskAdmissionStatus status;
+}
+
+struct RiskAdmissionConsumption {
+    RiskAdmissionId admissionId;
+    bytes32 expectedResultHash;
+    AccountId expectedAccountId;
+    RiskDomainId expectedRiskDomainId;
+    uint32 expectedRiskDomainVersion;
+    uint128 expectedOpenInterestBaseUnits;
+    uint128 expectedTerminalLiabilityBaseUnits;
+    bytes32 executionReference;
+}
+
+struct RiskAdmissionCancellation {
+    RiskAdmissionId admissionId;
+    bytes32 orderHash;
+    AccountId accountId;
+    address signer;
+    uint256 nonce;
+    uint64 deadline;
+    bytes32 cancellationReference;
 }
 
 struct DefaultRiskProof {

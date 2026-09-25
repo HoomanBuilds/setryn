@@ -171,6 +171,7 @@ struct RouteHandoff {
     uint128 totalFeeMinor;
     RiskDomainId riskDomainId;
     uint32 riskDomainVersion;
+    bytes32 riskBindingsHash;
     bytes32 guaranteeClassId;
     bytes32 executionReference;
 }

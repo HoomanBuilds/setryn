@@ -87,7 +87,7 @@ library RouteLib {
         ) revert InvalidRouteGraph();
         _validateComponents(route, candidate.packageLegs, candidate.components);
         if (
-            candidate.riskBindings.length == 0 || candidate.riskBindings.length > MAXIMUM_RISK_BINDINGS
+            candidate.riskBindings.length != MAXIMUM_RISK_BINDINGS
                 || hashRiskBindings(candidate.riskBindings) != route.riskBindingsHash
         ) revert InvalidRiskBinding();
         _validateRiskBindings(route, candidate.riskBindings);
@@ -264,7 +264,7 @@ library RouteLib {
                     || RiskAdmissionId.unwrap(binding.admissionId) == bytes32(0)
                     || binding.riskDomainId != route.riskDomainId
                     || binding.riskDomainVersion != route.riskDomainVersion
-                    || binding.openInterestIncreaseBaseUnits == 0
+                    || binding.openInterestIncreaseBaseUnits == 0 || binding.openInterestReductionBaseUnits != 0
                     || binding.result.metrics.availableHeadroomBaseUnits == 0
             ) revert InvalidRiskBinding();
             previous = account;

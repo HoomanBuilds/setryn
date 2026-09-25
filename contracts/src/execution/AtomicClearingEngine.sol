@@ -2,7 +2,6 @@
 pragma solidity 0.8.37;
 
 import {
-    CapacityReservationDisposition,
     AccessControlDefaultAdminRules
 } from "@openzeppelin/contracts/access/extensions/AccessControlDefaultAdminRules.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -16,6 +15,7 @@ import {IMarketRegistry} from "../interfaces/IMarketRegistry.sol";
 import {IOrderState} from "../interfaces/IOrderState.sol";
 import {IPackageRegistry} from "../interfaces/IPackageRegistry.sol";
 import {IPositionEngine} from "../interfaces/IPositionEngine.sol";
+import {IPortfolioRiskEngine} from "../interfaces/IPortfolioRiskEngine.sol";
 import {ISeriesRegistry} from "../interfaces/ISeriesRegistry.sol";
 import {ClearingLib} from "../libraries/ClearingLib.sol";
 import {ClearingFeeLib} from "../libraries/ClearingFeeLib.sol";
@@ -27,6 +27,7 @@ import {PositionMathLib} from "../libraries/PositionMathLib.sol";
 import {CollateralLock} from "../types/CollateralTypes.sol";
 import {
     CapacityDispositionKind,
+    CapacityReservationDisposition,
     ClearingHandoffClaim,
     ClearingHandoffKind,
     UnusedCapacityPolicy,
@@ -64,6 +65,7 @@ import {PackageDefinition, PackageLeg, PackageVersion} from "../types/PackageDef
 import {PositionCreation, PositionEconomics, PositionFunding, PositionLiabilitySide} from "../types/PositionTypes.sol";
 import {SeriesVersion} from "../types/SeriesDefinition.sol";
 import {Lots, PriceTicks} from "../types/Units.sol";
+import {RiskAdmission, RiskAdmissionConsumption, RiskAdmissionId, RiskAdmissionStatus} from "../types/RiskTypes.sol";
 
 contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdminRules, ReentrancyGuard {
     bytes32 public constant MATCH_EXECUTOR_ROLE = keccak256("SETRYN_MATCH_EXECUTOR_ROLE");
@@ -83,6 +85,7 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
     IMarketRegistry private immutable _marketRegistry;
     IClearingAdmissionGate private immutable _admissionGate;
     IFundedFeeEngine private immutable _fundedFeeEngine;
+    IPortfolioRiskEngine private immutable _riskEngine;
 
     mapping(FillId fillId => FillRecord record) private _fills;
     mapping(FillId fillId => PositionId[] positionIds) private _fillPositions;
@@ -152,6 +155,8 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         if (address(fundedFeeEngine_.collateralVault()) != address(collateralVault_)) {
             revert DependencyGraphMismatch(address(collateralVault_), address(fundedFeeEngine_.collateralVault()));
         }
+        IPortfolioRiskEngine riskEngine_ = admissionGate_.riskEngine();
+        _requireDependency(address(riskEngine_));
 
         _orderState = orderState_;
         _seriesRegistry = seriesRegistry_;
@@ -161,6 +166,7 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         _marketRegistry = marketRegistry_;
         _admissionGate = admissionGate_;
         _fundedFeeEngine = fundedFeeEngine_;
+        _riskEngine = riskEngine_;
         _grantRole(MATCH_EXECUTOR_ROLE, initialAdmin);
     }
 
@@ -225,8 +231,9 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
             )
         });
 
+        _consumeRiskAdmissions(context, matchData, settlement);
         _consumeOrders(context, matchData.fillLots);
-        _validateChannelMatch(context, request.channelKind, channelClaim, bytes32(0));
+        _validateChannelMatch(context, matchData, request.channelKind, channelClaim, bytes32(0));
         _applyFunding(context, matchData, settlement, request.channelKind, channelClaim);
         FeeContext memory fees = _consumeFees(context, matchData, settlement);
 
@@ -346,8 +353,9 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
                 definition.maxShortDebitMinorPerPackageLot, matchData.fillLots
             )
         });
+        _consumeRiskAdmissions(context, matchData, settlement);
         _consumeOrders(context, matchData.fillLots);
-        _validateChannelMatch(context, request.channelKind, channelClaim, legsHash);
+        _validateChannelMatch(context, matchData, request.channelKind, channelClaim, legsHash);
         _applyFunding(context, matchData, settlement, request.channelKind, channelClaim);
         FeeContext memory fees = _consumeFees(context, matchData, settlement);
 
@@ -510,6 +518,10 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         return _fundedFeeEngine;
     }
 
+    function riskEngine() external view returns (IPortfolioRiskEngine) {
+        return _riskEngine;
+    }
+
     function activateClearingChannel(
         ClearingChannelKind channelKind,
         IClearingChannelHandoffAdapter adapter,
@@ -566,6 +578,7 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
 
     function _validateChannelMatch(
         MatchContext memory context,
+        BilateralMatch calldata matchData,
         ClearingChannelKind channelKind,
         ClearingHandoffClaim memory claim,
         bytes32 packageLegsHash
@@ -586,6 +599,10 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
                 || claim.takerMaximumFeeMinor != context.taker.order.maxFeeMinor
                 || claim.makerMaximumFeeMinor != context.maker.order.maxFeeMinor
                 || claim.executionModeId != context.taker.order.executionModeId
+                || claim.longAdmissionId != matchData.longAdmissionId
+                || claim.longAdmissionResultHash != matchData.longAdmissionResultHash
+                || claim.shortAdmissionId != matchData.shortAdmissionId
+                || claim.shortAdmissionResultHash != matchData.shortAdmissionResultHash
                 || claim.deadline > context.taker.order.deadline || claim.deadline > context.maker.order.deadline
         ) revert ClearingHandoffMismatch();
         if (
@@ -671,6 +688,10 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
                 targetVersion: taker.order.targetVersion,
                 fillLots: matchData.fillLots,
                 executionPriceTicks: matchData.executionPriceTicks,
+                longAdmissionId: matchData.longAdmissionId,
+                longAdmissionResultHash: matchData.longAdmissionResultHash,
+                shortAdmissionId: matchData.shortAdmissionId,
+                shortAdmissionResultHash: matchData.shortAdmissionResultHash,
                 isPackage: isPackage
             })
         );
@@ -694,6 +715,53 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         bytes32 executionReference = FillId.unwrap(context.fillId);
         _orderState.consumeOrderFill(context.takerOrderHash, fillLots, executionReference);
         _orderState.consumeOrderFill(context.makerOrderHash, fillLots, executionReference);
+    }
+
+    function _consumeRiskAdmissions(
+        MatchContext memory context,
+        BilateralMatch calldata matchData,
+        SettlementContext memory settlement
+    ) private {
+        if (
+            RiskAdmissionId.unwrap(matchData.longAdmissionId) == bytes32(0)
+                || RiskAdmissionId.unwrap(matchData.shortAdmissionId) == bytes32(0)
+                || matchData.longAdmissionId == matchData.shortAdmissionId
+                || matchData.longAdmissionResultHash == bytes32(0) || matchData.shortAdmissionResultHash == bytes32(0)
+        ) revert ClearingHandoffMismatch();
+        RiskAdmission memory longAdmission = _riskEngine.getAdmission(matchData.longAdmissionId);
+        RiskAdmission memory shortAdmission = _riskEngine.getAdmission(matchData.shortAdmissionId);
+        if (
+            longAdmission.status != RiskAdmissionStatus.Reserved
+                || shortAdmission.status != RiskAdmissionStatus.Reserved
+                || longAdmission.riskDomainId != shortAdmission.riskDomainId
+                || longAdmission.riskDomainVersion != shortAdmission.riskDomainVersion
+        ) revert ClearingHandoffMismatch();
+        uint128 openInterest = Lots.unwrap(matchData.fillLots);
+        bytes32 executionReference = FillId.unwrap(context.fillId);
+        _riskEngine.consumeAdmission(
+            RiskAdmissionConsumption({
+                admissionId: matchData.longAdmissionId,
+                expectedResultHash: matchData.longAdmissionResultHash,
+                expectedAccountId: context.buyerAccountId,
+                expectedRiskDomainId: longAdmission.riskDomainId,
+                expectedRiskDomainVersion: longAdmission.riskDomainVersion,
+                expectedOpenInterestBaseUnits: openInterest,
+                expectedTerminalLiabilityBaseUnits: settlement.longLiabilityMinor,
+                executionReference: executionReference
+            })
+        );
+        _riskEngine.consumeAdmission(
+            RiskAdmissionConsumption({
+                admissionId: matchData.shortAdmissionId,
+                expectedResultHash: matchData.shortAdmissionResultHash,
+                expectedAccountId: context.sellerAccountId,
+                expectedRiskDomainId: shortAdmission.riskDomainId,
+                expectedRiskDomainVersion: shortAdmission.riskDomainVersion,
+                expectedOpenInterestBaseUnits: openInterest,
+                expectedTerminalLiabilityBaseUnits: settlement.shortLiabilityMinor,
+                executionReference: executionReference
+            })
+        );
     }
 
     function _applyFunding(

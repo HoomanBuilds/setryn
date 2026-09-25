@@ -21,9 +21,8 @@ import {
 } from "../types/AuctionTypes.sol";
 import {BatchAllocation, BatchExecutionHeader, BatchExecutionId} from "../types/BatchTypes.sol";
 import {
+    BilateralMatch,
     ClearingChannelKind,
-    ClearingFeeFunding,
-    OrderFunding,
     PackageClearingRequest,
     SeriesClearingRequest
 } from "../types/ClearingTypes.sol";
@@ -193,12 +192,7 @@ contract BatchClearingEngine is IBatchClearingEngine, ReentrancyGuard {
             request.matchData.makerOrderHash,
             request.matchData.fillLots,
             request.matchData.executionPriceTicks,
-            _fundingHash(
-                request.matchData.takerFunding,
-                request.matchData.makerFunding,
-                request.matchData.takerFeeFunding,
-                request.matchData.makerFeeFunding
-            )
+            _fundingHash(request.matchData)
         );
     }
 
@@ -219,12 +213,7 @@ contract BatchClearingEngine is IBatchClearingEngine, ReentrancyGuard {
             request.matchData.makerOrderHash,
             request.matchData.fillLots,
             request.matchData.executionPriceTicks,
-            _fundingHash(
-                request.matchData.takerFunding,
-                request.matchData.makerFunding,
-                request.matchData.takerFeeFunding,
-                request.matchData.makerFeeFunding
-            )
+            _fundingHash(request.matchData)
         );
     }
 
@@ -303,13 +292,19 @@ contract BatchClearingEngine is IBatchClearingEngine, ReentrancyGuard {
         emit BatchExecuted(batchExecutionId, header.auctionResultHash, fillsHash, header.winnerCount);
     }
 
-    function _fundingHash(
-        OrderFunding calldata takerFunding,
-        OrderFunding calldata makerFunding,
-        ClearingFeeFunding calldata takerFeeFunding,
-        ClearingFeeFunding calldata makerFeeFunding
-    ) private pure returns (bytes32) {
-        return keccak256(abi.encode(takerFunding, makerFunding, takerFeeFunding, makerFeeFunding));
+    function _fundingHash(BilateralMatch calldata matchData) private pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                matchData.takerFunding,
+                matchData.makerFunding,
+                matchData.takerFeeFunding,
+                matchData.makerFeeFunding,
+                matchData.longAdmissionId,
+                matchData.longAdmissionResultHash,
+                matchData.shortAdmissionId,
+                matchData.shortAdmissionResultHash
+            )
+        );
     }
 
     function _requireDependency(address dependency) private view {

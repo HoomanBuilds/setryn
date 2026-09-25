@@ -59,6 +59,7 @@ import {
 } from "../types/AuctionTypes.sol";
 import {Lots, PriceTicks} from "../types/Units.sol";
 import {RouteId, SourceReservationStatus, SourceRouteReservation} from "../types/RoutingTypes.sol";
+import {RiskAdmissionId} from "../types/RiskTypes.sol";
 
 contract SealedAuctionHouse is
     ISealedAuctionHouse,
@@ -526,6 +527,10 @@ contract SealedAuctionHouse is
         if (
             claim.sourceCommitment != expectedCommitment
                 || claim.selectedQuoteOrRouteId != SolverRouteId.unwrap(winner.routeId)
+                || RiskAdmissionId.unwrap(claim.longAdmissionId) == bytes32(0)
+                || RiskAdmissionId.unwrap(claim.shortAdmissionId) == bytes32(0)
+                || claim.longAdmissionId == claim.shortAdmissionId || claim.longAdmissionResultHash == bytes32(0)
+                || claim.shortAdmissionResultHash == bytes32(0)
                 || claim.takerOrderHash != auction.definition.initiatorOrderHash
                 || claim.makerOrderHash != winner.bid.bidderOrderHash
                 || AccountId.unwrap(claim.takerAccountId) != AccountId.unwrap(auction.definition.initiatorAccountId)

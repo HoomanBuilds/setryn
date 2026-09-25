@@ -38,6 +38,7 @@ import {
 import {PackageLeg} from "../types/PackageDefinition.sol";
 import {OrderTargetKind, RemainderPolicy} from "../types/OrderTypes.sol";
 import {RiskDomainVersion} from "../types/RiskDomainDefinition.sol";
+import {RiskAdmissionId} from "../types/RiskTypes.sol";
 import {
     CapacityCancelAuthorization,
     ClearingHandoff,
@@ -437,7 +438,10 @@ contract PrivateRfqBook is
         PriceTicks expectedPrice = claim.takerSide == Side.Buy ? quote.quote.askPriceTicks : quote.quote.bidPriceTicks;
         if (
             claim.sourceCommitment != expectedCommitment || claim.selectedQuoteOrRouteId != MakerQuoteId.unwrap(quoteId)
-                || claim.takerOrderHash != rfq.request.takerOrderHash
+                || RiskAdmissionId.unwrap(claim.longAdmissionId) == bytes32(0)
+                || RiskAdmissionId.unwrap(claim.shortAdmissionId) == bytes32(0)
+                || claim.longAdmissionId == claim.shortAdmissionId || claim.longAdmissionResultHash == bytes32(0)
+                || claim.shortAdmissionResultHash == bytes32(0) || claim.takerOrderHash != rfq.request.takerOrderHash
                 || claim.makerOrderHash != quote.quote.makerOrderHash
                 || AccountId.unwrap(claim.takerAccountId) != AccountId.unwrap(rfq.request.takerAccountId)
                 || AccountId.unwrap(claim.makerAccountId) != AccountId.unwrap(quote.quote.makerAccountId)

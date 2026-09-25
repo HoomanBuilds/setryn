@@ -15,6 +15,7 @@ import {
 import {OrderTargetKind} from "./OrderTypes.sol";
 import {PositionFunding, PositionLiabilitySide} from "./PositionTypes.sol";
 import {Lots, PriceTicks} from "./Units.sol";
+import {RiskAdmissionId} from "./RiskTypes.sol";
 
 enum ClearingHandoffKind {
     Unspecified,
@@ -76,6 +77,10 @@ struct ClearingHandoffClaim {
     RiskDomainId riskDomainId;
     uint32 riskDomainVersion;
     bytes32 executionModeId;
+    RiskAdmissionId longAdmissionId;
+    bytes32 longAdmissionResultHash;
+    RiskAdmissionId shortAdmissionId;
+    bytes32 shortAdmissionResultHash;
     uint64 deadline;
     CapacityReservationDisposition[] capacityDispositions;
 }
