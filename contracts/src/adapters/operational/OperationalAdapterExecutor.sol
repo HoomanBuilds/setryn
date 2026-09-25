@@ -25,6 +25,7 @@ import {
     CurveRateResult,
     ExecutionGuaranteeClass,
     ExternalActionRecord,
+    ExternalTerminalFallback,
     ExternalVenueRequest,
     ExternalVenueResult,
     NativeLedgerExecutionResult,
@@ -41,7 +42,7 @@ contract OperationalAdapterExecutor is IOperationalAdapterExecutor, ReentrancyGu
     uint256 private constant SESSION_RETURN_BYTES = 160;
     uint256 private constant CURVE_RETURN_BYTES = 192;
     uint256 private constant CORPORATE_ACTION_RETURN_BYTES = 160;
-    uint256 private constant EXECUTION_RETURN_BYTES = 160;
+    uint256 private constant EXECUTION_RETURN_BYTES = 224;
     uint256 private constant NATIVE_EXECUTION_RETURN_BYTES = 128;
 
     IAdapterRegistry public immutable adapterRegistry;
@@ -74,6 +75,8 @@ contract OperationalAdapterExecutor is IOperationalAdapterExecutor, ReentrancyGu
     error UnknownExternalAction(bytes32 actionId);
     error InvalidStateTransition(OperationalActionState previous, OperationalActionState next);
     error RecoveryNotAvailable(uint64 timeoutAt, uint64 recoveryDeadline, uint256 timestamp);
+    error RecoveryDeadlineNotReached(uint64 recoveryDeadline, uint256 timestamp);
+    error RecoveryDeadlineElapsed(uint64 recoveryDeadline, uint256 timestamp);
     error TerminalAction(bytes32 actionId);
 
     constructor(
@@ -267,7 +270,9 @@ contract OperationalAdapterExecutor is IOperationalAdapterExecutor, ReentrancyGu
             recoveryPolicyHash: request.recoveryPolicyHash,
             minValue: request.binding.minValue,
             maxValue: request.binding.maxValue,
+            maximumResidual: request.maximumResidual,
             expectedPostconditionsHash: request.binding.expectedPostconditionsHash,
+            terminalFallback: request.terminalFallback,
             resultHash: resultHash
         });
         emit ExternalActionAdvanced(
@@ -283,6 +288,10 @@ contract OperationalAdapterExecutor is IOperationalAdapterExecutor, ReentrancyGu
     function reconcileExternal(bytes32 actionId) external nonReentrant returns (ExternalVenueResult memory result) {
         ExternalActionRecord storage record = _requireExternalAction(actionId);
         if (OperationalAdapterLib.terminal(record.state)) revert TerminalAction(actionId);
+        if (record.guaranteeClass == ExecutionGuaranteeClass.BoundedAsync && block.timestamp > record.recoveryDeadline)
+        {
+            revert RecoveryDeadlineElapsed(record.recoveryDeadline, block.timestamp);
+        }
         AdapterReference memory adapterRef = AdapterReference(record.adapterId, record.adapterVersion);
         bytes32 capability = OperationalAdapterLib.capabilityFor(record.guaranteeClass);
         AdapterVersion memory version = _resolve(
@@ -324,6 +333,26 @@ contract OperationalAdapterExecutor is IOperationalAdapterExecutor, ReentrancyGu
         );
         result = abi.decode(output, (ExternalVenueResult));
         _advance(actionId, record, result, output);
+    }
+
+    function terminalizeExternal(bytes32 actionId) external nonReentrant returns (ExternalVenueResult memory result) {
+        ExternalActionRecord storage record = _requireExternalAction(actionId);
+        if (OperationalAdapterLib.terminal(record.state)) revert TerminalAction(actionId);
+        if (record.guaranteeClass != ExecutionGuaranteeClass.BoundedAsync || block.timestamp <= record.recoveryDeadline)
+        {
+            revert RecoveryDeadlineNotReached(record.recoveryDeadline, block.timestamp);
+        }
+        ExternalTerminalFallback memory fallbackResult = record.terminalFallback;
+        result = ExternalVenueResult({
+            state: fallbackResult.state,
+            realizedValue: fallbackResult.realizedValue,
+            residualValue: fallbackResult.residualValue,
+            postconditionsHash: fallbackResult.postconditionsHash,
+            venueActionReference: record.requestHash,
+            evidenceHash: record.recoveryPolicyHash,
+            recoveryOutcomeHash: fallbackResult.outcomeHash
+        });
+        _advance(actionId, record, result, abi.encode(result));
     }
 
     function getExternalAction(bytes32 actionId) external view returns (ExternalActionRecord memory record) {
@@ -394,7 +423,11 @@ contract OperationalAdapterExecutor is IOperationalAdapterExecutor, ReentrancyGu
             if (
                 request.timeoutAt != 0 || request.recoveryDeadline != 0
                     || AccountId.unwrap(request.interimExposureOwner) != bytes32(0)
-                    || request.recoveryPolicyHash != bytes32(0)
+                    || request.recoveryPolicyHash != bytes32(0) || request.maximumResidual != 0
+                    || request.terminalFallback.state != OperationalActionState.Unspecified
+                    || request.terminalFallback.realizedValue != 0 || request.terminalFallback.residualValue != 0
+                    || request.terminalFallback.postconditionsHash != bytes32(0)
+                    || request.terminalFallback.outcomeHash != bytes32(0)
             ) revert InvalidAsyncBounds();
             return;
         }
@@ -402,7 +435,24 @@ contract OperationalAdapterExecutor is IOperationalAdapterExecutor, ReentrancyGu
             request.timeoutAt <= request.binding.deadline || request.recoveryDeadline <= request.timeoutAt
                 || AccountId.unwrap(request.interimExposureOwner) == bytes32(0)
                 || request.recoveryPolicyHash == bytes32(0) || request.reservationHash == bytes32(0)
+                || request.maximumResidual > _maximumAbsoluteBound(request.binding.minValue, request.binding.maxValue)
         ) revert InvalidAsyncBounds();
+        _validateTerminalResult(
+            request.binding.minValue,
+            request.binding.maxValue,
+            request.binding.expectedPostconditionsHash,
+            request.maximumResidual,
+            request.guaranteeClass,
+            ExternalVenueResult({
+                state: request.terminalFallback.state,
+                realizedValue: request.terminalFallback.realizedValue,
+                residualValue: request.terminalFallback.residualValue,
+                postconditionsHash: request.terminalFallback.postconditionsHash,
+                venueActionReference: request.recoveryPolicyHash,
+                evidenceHash: request.recoveryPolicyHash,
+                recoveryOutcomeHash: request.terminalFallback.outcomeHash
+            })
+        );
     }
 
     function _validateExternalResult(
@@ -413,16 +463,20 @@ contract OperationalAdapterExecutor is IOperationalAdapterExecutor, ReentrancyGu
     ) private pure {
         if (result.venueActionReference == bytes32(0) || result.evidenceHash == bytes32(0)) revert InvalidResult();
         if (guaranteeClass == ExecutionGuaranteeClass.AtomicSameDomain) {
-            if (
-                result.state != OperationalActionState.Complete || result.realizedValue < binding.minValue
-                    || result.realizedValue > binding.maxValue
-                    || result.postconditionsHash != binding.expectedPostconditionsHash
-            ) revert InvalidResult();
+            _validateTerminalResult(
+                binding.minValue, binding.maxValue, binding.expectedPostconditionsHash, 0, guaranteeClass, result
+            );
             return;
         }
         if (
             initial && result.state != OperationalActionState.Submitted
                 && result.state != OperationalActionState.Included && result.state != OperationalActionState.Unknown
+        ) revert InvalidResult();
+        if (
+            initial
+                && (result.residualValue != 0
+                    || result.postconditionsHash != bytes32(0)
+                    || result.recoveryOutcomeHash != bytes32(0))
         ) revert InvalidResult();
     }
 
@@ -436,19 +490,66 @@ contract OperationalAdapterExecutor is IOperationalAdapterExecutor, ReentrancyGu
         if (!OperationalAdapterLib.isAsyncProgression(previous, result.state)) {
             revert InvalidStateTransition(previous, result.state);
         }
-        if (
-            result.state == OperationalActionState.Complete
-                && (result.realizedValue < record.minValue
-                    || result.realizedValue > record.maxValue
-                    || result.postconditionsHash != record.expectedPostconditionsHash)
-        ) revert InvalidResult();
         if (result.venueActionReference == bytes32(0) || result.evidenceHash == bytes32(0)) revert InvalidResult();
+        if (OperationalAdapterLib.terminal(result.state)) {
+            _validateTerminalResult(
+                record.minValue,
+                record.maxValue,
+                record.expectedPostconditionsHash,
+                record.maximumResidual,
+                record.guaranteeClass,
+                result
+            );
+        } else if (
+            result.residualValue != 0 || result.postconditionsHash != bytes32(0)
+                || result.recoveryOutcomeHash != bytes32(0)
+        ) {
+            revert InvalidResult();
+        }
         bytes32 resultHash = keccak256(output);
         record.state = result.state;
         record.resultHash = resultHash;
         emit ExternalActionAdvanced(
             actionId, record.adapterId, record.adapterVersion, uint8(previous), uint8(result.state), resultHash
         );
+    }
+
+    function _validateTerminalResult(
+        int256 minValue,
+        int256 maxValue,
+        bytes32 expectedPostconditionsHash,
+        uint256 maximumResidual,
+        ExecutionGuaranteeClass guaranteeClass,
+        ExternalVenueResult memory result
+    ) private pure {
+        if (
+            !OperationalAdapterLib.terminal(result.state) || result.realizedValue < minValue
+                || result.realizedValue > maxValue || result.postconditionsHash != expectedPostconditionsHash
+                || _absolute(result.residualValue) > maximumResidual
+        ) revert InvalidResult();
+        if (result.state == OperationalActionState.Complete) {
+            if (result.residualValue != 0 || result.recoveryOutcomeHash != bytes32(0)) revert InvalidResult();
+            return;
+        }
+        if (guaranteeClass != ExecutionGuaranteeClass.BoundedAsync || result.recoveryOutcomeHash == bytes32(0)) {
+            revert InvalidResult();
+        }
+        if (result.state == OperationalActionState.NoEffect && (result.realizedValue != 0 || result.residualValue != 0))
+        {
+            revert InvalidResult();
+        }
+    }
+
+    function _absolute(int256 value) private pure returns (uint256) {
+        if (value >= 0) return uint256(value);
+        if (value == type(int256).min) return uint256(type(int256).max) + 1;
+        return uint256(-value);
+    }
+
+    function _maximumAbsoluteBound(int256 minimum, int256 maximum) private pure returns (uint256) {
+        uint256 minimumAbsolute = _absolute(minimum);
+        uint256 maximumAbsolute = _absolute(maximum);
+        return minimumAbsolute > maximumAbsolute ? minimumAbsolute : maximumAbsolute;
     }
 
     function _boundedStaticCall(address implementation, bytes memory input, uint256 expectedLength)

@@ -2,6 +2,7 @@
 pragma solidity 0.8.37;
 
 import {AccountId, CollateralId, PositionId, RiskDomainId, SeriesId} from "./Identifiers.sol";
+import {PositionStatus} from "./PositionTypes.sol";
 import {PriceTicks} from "./Units.sol";
 
 type RiskAdmissionId is bytes32;
@@ -89,6 +90,8 @@ struct RiskAdmission {
     uint32 riskDomainVersion;
     uint128 openInterestBaseUnits;
     uint128 terminalLiabilityBaseUnits;
+    uint128 remainingOpenInterestBaseUnits;
+    uint128 remainingTerminalLiabilityBaseUnits;
     uint64 deadline;
     RiskAdmissionStatus status;
 }
@@ -101,7 +104,47 @@ struct RiskAdmissionConsumption {
     uint32 expectedRiskDomainVersion;
     uint128 expectedOpenInterestBaseUnits;
     uint128 expectedTerminalLiabilityBaseUnits;
+    uint16 expectedPositionCount;
     bytes32 executionReference;
+}
+
+struct PositionRiskSnapshot {
+    PortfolioPositionWitness witness;
+    AccountId accountId;
+    RiskDomainId riskDomainId;
+    uint32 riskDomainVersion;
+    uint128 remainingLots;
+    uint64 finalResolutionAt;
+    uint64 settlementDeadline;
+    uint64 lifecycleNonce;
+    PositionStatus status;
+    bytes32 terminalOutcomeReference;
+    bytes32 stateHash;
+}
+
+struct PositionRiskExposure {
+    bytes32 exposureId;
+    RiskAdmissionId admissionId;
+    AccountId accountId;
+    RiskDomainId riskDomainId;
+    uint32 riskDomainVersion;
+    uint128 initialPositionLots;
+    uint128 accountedPositionLots;
+    uint128 initialOpenInterestBaseUnits;
+    uint128 remainingOpenInterestBaseUnits;
+    bytes32 positionsHash;
+    uint16 positionCount;
+}
+
+struct RiskExposureReduction {
+    bytes32 exposureId;
+    PositionId canonicalPositionId;
+    RiskAdmissionId admissionId;
+    AccountId accountId;
+    uint128 expectedPreviousPositionLots;
+    uint128 expectedNewPositionLots;
+    uint128 expectedOpenInterestReductionBaseUnits;
+    bytes32 transitionId;
 }
 
 struct RiskAdmissionCancellation {
@@ -117,12 +160,6 @@ struct RiskAdmissionCancellation {
 struct DefaultRiskProof {
     PositionId positionId;
     RiskAdmissionId admissionId;
-    uint64 evaluatedAt;
-    uint64 finalResolutionAt;
-    uint64 settlementDeadline;
-    PortfolioRiskResult result;
-    uint128 maintenanceRequirementMinor;
-    uint128 collateralValueMinor;
-    uint128 availableCollateralMinor;
-    bytes32 deficiencyProofHash;
+    PortfolioPositionWitness[] positions;
+    RiskObservation[] observations;
 }

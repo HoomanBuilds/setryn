@@ -183,6 +183,7 @@ struct DefaultExecutionResult {
     uint128 defaulterCollateralAppliedMinor;
     uint128 takeoverContributionAppliedMinor;
     uint128 insuranceAppliedMinor;
+    uint128 terminalResidualMinor;
     uint128 fullyBackedClaimMinor;
     uint128 unbackedClaimMinor;
 }

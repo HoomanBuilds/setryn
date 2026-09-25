@@ -6,7 +6,14 @@ import {ILifecyclePositionSource} from "./ILifecyclePositionSource.sol";
 import {ICompressionPositionSource} from "./ICompressionPositionSource.sol";
 import {ICollateralVault} from "./ICollateralVault.sol";
 import {ISeriesRegistry} from "./ISeriesRegistry.sol";
-import {AccountId, AssetId, CollateralLockId, PositionId} from "../types/Identifiers.sol";
+import {
+    AccountId,
+    AssetId,
+    CollateralLockId,
+    PositionId,
+    TerminalLiabilityReservationId
+} from "../types/Identifiers.sol";
+import {TerminalLiabilityReplacement} from "../types/CollateralTypes.sol";
 import {
     PositionCreation,
     PositionEconomics,
@@ -15,6 +22,7 @@ import {
     PositionStatus
 } from "../types/PositionTypes.sol";
 import {Lots} from "../types/Units.sol";
+import {PositionRiskSnapshot} from "../types/RiskTypes.sol";
 
 interface IPositionEngine is IPositionEngineTerminalState, ILifecyclePositionSource, ICompressionPositionSource {
     event PositionCreated(
@@ -108,6 +116,8 @@ interface IPositionEngine is IPositionEngineTerminalState, ILifecyclePositionSou
     error InvalidPositionQuantity(PositionId positionId, uint128 remaining, uint128 requested);
     error LifecycleOwnerMismatch(PositionId positionId, AccountId expected, AccountId actual);
     error LifecycleNonceMismatch(PositionId positionId, uint64 expected, uint64 actual);
+    error PositionRiskAccountMismatch(PositionId positionId, AccountId accountId);
+    error PositionRiskLotsOverflow(PositionId positionId, uint128 lots);
 
     function createPosition(PositionCreation calldata creation) external returns (PositionId positionId);
 
@@ -116,6 +126,10 @@ interface IPositionEngine is IPositionEngineTerminalState, ILifecyclePositionSou
         PositionCreation calldata creation,
         PositionProvenance calldata provenance
     ) external returns (PositionId positionId);
+    function replaceLifecycleReservations(
+        TerminalLiabilityReservationId[] calldata sourceReservationIds,
+        TerminalLiabilityReplacement[] calldata replacements
+    ) external returns (TerminalLiabilityReservationId[] memory replacementReservationIds);
 
     function createPositionFundingLock(
         bytes32 lockReference,
@@ -144,6 +158,13 @@ interface IPositionEngine is IPositionEngineTerminalState, ILifecyclePositionSou
         uint64 expectedLifecycleNonce,
         bytes32 fixingReference,
         bytes calldata finalFixings
+    ) external;
+    function abandonPositionQuantity(
+        PositionId positionId,
+        Lots abandonLots,
+        AccountId actorAccountId,
+        uint64 expectedLifecycleNonce,
+        bytes32 transitionReference
     ) external;
     function closePositionQuantity(
         PositionId positionId,
@@ -181,6 +202,11 @@ interface IPositionEngine is IPositionEngineTerminalState, ILifecyclePositionSou
         external
         view
         returns (PositionEconomics memory economics, PositionLifecycle memory lifecycle);
+
+    function positionRiskSnapshot(PositionId positionId, AccountId accountId)
+        external
+        view
+        returns (PositionRiskSnapshot memory snapshot);
 
     function payoffTerms(PositionId positionId) external view returns (bytes memory);
 

@@ -16,6 +16,7 @@ import {AdapterVersion} from "../types/AdapterDefinition.sol";
 import {BenchmarkVersion} from "../types/BenchmarkDefinition.sol";
 import {
     FixingProposal,
+    FixingEvidenceSubmission,
     FixingResolutionKind,
     FixingResult,
     FixingStatus,
@@ -59,6 +60,7 @@ contract FixingEngine is IFixingEngine {
     mapping(bytes32 fixingKey => FixingStatus status) private _status;
     mapping(bytes32 fixingKey => FixingProposal proposal) private _proposals;
     mapping(bytes32 fixingKey => FixingResult result) private _results;
+    mapping(bytes32 vectorKey => uint16 slotCount) private _vectorSlotCount;
 
     constructor(ISeriesRegistry seriesRegistry_) {
         if (address(seriesRegistry_) == address(0)) revert ZeroSeriesRegistry();
@@ -84,21 +86,72 @@ contract FixingEngine is IFixingEngine {
         HistoricalObservation[] calldata observations,
         bytes calldata adapterEvidence
     ) external returns (bytes32 fixingKey, bytes32 proposalHash) {
+        if (fixingSlots.length != 1) {
+            revert IncompleteFixingVector(fixingSlots.length, 1);
+        }
+        return
+            _submitEvidence(seriesId, seriesVersion, fixingSlots, slot, candidateIndex, observations, adapterEvidence);
+    }
+
+    function submitEvidenceVector(
+        SeriesId seriesId,
+        uint32 seriesVersion,
+        FixingSlot[] calldata fixingSlots,
+        FixingEvidenceSubmission[] calldata submissions
+    ) external returns (bytes32 vectorHash) {
+        uint256 count = fixingSlots.length;
+        if (count == 0 || submissions.length != count) revert IncompleteFixingVector(count, submissions.length);
+        bytes32[] memory proposalHashes = new bytes32[](count);
+        for (uint256 i; i < count; ++i) {
+            FixingEvidenceSubmission calldata submission = submissions[i];
+            if (submission.slot != i) revert UnknownFixingSlot(submission.slot);
+            (, proposalHashes[i]) = _submitEvidence(
+                seriesId,
+                seriesVersion,
+                fixingSlots,
+                submission.slot,
+                submission.candidateIndex,
+                submission.observations,
+                submission.adapterEvidence
+            );
+        }
+        vectorHash = keccak256(abi.encode(seriesId, seriesVersion, proposalHashes));
+    }
+
+    function _submitEvidence(
+        SeriesId seriesId,
+        uint32 seriesVersion,
+        FixingSlot[] calldata fixingSlots,
+        uint8 slot,
+        uint8 candidateIndex,
+        HistoricalObservation[] calldata observations,
+        bytes calldata adapterEvidence
+    ) private returns (bytes32 fixingKey, bytes32 proposalHash) {
+        bytes32 vectorKey = _deriveVectorKey(seriesId, seriesVersion);
+        uint16 recordedCount = _vectorSlotCount[vectorKey];
+        if (recordedCount == 0) {
+            _vectorSlotCount[vectorKey] = uint16(fixingSlots.length);
+        } else if (recordedCount != fixingSlots.length) {
+            revert IncompleteFixingVector(recordedCount, fixingSlots.length);
+        }
         fixingKey = _deriveFixingKey(seriesId, seriesVersion, slot);
         FixingStatus currentStatus = _status[fixingKey];
         if (currentStatus == FixingStatus.Finalized) revert FixingAlreadyFinalized(fixingKey);
 
         FixingDependencies memory dependencies =
             _loadDependencies(seriesId, seriesVersion, fixingSlots, slot, candidateIndex);
-        _requireSubmissionWindow(dependencies.series, fixingSlots[slot], candidateIndex, dependencies.candidateDeadline);
+        _requireSubmissionWindow(
+            dependencies.series,
+            fixingSlots[slot],
+            candidateIndex,
+            dependencies.candidateDeadline,
+            currentStatus != FixingStatus.Unspecified
+        );
 
         FixingProposal storage currentProposal = _proposals[fixingKey];
-        if (currentStatus == FixingStatus.Proposed) {
-            if (currentProposal.candidateIndex != candidateIndex) {
+        if (currentStatus == FixingStatus.Proposed || currentStatus == FixingStatus.Disputed) {
+            if (candidateIndex > currentProposal.candidateIndex) {
                 revert CandidateCannotReplaceProposal(currentProposal.candidateIndex, candidateIndex);
-            }
-            if (block.timestamp >= dependencies.series.correctionCutoffAt) {
-                revert CorrectionWindowClosed(dependencies.series.correctionCutoffAt, block.timestamp);
             }
         }
 
@@ -109,10 +162,6 @@ contract FixingEngine is IFixingEngine {
         ObservationBatchValidation memory validation = _validateWithAdapter(
             seriesId, seriesVersion, slot, candidateIndex, dependencies, observationsHash, adapterEvidence
         );
-        if (currentStatus == FixingStatus.Proposed && validation.batchSequence <= currentProposal.batchSequence) {
-            revert BatchSequenceNotNewer(currentProposal.batchSequence, validation.batchSequence);
-        }
-
         (uint64 firstObservedAt, uint64 lastObservedAt, uint64 latestPublishedAt) =
             _validateObservations(dependencies, observations, validation);
         int256 value = FixingAggregationLib.aggregate(dependencies.candidate, observations);
@@ -137,6 +186,29 @@ contract FixingEngine is IFixingEngine {
         });
         proposalHash = FixingEvidenceLib.hashProposal(fixingKey, proposal);
         proposal.proposalHash = proposalHash;
+        if (
+            (currentStatus == FixingStatus.Proposed || currentStatus == FixingStatus.Disputed)
+                && candidateIndex == currentProposal.candidateIndex
+        ) {
+            if (validation.batchSequence < currentProposal.batchSequence) {
+                revert BatchSequenceNotNewer(currentProposal.batchSequence, validation.batchSequence);
+            }
+            if (validation.batchSequence == currentProposal.batchSequence) {
+                if (proposalHash == currentProposal.proposalHash) return (fixingKey, proposalHash);
+                _status[fixingKey] = FixingStatus.Disputed;
+                emit FixingDisputed(
+                    fixingKey,
+                    seriesId,
+                    seriesVersion,
+                    slot,
+                    currentProposal.proposalHash,
+                    proposalHash,
+                    validation.batchSequence,
+                    msg.sender
+                );
+                return (fixingKey, proposalHash);
+            }
+        }
         _proposals[fixingKey] = proposal;
         _status[fixingKey] = FixingStatus.Proposed;
 
@@ -164,9 +236,39 @@ contract FixingEngine is IFixingEngine {
         external
         returns (FixingResult memory result)
     {
+        uint16 count = _vectorSlotCount[_deriveVectorKey(seriesId, seriesVersion)];
+        if (count != 1 || slot != 0) revert IncompleteFixingVector(count, 1);
+        return _finalizeFixing(seriesId, seriesVersion, slot);
+    }
+
+    function finalizeFixingVector(SeriesId seriesId, uint32 seriesVersion, FixingSlot[] calldata fixingSlots)
+        external
+        returns (bytes32 vectorResultHash)
+    {
+        uint256 count = fixingSlots.length;
+        uint16 recordedCount = _vectorSlotCount[_deriveVectorKey(seriesId, seriesVersion)];
+        if (count == 0 || recordedCount != count) revert IncompleteFixingVector(recordedCount, count);
+        SeriesVersion memory series = _requireSeries(seriesId, seriesVersion);
+        bytes32 actualSlotsHash = SeriesDefinitionLib.hashFixingSlots(series.definition, fixingSlots, MAX_FIXING_SLOTS);
+        if (actualSlotsHash != series.definition.fixingSlotsHash) {
+            revert FixingSlotsCommitmentMismatch(series.definition.fixingSlotsHash, actualSlotsHash);
+        }
+        bytes32[] memory resultHashes = new bytes32[](count);
+        for (uint256 i; i < count; ++i) {
+            if (fixingSlots[i].slot != i) revert UnknownFixingSlot(fixingSlots[i].slot);
+            resultHashes[i] = _finalizeFixing(seriesId, seriesVersion, uint8(i)).resultHash;
+        }
+        vectorResultHash = keccak256(abi.encode(seriesId, seriesVersion, resultHashes));
+    }
+
+    function _finalizeFixing(SeriesId seriesId, uint32 seriesVersion, uint8 slot)
+        private
+        returns (FixingResult memory result)
+    {
         bytes32 fixingKey = _deriveFixingKey(seriesId, seriesVersion, slot);
         FixingStatus currentStatus = _status[fixingKey];
         if (currentStatus == FixingStatus.Finalized) revert FixingAlreadyFinalized(fixingKey);
+        if (currentStatus == FixingStatus.Disputed) revert FixingDisputedState(fixingKey);
         if (currentStatus != FixingStatus.Proposed) revert FixingNotProposed(fixingKey);
 
         SeriesVersion memory series = _requireSeries(seriesId, seriesVersion);
@@ -200,6 +302,38 @@ contract FixingEngine is IFixingEngine {
 
     function applyTerminalFallback(SeriesId seriesId, uint32 seriesVersion, uint8 slot)
         external
+        returns (FixingResult memory result)
+    {
+        uint16 count = _vectorSlotCount[_deriveVectorKey(seriesId, seriesVersion)];
+        if (count != 0 && (count != 1 || slot != 0)) revert IncompleteFixingVector(count, 1);
+        return _applyTerminalFallback(seriesId, seriesVersion, slot);
+    }
+
+    function applyTerminalFallbackVector(SeriesId seriesId, uint32 seriesVersion, FixingSlot[] calldata fixingSlots)
+        external
+        returns (bytes32 vectorResultHash)
+    {
+        uint256 count = fixingSlots.length;
+        if (count == 0) revert IncompleteFixingVector(1, 0);
+        SeriesVersion memory series = _requireSeries(seriesId, seriesVersion);
+        bytes32 actualSlotsHash = SeriesDefinitionLib.hashFixingSlots(series.definition, fixingSlots, MAX_FIXING_SLOTS);
+        if (actualSlotsHash != series.definition.fixingSlotsHash) {
+            revert FixingSlotsCommitmentMismatch(series.definition.fixingSlotsHash, actualSlotsHash);
+        }
+        bytes32 vectorKey = _deriveVectorKey(seriesId, seriesVersion);
+        uint16 recordedCount = _vectorSlotCount[vectorKey];
+        if (recordedCount != 0 && recordedCount != count) revert IncompleteFixingVector(recordedCount, count);
+        if (recordedCount == 0) _vectorSlotCount[vectorKey] = uint16(count);
+        bytes32[] memory resultHashes = new bytes32[](count);
+        for (uint256 i; i < count; ++i) {
+            if (fixingSlots[i].slot != i) revert UnknownFixingSlot(fixingSlots[i].slot);
+            resultHashes[i] = _applyTerminalFallback(seriesId, seriesVersion, uint8(i)).resultHash;
+        }
+        vectorResultHash = keccak256(abi.encode(seriesId, seriesVersion, resultHashes));
+    }
+
+    function _applyTerminalFallback(SeriesId seriesId, uint32 seriesVersion, uint8 slot)
+        private
         returns (FixingResult memory result)
     {
         bytes32 fixingKey = _deriveFixingKey(seriesId, seriesVersion, slot);
@@ -440,8 +574,12 @@ contract FixingEngine is IFixingEngine {
         SeriesDefinition memory series,
         FixingSlot calldata slot,
         uint8 candidateIndex,
-        uint64 deadline
+        uint64 deadline,
+        bool correction
     ) private view {
+        if (block.timestamp >= series.correctionCutoffAt) {
+            revert CorrectionWindowClosed(series.correctionCutoffAt, block.timestamp);
+        }
         if (block.timestamp >= series.finalResolutionAt) {
             revert FinalResolutionReached(series.finalResolutionAt, block.timestamp);
         }
@@ -451,7 +589,7 @@ contract FixingEngine is IFixingEngine {
                 revert CandidateNotYetAvailable(candidateIndex, availableAt, block.timestamp);
             }
         }
-        if (block.timestamp > deadline) revert CandidateSubmissionClosed(deadline, block.timestamp);
+        if (!correction && block.timestamp > deadline) revert CandidateSubmissionClosed(deadline, block.timestamp);
     }
 
     function _requireSeries(SeriesId seriesId, uint32 seriesVersion)
@@ -577,5 +715,9 @@ contract FixingEngine is IFixingEngine {
 
     function _deriveFixingKey(SeriesId seriesId, uint32 seriesVersion, uint8 slot) private view returns (bytes32) {
         return FixingEvidenceLib.deriveFixingKey(block.chainid, address(this), seriesId, seriesVersion, slot);
+    }
+
+    function _deriveVectorKey(SeriesId seriesId, uint32 seriesVersion) private view returns (bytes32) {
+        return keccak256(abi.encode(block.chainid, address(this), seriesId, seriesVersion));
     }
 }

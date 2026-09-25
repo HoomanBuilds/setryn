@@ -3,6 +3,7 @@ pragma solidity 0.8.37;
 
 import {IAdapterRegistry} from "./IAdapterRegistry.sol";
 import {ICollateralVault} from "./ICollateralVault.sol";
+import {IPositionEngine} from "./IPositionEngine.sol";
 import {IRiskDomainRegistry} from "./IRiskDomainRegistry.sol";
 import {AccountId, RiskDomainId} from "../types/Identifiers.sol";
 import {
@@ -13,6 +14,8 @@ import {
     RiskAdmissionConsumption,
     RiskAdmissionId,
     RiskAdmissionRequest,
+    PositionRiskExposure,
+    RiskExposureReduction,
     RiskObservation
 } from "../types/RiskTypes.sol";
 import {ObjectiveDefaultState} from "../types/DefaultTypes.sol";
@@ -31,6 +34,15 @@ interface IPortfolioRiskEngine {
         uint64 deadline
     );
     event RiskAdmissionConsumed(RiskAdmissionId indexed admissionId, bytes32 indexed executionReference);
+    event RiskAdmissionPartiallyConsumed(
+        RiskAdmissionId indexed admissionId,
+        PositionId indexed positionId,
+        bytes32 indexed executionReference,
+        uint128 consumedOpenInterestBaseUnits,
+        uint128 consumedTerminalLiabilityBaseUnits,
+        uint128 remainingOpenInterestBaseUnits,
+        uint128 remainingTerminalLiabilityBaseUnits
+    );
     event RiskAdmissionReleased(RiskAdmissionId indexed admissionId, bytes32 indexed releaseReference);
     event RiskAdmissionExpired(RiskAdmissionId indexed admissionId, uint64 indexed deadline);
     event ExposureReduced(
@@ -38,7 +50,7 @@ interface IPortfolioRiskEngine {
         RiskDomainId indexed riskDomainId,
         uint32 indexed riskDomainVersion,
         uint128 openInterestReductionBaseUnits,
-        bytes32 reductionReference
+        bytes32 transitionId
     );
     event ObjectiveDefaultStatePublished(
         PositionId indexed positionId,
@@ -73,7 +85,10 @@ interface IPortfolioRiskEngine {
     error RiskAdmissionConsumptionMismatch(RiskAdmissionId admissionId);
     error RiskNonceAlreadyUsed(AccountId accountId, uint256 nonce);
     error ExposureUnderflow(uint128 current, uint128 requestedReduction);
-    error ReductionWitnessRequired();
+    error InvalidExposurePosition(PositionId positionId, AccountId accountId);
+    error DuplicateExposurePosition(PositionId positionId, AccountId accountId);
+    error InvalidExposureReduction(PositionId positionId, AccountId accountId);
+    error ExposureTransitionAlreadyConsumed(bytes32 transitionId);
     error ZeroReference();
     error InvalidDefaultRiskProof();
     error UnknownDefaultRiskState(PositionId positionId, AccountId accountId);
@@ -84,15 +99,14 @@ interface IPortfolioRiskEngine {
         RiskObservation[] calldata observations
     ) external returns (RiskAdmissionId admissionId, PortfolioRiskResult memory result);
     function consumeAdmission(RiskAdmissionConsumption calldata consumption) external;
+    function bindConsumedExposure(
+        RiskAdmissionId admissionId,
+        bytes32 executionReference,
+        PositionId[] calldata positionIds
+    ) external;
     function releaseAdmission(RiskAdmissionId admissionId, bytes32 releaseReference) external;
     function expireAdmission(RiskAdmissionId admissionId) external;
-    function reduceExposure(
-        AccountId accountId,
-        RiskDomainId riskDomainId,
-        uint32 riskDomainVersion,
-        uint128 openInterestReductionBaseUnits,
-        bytes32 reductionReference
-    ) external;
+    function reduceExposure(RiskExposureReduction calldata reduction) external;
     function previewRisk(
         RiskAdmissionRequest calldata request,
         PortfolioPositionWitness[] calldata positions,
@@ -101,7 +115,12 @@ interface IPortfolioRiskEngine {
     function riskDomainRegistry() external view returns (IRiskDomainRegistry);
     function adapterRegistry() external view returns (IAdapterRegistry);
     function collateralVault() external view returns (ICollateralVault);
+    function positionEngine() external view returns (IPositionEngine);
     function getAdmission(RiskAdmissionId admissionId) external view returns (RiskAdmission memory admission);
+    function positionExposure(PositionId positionId, AccountId accountId)
+        external
+        view
+        returns (PositionRiskExposure memory exposure);
     function publishObjectiveDefaultState(DefaultRiskProof calldata proof)
         external
         returns (ObjectiveDefaultState memory state);

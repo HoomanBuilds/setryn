@@ -345,6 +345,7 @@ library SetrynDefinitionFixtures {
             finalResolutionAt: schedule.finalResolutionAt,
             settlementDeadline: schedule.settlementDeadline,
             exercisePolicyId: SeriesDefinitionLib.EXERCISE_POLICY_HOLDER_ELECTION,
+            automaticExerciseThresholdMinor: 0,
             disruptionOutcomeId: SeriesDefinitionLib.DISRUPTION_OUTCOME_FLAT,
             terminalDisruptionTransferMinorPerLot: 0,
             payoffTermsHash: _value(seed, "series.payoff-terms"),

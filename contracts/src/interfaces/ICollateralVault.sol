@@ -16,7 +16,12 @@ import {
     TerminalClaimId,
     TerminalLiabilityReservationId
 } from "../types/Identifiers.sol";
-import {CollateralLock, TerminalClaim, TerminalLiabilityReservation} from "../types/CollateralTypes.sol";
+import {
+    CollateralLock,
+    TerminalClaim,
+    TerminalLiabilityReplacement,
+    TerminalLiabilityReservation
+} from "../types/CollateralTypes.sol";
 import {ISettlementAssetRegistry} from "./ISettlementAssetRegistry.sol";
 import {IRiskDomainRegistry} from "./IRiskDomainRegistry.sol";
 
@@ -209,6 +214,16 @@ interface ICollateralVault {
         address caller
     );
 
+    event TerminalLiabilityReservationsReplaced(
+        bytes32 indexed replacementHash,
+        AccountId indexed payerAccountId,
+        CollateralId indexed collateralId,
+        uint128 sourceAmount,
+        uint128 replacementAmount,
+        uint128 releasedSurplus,
+        address positionEngine
+    );
+
     event TerminalClaimCreated(
         TerminalClaimId indexed claimId,
         TerminalLiabilityReservationId indexed reservationId,
@@ -278,6 +293,7 @@ interface ICollateralVault {
     error ZeroLockOperator();
 
     error ZeroAmount();
+    error InvalidTerminalLiabilityReplacement();
 
     error ZeroRecipient();
 
@@ -520,6 +536,11 @@ interface ICollateralVault {
         uint32 riskDomainVersion,
         uint128 amount
     ) external returns (TerminalLiabilityReservationId reservationId);
+
+    function replaceTerminalLiabilityReservations(
+        TerminalLiabilityReservationId[] calldata sourceReservationIds,
+        TerminalLiabilityReplacement[] calldata replacements
+    ) external returns (TerminalLiabilityReservationId[] memory replacementReservationIds);
 
     function finalizeTerminalLiabilityReservation(TerminalLiabilityReservationId reservationId)
         external

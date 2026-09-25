@@ -2,6 +2,7 @@
 pragma solidity 0.8.37;
 
 import {IReceiptSubjectAuthority} from "../interfaces/IReceiptSubjectAuthority.sol";
+import {IPrivacyCommitmentRegistry} from "../interfaces/IPrivacyCommitmentRegistry.sol";
 import {IVerifiableReceiptLedger} from "../interfaces/IVerifiableReceiptLedger.sol";
 import {EvidenceReceiptLib} from "../libraries/EvidenceReceiptLib.sol";
 import {
@@ -12,7 +13,15 @@ import {
     ReceiptId,
     ReceiptSubjectTerminalState
 } from "../types/EvidenceTypes.sol";
-import {PrivacyEnvelopeId} from "../types/PrivacyTypes.sol";
+import {
+    DisclosureGrant,
+    DisclosureGrantId,
+    DisclosureGrantStatus,
+    PrivacyEnvelopeCommitment,
+    PrivacyEnvelopeId,
+    PrivacyPolicyId,
+    PrivacyPolicyVersion
+} from "../types/PrivacyTypes.sol";
 
 contract VerifiableReceiptLedger is IVerifiableReceiptLedger {
     bytes32 public constant SUBJECT_ORDER = keccak256("SetrynReceiptSubjectV1:Order");
@@ -37,6 +46,8 @@ contract VerifiableReceiptLedger is IVerifiableReceiptLedger {
     uint256 internal constant MAX_AUTHORITIES = 32;
     uint256 internal constant MAX_TERMINAL_STATE_GAS = 100_000;
     uint256 internal constant MAX_MERKLE_PROOF = 32;
+
+    IPrivacyCommitmentRegistry public immutable privacyRegistry;
 
     struct SubjectLedgerState {
         ReceiptId latestReceiptId;
@@ -71,8 +82,16 @@ contract VerifiableReceiptLedger is IVerifiableReceiptLedger {
     error SubjectStateCallFailed();
     error SubjectStateMismatch();
     error MerkleProofTooLong(uint256 length);
+    error ZeroPrivacyRegistry();
+    error InvalidAuthoritativeState();
+    error InvalidPrivacyEvidence();
+    error PublicFieldsCommitmentMismatch(bytes32 expected, bytes32 actual);
 
-    constructor(ReceiptAuthorityBinding[] memory bindings) {
+    constructor(ReceiptAuthorityBinding[] memory bindings, IPrivacyCommitmentRegistry privacyRegistry_) {
+        if (address(privacyRegistry_) == address(0) || address(privacyRegistry_).code.length == 0) {
+            revert ZeroPrivacyRegistry();
+        }
+        privacyRegistry = privacyRegistry_;
         uint256 count = bindings.length;
         if (count == 0 || count > MAX_AUTHORITIES) revert InvalidAuthorityBindings();
         bytes32 previous;
@@ -92,8 +111,12 @@ contract VerifiableReceiptLedger is IVerifiableReceiptLedger {
         external
         returns (bytes32 journalRoot)
     {
-        _requireAuthority(subjectKindId);
         if (subjectId == bytes32(0)) revert InvalidSubject();
+        ReceiptAuthorityBinding storage binding = _requireBinding(subjectKindId);
+        ReceiptSubjectTerminalState memory authoritative = _readAuthoritativeState(binding, subjectKindId, subjectId);
+        if (!authoritative.transitionValid || authoritative.stateHash == bytes32(0)) {
+            revert InvalidAuthoritativeState();
+        }
         SubjectLedgerState storage subject = _subjects[_subjectKey(subjectKindId, subjectId)];
         if (subject.finalized) revert SubjectAlreadyFinalized(subjectKindId, subjectId);
         uint256 count = leaves.length;
@@ -135,8 +158,15 @@ contract VerifiableReceiptLedger is IVerifiableReceiptLedger {
     }
 
     function appendReceipt(ReceiptDraft calldata draft) external returns (ReceiptId receiptId) {
-        ReceiptAuthorityBinding storage binding = _requireAuthority(draft.subjectKindId);
+        ReceiptAuthorityBinding storage binding = _requireBinding(draft.subjectKindId);
         _validateDraft(draft, binding);
+        ReceiptSubjectTerminalState memory authoritative =
+            _readAuthoritativeState(binding, draft.subjectKindId, draft.subjectId);
+        if (
+            !authoritative.transitionValid || authoritative.stateHash == bytes32(0)
+                || authoritative.outcomeHash == bytes32(0) || authoritative.stateHash != draft.subjectStateHash
+                || authoritative.outcomeHash != draft.onchainOutcomeHash
+        ) revert InvalidAuthoritativeState();
         bytes32 subjectKey = _subjectKey(draft.subjectKindId, draft.subjectId);
         SubjectLedgerState storage subject = _subjects[subjectKey];
         if (subject.finalized) revert SubjectAlreadyFinalized(draft.subjectKindId, draft.subjectId);
@@ -159,7 +189,7 @@ contract VerifiableReceiptLedger is IVerifiableReceiptLedger {
             sequence: sequence,
             recordedAt: uint64(block.timestamp),
             recordedBlock: uint64(block.number),
-            authority: msg.sender
+            authority: binding.authority
         });
         subject.latestReceiptId = receiptId;
         subject.receiptCount = sequence;
@@ -177,8 +207,12 @@ contract VerifiableReceiptLedger is IVerifiableReceiptLedger {
             block.chainid,
             draft.deploymentHash,
             draft.privateSubject,
+            PrivacyPolicyId.unwrap(draft.privacyPolicyId),
+            draft.privacyPolicyVersion,
             PrivacyEnvelopeId.unwrap(draft.privacyEnvelopeId),
+            DisclosureGrantId.unwrap(draft.disclosureGrantId),
             draft.disclosurePolicyHash,
+            draft.disclosureScopeHash,
             draft.publicFieldsHash,
             msg.sender
         );
@@ -191,11 +225,7 @@ contract VerifiableReceiptLedger is IVerifiableReceiptLedger {
         if (subject.finalized) return;
         ReceiptId finalReceiptId = subject.latestReceiptId;
         if (ReceiptId.unwrap(finalReceiptId) == bytes32(0)) revert UnknownReceipt(finalReceiptId);
-        (bool success, bytes memory returnData) = binding.authority.staticcall{gas: MAX_TERMINAL_STATE_GAS}(
-            abi.encodeCall(IReceiptSubjectAuthority.receiptSubjectTerminalState, (subjectKindId, subjectId))
-        );
-        if (!success || returnData.length != 128) revert SubjectStateCallFailed();
-        ReceiptSubjectTerminalState memory terminalState = abi.decode(returnData, (ReceiptSubjectTerminalState));
+        ReceiptSubjectTerminalState memory terminalState = _readAuthoritativeState(binding, subjectKindId, subjectId);
         if (!terminalState.terminal) revert SubjectNotTerminal();
         if (!terminalState.transitionValid) revert InvalidSubjectTransition();
         EvidenceReceipt storage receipt = _receipts[finalReceiptId];
@@ -281,21 +311,58 @@ contract VerifiableReceiptLedger is IVerifiableReceiptLedger {
             revert ReceiptDeploymentMismatch(binding.deploymentHash, draft.deploymentHash);
         }
         if (draft.privateSubject) {
-            if (
-                PrivacyEnvelopeId.unwrap(draft.privacyEnvelopeId) == bytes32(0)
-                    || draft.disclosurePolicyHash == bytes32(0)
-            ) revert InvalidReceiptDraft();
+            _validatePrivateEvidence(draft);
         } else if (
-            PrivacyEnvelopeId.unwrap(draft.privacyEnvelopeId) != bytes32(0) || draft.disclosurePolicyHash != bytes32(0)
+            PrivacyPolicyId.unwrap(draft.privacyPolicyId) != bytes32(0) || draft.privacyPolicyVersion != 0
+                || PrivacyEnvelopeId.unwrap(draft.privacyEnvelopeId) != bytes32(0)
+                || DisclosureGrantId.unwrap(draft.disclosureGrantId) != bytes32(0)
+                || draft.disclosurePolicyHash != bytes32(0) || draft.disclosureScopeHash != bytes32(0)
         ) {
             revert InvalidReceiptDraft();
         }
+        ReceiptDraft memory witness = draft;
+        bytes32 expectedPublicFieldsHash = EvidenceReceiptLib.hashPublicFields(witness, block.chainid);
+        if (draft.publicFieldsHash != expectedPublicFieldsHash) {
+            revert PublicFieldsCommitmentMismatch(expectedPublicFieldsHash, draft.publicFieldsHash);
+        }
     }
 
-    function _requireAuthority(bytes32 subjectKindId) private view returns (ReceiptAuthorityBinding storage binding) {
-        binding = _requireBinding(subjectKindId);
-        if (msg.sender != binding.authority) {
-            revert UnauthorizedReceiptAuthority(subjectKindId, binding.authority, msg.sender);
+    function _validatePrivateEvidence(ReceiptDraft calldata draft) private view {
+        if (
+            PrivacyPolicyId.unwrap(draft.privacyPolicyId) == bytes32(0) || draft.privacyPolicyVersion == 0
+                || PrivacyEnvelopeId.unwrap(draft.privacyEnvelopeId) == bytes32(0)
+                || DisclosureGrantId.unwrap(draft.disclosureGrantId) == bytes32(0)
+                || draft.disclosurePolicyHash == bytes32(0) || draft.disclosureScopeHash == bytes32(0)
+        ) revert InvalidPrivacyEvidence();
+        PrivacyEnvelopeCommitment memory envelope = privacyRegistry.getEnvelope(draft.privacyEnvelopeId);
+        if (
+            envelope.subjectKindId != draft.subjectKindId || envelope.subjectId != draft.subjectId
+                || envelope.policyId != draft.privacyPolicyId || envelope.policyVersion != draft.privacyPolicyVersion
+        ) revert InvalidPrivacyEvidence();
+        PrivacyPolicyVersion memory policy =
+            privacyRegistry.getPolicy(draft.privacyPolicyId, draft.privacyPolicyVersion);
+        if (policy.definitionHash == bytes32(0) || draft.disclosurePolicyHash != policy.definitionHash) {
+            revert InvalidPrivacyEvidence();
+        }
+        DisclosureGrant memory grant = privacyRegistry.getDisclosureGrant(draft.disclosureGrantId);
+        if (
+            grant.envelopeId != draft.privacyEnvelopeId || grant.disclosureScopeHash != draft.disclosureScopeHash
+                || grant.status != DisclosureGrantStatus.Consumed || grant.accessReceiptCommitment == bytes32(0)
+        ) revert InvalidPrivacyEvidence();
+    }
+
+    function _readAuthoritativeState(ReceiptAuthorityBinding storage binding, bytes32 subjectKindId, bytes32 subjectId)
+        private
+        view
+        returns (ReceiptSubjectTerminalState memory terminalState)
+    {
+        (bool success, bytes memory returnData) = binding.authority.staticcall{gas: MAX_TERMINAL_STATE_GAS}(
+            abi.encodeCall(IReceiptSubjectAuthority.receiptSubjectTerminalState, (subjectKindId, subjectId))
+        );
+        if (!success || returnData.length != 128) revert SubjectStateCallFailed();
+        terminalState = abi.decode(returnData, (ReceiptSubjectTerminalState));
+        if (terminalState.stateHash == bytes32(0)) {
+            revert InvalidAuthoritativeState();
         }
     }
 

@@ -27,6 +27,7 @@ import {
     LifecycleSuccessor
 } from "../../src/types/LifecycleTypes.sol";
 import {Lots, PriceTicks} from "../../src/types/Units.sol";
+import {PositionExerciseState} from "../../src/types/PositionTypes.sol";
 import {
     LifecycleAccountAuthorityMock,
     LifecycleAtomicExecutorMock,
@@ -138,6 +139,8 @@ contract SignedLifecycleEngineTest is Test {
             economicsHash: keccak256("economics"),
             packageProvenanceHash: bytes32(0),
             exercisePolicyId: ExercisePolicyId.wrap(keccak256("SetrynExercisePolicyV1:HolderElection")),
+            exerciseState: PositionExerciseState.ElectionOpen,
+            automaticExerciseThresholdMinor: 0,
             expiryAt: uint64(NOW - 10),
             exerciseOpensAt: uint64(NOW),
             exerciseCutoffAt: uint64(NOW + 50),

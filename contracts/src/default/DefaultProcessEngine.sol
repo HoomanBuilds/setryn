@@ -560,19 +560,14 @@ contract DefaultProcessEngine is IDefaultProcessEngine, ReentrancyGuard {
         uint128 residual = process.deficiencyMinor;
         uint128 defaulterApplied = _minimum(residual, process.lockedDefaulterCollateralMinor);
         residual -= defaulterApplied;
-        uint128 insuranceDraw = _minimum(residual, policy.maximumDrawPerDefaultMinor);
-        residual -= insuranceDraw;
         InsuranceReservationId existingReservationId = process.insuranceReservationId;
         if (InsuranceReservationId.unwrap(existingReservationId) != bytes32(0)) {
-            InsuranceReservation storage existingReservation = _insuranceReservations[existingReservationId];
-            if (
-                existingReservation.status != InsuranceReservationStatus.Reserved
-                    || existingReservation.amountMinor != insuranceDraw
-            ) {
-                _releaseReservation(existingReservationId);
-                process.insuranceReservationId = InsuranceReservationId.wrap(bytes32(0));
-            }
+            _releaseReservation(existingReservationId);
+            process.insuranceReservationId = InsuranceReservationId.wrap(bytes32(0));
         }
+        uint128 fundedAvailable = _availableInsurance(process, policy, depositIds);
+        uint128 insuranceDraw = _minimum(_minimum(residual, policy.maximumDrawPerDefaultMinor), fundedAvailable);
+        residual -= insuranceDraw;
         process.takeoverContributionMinor = 0;
         process.insuranceDrawMinor = insuranceDraw;
         process.terminalResidualMinor = residual;
@@ -674,6 +669,27 @@ contract DefaultProcessEngine is IDefaultProcessEngine, ReentrancyGuard {
         emit InsuranceReserved(reservationId, process.processId, required, keccak256(abi.encode(reservation.lines)));
     }
 
+    function _availableInsurance(
+        DefaultProcess storage process,
+        InsurancePolicy calldata policy,
+        InsuranceDepositId[] calldata depositIds
+    ) private view returns (uint128 availableTotal) {
+        if (depositIds.length > policy.maximumDepositsPerDraw) {
+            revert InsuranceFundingInsufficient(policy.maximumDrawPerDefaultMinor, 0);
+        }
+        bytes32 previous;
+        for (uint256 i; i < depositIds.length; ++i) {
+            bytes32 current = InsuranceDepositId.unwrap(depositIds[i]);
+            if (current <= previous) revert InsuranceDepositOrderMismatch(i);
+            previous = current;
+            InsuranceDeposit storage deposit = _insuranceDeposits[depositIds[i]];
+            _requireInsuranceDeposit(process, depositIds[i], deposit);
+            uint128 available = deposit.fundedMinor - deposit.reservedMinor - deposit.consumedMinor;
+            uint256 next = uint256(availableTotal) + available;
+            availableTotal = next > type(uint128).max ? type(uint128).max : uint128(next);
+        }
+    }
+
     function _consumeInsurance(DefaultProcess storage process, AccountId recipient) private {
         if (process.insuranceDrawMinor == 0) return;
         InsuranceReservation storage reservation = _insuranceReservations[process.insuranceReservationId];
@@ -769,8 +785,8 @@ contract DefaultProcessEngine is IDefaultProcessEngine, ReentrancyGuard {
                 || AccountId.unwrap(result.successorAccountId) != AccountId.unwrap(expectedSuccessor)
                 || result.defaulterCollateralAppliedMinor != defaulterApplied
                 || result.takeoverContributionAppliedMinor != takeoverApplied
-                || result.insuranceAppliedMinor != insuranceApplied || result.unbackedClaimMinor != 0
-                || result.fullyBackedClaimMinor > terminalResidual
+                || result.insuranceAppliedMinor != insuranceApplied || result.terminalResidualMinor != terminalResidual
+                || result.unbackedClaimMinor != 0 || result.fullyBackedClaimMinor > terminalResidual
         ) revert InvalidExecutionResult();
     }
 
@@ -877,8 +893,8 @@ contract DefaultProcessEngine is IDefaultProcessEngine, ReentrancyGuard {
                 || rules.minimumCapacityMinor == 0 || AccountId.unwrap(rules.recoveryAccountId) == bytes32(0)
                 || AccountId.unwrap(rules.recoveryAccountId) == AccountId.unwrap(accountId)
                 || rules.bidderQualificationHash == bytes32(0) || rules.scoringRuleId != DefaultProcessLib.SCORING_RULE
-                || rules.terminalRuleId == bytes32(0) || policy.maximumDrawPerDefaultMinor == 0
-                || policy.maximumDepositsPerDraw == 0 || AccountId.unwrap(policy.insuranceAccountId) == bytes32(0)
+                || rules.terminalRuleId == bytes32(0) || policy.maximumDepositsPerDraw == 0
+                || AccountId.unwrap(policy.insuranceAccountId) == bytes32(0)
                 || AccountId.unwrap(policy.insuranceAccountId) == AccountId.unwrap(rules.recoveryAccountId)
                 || policy.allocationRuleId != DefaultProcessLib.INSURANCE_ALLOCATION_RULE
         ) revert InvalidProcessRules();

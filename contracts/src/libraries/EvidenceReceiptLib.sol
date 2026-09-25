@@ -2,7 +2,7 @@
 pragma solidity 0.8.37;
 
 import {EvidenceJournalBatch, ReceiptDraft, ReceiptId} from "../types/EvidenceTypes.sol";
-import {PrivacyEnvelopeId} from "../types/PrivacyTypes.sol";
+import {DisclosureGrantId, PrivacyEnvelopeId, PrivacyPolicyId} from "../types/PrivacyTypes.sol";
 
 library EvidenceReceiptLib {
     uint256 internal constant MAX_JOURNAL_BATCH = 32;
@@ -14,7 +14,10 @@ library EvidenceReceiptLib {
         "SetrynEvidenceJournalRootV1(bytes32 subjectKindId,bytes32 subjectId,bytes32 previousRoot,bytes32 batchRoot,uint64 batchIndex,uint64 firstLeafIndex,uint32 leafCount)"
     );
     bytes32 internal constant RECEIPT_DRAFT_TYPEHASH = keccak256(
-        "SetrynEvidenceReceiptDraftV1(bytes32 subjectKindId,bytes32 subjectId,bytes32 subjectStateHash,bytes32 authorizationHash,bytes32 dependencyVersionsHash,bytes32 routeProvenanceHash,bytes32 sourceLiquidityEvidenceHash,bytes32 reservationEvidenceHash,bytes32 submittedActionsHash,bytes32 onchainOutcomeHash,bytes32 feesResidualsHash,bytes32 recoveryJournalRoot,uint256 evidenceGradeBitmap,bytes32 environmentId,uint256 chainId,bytes32 deploymentHash,bool privateSubject,bytes32 privacyEnvelopeId,bytes32 disclosurePolicyHash,bytes32 publicFieldsHash,bytes32 predecessorReceiptId)"
+        "SetrynEvidenceReceiptDraftV2(bytes32 subjectKindId,bytes32 subjectId,bytes32 subjectStateHash,bytes32 authorizationHash,bytes32 dependencyVersionsHash,bytes32 routeProvenanceHash,bytes32 sourceLiquidityEvidenceHash,bytes32 reservationEvidenceHash,bytes32 submittedActionsHash,bytes32 onchainOutcomeHash,bytes32 feesResidualsHash,bytes32 recoveryJournalRoot,uint256 evidenceGradeBitmap,bytes32 environmentId,uint256 chainId,bytes32 deploymentHash,bool privateSubject,bytes32 privacyPolicyId,uint32 privacyPolicyVersion,bytes32 privacyEnvelopeId,bytes32 disclosureGrantId,bytes32 disclosurePolicyHash,bytes32 disclosureScopeHash,bytes32 publicFieldsHash,bytes32 predecessorReceiptId)"
+    );
+    bytes32 internal constant RECEIPT_PUBLIC_FIELDS_TYPEHASH = keccak256(
+        "SetrynEvidenceReceiptPublicFieldsV1(bytes32 subjectKindId,bytes32 subjectId,bytes32 subjectStateHash,bytes32 authorizationHash,bytes32 dependencyVersionsHash,bytes32 routeProvenanceHash,bytes32 sourceLiquidityEvidenceHash,bytes32 reservationEvidenceHash,bytes32 submittedActionsHash,bytes32 onchainOutcomeHash,bytes32 feesResidualsHash,bytes32 recoveryJournalRoot,uint256 evidenceGradeBitmap,bytes32 environmentId,uint256 chainId,bytes32 deploymentHash,bool privateSubject,bytes32 privacyPolicyId,uint32 privacyPolicyVersion,bytes32 privacyEnvelopeId,bytes32 disclosureGrantId,bytes32 disclosurePolicyHash,bytes32 disclosureScopeHash,bytes32 predecessorReceiptId)"
     );
     bytes32 internal constant RECEIPT_ID_TYPEHASH = keccak256(
         "SetrynEvidenceReceiptIdV1(uint256 chainId,address ledger,bytes32 subjectKindId,bytes32 subjectId,uint64 sequence,bytes32 draftHash)"
@@ -41,9 +44,45 @@ library EvidenceReceiptLib {
                 chainId,
                 draft.deploymentHash,
                 draft.privateSubject,
+                PrivacyPolicyId.unwrap(draft.privacyPolicyId),
+                draft.privacyPolicyVersion,
                 PrivacyEnvelopeId.unwrap(draft.privacyEnvelopeId),
+                DisclosureGrantId.unwrap(draft.disclosureGrantId),
                 draft.disclosurePolicyHash,
+                draft.disclosureScopeHash,
                 draft.publicFieldsHash,
+                ReceiptId.unwrap(draft.predecessorReceiptId)
+            )
+        );
+    }
+
+    function hashPublicFields(ReceiptDraft memory draft, uint256 chainId) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                RECEIPT_PUBLIC_FIELDS_TYPEHASH,
+                draft.subjectKindId,
+                draft.subjectId,
+                draft.subjectStateHash,
+                draft.authorizationHash,
+                draft.dependencyVersionsHash,
+                draft.routeProvenanceHash,
+                draft.sourceLiquidityEvidenceHash,
+                draft.reservationEvidenceHash,
+                draft.submittedActionsHash,
+                draft.onchainOutcomeHash,
+                draft.feesResidualsHash,
+                draft.recoveryJournalRoot,
+                draft.evidenceGradeBitmap,
+                draft.environmentId,
+                chainId,
+                draft.deploymentHash,
+                draft.privateSubject,
+                PrivacyPolicyId.unwrap(draft.privacyPolicyId),
+                draft.privacyPolicyVersion,
+                PrivacyEnvelopeId.unwrap(draft.privacyEnvelopeId),
+                DisclosureGrantId.unwrap(draft.disclosureGrantId),
+                draft.disclosurePolicyHash,
+                draft.disclosureScopeHash,
                 ReceiptId.unwrap(draft.predecessorReceiptId)
             )
         );

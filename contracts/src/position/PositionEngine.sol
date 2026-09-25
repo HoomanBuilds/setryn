@@ -15,7 +15,8 @@ import {IExactLotsPayoffModuleV1} from "../interfaces/IExactLotsPayoffModuleV1.s
 import {PositionTerminalState} from "../interfaces/IPositionEngineTerminalState.sol";
 import {ISeriesRegistry} from "../interfaces/ISeriesRegistry.sol";
 import {PositionMathLib} from "../libraries/PositionMathLib.sol";
-import {CollateralLock, TerminalLiabilityReservation} from "../types/CollateralTypes.sol";
+import {SeriesDefinitionLib} from "../libraries/SeriesDefinitionLib.sol";
+import {CollateralLock, TerminalLiabilityReplacement, TerminalLiabilityReservation} from "../types/CollateralTypes.sol";
 import {LockStatus, TerminalLiabilityReservationStatus, TerminalOutcomeKind} from "../types/Enums.sol";
 import {
     AccountId,
@@ -23,6 +24,7 @@ import {
     AssetId,
     CollateralId,
     CollateralLockId,
+    ExercisePolicyId,
     PackageId,
     PositionId,
     SeriesId,
@@ -35,6 +37,7 @@ import {
     PositionCreation,
     PositionEconomics,
     PositionFunding,
+    PositionExerciseState,
     PositionLiabilitySide,
     PositionLifecycle,
     PositionProvenance,
@@ -44,6 +47,7 @@ import {CompressionPosition} from "../types/CompressionTypes.sol";
 import {LifecycleActionKind, LifecyclePositionSnapshot} from "../types/LifecycleTypes.sol";
 import {SeriesVersion} from "../types/SeriesDefinition.sol";
 import {Lots, LotsLib} from "../types/Units.sol";
+import {PortfolioPositionWitness, PositionRiskSnapshot} from "../types/RiskTypes.sol";
 
 contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, ReentrancyGuard {
     bytes32 public constant CLEARING_ENGINE_ROLE = keccak256("SETRYN_CLEARING_ENGINE_ROLE");
@@ -73,6 +77,7 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
     bytes32 private constant EXACT_LOTS_CAPABILITY = keccak256("SETRYN_EXACT_LOTS_PAYOFF_V1");
     bytes32 private constant PACKAGE_PROVENANCE_TYPEHASH =
         keccak256("SetrynPositionPackageProvenanceV1(bytes32 packageId,uint32 packageVersion,uint32 packageOrdinal)");
+    bytes32 private constant RISK_SNAPSHOT_TYPEHASH = keccak256("SetrynPositionRiskSnapshotV1");
 
     bytes32 public immutable positionEngineId;
 
@@ -163,6 +168,17 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
         PositionProvenance calldata provenance
     ) external nonReentrant onlyRole(LIFECYCLE_ENGINE_ROLE) returns (PositionId positionId) {
         return _createPosition(creation, false, provenance);
+    }
+
+    function replaceLifecycleReservations(
+        TerminalLiabilityReservationId[] calldata sourceReservationIds,
+        TerminalLiabilityReplacement[] calldata replacements
+    )
+        external
+        onlyRole(LIFECYCLE_ENGINE_ROLE)
+        returns (TerminalLiabilityReservationId[] memory replacementReservationIds)
+    {
+        return _collateralVault.replaceTerminalLiabilityReservations(sourceReservationIds, replacements);
     }
 
     function _createPosition(
@@ -267,6 +283,10 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
         economics.finalResolutionAt = series.definition.finalResolutionAt;
         economics.settlementDeadline = series.definition.settlementDeadline;
         economics.maxEvaluationGas = instrument.definition.maxEvaluationGas;
+        economics.exerciseOpensAt = series.definition.exerciseOpensAt;
+        economics.exerciseCutoffAt = series.definition.exerciseCutoffAt;
+        economics.exercisePolicyId = series.definition.exercisePolicyId;
+        economics.automaticExerciseThresholdMinor = series.definition.automaticExerciseThresholdMinor;
         economics.lots = creation.lots;
         economics.originalLots = creation.lots;
         economics.entryPriceTicks = creation.entryPriceTicks;
@@ -287,6 +307,10 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
         _payoffTerms[positionId] = creation.payoffTerms;
         PositionLifecycle storage lifecycle = _lifecycles[positionId];
         lifecycle.status = PositionStatus.Live;
+        lifecycle.exerciseState = ExercisePolicyId.unwrap(series.definition.exercisePolicyId)
+            == ExercisePolicyId.unwrap(SeriesDefinitionLib.EXERCISE_POLICY_AUTOMATIC)
+            ? PositionExerciseState.AwaitingFixing
+            : PositionExerciseState.ElectionOpen;
         lifecycle.remainingLots = creation.lots;
         lifecycle.lifecycleOwnerAccountId = creation.longAccountId;
         _positionCount += 1;
@@ -384,12 +408,45 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
             revert FinalResolutionReached(positionId, economics.finalResolutionAt, nowTs);
         }
 
-        uint128 evaluatedLots = Lots.unwrap(lifecycle.remainingLots);
-        int256 total = _evaluatePayoff(positionId, economics, finalFixings, evaluatedLots);
-        lifecycle.exercisedLots = Lots.wrap(Lots.unwrap(lifecycle.exercisedLots) + evaluatedLots);
-        lifecycle.remainingLots = Lots.wrap(0);
         lifecycle.finalFixingReference = fixingReference;
         lifecycle.finalFixingsHash = keccak256(finalFixings);
+        bytes32 policy = ExercisePolicyId.unwrap(economics.exercisePolicyId);
+        if (policy == ExercisePolicyId.unwrap(SeriesDefinitionLib.EXERCISE_POLICY_HOLDER_ELECTION)) {
+            _setStatus(positionId, lifecycle, PositionStatus.Live, fixingReference);
+            return;
+        }
+        if (
+            policy == ExercisePolicyId.unwrap(SeriesDefinitionLib.EXERCISE_POLICY_AUTOMATIC_UNLESS_ABANDONED)
+                && block.timestamp <= economics.exerciseCutoffAt
+        ) revert FixingWindowNotOpen(positionId, economics.exerciseCutoffAt + 1, nowTs);
+
+        uint128 evaluatedLots = Lots.unwrap(lifecycle.remainingLots);
+        int256 total = _evaluatePayoff(positionId, economics, finalFixings, evaluatedLots);
+        if (
+            policy == ExercisePolicyId.unwrap(SeriesDefinitionLib.EXERCISE_POLICY_AUTOMATIC_UNLESS_ABANDONED)
+                && _absoluteTransfer(total) < economics.automaticExerciseThresholdMinor
+        ) {
+            lifecycle.closedLots = Lots.wrap(Lots.unwrap(lifecycle.closedLots) + evaluatedLots);
+            lifecycle.remainingLots = Lots.wrap(0);
+            lifecycle.exerciseState = PositionExerciseState.Lapsed;
+            lifecycle.terminalTransferMinor = 0;
+            bytes32 lapseReference = keccak256(
+                abi.encode(
+                    ALTERNATIVE_OUTCOME_TYPEHASH,
+                    PositionId.unwrap(positionId),
+                    uint8(PositionStatus.Lapsed),
+                    fixingReference
+                )
+            );
+            lifecycle.terminalOutcomeReference = lapseReference;
+            _writeTerminalLiabilities(economics, 0, lapseReference, false);
+            _setStatus(positionId, lifecycle, PositionStatus.Lapsed, lapseReference);
+            _emitQuantity(positionId, lifecycle, lapseReference);
+            return;
+        }
+        lifecycle.exercisedLots = Lots.wrap(Lots.unwrap(lifecycle.exercisedLots) + evaluatedLots);
+        lifecycle.remainingLots = Lots.wrap(0);
+        lifecycle.exerciseState = PositionExerciseState.FullyExercised;
         lifecycle.terminalTransferMinor = _checkedAddTransfer(lifecycle.terminalTransferMinor, total);
         _setStatus(positionId, lifecycle, PositionStatus.SettlementReady, fixingReference);
 
@@ -416,22 +473,32 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
         }
         _requireLifecycleAuthority(positionId, lifecycle, actorAccountId, expectedLifecycleNonce);
         PositionEconomics storage economics = _economics[positionId];
-        SeriesVersion memory series = _seriesRegistry.getSeries(economics.seriesId, economics.seriesVersion);
         if (
-            block.timestamp < series.definition.exerciseOpensAt || block.timestamp > series.definition.exerciseCutoffAt
-        ) {
-            revert FixingWindowNotOpen(positionId, series.definition.exerciseOpensAt, uint64(block.timestamp));
+            ExercisePolicyId.unwrap(economics.exercisePolicyId)
+                != ExercisePolicyId.unwrap(SeriesDefinitionLib.EXERCISE_POLICY_HOLDER_ELECTION)
+        ) revert UnsupportedTerminalAlternative(PositionStatus.SettlementReady);
+        if (block.timestamp < economics.exerciseOpensAt || block.timestamp > economics.exerciseCutoffAt) {
+            revert FixingWindowNotOpen(positionId, economics.exerciseOpensAt, uint64(block.timestamp));
         }
         uint128 quantity = _requireQuantity(positionId, lifecycle, exerciseLots);
+        bytes32 suppliedFixingsHash = keccak256(finalFixings);
+        if (lifecycle.finalFixingReference == bytes32(0)) {
+            lifecycle.finalFixingReference = fixingReference;
+            lifecycle.finalFixingsHash = suppliedFixingsHash;
+        } else if (
+            lifecycle.finalFixingReference != fixingReference || lifecycle.finalFixingsHash != suppliedFixingsHash
+        ) {
+            revert ZeroReference();
+        }
         int256 transfer = _evaluatePayoff(positionId, economics, finalFixings, quantity);
         lifecycle.terminalTransferMinor = _checkedAddTransfer(lifecycle.terminalTransferMinor, transfer);
         lifecycle.remainingLots = Lots.wrap(Lots.unwrap(lifecycle.remainingLots) - quantity);
         lifecycle.exercisedLots = Lots.wrap(Lots.unwrap(lifecycle.exercisedLots) + quantity);
+        lifecycle.exerciseState = Lots.unwrap(lifecycle.remainingLots) == 0
+            ? PositionExerciseState.FullyExercised
+            : PositionExerciseState.PartiallyExercised;
         lifecycle.lifecycleNonce += 1;
-        lifecycle.finalFixingReference = fixingReference;
-        lifecycle.finalFixingsHash =
-            keccak256(abi.encode(lifecycle.finalFixingsHash, fixingReference, keccak256(finalFixings), quantity));
-        emit PositionExactPayoffComputed(positionId, fixingReference, keccak256(finalFixings), quantity, transfer);
+        emit PositionExactPayoffComputed(positionId, fixingReference, suppliedFixingsHash, quantity, transfer);
         if (Lots.unwrap(lifecycle.remainingLots) == 0) {
             bytes32 outcomeReference = keccak256(
                 abi.encode(
@@ -447,6 +514,48 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
             _setStatus(positionId, lifecycle, PositionStatus.Settled, outcomeReference);
         }
         _emitQuantity(positionId, lifecycle, fixingReference);
+    }
+
+    function abandonPositionQuantity(
+        PositionId positionId,
+        Lots abandonLots,
+        AccountId actorAccountId,
+        uint64 expectedLifecycleNonce,
+        bytes32 transitionReference
+    ) external onlyRole(LIFECYCLE_ENGINE_ROLE) {
+        if (transitionReference == bytes32(0)) revert ZeroReference();
+        PositionLifecycle storage lifecycle = _requirePosition(positionId);
+        if (lifecycle.status != PositionStatus.Live) {
+            revert InvalidPositionTransition(positionId, lifecycle.status, PositionStatus.Abandoned);
+        }
+        _requireLifecycleAuthority(positionId, lifecycle, actorAccountId, expectedLifecycleNonce);
+        PositionEconomics storage economics = _economics[positionId];
+        if (
+            ExercisePolicyId.unwrap(economics.exercisePolicyId)
+                    != ExercisePolicyId.unwrap(SeriesDefinitionLib.EXERCISE_POLICY_AUTOMATIC_UNLESS_ABANDONED)
+                || block.timestamp < economics.exerciseOpensAt || block.timestamp > economics.exerciseCutoffAt
+        ) revert FixingWindowNotOpen(positionId, economics.exerciseOpensAt, uint64(block.timestamp));
+        uint128 quantity = _requireQuantity(positionId, lifecycle, abandonLots);
+        lifecycle.remainingLots = Lots.wrap(Lots.unwrap(lifecycle.remainingLots) - quantity);
+        lifecycle.closedLots = Lots.wrap(Lots.unwrap(lifecycle.closedLots) + quantity);
+        lifecycle.lifecycleNonce += 1;
+        lifecycle.exerciseState = Lots.unwrap(lifecycle.remainingLots) == 0
+            ? PositionExerciseState.Abandoned
+            : PositionExerciseState.ElectionOpen;
+        if (Lots.unwrap(lifecycle.remainingLots) == 0) {
+            bytes32 outcomeReference = keccak256(
+                abi.encode(
+                    ALTERNATIVE_OUTCOME_TYPEHASH,
+                    PositionId.unwrap(positionId),
+                    uint8(PositionStatus.Abandoned),
+                    transitionReference
+                )
+            );
+            lifecycle.terminalOutcomeReference = outcomeReference;
+            _writeTerminalLiabilities(economics, 0, outcomeReference, false);
+            _setStatus(positionId, lifecycle, PositionStatus.Abandoned, outcomeReference);
+        }
+        _emitQuantity(positionId, lifecycle, transitionReference);
     }
 
     function closePositionQuantity(
@@ -469,6 +578,8 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
         lifecycle.remainingLots = Lots.wrap(Lots.unwrap(lifecycle.remainingLots) - quantity);
         lifecycle.closedLots = Lots.wrap(Lots.unwrap(lifecycle.closedLots) + quantity);
         lifecycle.lifecycleNonce += 1;
+        if (terminalStatus == PositionStatus.Lapsed) lifecycle.exerciseState = PositionExerciseState.Lapsed;
+        if (terminalStatus == PositionStatus.Abandoned) lifecycle.exerciseState = PositionExerciseState.Abandoned;
         if (Lots.unwrap(lifecycle.remainingLots) == 0) {
             bytes32 outcomeReference = keccak256(
                 abi.encode(
@@ -519,6 +630,9 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
         if (lifecycle.status != PositionStatus.SettlementReady) {
             revert InvalidPositionTransition(positionId, lifecycle.status, PositionStatus.Settled);
         }
+        if (lifecycle.exerciseState != PositionExerciseState.FullyExercised) {
+            revert InvalidPositionTransition(positionId, lifecycle.status, PositionStatus.Settled);
+        }
         PositionEconomics storage economics = _economics[positionId];
         uint64 nowTs = uint64(block.timestamp);
         if (nowTs >= economics.finalResolutionAt) {
@@ -551,8 +665,19 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
         }
 
         uint128 unresolvedLots = Lots.unwrap(lifecycle.remainingLots);
-        int256 disruption =
-            PositionMathLib.scaleTransfer(economics.terminalDisruptionTransferMinorPerLot, lifecycle.remainingLots);
+        int256 disruption;
+        bytes32 policy = ExercisePolicyId.unwrap(economics.exercisePolicyId);
+        bool applies = policy == ExercisePolicyId.unwrap(SeriesDefinitionLib.EXERCISE_POLICY_AUTOMATIC);
+        if (policy == ExercisePolicyId.unwrap(SeriesDefinitionLib.EXERCISE_POLICY_AUTOMATIC_UNLESS_ABANDONED)) {
+            int256 candidate =
+                PositionMathLib.scaleTransfer(economics.terminalDisruptionTransferMinorPerLot, lifecycle.remainingLots);
+            applies = _absoluteTransfer(candidate) >= economics.automaticExerciseThresholdMinor;
+            if (applies) disruption = candidate;
+        }
+        if (applies && disruption == 0) {
+            disruption =
+                PositionMathLib.scaleTransfer(economics.terminalDisruptionTransferMinorPerLot, lifecycle.remainingLots);
+        }
         int256 total = _checkedAddTransfer(lifecycle.terminalTransferMinor, disruption);
         bytes32 outcomeReference = keccak256(
             abi.encode(FALLBACK_OUTCOME_TYPEHASH, PositionId.unwrap(positionId), economics.finalResolutionAt, total)
@@ -560,6 +685,7 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
         lifecycle.terminalTransferMinor = total;
         lifecycle.closedLots = Lots.wrap(Lots.unwrap(lifecycle.closedLots) + unresolvedLots);
         lifecycle.remainingLots = Lots.wrap(0);
+        lifecycle.exerciseState = applies ? PositionExerciseState.FullyExercised : PositionExerciseState.Lapsed;
         lifecycle.terminalOutcomeReference = outcomeReference;
         _writeTerminalLiabilities(economics, total, outcomeReference, true);
         PositionStatus terminalStatus = total == 0 ? PositionStatus.Settled : PositionStatus.TerminalClaim;
@@ -594,6 +720,8 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
         lifecycle.closedLots = Lots.wrap(Lots.unwrap(lifecycle.closedLots) + remaining);
         lifecycle.remainingLots = Lots.wrap(0);
         lifecycle.lifecycleNonce += 1;
+        if (terminalStatus == PositionStatus.Lapsed) lifecycle.exerciseState = PositionExerciseState.Lapsed;
+        if (terminalStatus == PositionStatus.Abandoned) lifecycle.exerciseState = PositionExerciseState.Abandoned;
         bytes32 outcomeReference = keccak256(
             abi.encode(
                 ALTERNATIVE_OUTCOME_TYPEHASH,
@@ -647,6 +775,61 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
         return (_economics[positionId], _lifecycles[positionId]);
     }
 
+    function positionRiskSnapshot(PositionId positionId, AccountId accountId)
+        external
+        view
+        returns (PositionRiskSnapshot memory snapshot)
+    {
+        _requirePositionView(positionId);
+        PositionEconomics storage economics = _economics[positionId];
+        PositionLifecycle storage lifecycle = _lifecycles[positionId];
+        bool isLong = economics.longAccountId == accountId;
+        if (!isLong && economics.shortAccountId != accountId) {
+            revert PositionRiskAccountMismatch(positionId, accountId);
+        }
+        uint128 remaining = Lots.unwrap(lifecycle.remainingLots);
+        if (remaining > uint128(type(int128).max)) revert PositionRiskLotsOverflow(positionId, remaining);
+        (uint128 longLiability, uint128 shortLiability) = _currentLiabilityBounds(economics, lifecycle);
+        int128 signedLots = isLong ? int128(remaining) : -int128(remaining);
+        PortfolioPositionWitness memory witness = PortfolioPositionWitness({
+            positionId: positionId,
+            seriesId: economics.seriesId,
+            seriesVersion: economics.seriesVersion,
+            signedLots: signedLots,
+            entryPriceTicks: economics.entryPriceTicks,
+            maximumTerminalLiabilityBaseUnits: isLong ? longLiability : shortLiability,
+            economicsHash: _economicsHash(economics)
+        });
+        bytes32 stateHash = keccak256(
+            abi.encode(
+                RISK_SNAPSHOT_TYPEHASH,
+                witness,
+                accountId,
+                economics.riskDomainId,
+                economics.riskDomainVersion,
+                remaining,
+                economics.finalResolutionAt,
+                economics.settlementDeadline,
+                lifecycle.lifecycleNonce,
+                lifecycle.status,
+                lifecycle.terminalOutcomeReference
+            )
+        );
+        snapshot = PositionRiskSnapshot({
+            witness: witness,
+            accountId: accountId,
+            riskDomainId: economics.riskDomainId,
+            riskDomainVersion: economics.riskDomainVersion,
+            remainingLots: remaining,
+            finalResolutionAt: economics.finalResolutionAt,
+            settlementDeadline: economics.settlementDeadline,
+            lifecycleNonce: lifecycle.lifecycleNonce,
+            status: lifecycle.status,
+            terminalOutcomeReference: lifecycle.terminalOutcomeReference,
+            stateHash: stateHash
+        });
+    }
+
     function payoffTerms(PositionId positionId) external view returns (bytes memory) {
         _requirePositionView(positionId);
         return _payoffTerms[positionId];
@@ -677,10 +860,22 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
         SeriesVersion memory series =
             _seriesRegistry.getSeries(_economics[positionId].seriesId, _economics[positionId].seriesVersion);
         if (kind == LifecycleActionKind.Exercise) {
-            return block.timestamp >= series.definition.exerciseOpensAt
+            return ExercisePolicyId.unwrap(series.definition.exercisePolicyId)
+                    == ExercisePolicyId.unwrap(SeriesDefinitionLib.EXERCISE_POLICY_HOLDER_ELECTION)
+                && block.timestamp >= series.definition.exerciseOpensAt
                 && block.timestamp <= series.definition.exerciseCutoffAt;
         }
-        if (kind == LifecycleActionKind.Lapse) return block.timestamp >= series.definition.exerciseCutoffAt;
+        if (kind == LifecycleActionKind.Abandon) {
+            return ExercisePolicyId.unwrap(series.definition.exercisePolicyId)
+                    == ExercisePolicyId.unwrap(SeriesDefinitionLib.EXERCISE_POLICY_AUTOMATIC_UNLESS_ABANDONED)
+                && block.timestamp >= series.definition.exerciseOpensAt
+                && block.timestamp <= series.definition.exerciseCutoffAt;
+        }
+        if (kind == LifecycleActionKind.Lapse) {
+            return ExercisePolicyId.unwrap(series.definition.exercisePolicyId)
+                    == ExercisePolicyId.unwrap(SeriesDefinitionLib.EXERCISE_POLICY_HOLDER_ELECTION)
+                && block.timestamp > series.definition.exerciseCutoffAt;
+        }
         return true;
     }
 
@@ -732,6 +927,7 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
             abi.encode(
                 POSITION_LIFECYCLE_HASH_TYPEHASH,
                 uint8(lifecycle.status),
+                uint8(lifecycle.exerciseState),
                 lifecycle.finalFixingReference,
                 lifecycle.finalFixingsHash,
                 lifecycle.terminalOutcomeReference,
@@ -777,6 +973,8 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
             economicsHash: economicsHash,
             packageProvenanceHash: economics.packageProvenanceHash,
             exercisePolicyId: series.definition.exercisePolicyId,
+            exerciseState: lifecycle.exerciseState,
+            automaticExerciseThresholdMinor: economics.automaticExerciseThresholdMinor,
             expiryAt: series.definition.expiryAt,
             exerciseOpensAt: series.definition.exerciseOpensAt,
             exerciseCutoffAt: series.definition.exerciseCutoffAt,
@@ -832,6 +1030,10 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
                     economics.finalResolutionAt,
                     economics.settlementDeadline,
                     economics.maxEvaluationGas,
+                    economics.exerciseOpensAt,
+                    economics.exerciseCutoffAt,
+                    economics.exercisePolicyId,
+                    economics.automaticExerciseThresholdMinor,
                     economics.originalLots,
                     economics.entryPriceTicks,
                     economics.maxLongDebitMinorPerLot,
@@ -863,18 +1065,27 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
             }
             return TerminalLiabilityReservationId.wrap(bytes32(0));
         }
+        TerminalLiabilityReservationId expected =
+            _collateralVault.deriveTerminalLiabilityReservationId(address(this), positionEngineId, liabilityKey);
         if (CollateralLockId.unwrap(funding.lockId) == bytes32(0)) {
             if (!_isEmptyFunding(funding)) revert PositionFundingMismatch(liabilityKey, funding.lockId);
-            reservationId = _collateralVault.createTerminalLiabilityReservation(
-                liabilityKey,
-                payerAccountId,
-                market.definition.settlementAssetId,
-                market.definition.settlementAssetVersion,
-                market.definition.riskDomainId,
-                market.definition.riskDomainVersion,
-                amount,
-                address(this)
-            );
+            if (
+                _collateralVault.terminalLiabilityReservationStatusOf(expected)
+                    == TerminalLiabilityReservationStatus.Active
+            ) {
+                reservationId = expected;
+            } else {
+                reservationId = _collateralVault.createTerminalLiabilityReservation(
+                    liabilityKey,
+                    payerAccountId,
+                    market.definition.settlementAssetId,
+                    market.definition.settlementAssetVersion,
+                    market.definition.riskDomainId,
+                    market.definition.riskDomainVersion,
+                    amount,
+                    address(this)
+                );
+            }
         } else {
             _requireAdoptableFunding(liabilityKey, payerAccountId, market, amount, funding);
             reservationId = _collateralVault.convertLockToTerminalLiabilityReservation(
@@ -886,8 +1097,6 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
             );
             if (funding.expectedRemainingAmount == amount) delete _positionFundingRequesters[funding.lockId];
         }
-        TerminalLiabilityReservationId expected =
-            _collateralVault.deriveTerminalLiabilityReservationId(address(this), positionEngineId, liabilityKey);
         if (TerminalLiabilityReservationId.unwrap(reservationId) != TerminalLiabilityReservationId.unwrap(expected)) {
             revert ReservationMismatch(
                 liabilityKey,
@@ -1121,7 +1330,8 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
 
     function _isZeroLiabilityAlternative(PositionStatus status) private pure returns (bool) {
         return status == PositionStatus.ClosedByUnwind || status == PositionStatus.Replaced
-            || status == PositionStatus.Lapsed || status == PositionStatus.CancelledByDisruption;
+            || status == PositionStatus.Lapsed || status == PositionStatus.CancelledByDisruption
+            || status == PositionStatus.Abandoned;
     }
 
     function _currentDay() private view returns (uint32) {
@@ -1183,10 +1393,19 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
 
     function _requireLapseOpen(PositionId positionId) private view {
         PositionEconomics storage economics = _economics[positionId];
-        SeriesVersion memory series = _seriesRegistry.getSeries(economics.seriesId, economics.seriesVersion);
-        if (block.timestamp < series.definition.exerciseCutoffAt) {
-            revert FixingWindowNotOpen(positionId, series.definition.exerciseCutoffAt, uint64(block.timestamp));
+        if (
+            ExercisePolicyId.unwrap(economics.exercisePolicyId)
+                    != ExercisePolicyId.unwrap(SeriesDefinitionLib.EXERCISE_POLICY_HOLDER_ELECTION)
+                || block.timestamp <= economics.exerciseCutoffAt
+        ) {
+            revert FixingWindowNotOpen(positionId, economics.exerciseCutoffAt + 1, uint64(block.timestamp));
         }
+    }
+
+    function _absoluteTransfer(int256 value) private pure returns (uint256) {
+        if (value >= 0) return uint256(value);
+        if (value == type(int256).min) revert TerminalAmountOverflow(type(uint256).max);
+        return uint256(-value);
     }
 
     function _checkedAddTransfer(int256 left, int256 right) private pure returns (int256 result) {

@@ -71,7 +71,7 @@ library OperationalAdapterLib {
         }
         if (previous == OperationalActionState.Reconciling) {
             return next == OperationalActionState.Complete || next == OperationalActionState.Recovering
-                || next == OperationalActionState.NoEffect;
+                || next == OperationalActionState.Recovered || next == OperationalActionState.NoEffect;
         }
         if (previous == OperationalActionState.Recovering) {
             return next == OperationalActionState.Recovered || next == OperationalActionState.NoEffect;

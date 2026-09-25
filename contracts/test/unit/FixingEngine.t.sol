@@ -111,17 +111,24 @@ contract FixingEngineTest is Test {
         HistoricalObservation[] memory observations = _singleObservation(1_100, 1_150);
         engine.submitEvidence(seriesId, VERSION, _officialSlots(), 0, 0, observations, hex"01");
 
-        vm.expectPartialRevert(IFixingEngine.BatchSequenceNotNewer.selector);
         engine.submitEvidence(seriesId, VERSION, _officialSlots(), 0, 0, observations, hex"02");
+        assertEq(uint8(engine.fixingStatus(seriesId, VERSION, 0)), uint8(FixingStatus.Disputed));
 
         observationAdapter.configure(_origin("L2_STATE"), 2, true, false);
         engine.submitEvidence(seriesId, VERSION, _officialSlots(), 0, 0, observations, hex"03");
+        assertEq(uint8(engine.fixingStatus(seriesId, VERSION, 0)), uint8(FixingStatus.Proposed));
         assertEq(engine.getProposal(seriesId, VERSION, 0).batchSequence, 2);
 
         vm.warp(CORRECTION_CUTOFF);
         observationAdapter.configure(_origin("L2_STATE"), 3, true, false);
         vm.expectPartialRevert(IFixingEngine.CorrectionWindowClosed.selector);
         engine.submitEvidence(seriesId, VERSION, _officialSlots(), 0, 0, observations, hex"04");
+    }
+
+    function test_InitialEvidenceIsRejectedAtCorrectionCutoff() public {
+        vm.warp(CORRECTION_CUTOFF);
+        vm.expectPartialRevert(IFixingEngine.CorrectionWindowClosed.selector);
+        engine.submitEvidence(seriesId, VERSION, _officialSlots(), 0, 0, _singleObservation(1_100, 1_150), hex"01");
     }
 
     function test_SequencerRulesRejectL2AndDelayOutageIndependentEvidence() public {
@@ -271,6 +278,7 @@ contract FixingEngineTest is Test {
             finalResolutionAt: FINAL_RESOLUTION,
             settlementDeadline: 5_000,
             exercisePolicyId: ExercisePolicyId.wrap(keccak256("SetrynExercisePolicyV1:Automatic")),
+            automaticExerciseThresholdMinor: 0,
             disruptionOutcomeId: DisruptionOutcomeId.wrap(keccak256("SetrynDisruptionOutcomeV1:PrecommittedValue")),
             terminalDisruptionTransferMinorPerLot: -500,
             payoffTermsHash: keccak256("terms"),

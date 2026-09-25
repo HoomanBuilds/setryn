@@ -99,6 +99,7 @@ contract SeriesRegistryFuzzTest is Test {
             finalResolutionAt: 700,
             settlementDeadline: 800,
             exercisePolicyId: ExercisePolicyId.wrap(keccak256("SetrynExercisePolicyV1:Automatic")),
+            automaticExerciseThresholdMinor: 0,
             disruptionOutcomeId: DisruptionOutcomeId.wrap(keccak256("SetrynDisruptionOutcomeV1:Flat")),
             terminalDisruptionTransferMinorPerLot: 0,
             payoffTermsHash: keccak256("terms"),

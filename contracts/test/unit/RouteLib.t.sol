@@ -188,6 +188,8 @@ contract RouteLibTest is Test {
                 riskDomainVersion: binding.riskDomainVersion,
                 openInterestBaseUnits: binding.openInterestIncreaseBaseUnits,
                 terminalLiabilityBaseUnits: binding.terminalLiabilityIncreaseBaseUnits,
+                remainingOpenInterestBaseUnits: binding.openInterestIncreaseBaseUnits,
+                remainingTerminalLiabilityBaseUnits: binding.terminalLiabilityIncreaseBaseUnits,
                 deadline: uint64(block.timestamp + 1 days),
                 status: RiskAdmissionStatus.Reserved
             })
@@ -204,6 +206,7 @@ contract RouteLibTest is Test {
                 expectedRiskDomainVersion: binding.riskDomainVersion,
                 expectedOpenInterestBaseUnits: binding.openInterestIncreaseBaseUnits,
                 expectedTerminalLiabilityBaseUnits: binding.terminalLiabilityIncreaseBaseUnits,
+                expectedPositionCount: 1,
                 executionReference: executionReference
             })
         );

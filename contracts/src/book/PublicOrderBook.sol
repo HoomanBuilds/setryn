@@ -664,16 +664,6 @@ contract PublicOrderBook is IPublicOrderBook, AccessControl, ReentrancyGuard {
         }
         BookRemovalReason reason = _terminalReason(record.status);
         if (reason != BookRemovalReason.Unspecified) {
-            bytes32 reservationKey = _orderReservationKeys[orderHash];
-            if (reservationKey != bytes32(0)) {
-                if (reason == BookRemovalReason.Filled) revert InvalidRouteReservation();
-                SourceReservationStatus terminalStatus = reason == BookRemovalReason.Expired
-                    ? SourceReservationStatus.Expired
-                    : SourceReservationStatus.Released;
-                _closeRouteReservation(
-                    reservationKey, terminalStatus, keccak256(abi.encode("ORDER_TERMINAL", orderHash, reason)), false
-                );
-            }
             _removeOrder(orderHash, reason);
             return false;
         }
@@ -701,6 +691,18 @@ contract PublicOrderBook is IPublicOrderBook, AccessControl, ReentrancyGuard {
     function _removeOrder(bytes32 orderHash, BookRemovalReason reason) private {
         BookOrder storage order = _orders[orderHash];
         PriceLevel storage level = _levels[order.levelId];
+        uint128 remaining = Lots.unwrap(order.remainingLots);
+        uint128 reserved = _reservedLots[orderHash];
+        if (reserved > remaining) revert InvalidRouteReservation();
+        bytes32 reservationKey = _orderReservationKeys[orderHash];
+        if (reservationKey != bytes32(0)) {
+            SourceReservationStatus terminalStatus = reason == BookRemovalReason.Expired
+                ? SourceReservationStatus.Expired
+                : SourceReservationStatus.Released;
+            _closeRouteReservation(
+                reservationKey, terminalStatus, keccak256(abi.encode("ORDER_TERMINAL", orderHash, reason)), false
+            );
+        }
         bytes32 previous = order.previousOrderHash;
         bytes32 next = order.nextOrderHash;
         if (previous == bytes32(0)) level.headOrderHash = next;
@@ -708,14 +710,13 @@ contract PublicOrderBook is IPublicOrderBook, AccessControl, ReentrancyGuard {
         if (next == bytes32(0)) level.tailOrderHash = previous;
         else _orders[next].previousOrderHash = previous;
 
-        uint128 removed = Lots.unwrap(order.remainingLots);
-        level.totalLots -= removed;
+        level.totalLots -= remaining - reserved;
         level.orderCount -= 1;
         order.remainingLots = Lots.wrap(0);
         order.previousOrderHash = bytes32(0);
         order.nextOrderHash = bytes32(0);
         order.status = BookOrderStatus.Removed;
-        emit DirectOrderRemoved(order.bookId, orderHash, order.levelId, reason, Lots.wrap(removed));
+        emit DirectOrderRemoved(order.bookId, orderHash, order.levelId, reason, Lots.wrap(remaining));
         if (level.orderCount == 0) _removeLevel(level);
     }
 

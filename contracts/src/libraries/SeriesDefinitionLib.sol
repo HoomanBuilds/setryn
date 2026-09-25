@@ -33,6 +33,7 @@ error InvalidSeriesFixingTimeline();
 error UnsupportedExercisePolicy(ExercisePolicyId exercisePolicyId);
 error InvalidAutomaticExerciseWindow(uint64 exerciseOpensAt, uint64 exerciseCutoffAt);
 error InvalidElectionExerciseWindow(uint64 expiryAt, uint64 exerciseOpensAt, uint64 exerciseCutoffAt);
+error InvalidAutomaticExerciseThreshold(uint128 thresholdMinor);
 error UnsupportedDisruptionOutcome(DisruptionOutcomeId disruptionOutcomeId);
 error InvalidFlatDisruptionTransfer(int256 terminalDisruptionTransferMinorPerLot);
 error ZeroSeriesCommitment();
@@ -121,9 +122,9 @@ library SeriesDefinitionLib {
         keccak256("SetrynSeriesKeyV1(bytes32 namespaceId,bytes32 seriesKey,bytes32 marketId,bytes32 instrumentId)");
 
     string internal constant SERIES_DEFINITION_TYPESTRING =
-        "SetrynSeriesDefinitionV1(bytes32 namespaceId,bytes32 seriesKey,bytes32 marketId,uint32 marketVersion,bytes32 instrumentId,uint32 instrumentVersion,uint64 tradingStartsAt,uint64 lastTradingAt,uint64 expiryAt,uint64 exerciseOpensAt,uint64 exerciseCutoffAt,uint64 fixingWindowOpen,uint64 fixingWindowClose,uint64 primaryEvidenceDeadline,uint64 correctionCutoffAt,uint64 finalResolutionAt,uint64 settlementDeadline,bytes32 exercisePolicyId,bytes32 disruptionOutcomeId,int256 terminalDisruptionTransferMinorPerLot,bytes32 payoffTermsHash,bytes32 fixingSlotsHash,bytes32 dateAdjustmentEvidenceHash,uint128 maxLongDebitMinorPerLot,uint128 maxShortDebitMinorPerLot,bytes32 qualificationEvidenceHash,uint256 chainId)";
+        "SetrynSeriesDefinitionV1(bytes32 namespaceId,bytes32 seriesKey,bytes32 marketId,uint32 marketVersion,bytes32 instrumentId,uint32 instrumentVersion,uint64 tradingStartsAt,uint64 lastTradingAt,uint64 expiryAt,uint64 exerciseOpensAt,uint64 exerciseCutoffAt,uint64 fixingWindowOpen,uint64 fixingWindowClose,uint64 primaryEvidenceDeadline,uint64 correctionCutoffAt,uint64 finalResolutionAt,uint64 settlementDeadline,bytes32 exercisePolicyId,uint128 automaticExerciseThresholdMinor,bytes32 disruptionOutcomeId,int256 terminalDisruptionTransferMinorPerLot,bytes32 payoffTermsHash,bytes32 fixingSlotsHash,bytes32 dateAdjustmentEvidenceHash,uint128 maxLongDebitMinorPerLot,uint128 maxShortDebitMinorPerLot,bytes32 qualificationEvidenceHash,uint256 chainId)";
     bytes32 internal constant SERIES_DEFINITION_TYPEHASH = keccak256(
-        "SetrynSeriesDefinitionV1(bytes32 namespaceId,bytes32 seriesKey,bytes32 marketId,uint32 marketVersion,bytes32 instrumentId,uint32 instrumentVersion,uint64 tradingStartsAt,uint64 lastTradingAt,uint64 expiryAt,uint64 exerciseOpensAt,uint64 exerciseCutoffAt,uint64 fixingWindowOpen,uint64 fixingWindowClose,uint64 primaryEvidenceDeadline,uint64 correctionCutoffAt,uint64 finalResolutionAt,uint64 settlementDeadline,bytes32 exercisePolicyId,bytes32 disruptionOutcomeId,int256 terminalDisruptionTransferMinorPerLot,bytes32 payoffTermsHash,bytes32 fixingSlotsHash,bytes32 dateAdjustmentEvidenceHash,uint128 maxLongDebitMinorPerLot,uint128 maxShortDebitMinorPerLot,bytes32 qualificationEvidenceHash,uint256 chainId)"
+        "SetrynSeriesDefinitionV1(bytes32 namespaceId,bytes32 seriesKey,bytes32 marketId,uint32 marketVersion,bytes32 instrumentId,uint32 instrumentVersion,uint64 tradingStartsAt,uint64 lastTradingAt,uint64 expiryAt,uint64 exerciseOpensAt,uint64 exerciseCutoffAt,uint64 fixingWindowOpen,uint64 fixingWindowClose,uint64 primaryEvidenceDeadline,uint64 correctionCutoffAt,uint64 finalResolutionAt,uint64 settlementDeadline,bytes32 exercisePolicyId,uint128 automaticExerciseThresholdMinor,bytes32 disruptionOutcomeId,int256 terminalDisruptionTransferMinorPerLot,bytes32 payoffTermsHash,bytes32 fixingSlotsHash,bytes32 dateAdjustmentEvidenceHash,uint128 maxLongDebitMinorPerLot,uint128 maxShortDebitMinorPerLot,bytes32 qualificationEvidenceHash,uint256 chainId)"
     );
 
     string internal constant SERIES_VERSION_TYPESTRING =
@@ -319,6 +320,7 @@ library SeriesDefinitionLib {
         );
         bytes memory economics = abi.encode(
             ExercisePolicyId.unwrap(definition.exercisePolicyId),
+            definition.automaticExerciseThresholdMinor,
             DisruptionOutcomeId.unwrap(definition.disruptionOutcomeId),
             definition.terminalDisruptionTransferMinorPerLot,
             definition.payoffTermsHash,
@@ -364,7 +366,10 @@ library SeriesDefinitionLib {
     function _validateExercise(SeriesDefinition memory definition) private pure {
         if (ExercisePolicyId.unwrap(definition.exercisePolicyId) == ExercisePolicyId.unwrap(EXERCISE_POLICY_AUTOMATIC))
         {
-            if (definition.exerciseOpensAt != 0 || definition.exerciseCutoffAt != 0) {
+            if (
+                definition.exerciseOpensAt != 0 || definition.exerciseCutoffAt != 0
+                    || definition.automaticExerciseThresholdMinor != 0
+            ) {
                 revert InvalidAutomaticExerciseWindow(definition.exerciseOpensAt, definition.exerciseCutoffAt);
             }
             return;
@@ -382,6 +387,11 @@ library SeriesDefinitionLib {
             revert InvalidElectionExerciseWindow(
                 definition.expiryAt, definition.exerciseOpensAt, definition.exerciseCutoffAt
             );
+        }
+        bool thresholdRequired = ExercisePolicyId.unwrap(definition.exercisePolicyId)
+            == ExercisePolicyId.unwrap(EXERCISE_POLICY_AUTOMATIC_UNLESS_ABANDONED);
+        if (thresholdRequired != (definition.automaticExerciseThresholdMinor != 0)) {
+            revert InvalidAutomaticExerciseThreshold(definition.automaticExerciseThresholdMinor);
         }
     }
 

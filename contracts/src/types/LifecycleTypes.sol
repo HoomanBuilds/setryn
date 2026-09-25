@@ -11,6 +11,7 @@ import {
     SeriesId
 } from "./Identifiers.sol";
 import {Lots, PriceTicks} from "./Units.sol";
+import {PositionExerciseState} from "./PositionTypes.sol";
 
 type LifecycleActionId is bytes32;
 
@@ -28,7 +29,8 @@ enum LifecycleActionKind {
     Exercise,
     Lapse,
     CollateralPolicyChange,
-    CompressionHandoff
+    CompressionHandoff,
+    Abandon
 }
 
 enum LifecycleActionStatus {
@@ -59,6 +61,8 @@ struct LifecyclePositionSnapshot {
     bytes32 economicsHash;
     bytes32 packageProvenanceHash;
     ExercisePolicyId exercisePolicyId;
+    PositionExerciseState exerciseState;
+    uint128 automaticExerciseThresholdMinor;
     uint64 expiryAt;
     uint64 exerciseOpensAt;
     uint64 exerciseCutoffAt;

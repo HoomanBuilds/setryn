@@ -23,6 +23,7 @@ struct SeriesDefinition {
     uint64 finalResolutionAt;
     uint64 settlementDeadline;
     ExercisePolicyId exercisePolicyId;
+    uint128 automaticExerciseThresholdMinor;
     DisruptionOutcomeId disruptionOutcomeId;
     int256 terminalDisruptionTransferMinorPerLot;
     bytes32 payoffTermsHash;

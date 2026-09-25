@@ -87,8 +87,10 @@ contract RouteRiskEngineMock {
         require(admission.accountId == consumption.expectedAccountId);
         require(admission.riskDomainId == consumption.expectedRiskDomainId);
         require(admission.riskDomainVersion == consumption.expectedRiskDomainVersion);
-        require(admission.openInterestBaseUnits == consumption.expectedOpenInterestBaseUnits);
-        require(admission.terminalLiabilityBaseUnits == consumption.expectedTerminalLiabilityBaseUnits);
+        require(admission.remainingOpenInterestBaseUnits >= consumption.expectedOpenInterestBaseUnits);
+        require(admission.remainingTerminalLiabilityBaseUnits >= consumption.expectedTerminalLiabilityBaseUnits);
+        admission.remainingOpenInterestBaseUnits -= consumption.expectedOpenInterestBaseUnits;
+        admission.remainingTerminalLiabilityBaseUnits -= consumption.expectedTerminalLiabilityBaseUnits;
         admission.status = RiskAdmissionStatus.Consumed;
     }
 

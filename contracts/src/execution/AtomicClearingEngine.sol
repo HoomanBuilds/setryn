@@ -231,7 +231,7 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
             )
         });
 
-        _consumeRiskAdmissions(context, matchData, settlement);
+        _consumeRiskAdmissions(context, matchData, settlement, 1);
         _consumeOrders(context, matchData.fillLots);
         _validateChannelMatch(context, matchData, request.channelKind, channelClaim, bytes32(0));
         _applyFunding(context, matchData, settlement, request.channelKind, channelClaim);
@@ -257,6 +257,9 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
             })
         );
         PositionEconomics memory created = _verifyPosition(positionId, context.fillId, 0);
+        PositionId[] memory exposurePositions = new PositionId[](1);
+        exposurePositions[0] = positionId;
+        _bindRiskExposures(matchData, FillId.unwrap(context.fillId), exposurePositions);
         _verifyAdoptedReservation(channelClaim, 0, true, created.longReservationId);
         _verifyAdoptedReservation(channelClaim, 0, false, created.shortReservationId);
         if (
@@ -353,13 +356,14 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
                 definition.maxShortDebitMinorPerPackageLot, matchData.fillLots
             )
         });
-        _consumeRiskAdmissions(context, matchData, settlement);
+        _consumeRiskAdmissions(context, matchData, settlement, uint16(request.legs.length));
         _consumeOrders(context, matchData.fillLots);
         _validateChannelMatch(context, matchData, request.channelKind, channelClaim, legsHash);
         _applyFunding(context, matchData, settlement, request.channelKind, channelClaim);
         FeeContext memory fees = _consumeFees(context, matchData, settlement);
 
         uint256 legCount = request.legs.length;
+        PositionId[] memory exposurePositions = new PositionId[](legCount);
         uint256 buyerLiabilityCreated;
         uint256 sellerLiabilityCreated;
         for (uint256 i; i < legCount; ++i) {
@@ -389,6 +393,7 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
                 })
             );
             PositionEconomics memory created = _verifyPosition(positionId, context.fillId, uint32(i));
+            exposurePositions[i] = positionId;
             _verifyAdoptedReservation(channelClaim, uint32(i), true, created.longReservationId);
             _verifyAdoptedReservation(channelClaim, uint32(i), false, created.shortReservationId);
             _recordPosition(
@@ -414,6 +419,7 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
             buyerLiabilityCreated != settlement.longLiabilityMinor
                 || sellerLiabilityCreated != settlement.shortLiabilityMinor
         ) revert PositionCreationMismatch(settlement.longLiabilityMinor, buyerLiabilityCreated);
+        _bindRiskExposures(matchData, FillId.unwrap(context.fillId), exposurePositions);
         _recordFill(
             context,
             matchData,
@@ -720,7 +726,8 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
     function _consumeRiskAdmissions(
         MatchContext memory context,
         BilateralMatch calldata matchData,
-        SettlementContext memory settlement
+        SettlementContext memory settlement,
+        uint16 expectedPositionCount
     ) private {
         if (
             RiskAdmissionId.unwrap(matchData.longAdmissionId) == bytes32(0)
@@ -747,6 +754,7 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
                 expectedRiskDomainVersion: longAdmission.riskDomainVersion,
                 expectedOpenInterestBaseUnits: openInterest,
                 expectedTerminalLiabilityBaseUnits: settlement.longLiabilityMinor,
+                expectedPositionCount: expectedPositionCount,
                 executionReference: executionReference
             })
         );
@@ -759,9 +767,19 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
                 expectedRiskDomainVersion: shortAdmission.riskDomainVersion,
                 expectedOpenInterestBaseUnits: openInterest,
                 expectedTerminalLiabilityBaseUnits: settlement.shortLiabilityMinor,
+                expectedPositionCount: expectedPositionCount,
                 executionReference: executionReference
             })
         );
+    }
+
+    function _bindRiskExposures(
+        BilateralMatch calldata matchData,
+        bytes32 executionReference,
+        PositionId[] memory exposurePositions
+    ) private {
+        _riskEngine.bindConsumedExposure(matchData.longAdmissionId, executionReference, exposurePositions);
+        _riskEngine.bindConsumedExposure(matchData.shortAdmissionId, executionReference, exposurePositions);
     }
 
     function _applyFunding(

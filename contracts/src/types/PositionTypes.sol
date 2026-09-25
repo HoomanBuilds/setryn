@@ -7,6 +7,7 @@ import {
     AssetId,
     CollateralLockId,
     FeeScheduleId,
+    ExercisePolicyId,
     InstrumentId,
     MarketId,
     PackageId,
@@ -28,13 +29,24 @@ enum PositionStatus {
     Lapsed,
     CancelledByDisruption,
     Defaulted,
-    TerminalClaim
+    TerminalClaim,
+    Abandoned
 }
 
 enum PositionLiabilitySide {
     Unspecified,
     Long,
     Short
+}
+
+enum PositionExerciseState {
+    Unspecified,
+    AwaitingFixing,
+    ElectionOpen,
+    PartiallyExercised,
+    FullyExercised,
+    Abandoned,
+    Lapsed
 }
 
 struct PositionFunding {
@@ -94,6 +106,10 @@ struct PositionEconomics {
     uint64 finalResolutionAt;
     uint64 settlementDeadline;
     uint64 maxEvaluationGas;
+    uint64 exerciseOpensAt;
+    uint64 exerciseCutoffAt;
+    ExercisePolicyId exercisePolicyId;
+    uint128 automaticExerciseThresholdMinor;
     Lots lots;
     Lots originalLots;
     PriceTicks entryPriceTicks;
@@ -114,6 +130,7 @@ struct PositionEconomics {
 
 struct PositionLifecycle {
     PositionStatus status;
+    PositionExerciseState exerciseState;
     bytes32 finalFixingReference;
     bytes32 finalFixingsHash;
     bytes32 terminalOutcomeReference;

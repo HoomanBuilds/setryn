@@ -6,6 +6,7 @@ import {ISeriesRegistry} from "./ISeriesRegistry.sol";
 import {BenchmarkId, EvidenceOriginId, SeriesId} from "../types/Identifiers.sol";
 import {
     FixingProposal,
+    FixingEvidenceSubmission,
     FixingResolutionKind,
     FixingResult,
     FixingStatus,
@@ -48,6 +49,17 @@ interface IFixingEngine {
         address finalizer
     );
 
+    event FixingDisputed(
+        bytes32 indexed fixingKey,
+        SeriesId indexed seriesId,
+        uint32 indexed seriesVersion,
+        uint8 slot,
+        bytes32 incumbentProposalHash,
+        bytes32 conflictingProposalHash,
+        uint64 batchSequence,
+        address submitter
+    );
+
     error ZeroSeriesRegistry();
     error SeriesRegistryHasNoCode(address dependency);
     error ZeroBenchmarkRegistry();
@@ -85,6 +97,7 @@ interface IFixingEngine {
     error FinalResolutionReached(uint64 finalResolutionAt, uint256 currentTimestamp);
     error FixingAlreadyFinalized(bytes32 fixingKey);
     error CandidateCannotReplaceProposal(uint8 currentCandidate, uint8 suppliedCandidate);
+    error FixingDisputedState(bytes32 fixingKey);
     error CorrectionWindowClosed(uint64 correctionCutoffAt, uint256 currentTimestamp);
     error BatchSequenceNotNewer(uint64 previous, uint64 supplied);
     error AdapterCallFailed(bytes4 selector);
@@ -97,6 +110,7 @@ interface IFixingEngine {
     error FixingNotProposed(bytes32 fixingKey);
     error NormalFinalizationNotOpen(uint64 opensAt, uint64 closesAt, uint256 currentTimestamp);
     error TerminalFallbackNotOpen(uint64 finalResolutionAt, uint256 currentTimestamp);
+    error IncompleteFixingVector(uint256 expected, uint256 actual);
 
     function seriesRegistry() external view returns (ISeriesRegistry);
     function benchmarkRegistry() external view returns (IBenchmarkRegistry);
@@ -109,6 +123,18 @@ interface IFixingEngine {
         HistoricalObservation[] calldata observations,
         bytes calldata adapterEvidence
     ) external returns (bytes32 fixingKey, bytes32 proposalHash);
+    function submitEvidenceVector(
+        SeriesId seriesId,
+        uint32 seriesVersion,
+        FixingSlot[] calldata fixingSlots,
+        FixingEvidenceSubmission[] calldata submissions
+    ) external returns (bytes32 vectorHash);
+    function finalizeFixingVector(SeriesId seriesId, uint32 seriesVersion, FixingSlot[] calldata fixingSlots)
+        external
+        returns (bytes32 vectorResultHash);
+    function applyTerminalFallbackVector(SeriesId seriesId, uint32 seriesVersion, FixingSlot[] calldata fixingSlots)
+        external
+        returns (bytes32 vectorResultHash);
     function finalizeFixing(SeriesId seriesId, uint32 seriesVersion, uint8 slot)
         external
         returns (FixingResult memory result);

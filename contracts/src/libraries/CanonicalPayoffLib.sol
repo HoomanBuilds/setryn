@@ -46,10 +46,9 @@ library CanonicalPayoffLib {
         ) revert InvalidTerms();
         uint256 expected = expectedFixingCount(terms.kind);
         if (expected != 0 && count != expected) revert InvalidTerms();
-        if (terms.kind == PayoffKind.WindowAverageScalar && count < 2) revert InvalidTerms();
         if (
             (terms.kind == PayoffKind.Collar || terms.kind == PayoffKind.RateCollar)
-                && terms.primaryStrike >= terms.secondaryStrike
+                && terms.primaryStrike > terms.secondaryStrike
         ) revert InvalidTerms();
         for (uint256 i; i < count; ++i) {
             PayoffFixingRequirement memory requirement = terms.fixingRequirements[i];
@@ -83,7 +82,6 @@ library CanonicalPayoffLib {
         (int256 scalar, uint256 scalarDenominator) = _scalar(terms, values);
         uint256 denominator = _checkedMulUnsigned(terms.multiplierDenominator, scalarDenominator);
         int256 numerator = _checkedMul(scalar, terms.multiplierNumerator);
-        numerator = _checkedSub(numerator, _checkedMul(terms.premiumMinorPerLot, denominator));
         numerator = _checkedMul(numerator, lots);
         int256 minimumNumerator = _checkedMul(_checkedMul(terms.minimumTransferMinorPerLot, denominator), lots);
         int256 maximumNumerator = _checkedMul(_checkedMul(terms.maximumTransferMinorPerLot, denominator), lots);
@@ -122,7 +120,6 @@ library CanonicalPayoffLib {
 
     function expectedFixingCount(PayoffKind kind) internal pure returns (uint256) {
         if (kind == PayoffKind.BasisSpread || kind == PayoffKind.CalendarSpread) return 2;
-        if (kind == PayoffKind.WindowAverageScalar) return 0;
         return 1;
     }
 
@@ -144,8 +141,8 @@ library CanonicalPayoffLib {
         if (kind == PayoffKind.Collar || kind == PayoffKind.RateCollar) {
             return (
                 _checkedSub(
-                    _positive(_checkedSub(values[0], terms.primaryStrike)),
-                    _positive(_checkedSub(values[0], terms.secondaryStrike))
+                    _positive(_checkedSub(values[0], terms.secondaryStrike)),
+                    _positive(_checkedSub(terms.primaryStrike, values[0]))
                 ),
                 1
             );
@@ -157,11 +154,7 @@ library CanonicalPayoffLib {
             return (_checkedSub(_checkedSub(values[1], values[0]), terms.primaryStrike), 1);
         }
         if (kind == PayoffKind.WindowAverageScalar) {
-            int256 sum;
-            for (uint256 i; i < values.length; ++i) {
-                sum = _checkedAdd(sum, values[i]);
-            }
-            return (_checkedSub(sum, _checkedMul(terms.primaryStrike, values.length)), values.length);
+            return (_checkedSub(values[0], terms.primaryStrike), 1);
         }
         if (kind == PayoffKind.CorrelationDispersionScalar) {
             return (_checkedSub(values[0], terms.primaryStrike), 1);

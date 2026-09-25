@@ -183,7 +183,8 @@ contract DefaultLifecycleExecutorMock {
             defaulterCollateralAppliedMinor: defaulterApplied,
             takeoverContributionAppliedMinor: process.takeoverContributionMinor,
             insuranceAppliedMinor: insuranceDrawMinor,
-            fullyBackedClaimMinor: terminalResidualMinor,
+            terminalResidualMinor: terminalResidualMinor,
+            fullyBackedClaimMinor: 0,
             unbackedClaimMinor: 0
         });
     }
@@ -203,7 +204,8 @@ contract DefaultLifecycleExecutorMock {
             defaulterCollateralAppliedMinor: defaulterApplied,
             takeoverContributionAppliedMinor: 0,
             insuranceAppliedMinor: insuranceDrawMinor,
-            fullyBackedClaimMinor: terminalResidualMinor,
+            terminalResidualMinor: terminalResidualMinor,
+            fullyBackedClaimMinor: 0,
             unbackedClaimMinor: 0
         });
     }

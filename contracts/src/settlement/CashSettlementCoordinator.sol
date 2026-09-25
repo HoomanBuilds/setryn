@@ -379,13 +379,19 @@ contract CashSettlementCoordinator is ICashSettlementCoordinator, ReentrancyGuar
         returns (CanonicalSettlementFixing[] memory fixings)
     {
         fixings = new CanonicalSettlementFixing[](fixingSlots.length);
+        bool requiresFinalization;
         for (uint256 i; i < fixingSlots.length; ++i) {
             FixingStatus status = _fixingEngine.fixingStatus(economics.seriesId, economics.seriesVersion, uint8(i));
             if (status == FixingStatus.Proposed) {
-                _fixingEngine.finalizeFixing(economics.seriesId, economics.seriesVersion, uint8(i));
+                requiresFinalization = true;
             } else if (status != FixingStatus.Finalized) {
                 revert FixingNotFinalized(uint8(i));
             }
+        }
+        if (requiresFinalization) {
+            _fixingEngine.finalizeFixingVector(economics.seriesId, economics.seriesVersion, fixingSlots);
+        }
+        for (uint256 i; i < fixingSlots.length; ++i) {
             FixingResult memory result =
                 _fixingEngine.getFinalizedFixing(economics.seriesId, economics.seriesVersion, uint8(i));
             if (
@@ -402,11 +408,15 @@ contract CashSettlementCoordinator is ICashSettlementCoordinator, ReentrancyGuar
         returns (CanonicalSettlementFixing[] memory fixings)
     {
         fixings = new CanonicalSettlementFixing[](fixingSlots.length);
+        bool requiresFallback;
         for (uint256 i; i < fixingSlots.length; ++i) {
             FixingStatus status = _fixingEngine.fixingStatus(economics.seriesId, economics.seriesVersion, uint8(i));
-            if (status != FixingStatus.Finalized) {
-                _fixingEngine.applyTerminalFallback(economics.seriesId, economics.seriesVersion, uint8(i));
-            }
+            if (status != FixingStatus.Finalized) requiresFallback = true;
+        }
+        if (requiresFallback) {
+            _fixingEngine.applyTerminalFallbackVector(economics.seriesId, economics.seriesVersion, fixingSlots);
+        }
+        for (uint256 i; i < fixingSlots.length; ++i) {
             FixingResult memory result =
                 _fixingEngine.getFinalizedFixing(economics.seriesId, economics.seriesVersion, uint8(i));
             if (result.resultHash == bytes32(0)) revert InvalidDisruptionFixing(uint8(i));

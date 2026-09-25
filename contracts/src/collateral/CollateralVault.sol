@@ -18,6 +18,7 @@ import {
     CollateralBalance,
     CollateralLock,
     TerminalClaim,
+    TerminalLiabilityReplacement,
     TerminalLiabilityReservation
 } from "../types/CollateralTypes.sol";
 import {
@@ -617,6 +618,119 @@ contract CollateralVault is ICollateralVault, AccessControlDefaultAdminRules, Re
 
         _emitCollateralLockConverted(lockId, reservationId, lock, amount);
         _emitTerminalLiabilityReservationCreated(reservationId, _terminalLiabilityReservations[reservationId], lockId);
+    }
+
+    function replaceTerminalLiabilityReservations(
+        TerminalLiabilityReservationId[] calldata sourceReservationIds,
+        TerminalLiabilityReplacement[] calldata replacements
+    )
+        external
+        nonReentrant
+        onlyRole(TERMINAL_RESERVATION_CREATOR_ROLE)
+        returns (TerminalLiabilityReservationId[] memory replacementReservationIds)
+    {
+        if (sourceReservationIds.length == 0 || replacements.length == 0) {
+            revert InvalidTerminalLiabilityReplacement();
+        }
+        TerminalLiabilityReservation storage first = _requireActiveTerminalLiabilityReservation(sourceReservationIds[0]);
+        if (
+            first.creator != msg.sender || first.positionEngine != msg.sender
+                || first.positionEngineCodeHash != msg.sender.codehash
+        ) {
+            revert InvalidTerminalLiabilityReplacement();
+        }
+        uint256 sourceTotal;
+        bytes32 previousSource;
+        for (uint256 i; i < sourceReservationIds.length; ++i) {
+            bytes32 currentSource = TerminalLiabilityReservationId.unwrap(sourceReservationIds[i]);
+            if (currentSource <= previousSource) revert InvalidTerminalLiabilityReplacement();
+            previousSource = currentSource;
+            TerminalLiabilityReservation storage source =
+                _requireActiveTerminalLiabilityReservation(sourceReservationIds[i]);
+            if (
+                source.creator != msg.sender || source.positionEngine != msg.sender
+                    || source.positionEngineId != first.positionEngineId
+                    || source.positionEngineCodeHash != first.positionEngineCodeHash
+                    || AccountId.unwrap(source.payerAccountId) != AccountId.unwrap(first.payerAccountId)
+                    || CollateralId.unwrap(source.collateralId) != CollateralId.unwrap(first.collateralId)
+                    || RiskDomainId.unwrap(source.riskDomainId) != RiskDomainId.unwrap(first.riskDomainId)
+                    || source.riskDomainVersion != first.riskDomainVersion
+            ) revert InvalidTerminalLiabilityReplacement();
+            sourceTotal += source.remainingAmount;
+        }
+
+        replacementReservationIds = new TerminalLiabilityReservationId[](replacements.length);
+        uint256 replacementTotal;
+        for (uint256 i; i < replacements.length; ++i) {
+            TerminalLiabilityReplacement calldata replacement = replacements[i];
+            if (
+                replacement.positionId == bytes32(0) || replacement.amount == 0
+                    || AccountId.unwrap(replacement.payerAccountId) != AccountId.unwrap(first.payerAccountId)
+                    || AssetId.unwrap(replacement.assetId) != AssetId.unwrap(first.assetId)
+                    || replacement.bindingVersion != first.bindingVersion
+                    || RiskDomainId.unwrap(replacement.riskDomainId) != RiskDomainId.unwrap(first.riskDomainId)
+                    || replacement.riskDomainVersion != first.riskDomainVersion
+                    || replacement.finalResolutionAt > replacement.settlementDeadline
+            ) revert InvalidTerminalLiabilityReplacement();
+            TerminalLiabilityReservationId replacementId =
+                _deriveTerminalLiabilityReservationId(msg.sender, first.positionEngineId, replacement.positionId);
+            _requireUnusedTerminalLiabilityReservation(replacementId);
+            replacementReservationIds[i] = replacementId;
+            replacementTotal += replacement.amount;
+        }
+        if (replacementTotal > sourceTotal || replacementTotal > type(uint128).max) {
+            revert InvalidTerminalLiabilityReplacement();
+        }
+
+        for (uint256 i; i < sourceReservationIds.length; ++i) {
+            TerminalLiabilityReservation storage source = _terminalLiabilityReservations[sourceReservationIds[i]];
+            source.remainingAmount = 0;
+            source.status = TerminalLiabilityReservationStatus.Replaced;
+        }
+        for (uint256 i; i < replacements.length; ++i) {
+            TerminalLiabilityReplacement calldata replacement = replacements[i];
+            TerminalLiabilityReservation storage reservation =
+                _terminalLiabilityReservations[replacementReservationIds[i]];
+            reservation.positionId = replacement.positionId;
+            reservation.positionEngineId = first.positionEngineId;
+            reservation.positionEngineCodeHash = first.positionEngineCodeHash;
+            reservation.payerAccountId = first.payerAccountId;
+            reservation.collateralId = first.collateralId;
+            reservation.assetId = first.assetId;
+            reservation.riskDomainId = first.riskDomainId;
+            reservation.creator = msg.sender;
+            reservation.positionEngine = msg.sender;
+            reservation.bindingVersion = first.bindingVersion;
+            reservation.riskDomainVersion = first.riskDomainVersion;
+            reservation.settlementDeadline = replacement.settlementDeadline;
+            reservation.finalResolutionAt = replacement.finalResolutionAt;
+            reservation.status = TerminalLiabilityReservationStatus.Active;
+            reservation.initialAmount = replacement.amount;
+            reservation.remainingAmount = replacement.amount;
+            _emitTerminalLiabilityReservationCreated(
+                replacementReservationIds[i], reservation, CollateralLockId.wrap(bytes32(0))
+            );
+        }
+
+        uint128 released = uint128(sourceTotal - replacementTotal);
+        if (released != 0) {
+            _terminalReserved[first.payerAccountId][first.collateralId] -= released;
+            _terminalReservationEncumbrance[first.collateralId] -= released;
+            _balances[first.payerAccountId][first.collateralId].locked -= released;
+            _decreaseRiskDomainTerminalLiability(
+                first.payerAccountId, first.riskDomainId, first.riskDomainVersion, released
+            );
+        }
+        bytes32 replacementHash = keccak256(abi.encode(sourceReservationIds, replacements));
+        emit TerminalLiabilityReservationsReplaced(
+            replacementHash,
+            first.payerAccountId,
+            first.collateralId,
+            uint128(sourceTotal),
+            uint128(replacementTotal),
+            released,
+            msg.sender
+        );
     }
 
     function finalizeTerminalLiabilityReservation(TerminalLiabilityReservationId reservationId)

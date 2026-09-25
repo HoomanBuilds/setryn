@@ -53,5 +53,6 @@ interface IOperationalAdapterExecutor {
         returns (bytes32 actionId, ExternalVenueResult memory result);
     function reconcileExternal(bytes32 actionId) external returns (ExternalVenueResult memory result);
     function recoverExternal(bytes32 actionId) external returns (ExternalVenueResult memory result);
+    function terminalizeExternal(bytes32 actionId) external returns (ExternalVenueResult memory result);
     function getExternalAction(bytes32 actionId) external view returns (ExternalActionRecord memory record);
 }

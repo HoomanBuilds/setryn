@@ -102,14 +102,26 @@ struct ExternalVenueRequest {
     AccountId interimExposureOwner;
     bytes32 recoveryPolicyHash;
     bytes32 reservationHash;
+    uint256 maximumResidual;
+    ExternalTerminalFallback terminalFallback;
 }
 
 struct ExternalVenueResult {
     OperationalActionState state;
     int256 realizedValue;
+    int256 residualValue;
     bytes32 postconditionsHash;
     bytes32 venueActionReference;
     bytes32 evidenceHash;
+    bytes32 recoveryOutcomeHash;
+}
+
+struct ExternalTerminalFallback {
+    OperationalActionState state;
+    int256 realizedValue;
+    int256 residualValue;
+    bytes32 postconditionsHash;
+    bytes32 outcomeHash;
 }
 
 struct ExternalActionRecord {
@@ -124,6 +136,8 @@ struct ExternalActionRecord {
     bytes32 recoveryPolicyHash;
     int256 minValue;
     int256 maxValue;
+    uint256 maximumResidual;
     bytes32 expectedPostconditionsHash;
+    ExternalTerminalFallback terminalFallback;
     bytes32 resultHash;
 }

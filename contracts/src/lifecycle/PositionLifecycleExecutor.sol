@@ -13,6 +13,7 @@ import {ILifecycleAtomicExecutor} from "../interfaces/ILifecycleAtomicExecutor.s
 import {IPositionEngine} from "../interfaces/IPositionEngine.sol";
 import {CompressionLib} from "../libraries/CompressionLib.sol";
 import {LifecycleHashLib} from "../libraries/LifecycleHashLib.sol";
+import {TerminalLiabilityReplacement, TerminalLiabilityReservation} from "../types/CollateralTypes.sol";
 import {
     CompressionPlanId,
     CompressionPosition,
@@ -32,6 +33,7 @@ import {
     CollateralLockId,
     PackageId,
     PositionId,
+    RiskDomainId,
     SeriesId,
     TerminalLiabilityReservationId
 } from "../types/Identifiers.sol";
@@ -48,11 +50,14 @@ import {
     PositionCreation,
     PositionEconomics,
     PositionFunding,
+    PositionLiabilitySide,
     PositionLifecycle,
     PositionProvenance,
     PositionStatus
 } from "../types/PositionTypes.sol";
+import {SeriesVersion} from "../types/SeriesDefinition.sol";
 import {Lots, PriceTicks} from "../types/Units.sol";
+import {TerminalLiabilityReservationStatus} from "../types/Enums.sol";
 
 contract PositionLifecycleExecutor is
     ILifecycleAtomicExecutor,
@@ -61,6 +66,16 @@ contract PositionLifecycleExecutor is
     AccessControlDefaultAdminRules,
     ReentrancyGuard
 {
+    struct BackingTarget {
+        bytes32 liabilityKey;
+        AccountId payerAccountId;
+        CollateralId collateralId;
+        RiskDomainId riskDomainId;
+        uint32 riskDomainVersion;
+        uint64 settlementDeadline;
+        uint64 finalResolutionAt;
+        uint128 amount;
+    }
     bytes32 public constant SIGNED_LIFECYCLE_ENGINE_ROLE = keccak256("SETRYN_SIGNED_LIFECYCLE_ENGINE_ROLE");
     bytes32 public constant COMPRESSION_COORDINATOR_ROLE = keccak256("SETRYN_COMPRESSION_COORDINATOR_ROLE");
     bytes32 public constant DEFAULT_PROCESS_ENGINE_ROLE = keccak256("SETRYN_DEFAULT_PROCESS_ENGINE_ROLE");
@@ -159,6 +174,7 @@ contract PositionLifecycleExecutor is
             ) revert InputPositionMismatch(inputs[i].positionId);
         }
         _validateLifecycleReplacements(successors, collateralReplacements);
+        _replaceLifecycleBacking(executionId, inputs, successors);
         PositionId[] memory created = new PositionId[](successors.length);
         for (uint256 i; i < successors.length; ++i) {
             (bytes memory terms, PositionProvenance memory provenance) =
@@ -202,6 +218,7 @@ contract PositionLifecycleExecutor is
         bytes32 executionId = CompressionPlanId.unwrap(planId);
         _consume(executionId);
         _validateCompressionReplacements(successors, replacementCollateral);
+        _replaceCompressionBacking(executionId, inputs, successors);
         PositionId[] memory created = new PositionId[](successors.length);
         for (uint256 i; i < successors.length; ++i) {
             (bytes memory terms, PositionProvenance memory provenance) =
@@ -303,6 +320,7 @@ contract PositionLifecycleExecutor is
             defaulterCollateralAppliedMinor: defaulterApplied,
             takeoverContributionAppliedMinor: process.takeoverContributionMinor,
             insuranceAppliedMinor: insuranceDrawMinor,
+            terminalResidualMinor: terminalResidualMinor,
             fullyBackedClaimMinor: 0,
             unbackedClaimMinor: 0
         });
@@ -313,7 +331,7 @@ contract PositionLifecycleExecutor is
         DefaultProcessRules calldata,
         InsurancePolicy calldata,
         uint128 insuranceDrawMinor,
-        uint128
+        uint128 terminalResidualMinor
     ) external nonReentrant returns (DefaultExecutionResult memory result) {
         _requireCaller(DEFAULT_PROCESS_ENGINE_ROLE);
         bytes32 executionId = keccak256(abi.encode(DEFAULT_OUTCOME_TYPEHASH, process.processId, process.positionId));
@@ -339,6 +357,7 @@ contract PositionLifecycleExecutor is
             defaulterCollateralAppliedMinor: defaulterApplied,
             takeoverContributionAppliedMinor: 0,
             insuranceAppliedMinor: insuranceDrawMinor,
+            terminalResidualMinor: terminalResidualMinor,
             fullyBackedClaimMinor: 0,
             unbackedClaimMinor: 0
         });
@@ -379,6 +398,311 @@ contract PositionLifecycleExecutor is
             }),
             provenance
         );
+    }
+
+    function _replaceLifecycleBacking(
+        bytes32 executionId,
+        LifecycleInput[] calldata inputs,
+        LifecycleSuccessor[] calldata successors
+    ) private {
+        TerminalLiabilityReservationId[] memory sources = _sourceReservations(inputs);
+        BackingTarget[] memory targets = new BackingTarget[](successors.length * 2);
+        uint256 targetCount;
+        for (uint256 i; i < successors.length; ++i) {
+            LifecycleSuccessor calldata successor = successors[i];
+            PositionId positionId = _deriveSuccessorPositionId(
+                executionId,
+                i,
+                successor.successorKey,
+                successor.seriesId,
+                successor.seriesVersion,
+                successor.longAccountId,
+                successor.shortAccountId,
+                successor.lots,
+                successor.entryPriceTicks
+            );
+            SeriesVersion memory series =
+                positionEngine.seriesRegistry().getSeries(successor.seriesId, successor.seriesVersion);
+            targetCount = _appendTarget(
+                targets,
+                targetCount,
+                positionId,
+                PositionLiabilitySide.Long,
+                successor.longAccountId,
+                successor.collateralId,
+                successor.riskDomainId,
+                successor.riskDomainVersion,
+                series.definition.settlementDeadline,
+                series.definition.finalResolutionAt,
+                successor.longTerminalLiabilityBaseUnits
+            );
+            targetCount = _appendTarget(
+                targets,
+                targetCount,
+                positionId,
+                PositionLiabilitySide.Short,
+                successor.shortAccountId,
+                successor.collateralId,
+                successor.riskDomainId,
+                successor.riskDomainVersion,
+                series.definition.settlementDeadline,
+                series.definition.finalResolutionAt,
+                successor.shortTerminalLiabilityBaseUnits
+            );
+        }
+        assembly ("memory-safe") {
+            mstore(targets, targetCount)
+        }
+        _replaceBacking(sources, targets);
+    }
+
+    function _replaceCompressionBacking(
+        bytes32 executionId,
+        CompressionPosition[] calldata inputs,
+        CompressionSuccessor[] calldata successors
+    ) private {
+        TerminalLiabilityReservationId[] memory sources = _sourceReservations(inputs);
+        BackingTarget[] memory targets = new BackingTarget[](successors.length * 2);
+        uint256 targetCount;
+        for (uint256 i; i < successors.length; ++i) {
+            CompressionSuccessor calldata successor = successors[i];
+            PositionId positionId = _deriveSuccessorPositionId(
+                executionId,
+                i,
+                successor.successorKey,
+                successor.seriesId,
+                successor.seriesVersion,
+                successor.longAccountId,
+                successor.shortAccountId,
+                successor.lots,
+                successor.entryPriceTicks
+            );
+            SeriesVersion memory series =
+                positionEngine.seriesRegistry().getSeries(successor.seriesId, successor.seriesVersion);
+            targetCount = _appendTarget(
+                targets,
+                targetCount,
+                positionId,
+                PositionLiabilitySide.Long,
+                successor.longAccountId,
+                successor.collateralId,
+                successor.riskDomainId,
+                successor.riskDomainVersion,
+                series.definition.settlementDeadline,
+                series.definition.finalResolutionAt,
+                successor.longTerminalLiabilityBaseUnits
+            );
+            targetCount = _appendTarget(
+                targets,
+                targetCount,
+                positionId,
+                PositionLiabilitySide.Short,
+                successor.shortAccountId,
+                successor.collateralId,
+                successor.riskDomainId,
+                successor.riskDomainVersion,
+                series.definition.settlementDeadline,
+                series.definition.finalResolutionAt,
+                successor.shortTerminalLiabilityBaseUnits
+            );
+        }
+        assembly ("memory-safe") {
+            mstore(targets, targetCount)
+        }
+        _replaceBacking(sources, targets);
+    }
+
+    function _sourceReservations(LifecycleInput[] calldata inputs)
+        private
+        view
+        returns (TerminalLiabilityReservationId[] memory sources)
+    {
+        sources = new TerminalLiabilityReservationId[](inputs.length * 2);
+        uint256 count;
+        for (uint256 i; i < inputs.length; ++i) {
+            (PositionEconomics memory economics,) = positionEngine.getPosition(inputs[i].positionId);
+            count = _appendSource(sources, count, economics.longReservationId);
+            count = _appendSource(sources, count, economics.shortReservationId);
+        }
+        assembly ("memory-safe") {
+            mstore(sources, count)
+        }
+        _sortSources(sources);
+    }
+
+    function _sourceReservations(CompressionPosition[] calldata inputs)
+        private
+        view
+        returns (TerminalLiabilityReservationId[] memory sources)
+    {
+        sources = new TerminalLiabilityReservationId[](inputs.length * 2);
+        uint256 count;
+        for (uint256 i; i < inputs.length; ++i) {
+            (PositionEconomics memory economics,) = positionEngine.getPosition(inputs[i].positionId);
+            count = _appendSource(sources, count, economics.longReservationId);
+            count = _appendSource(sources, count, economics.shortReservationId);
+        }
+        assembly ("memory-safe") {
+            mstore(sources, count)
+        }
+        _sortSources(sources);
+    }
+
+    function _replaceBacking(TerminalLiabilityReservationId[] memory sources, BackingTarget[] memory targets) private {
+        bool[] memory assignedTargets = new bool[](targets.length);
+        for (uint256 i; i < sources.length; ++i) {
+            TerminalLiabilityReservation memory leader = collateralVault.terminalLiabilityReservationOf(sources[i]);
+            bool earlierGroup;
+            for (uint256 j; j < i; ++j) {
+                TerminalLiabilityReservation memory earlier = collateralVault.terminalLiabilityReservationOf(sources[j]);
+                if (_sameBackingGroup(leader, earlier)) earlierGroup = true;
+            }
+            if (earlierGroup) continue;
+
+            uint256 sourceCount;
+            for (uint256 j; j < sources.length; ++j) {
+                TerminalLiabilityReservation memory source = collateralVault.terminalLiabilityReservationOf(sources[j]);
+                if (_sameBackingGroup(leader, source)) ++sourceCount;
+            }
+            uint256 replacementCount;
+            for (uint256 j; j < targets.length; ++j) {
+                if (_sameBackingGroup(leader, targets[j])) ++replacementCount;
+            }
+            if (replacementCount == 0) continue;
+
+            TerminalLiabilityReservationId[] memory groupedSources = new TerminalLiabilityReservationId[](sourceCount);
+            TerminalLiabilityReplacement[] memory replacements = new TerminalLiabilityReplacement[](replacementCount);
+            uint256 sourceIndex;
+            uint256 replacementIndex;
+            for (uint256 j; j < sources.length; ++j) {
+                TerminalLiabilityReservation memory source = collateralVault.terminalLiabilityReservationOf(sources[j]);
+                if (_sameBackingGroup(leader, source)) groupedSources[sourceIndex++] = sources[j];
+            }
+            for (uint256 j; j < targets.length; ++j) {
+                if (!_sameBackingGroup(leader, targets[j])) continue;
+                BackingTarget memory target = targets[j];
+                replacements[replacementIndex++] = TerminalLiabilityReplacement({
+                    positionId: target.liabilityKey,
+                    payerAccountId: target.payerAccountId,
+                    assetId: leader.assetId,
+                    riskDomainId: target.riskDomainId,
+                    bindingVersion: leader.bindingVersion,
+                    riskDomainVersion: target.riskDomainVersion,
+                    settlementDeadline: target.settlementDeadline,
+                    finalResolutionAt: target.finalResolutionAt,
+                    amount: target.amount
+                });
+                assignedTargets[j] = true;
+            }
+            positionEngine.replaceLifecycleReservations(groupedSources, replacements);
+        }
+        for (uint256 i; i < targets.length; ++i) {
+            if (!assignedTargets[i]) revert CollateralReplacementMismatch(targets[i].payerAccountId);
+        }
+    }
+
+    function _appendSource(
+        TerminalLiabilityReservationId[] memory sources,
+        uint256 count,
+        TerminalLiabilityReservationId source
+    ) private pure returns (uint256) {
+        if (TerminalLiabilityReservationId.unwrap(source) == bytes32(0)) return count;
+        sources[count] = source;
+        return count + 1;
+    }
+
+    function _appendTarget(
+        BackingTarget[] memory targets,
+        uint256 count,
+        PositionId positionId,
+        PositionLiabilitySide side,
+        AccountId payerAccountId,
+        CollateralId collateralId,
+        RiskDomainId riskDomainId,
+        uint32 riskDomainVersion,
+        uint64 settlementDeadline,
+        uint64 finalResolutionAt,
+        uint128 amount
+    ) private view returns (uint256) {
+        if (amount == 0) return count;
+        targets[count] = BackingTarget({
+            liabilityKey: positionEngine.deriveLiabilityKey(positionId, uint8(side)),
+            payerAccountId: payerAccountId,
+            collateralId: collateralId,
+            riskDomainId: riskDomainId,
+            riskDomainVersion: riskDomainVersion,
+            settlementDeadline: settlementDeadline,
+            finalResolutionAt: finalResolutionAt,
+            amount: amount
+        });
+        return count + 1;
+    }
+
+    function _deriveSuccessorPositionId(
+        bytes32 executionId,
+        uint256 index,
+        bytes32 successorKey,
+        SeriesId seriesId,
+        uint32 seriesVersion,
+        AccountId longAccountId,
+        AccountId shortAccountId,
+        Lots lots,
+        PriceTicks entryPriceTicks
+    ) private view returns (PositionId) {
+        PositionFunding memory noFunding;
+        return positionEngine.derivePositionId(
+            PositionCreation({
+                fillIdentity: keccak256(abi.encode(executionId, successorKey)),
+                seriesId: seriesId,
+                seriesVersion: seriesVersion,
+                longAccountId: longAccountId,
+                shortAccountId: shortAccountId,
+                ordinal: uint32(index),
+                lots: lots,
+                entryPriceTicks: entryPriceTicks,
+                longFunding: noFunding,
+                shortFunding: noFunding,
+                payoffTerms: bytes("")
+            })
+        );
+    }
+
+    function _sortSources(TerminalLiabilityReservationId[] memory sources) private pure {
+        for (uint256 i = 1; i < sources.length; ++i) {
+            TerminalLiabilityReservationId current = sources[i];
+            uint256 j = i;
+            while (
+                j != 0
+                    && TerminalLiabilityReservationId.unwrap(sources[j - 1])
+                        > TerminalLiabilityReservationId.unwrap(current)
+            ) {
+                sources[j] = sources[j - 1];
+                --j;
+            }
+            sources[j] = current;
+        }
+    }
+
+    function _sameBackingGroup(TerminalLiabilityReservation memory left, TerminalLiabilityReservation memory right)
+        private
+        pure
+        returns (bool)
+    {
+        return AccountId.unwrap(left.payerAccountId) == AccountId.unwrap(right.payerAccountId)
+            && CollateralId.unwrap(left.collateralId) == CollateralId.unwrap(right.collateralId)
+            && RiskDomainId.unwrap(left.riskDomainId) == RiskDomainId.unwrap(right.riskDomainId)
+            && left.riskDomainVersion == right.riskDomainVersion;
+    }
+
+    function _sameBackingGroup(TerminalLiabilityReservation memory source, BackingTarget memory target)
+        private
+        pure
+        returns (bool)
+    {
+        return AccountId.unwrap(source.payerAccountId) == AccountId.unwrap(target.payerAccountId)
+            && CollateralId.unwrap(source.collateralId) == CollateralId.unwrap(target.collateralId)
+            && RiskDomainId.unwrap(source.riskDomainId) == RiskDomainId.unwrap(target.riskDomainId)
+            && source.riskDomainVersion == target.riskDomainVersion;
     }
 
     function _validateLifecycleSuccessor(PositionId positionId, LifecycleSuccessor calldata expected) private view {
@@ -504,6 +828,33 @@ contract PositionLifecycleExecutor is
                     lifecycleBefore.lifecycleNonce,
                     fixingReference,
                     finalFixings
+                );
+                (PositionEconomics memory economics, PositionLifecycle memory lifecycleAfter) =
+                    positionEngine.getPosition(inputs[i].positionId);
+                if (Lots.unwrap(lifecycleAfter.remainingLots) != 0) {
+                    positionEngine.closePositionQuantity(
+                        inputs[i].positionId,
+                        lifecycleAfter.remainingLots,
+                        action.actorAccountId,
+                        lifecycleAfter.lifecycleNonce,
+                        PositionStatus.Replaced,
+                        executionId
+                    );
+                }
+                _finalize(economics.longReservationId);
+                _finalize(economics.shortReservationId);
+            }
+            return;
+        }
+        if (action.kind == LifecycleActionKind.Abandon) {
+            for (uint256 i; i < inputs.length; ++i) {
+                (, PositionLifecycle memory lifecycleBefore) = positionEngine.getPosition(inputs[i].positionId);
+                positionEngine.abandonPositionQuantity(
+                    inputs[i].positionId,
+                    inputs[i].actionLots,
+                    action.actorAccountId,
+                    lifecycleBefore.lifecycleNonce,
+                    executionId
                 );
                 (PositionEconomics memory economics, PositionLifecycle memory lifecycleAfter) =
                     positionEngine.getPosition(inputs[i].positionId);
@@ -648,20 +999,24 @@ contract PositionLifecycleExecutor is
     }
 
     function _finalize(TerminalLiabilityReservationId reservationId) private {
-        if (TerminalLiabilityReservationId.unwrap(reservationId) != bytes32(0)) {
+        if (
+            TerminalLiabilityReservationId.unwrap(reservationId) != bytes32(0)
+                && collateralVault.terminalLiabilityReservationStatusOf(reservationId)
+                    == TerminalLiabilityReservationStatus.Active
+        ) {
             collateralVault.finalizeTerminalLiabilityReservation(reservationId);
         }
     }
 
     function _supportedAction(LifecycleActionKind kind, uint256 successorCount) private pure returns (bool) {
         if (kind == LifecycleActionKind.FullUnwind || kind == LifecycleActionKind.Lapse) return successorCount == 0;
+        if (kind == LifecycleActionKind.Exercise || kind == LifecycleActionKind.Abandon) return true;
         if (successorCount == 0) return false;
         return kind == LifecycleActionKind.Transfer || kind == LifecycleActionKind.Assignment
             || kind == LifecycleActionKind.PartialUnwind || kind == LifecycleActionKind.Split
             || kind == LifecycleActionKind.Merge || kind == LifecycleActionKind.Amendment
             || kind == LifecycleActionKind.Novation || kind == LifecycleActionKind.Roll
-            || kind == LifecycleActionKind.CollateralPolicyChange || kind == LifecycleActionKind.CompressionHandoff
-            || kind == LifecycleActionKind.Exercise;
+            || kind == LifecycleActionKind.CollateralPolicyChange || kind == LifecycleActionKind.CompressionHandoff;
     }
 
     function _consume(bytes32 executionId) private {

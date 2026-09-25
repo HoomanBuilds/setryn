@@ -80,6 +80,18 @@ struct TerminalLiabilityReservation {
     uint128 terminalAmount;
 }
 
+struct TerminalLiabilityReplacement {
+    bytes32 positionId;
+    AccountId payerAccountId;
+    AssetId assetId;
+    RiskDomainId riskDomainId;
+    uint32 bindingVersion;
+    uint32 riskDomainVersion;
+    uint64 settlementDeadline;
+    uint64 finalResolutionAt;
+    uint128 amount;
+}
+
 struct TerminalClaim {
     TerminalLiabilityReservationId reservationId;
     bytes32 positionId;

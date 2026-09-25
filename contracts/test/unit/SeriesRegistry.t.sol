@@ -301,6 +301,7 @@ contract SeriesRegistryTest is Test {
             finalResolutionAt: NOW + 12 days,
             settlementDeadline: NOW + 13 days,
             exercisePolicyId: SeriesDefinitionLib.EXERCISE_POLICY_AUTOMATIC,
+            automaticExerciseThresholdMinor: 0,
             disruptionOutcomeId: SeriesDefinitionLib.DISRUPTION_OUTCOME_FLAT,
             terminalDisruptionTransferMinorPerLot: 0,
             payoffTermsHash: bytes32(0),

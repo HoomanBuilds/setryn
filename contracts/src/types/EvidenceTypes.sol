@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.37;
 
-import {PrivacyEnvelopeId} from "./PrivacyTypes.sol";
+import {DisclosureGrantId, PrivacyEnvelopeId, PrivacyPolicyId} from "./PrivacyTypes.sol";
 
 type ReceiptId is bytes32;
 
@@ -27,10 +27,14 @@ struct ReceiptDraft {
     bytes32 environmentId;
     bytes32 deploymentHash;
     bytes32 disclosurePolicyHash;
+    bytes32 disclosureScopeHash;
     bytes32 publicFieldsHash;
+    PrivacyPolicyId privacyPolicyId;
     PrivacyEnvelopeId privacyEnvelopeId;
+    DisclosureGrantId disclosureGrantId;
     ReceiptId predecessorReceiptId;
     uint256 evidenceGradeBitmap;
+    uint32 privacyPolicyVersion;
     bool privateSubject;
 }
 

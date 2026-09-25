@@ -5,12 +5,17 @@ import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/Signa
 
 import {IPortfolioRiskEngine} from "../interfaces/IPortfolioRiskEngine.sol";
 import {IRiskAdmissionBindingRegistry} from "../interfaces/IRiskAdmissionBindingRegistry.sol";
+import {Eip712Lib} from "../libraries/Eip712Lib.sol";
 import {OrderHashLib} from "../libraries/OrderHashLib.sol";
 import {AccountId, RiskDomainId} from "../types/Identifiers.sol";
 import {PublicOrder} from "../types/OrderTypes.sol";
 import {RiskAdmission, RiskAdmissionCancellation, RiskAdmissionId, RiskAdmissionStatus} from "../types/RiskTypes.sol";
 
 contract RiskAdmissionBindingRegistry is IRiskAdmissionBindingRegistry {
+    bytes32 private constant CANCELLATION_TYPEHASH = keccak256(
+        "SetrynRiskAdmissionCancellationV1(bytes32 admissionId,bytes32 orderHash,bytes32 accountId,address signer,uint256 nonce,uint64 deadline,bytes32 cancellationReference)"
+    );
+
     IPortfolioRiskEngine public immutable riskEngine;
     address public immutable orderVerifyingContract;
 
@@ -96,22 +101,20 @@ contract RiskAdmissionBindingRegistry is IRiskAdmissionBindingRegistry {
         if (admission.status != RiskAdmissionStatus.Reserved || admission.accountId != cancellation.accountId) {
             revert InvalidCancellation();
         }
-        bytes32 digest = keccak256(
+        bytes32 structHash = keccak256(
             abi.encode(
-                keccak256(
-                    "SetrynRiskAdmissionCancellationV1(bytes32 admissionId,bytes32 orderHash,bytes32 accountId,address signer,uint256 nonce,uint64 deadline,bytes32 cancellationReference,uint256 chainId,address registry)"
-                ),
+                CANCELLATION_TYPEHASH,
                 RiskAdmissionId.unwrap(admissionId),
                 cancellation.orderHash,
                 AccountId.unwrap(cancellation.accountId),
                 cancellation.signer,
                 cancellation.nonce,
                 cancellation.deadline,
-                cancellation.cancellationReference,
-                block.chainid,
-                address(this)
+                cancellation.cancellationReference
             )
         );
+        bytes32 digest =
+            Eip712Lib.toTypedDataDigest(Eip712Lib.domainSeparator(block.chainid, address(this)), structHash);
         if (!SignatureChecker.isValidSignatureNowCalldata(cancellation.signer, digest, signature)) {
             revert InvalidCancellation();
         }

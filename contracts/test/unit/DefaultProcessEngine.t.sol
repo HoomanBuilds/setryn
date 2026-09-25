@@ -152,6 +152,23 @@ contract DefaultProcessEngineTest is Test {
         assertEq(process.outcomeHash, outcomeHash);
     }
 
+    function test_TerminalDefaultUsesOnlyObjectivelyFundedInsuranceAndStillResolves() public {
+        DefaultProcessId processId = _open();
+        vm.prank(insurer);
+        InsuranceDepositId depositId =
+            engine.depositInsurance(domainId, VERSION, INSURANCE_ACCOUNT, 5, 1_300, keccak256("partial"), policy);
+        InsuranceDepositId[] memory deposits = new InsuranceDepositId[](1);
+        deposits[0] = depositId;
+
+        vm.warp(1_000);
+        engine.resolveTerminalDefault(processId, rules, policy, deposits);
+        DefaultProcess memory process = engine.getDefaultProcess(processId);
+
+        assertEq(uint8(process.status), uint8(DefaultProcessStatus.TerminalResolved));
+        assertEq(process.insuranceDrawMinor, 5);
+        assertEq(process.terminalResidualMinor, 75);
+    }
+
     function _open() private returns (DefaultProcessId) {
         return engine.openDefault(POSITION, DEFAULTER, domainId, VERSION, rules, policy);
     }

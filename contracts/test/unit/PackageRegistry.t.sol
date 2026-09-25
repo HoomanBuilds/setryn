@@ -405,6 +405,7 @@ contract PackageRegistryTest is Test {
             finalResolutionAt: type(uint64).max - 4,
             settlementDeadline: type(uint64).max - 3,
             exercisePolicyId: ExercisePolicyId.wrap(keccak256("exercise.auto")),
+            automaticExerciseThresholdMinor: 0,
             disruptionOutcomeId: DisruptionOutcomeId.wrap(keccak256("disruption.flat")),
             terminalDisruptionTransferMinorPerLot: 0,
             payoffTermsHash: keccak256("terms"),

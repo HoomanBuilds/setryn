@@ -251,6 +251,7 @@ contract CashSettlementCoordinatorTest is Test {
             finalResolutionAt: FINAL_RESOLUTION,
             settlementDeadline: 5_000,
             exercisePolicyId: ExercisePolicyId.wrap(keccak256("automatic")),
+            automaticExerciseThresholdMinor: 0,
             disruptionOutcomeId: DisruptionOutcomeId.wrap(keccak256("precommitted")),
             terminalDisruptionTransferMinorPerLot: -5,
             payoffTermsHash: seriesRegistry.hashPayoffTerms(keccak256("terms.schema"), terms),

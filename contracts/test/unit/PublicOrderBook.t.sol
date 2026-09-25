@@ -9,7 +9,7 @@ import {IOrderState} from "../../src/interfaces/IOrderState.sol";
 import {IPackageRegistry} from "../../src/interfaces/IPackageRegistry.sol";
 import {IPublicBookEligibilityGate} from "../../src/interfaces/IPublicBookEligibilityGate.sol";
 import {ISeriesRegistry} from "../../src/interfaces/ISeriesRegistry.sol";
-import {BookOrder, LevelHint, PriceLevel} from "../../src/types/BookTypes.sol";
+import {BookOrder, BookOrderStatus, LevelHint, PriceLevel} from "../../src/types/BookTypes.sol";
 import {Side} from "../../src/types/Enums.sol";
 import {
     AccountId,
@@ -30,6 +30,7 @@ import {
     TimeInForce
 } from "../../src/types/OrderTypes.sol";
 import {Lots, PriceTicks} from "../../src/types/Units.sol";
+import {RouteId, SourceReservationStatus, SourceRouteReservation} from "../../src/types/RoutingTypes.sol";
 import {
     MockBookClearingEngine,
     MockBookMarketRegistry,
@@ -42,6 +43,7 @@ import {
 contract PublicOrderBookTest is Test {
     MockBookOrderState internal orders;
     MockBookClearingEngine internal clearing;
+    MockPublicBookEligibilityGate internal eligibilityGate;
     PublicOrderBook internal book;
     SeriesId internal seriesId = SeriesId.wrap(keccak256("series"));
     FeeScheduleId internal feeScheduleId = FeeScheduleId.wrap(keccak256("fees"));
@@ -54,11 +56,11 @@ contract PublicOrderBookTest is Test {
         clearing = new MockBookClearingEngine(
             IOrderState(address(orders)), ISeriesRegistry(address(series)), IPackageRegistry(address(packages))
         );
-        MockPublicBookEligibilityGate gate = new MockPublicBookEligibilityGate();
+        eligibilityGate = new MockPublicBookEligibilityGate();
         book = new PublicOrderBook(
             IOrderState(address(orders)),
             IAtomicClearingEngine(address(clearing)),
-            IPublicBookEligibilityGate(address(gate))
+            IPublicBookEligibilityGate(address(eligibilityGate))
         );
 
         MarketId marketId = MarketId.wrap(keccak256("market"));
@@ -102,6 +104,53 @@ contract PublicOrderBookTest is Test {
         book.placeSeriesOrder(bidHash, LevelHint(bytes32(0), bytes32(0)));
         vm.expectRevert();
         book.placeSeriesOrder(askHash, LevelHint(bytes32(0), bytes32(0)));
+    }
+
+    function test_SyncCancelledFullyReservedOrderClosesReservationWithoutLevelUnderflow() public {
+        bytes32 orderHash = keccak256("reserved-cancel");
+        bytes32 reservationKey = keccak256("reserved-cancel-key");
+        OrderRecord memory record = _record(Side.Buy, 100, false);
+        orders.setOrder(orderHash, record);
+        book.placeSeriesOrder(orderHash, LevelHint(bytes32(0), bytes32(0)));
+        book.reserveForRoute(
+            RouteId.wrap(keccak256("route")),
+            orderHash,
+            record.order.lots,
+            uint64(block.timestamp + 1 hours),
+            reservationKey,
+            address(clearing)
+        );
+
+        record.status = OrderStatus.Cancelled;
+        orders.setOrder(orderHash, record);
+        book.syncOrder(orderHash);
+
+        assertEq(uint8(book.getBookOrder(orderHash).status), uint8(BookOrderStatus.Removed));
+        SourceRouteReservation memory reservation = book.getRouteReservation(reservationKey);
+        assertEq(uint8(reservation.status), uint8(SourceReservationStatus.Released));
+    }
+
+    function test_SyncIneligiblePartiallyReservedOrderClosesReservationWithoutLevelUnderflow() public {
+        bytes32 orderHash = keccak256("reserved-ineligible");
+        bytes32 reservationKey = keccak256("reserved-ineligible-key");
+        OrderRecord memory record = _record(Side.Buy, 100, false);
+        orders.setOrder(orderHash, record);
+        book.placeSeriesOrder(orderHash, LevelHint(bytes32(0), bytes32(0)));
+        book.reserveForRoute(
+            RouteId.wrap(keccak256("route-2")),
+            orderHash,
+            Lots.wrap(7),
+            uint64(block.timestamp + 1 hours),
+            reservationKey,
+            address(clearing)
+        );
+
+        eligibilityGate.setEligible(false);
+        book.syncOrder(orderHash);
+
+        assertEq(uint8(book.getBookOrder(orderHash).status), uint8(BookOrderStatus.Removed));
+        SourceRouteReservation memory reservation = book.getRouteReservation(reservationKey);
+        assertEq(uint8(reservation.status), uint8(SourceReservationStatus.Released));
     }
 
     function _record(Side side, int128 price, bool postOnly) private view returns (OrderRecord memory) {

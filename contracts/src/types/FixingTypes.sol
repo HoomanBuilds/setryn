@@ -7,6 +7,7 @@ import {FixingSelectionRuleId} from "./SeriesQualification.sol";
 enum FixingStatus {
     Unspecified,
     Proposed,
+    Disputed,
     Finalized
 }
 
@@ -35,6 +36,13 @@ struct HistoricalObservation {
     bytes32 finalityReference;
     bytes32 itemEvidenceHash;
     SequencerEvidence sequencer;
+}
+
+struct FixingEvidenceSubmission {
+    uint8 slot;
+    uint8 candidateIndex;
+    HistoricalObservation[] observations;
+    bytes adapterEvidence;
 }
 
 struct ObservationValidationContext {
@@ -98,4 +106,3 @@ struct FixingResult {
     int256 value;
     int256 terminalDisruptionTransferMinorPerLot;
 }
-

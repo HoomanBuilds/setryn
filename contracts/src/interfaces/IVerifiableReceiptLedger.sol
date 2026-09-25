@@ -35,10 +35,14 @@ interface IVerifiableReceiptLedger {
         uint256 chainId,
         bytes32 deploymentHash,
         bool privateSubject,
+        bytes32 privacyPolicyId,
+        uint32 privacyPolicyVersion,
         bytes32 privacyEnvelopeId,
+        bytes32 disclosureGrantId,
         bytes32 disclosurePolicyHash,
+        bytes32 disclosureScopeHash,
         bytes32 publicFieldsHash,
-        address authority
+        address submitter
     );
     event ReceiptSubjectFinalized(
         bytes32 indexed subjectKindId,

@@ -223,6 +223,7 @@ library DefaultProcessLib {
                 result.defaulterCollateralAppliedMinor,
                 result.takeoverContributionAppliedMinor,
                 result.insuranceAppliedMinor,
+                result.terminalResidualMinor,
                 result.fullyBackedClaimMinor,
                 terminalResidualMinor
             )

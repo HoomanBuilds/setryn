@@ -46,8 +46,14 @@ library LifecycleMathLib {
             if (inputCount != 1 || successorCount == 0 || successorCount > 2) revert InvalidLifecycleShape();
             return;
         }
-        if (kind == LifecycleActionKind.PartialUnwind || kind == LifecycleActionKind.Exercise) {
-            if (successorCount == 0) revert InvalidLifecycleShape();
+        if (
+            kind == LifecycleActionKind.PartialUnwind || kind == LifecycleActionKind.Exercise
+                || kind == LifecycleActionKind.Abandon
+        ) {
+            if (kind == LifecycleActionKind.PartialUnwind && successorCount == 0) {
+                revert InvalidLifecycleShape();
+            }
+            if (successorCount > inputCount) revert InvalidLifecycleShape();
             return;
         }
         if (kind == LifecycleActionKind.FullUnwind || kind == LifecycleActionKind.Lapse) {
@@ -78,13 +84,17 @@ library LifecycleMathLib {
         LifecyclePositionSnapshot[] memory inputs,
         uint256 currentTimestamp
     ) private pure {
-        if (kind == LifecycleActionKind.Exercise) {
+        if (kind == LifecycleActionKind.Exercise || kind == LifecycleActionKind.Abandon) {
             for (uint256 i; i < inputs.length; ++i) {
                 bytes32 policy = ExercisePolicyId.unwrap(inputs[i].exercisePolicyId);
                 if (
-                    policy != ExercisePolicyId.unwrap(SeriesDefinitionLib.EXERCISE_POLICY_HOLDER_ELECTION)
-                        && policy
-                            != ExercisePolicyId.unwrap(SeriesDefinitionLib.EXERCISE_POLICY_AUTOMATIC_UNLESS_ABANDONED)
+                    (kind == LifecycleActionKind.Exercise
+                            && policy != ExercisePolicyId.unwrap(SeriesDefinitionLib.EXERCISE_POLICY_HOLDER_ELECTION))
+                        || (kind == LifecycleActionKind.Abandon
+                            && policy
+                                != ExercisePolicyId.unwrap(
+                                    SeriesDefinitionLib.EXERCISE_POLICY_AUTOMATIC_UNLESS_ABANDONED
+                                ))
                 ) {
                     revert ExerciseWindowClosed(
                         PositionId.unwrap(inputs[i].positionId),
@@ -110,7 +120,7 @@ library LifecycleMathLib {
         }
         if (kind == LifecycleActionKind.Lapse) {
             for (uint256 i; i < inputs.length; ++i) {
-                if (currentTimestamp < inputs[i].lapseEligibleAt) {
+                if (currentTimestamp <= inputs[i].lapseEligibleAt) {
                     revert LapseNotAvailable(
                         PositionId.unwrap(inputs[i].positionId), inputs[i].lapseEligibleAt, currentTimestamp
                     );
@@ -142,8 +152,16 @@ library LifecycleMathLib {
             if (actionLots != inputLots || successorLots != 0) revert QuantityNotConserved();
             return;
         }
-        if (kind == LifecycleActionKind.PartialUnwind || kind == LifecycleActionKind.Exercise) {
-            if (actionLots >= inputLots || successorLots + actionLots != inputLots) revert QuantityNotConserved();
+        if (
+            kind == LifecycleActionKind.PartialUnwind || kind == LifecycleActionKind.Exercise
+                || kind == LifecycleActionKind.Abandon
+        ) {
+            if (actionLots == 0 || actionLots > inputLots || successorLots + actionLots != inputLots) {
+                revert QuantityNotConserved();
+            }
+            if (kind == LifecycleActionKind.PartialUnwind && actionLots == inputLots) revert QuantityNotConserved();
+            if (actionLots == inputLots && successorLots != 0) revert QuantityNotConserved();
+            if (actionLots < inputLots && successorLots == 0) revert QuantityNotConserved();
             _requireEconomicConservation(inputs, successors, requestedInputs, true);
             return;
         }
@@ -198,13 +216,17 @@ library LifecycleMathLib {
             if (afterLiability != replacements[i].terminalLiabilityBaseUnits) {
                 revert CollateralReplacementMismatch(AccountId.unwrap(accountId));
             }
-            uint128 tolerance = _liabilityTolerance(action, accountId, consents);
+            uint128 tolerance;
+            if (afterLiability > beforeLiability) tolerance = _liabilityTolerance(action, accountId, consents);
             if (afterLiability > beforeLiability + tolerance) {
                 revert LiabilityToleranceExceeded(
                     AccountId.unwrap(accountId), beforeLiability, afterLiability, tolerance
                 );
             }
-            uint128 collateralTolerance = _collateralTolerance(action, accountId, consents);
+            uint128 collateralTolerance;
+            if (afterLiability > beforeLiability) {
+                collateralTolerance = _collateralTolerance(action, accountId, consents);
+            }
             if (afterLiability > beforeLiability + collateralTolerance) {
                 revert CollateralReplacementMismatch(AccountId.unwrap(accountId));
             }
@@ -219,6 +241,25 @@ library LifecycleMathLib {
         LifecycleCollateralReplacement[] memory replacements,
         LifecycleConsent[] memory consents
     ) private pure {
+        if (action.kind == LifecycleActionKind.Exercise || action.kind == LifecycleActionKind.Abandon) {
+            for (uint256 i; i < inputs.length; ++i) {
+                if (AccountId.unwrap(inputs[i].longAccountId) != AccountId.unwrap(action.actorAccountId)) {
+                    revert MissingConsent(AccountId.unwrap(inputs[i].longAccountId));
+                }
+            }
+            for (uint256 i; i < successors.length; ++i) {
+                bool exactPair;
+                for (uint256 j; j < inputs.length; ++j) {
+                    if (
+                        AccountId.unwrap(successors[i].longAccountId) == AccountId.unwrap(inputs[j].longAccountId)
+                            && AccountId.unwrap(successors[i].shortAccountId)
+                                == AccountId.unwrap(inputs[j].shortAccountId)
+                    ) exactPair = true;
+                }
+                if (!exactPair) revert MissingConsent(AccountId.unwrap(successors[i].shortAccountId));
+            }
+            return;
+        }
         for (uint256 i; i < inputs.length; ++i) {
             _requireAccount(action, inputs[i].longAccountId, replacements, consents);
             _requireAccount(action, inputs[i].shortAccountId, replacements, consents);
@@ -260,7 +301,10 @@ library LifecycleMathLib {
                 packageAffected = true;
             }
         }
-        if (!packageAffected || action.kind == LifecycleActionKind.Lapse) return;
+        if (
+            !packageAffected || action.kind == LifecycleActionKind.Lapse || action.kind == LifecycleActionKind.Exercise
+                || action.kind == LifecycleActionKind.Abandon
+        ) return;
         if (!action.breaksPackageProvenance) {
             if (action.kind != LifecycleActionKind.CompressionHandoff) revert PackageBreakNotAuthorized(bytes32(0));
             return;

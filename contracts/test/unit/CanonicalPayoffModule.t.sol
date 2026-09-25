@@ -43,11 +43,19 @@ contract CanonicalPayoffModuleTest is Test {
         assertEq(forwardModule.exactLotsCapability(), forwardModule.EXACT_LOTS_CAPABILITY());
     }
 
-    function test_GoldenEuropeanCallPremiumAndCap() public view {
-        CanonicalPayoffTerms memory terms = _terms(PayoffKind.EuropeanCall, 100, 0, 10, 1, -50, 100, 7);
+    function test_GoldenEuropeanCallPremiumIsNotTerminalPayoff() public view {
+        CanonicalPayoffTerms memory terms = _terms(PayoffKind.EuropeanCall, 100, 0, 10, 1, -50, 1_000, 7);
         CanonicalFixing[] memory fixings = _fixings(130);
 
-        assertEq(harness.evaluate(terms, fixings, 1), 100);
+        assertEq(harness.evaluate(terms, fixings, 1), 300);
+    }
+
+    function test_GoldenCollarIsLongUpperCallMinusShortLowerPut() public view {
+        CanonicalPayoffTerms memory terms = _terms(PayoffKind.Collar, 90, 110, 1, 1, -100, 100, 0);
+
+        assertEq(harness.evaluate(terms, _fixings(80), 1), -10);
+        assertEq(harness.evaluate(terms, _fixings(100), 1), 0);
+        assertEq(harness.evaluate(terms, _fixings(120), 1), 10);
     }
 
     function test_ExactLotsSelectorPreservesCrossLotFraction() public view {
@@ -58,16 +66,9 @@ contract CanonicalPayoffModuleTest is Test {
         assertEq(forwardModule.evaluatePositionLots(abi.encode(terms), abi.encode(fixings), 3), 1);
     }
 
-    function test_GoldenWindowAverageHasNoIntermediateDivision() public view {
+    function test_GoldenWindowAverageConsumesOneQualifiedAggregate() public view {
         CanonicalPayoffTerms memory terms = _terms(PayoffKind.WindowAverageScalar, 10, 0, 100, 3, -1_000, 1_000, 0);
-        terms.fixingRequirements = new PayoffFixingRequirement[](3);
-        CanonicalFixing[] memory fixings = new CanonicalFixing[](3);
-        for (uint8 i; i < 3; ++i) {
-            terms.fixingRequirements[i] = _requirement(i);
-            fixings[i] = CanonicalFixing({
-                slot: i, benchmarkId: BENCHMARK, benchmarkVersion: 1, decimals: 0, value: int256(uint256(10 + i))
-            });
-        }
+        CanonicalFixing[] memory fixings = _fixings(11);
 
         assertEq(harness.evaluate(terms, fixings, 1), 33);
     }

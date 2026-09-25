@@ -55,7 +55,8 @@ enum TerminalLiabilityReservationStatus {
     Active,
     Settled,
     ReleasedAtTerminal,
-    ConvertedToClaim
+    ConvertedToClaim,
+    Replaced
 }
 
 enum TerminalOutcomeKind {
