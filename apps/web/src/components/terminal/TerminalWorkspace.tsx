@@ -18,7 +18,13 @@ import {
   type StageState,
   type TicketState,
 } from "@/lib/terminal/economics";
+import { SCENARIO_CLOCK_ISO } from "@/lib/terminal/format";
 import { tradeHref } from "@/lib/terminal/markets";
+import {
+  advancePreviewStream,
+  derivePreviewMarket,
+  initialPreviewStream,
+} from "@/lib/terminal/preview-market";
 import type { BookRow, ConsoleTabId, PackageMarket } from "@/lib/terminal/types";
 
 type MobileTab = "market" | "book" | "order" | "positions";
@@ -52,7 +58,7 @@ export function TerminalWorkspace({ market }: { market: PackageMarket }) {
   const [mobileTab, setMobileTab] = useState<MobileTab>("market");
   const [ticket, setTicket] = useState<TicketState>(() => initialTicket(market));
   const [stage, setStage] = useState<StageState>({ kind: "IDLE" });
-  const [snapshotOffset, setSnapshotOffset] = useState(0);
+  const [stream, setStream] = useState(() => initialPreviewStream(market.id));
   const [pricedMarketId, setPricedMarketId] = useState(market.id);
 
   /* A route change repoints the ticket during the same render, so a limit price
@@ -62,17 +68,26 @@ export function TerminalWorkspace({ market }: { market: PackageMarket }) {
     setPricedMarketId(market.id);
     setTicket(initialTicket(market));
     setStage({ kind: "IDLE" });
-    setSnapshotOffset(0);
+    setStream(initialPreviewStream(market.id));
     setConsoleScoped(true);
   }
 
-  /** Preview snapshots age visibly, then roll over, so freshness is never presented as live. */
   useEffect(() => {
+    setStream(initialPreviewStream(market.id));
     const timer = window.setInterval(() => {
-      setSnapshotOffset((offset) => (market.snapshotAgeSeconds + offset >= 12 ? 0 : offset + 1));
+      setStream((current) => advancePreviewStream(market.id, current));
     }, 1_000);
     return () => window.clearInterval(timer);
-  }, [market.snapshotAgeSeconds]);
+  }, [market.id]);
+
+  const activeStream =
+    stream.marketId === market.id ? stream : initialPreviewStream(market.id);
+  const liveMarket = useMemo(
+    () => derivePreviewMarket(market, activeStream),
+    [market, activeStream],
+  );
+  const previewEpochSeconds =
+    Math.floor(Date.parse(SCENARIO_CLOCK_ISO) / 1_000) + activeStream.tick;
 
   useEffect(() => {
     if (stage.kind !== "QUEUED") return;
@@ -82,18 +97,23 @@ export function TerminalWorkspace({ market }: { market: PackageMarket }) {
   }, [stage]);
 
   const route = useMemo(
-    () => market.routes.find((candidate) => candidate.id === ticket.routeId) ?? null,
-    [market, ticket.routeId],
+    () => liveMarket.routes.find((candidate) => candidate.id === ticket.routeId) ?? null,
+    [liveMarket, ticket.routeId],
   );
 
-  const preview = useMemo(() => buildPreview(market, ticket, route), [market, ticket, route]);
+  const preview = useMemo(
+    () => buildPreview(liveMarket, ticket, route),
+    [liveMarket, ticket, route],
+  );
 
   const maxLots = useMemo(() => {
     const multiple = route?.collateralMultiple ?? 1;
-    const byCollateral = Math.floor(COLLATERAL_TOTALS.available / (market.collateralPerLot * multiple));
-    const byCapacity = route ? route.availableLots : market.firmDepthLots;
+    const byCollateral = Math.floor(
+      COLLATERAL_TOTALS.available / (liveMarket.collateralPerLot * multiple),
+    );
+    const byCapacity = route ? route.availableLots : liveMarket.firmDepthLots;
     return Math.max(1, Math.min(byCollateral, byCapacity));
-  }, [market, route]);
+  }, [liveMarket, route]);
 
   const selectMarket = useCallback((next: PackageMarket) => router.push(tradeHref(next)), [router]);
 
@@ -113,15 +133,17 @@ export function TerminalWorkspace({ market }: { market: PackageMarket }) {
           next.intent !== current.intent;
         if (reprice) {
           const nextRoute =
-            market.routes.find((candidate) => candidate.id === next.routeId) ?? null;
+            liveMarket.routes.find((candidate) => candidate.id === next.routeId) ?? null;
           next.limitInput = (
-            nextRoute ? routePrice(nextRoute, next.intent) : bestReferencePrice(market, next.intent)
-          ).toFixed(market.priceDecimals);
+            nextRoute
+              ? routePrice(nextRoute, next.intent)
+              : bestReferencePrice(liveMarket, next.intent)
+          ).toFixed(liveMarket.priceDecimals);
         }
         return next;
       });
     },
-    [market],
+    [liveMarket],
   );
 
   const selectBookRow = useCallback(
@@ -130,10 +152,10 @@ export function TerminalWorkspace({ market }: { market: PackageMarket }) {
       setTicket((current) => ({
         ...current,
         intent: row.side === "ASK" ? "ENTER" : "EXIT",
-        limitInput: row.price.toFixed(market.priceDecimals),
+        limitInput: row.price.toFixed(liveMarket.priceDecimals),
       }));
     },
-    [market.priceDecimals],
+    [liveMarket.priceDecimals],
   );
 
   const openTicket = useCallback(
@@ -147,9 +169,9 @@ export function TerminalWorkspace({ market }: { market: PackageMarket }) {
   const onStage = useCallback(() => {
     setStage({
       kind: "COMPILED",
-      reference: previewReference(market.id, preview.lots, preview.limitPrice),
+      reference: previewReference(liveMarket.id, preview.lots, preview.limitPrice),
     });
-  }, [market.id, preview.lots, preview.limitPrice]);
+  }, [liveMarket.id, preview.lots, preview.limitPrice]);
 
   const onConfirm = useCallback(() => {
     setStage((current) =>
@@ -160,12 +182,11 @@ export function TerminalWorkspace({ market }: { market: PackageMarket }) {
   const onReset = useCallback(() => setStage({ kind: "IDLE" }), []);
 
   const show = (tab: MobileTab) => (mobileTab === tab ? "flex" : "hidden");
-  const snapshotAge = market.snapshotAgeSeconds + snapshotOffset;
   const activePrice = Number.parseFloat(ticket.limitInput);
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-app">
-      <MarketHeader market={market} onSelectMarket={selectMarket} />
+      <MarketHeader market={liveMarket} onSelectMarket={selectMarket} />
 
       <nav
         aria-label="Workspace sections"
@@ -189,18 +210,19 @@ export function TerminalWorkspace({ market }: { market: PackageMarket }) {
         >
           <div className="flex min-h-[280px] flex-1 flex-col lg:min-h-0">
             <AnalysisPanel
-              market={market}
+              market={liveMarket}
+              baseMarket={market}
               tab={vizTab}
               onTab={setVizTab}
               lots={Math.max(1, preview.lots)}
-              snapshotAge={snapshotAge}
+              previewEpochSeconds={previewEpochSeconds}
             />
           </div>
           <div className="shrink-0 px-3 lg:hidden">
             <Disclosure summary="Market stats and contract">
               <div className="space-y-4">
-                <MarketStatGrid market={market} />
-                <ContractSpec market={market} />
+                <MarketStatGrid market={liveMarket} />
+                <ContractSpec market={liveMarket} />
               </div>
             </Disclosure>
           </div>
@@ -212,7 +234,11 @@ export function TerminalWorkspace({ market }: { market: PackageMarket }) {
           aria-labelledby="mobile-tab-book"
           className={`${show("book")} min-h-0 min-w-0 flex-1 flex-col border-line lg:col-start-2 lg:row-start-1 lg:row-end-3 lg:flex lg:border-l`}
         >
-          <OrderBookPanel market={market} activePrice={activePrice} onSelectRow={selectBookRow} />
+          <OrderBookPanel
+            market={liveMarket}
+            activePrice={activePrice}
+            onSelectRow={selectBookRow}
+          />
         </div>
 
         <div
@@ -222,7 +248,7 @@ export function TerminalWorkspace({ market }: { market: PackageMarket }) {
           className={`${show("order")} min-h-0 min-w-0 flex-1 flex-col border-line lg:col-start-3 lg:row-start-1 lg:row-end-3 lg:flex lg:border-l`}
         >
           <OrderTicket
-            market={market}
+            market={liveMarket}
             state={ticket}
             preview={preview}
             route={route}
@@ -242,7 +268,7 @@ export function TerminalWorkspace({ market }: { market: PackageMarket }) {
           className={`${show("positions")} min-h-0 min-w-0 flex-1 flex-col lg:col-start-1 lg:col-end-2 lg:row-start-2 lg:flex`}
         >
           <ConsolePanel
-            market={market}
+            market={liveMarket}
             tab={consoleTab}
             onTab={setConsoleTab}
             scoped={consoleScoped}

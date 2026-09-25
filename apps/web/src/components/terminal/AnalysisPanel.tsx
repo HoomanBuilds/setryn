@@ -5,6 +5,7 @@ import { DepthChart } from "@/components/terminal/viz/DepthChart";
 import { LegGraph } from "@/components/terminal/viz/LegGraph";
 import { PackagePriceChart } from "@/components/terminal/viz/PackagePriceChart";
 import { PayoffChart } from "@/components/terminal/viz/PayoffChart";
+import { formatUtcClock } from "@/lib/terminal/format";
 import type { PackageMarket } from "@/lib/terminal/types";
 
 export type VizTab = "price" | "depth" | "payoff" | "legs";
@@ -18,16 +19,18 @@ const VIZ_TABS = [
 
 export function AnalysisPanel({
   market,
+  baseMarket,
   tab,
   onTab,
   lots,
-  snapshotAge,
+  previewEpochSeconds,
 }: {
   market: PackageMarket;
+  baseMarket: PackageMarket;
   tab: VizTab;
   onTab: (tab: VizTab) => void;
   lots: number;
-  snapshotAge: number;
+  previewEpochSeconds: number;
 }) {
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-panel">
@@ -40,10 +43,14 @@ export function AnalysisPanel({
           className="no-scrollbar min-w-0 overflow-x-auto"
         />
         <span
-          className="tnum hidden shrink-0 font-mono text-xs text-off min-[380px]:inline"
-          title="Preview snapshots age visibly and then roll over. Nothing here streams from a chain."
+          className="hidden shrink-0 items-center gap-1.5 text-xs text-off min-[380px]:flex"
+          title="Deterministic preview feed. No value is read from a live venue or chain."
         >
-          {`snapshot ${snapshotAge}s`}
+          <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-up" />
+          <span>Preview stream</span>
+          <span className="tnum font-mono text-faint">
+            {`${formatUtcClock(previewEpochSeconds)} UTC`}
+          </span>
         </span>
       </div>
 
@@ -55,7 +62,13 @@ export function AnalysisPanel({
           tab === "price" ? "p-0" : "px-3 py-3 lg:px-4"
         }`}
       >
-        {tab === "price" ? <PackagePriceChart market={market} /> : null}
+        {tab === "price" ? (
+          <PackagePriceChart
+            market={market}
+            baseMarket={baseMarket}
+            previewEpochSeconds={previewEpochSeconds}
+          />
+        ) : null}
         {tab === "depth" ? <DepthChart market={market} /> : null}
         {tab === "payoff" ? <PayoffChart market={market} lots={lots} /> : null}
         {tab === "legs" ? <LegGraph market={market} /> : null}
