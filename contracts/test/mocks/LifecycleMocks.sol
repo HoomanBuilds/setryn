@@ -51,6 +51,10 @@ contract LifecycleAccountAuthorityMock is ILifecycleAccountAuthority {
     function isAuthorizedSigner(AccountId accountId, address signer) external view returns (bool) {
         return signers[accountId][signer];
     }
+
+    function isAuthorizedSignerForPolicy(AccountId accountId, address signer, bytes32) external view returns (bool) {
+        return signers[accountId][signer];
+    }
 }
 
 contract LifecyclePolicyValidatorMock is ILifecyclePolicyValidator {

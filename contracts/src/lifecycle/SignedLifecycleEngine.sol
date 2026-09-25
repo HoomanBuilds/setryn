@@ -88,7 +88,7 @@ contract SignedLifecycleEngine is ISignedLifecycleEngine, AccessControlDefaultAd
             }
         } else {
             _authorizeActor(action, actorSignature);
-            _authorizeConsents(actionId, action.deadline, consents, consentSignatures);
+            _authorizeConsents(actionId, action.policyContextHash, action.deadline, consents, consentSignatures);
         }
         LifecycleMathLib.validate(
             action, inputs, snapshots, successors, collateralReplacements, consents, block.timestamp
@@ -250,7 +250,9 @@ contract SignedLifecycleEngine is ISignedLifecycleEngine, AccessControlDefaultAd
         if (_usedActorNonces[action.actorAccountId][action.nonce]) {
             revert NonceAlreadyUsed(AccountId.unwrap(action.actorAccountId), action.nonce);
         }
-        if (!accountAuthority.isAuthorizedSigner(action.actorAccountId, action.actor)) {
+        if (!accountAuthority.isAuthorizedSignerForPolicy(
+                action.actorAccountId, action.actor, action.policyContextHash
+            )) {
             revert InvalidActorSignature(action.actor);
         }
         bytes32 digest = LifecycleHashLib.actionDigest(action, block.chainid, address(this));
@@ -262,6 +264,7 @@ contract SignedLifecycleEngine is ISignedLifecycleEngine, AccessControlDefaultAd
 
     function _authorizeConsents(
         LifecycleActionId actionId,
+        bytes32 policyContextHash,
         uint64 actionDeadline,
         LifecycleConsent[] calldata consents,
         bytes[] calldata signatures
@@ -278,7 +281,7 @@ contract SignedLifecycleEngine is ISignedLifecycleEngine, AccessControlDefaultAd
             if (_usedConsentNonces[consent.accountId][consent.nonce]) {
                 revert NonceAlreadyUsed(AccountId.unwrap(consent.accountId), consent.nonce);
             }
-            if (!accountAuthority.isAuthorizedSigner(consent.accountId, consent.signer)) {
+            if (!accountAuthority.isAuthorizedSignerForPolicy(consent.accountId, consent.signer, policyContextHash)) {
                 revert InvalidConsentSignature(AccountId.unwrap(consent.accountId), consent.signer);
             }
             bytes32 digest = LifecycleHashLib.consentDigest(consent, block.chainid, address(this));

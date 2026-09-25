@@ -70,7 +70,9 @@ contract CompressionCoordinator is ICompressionCoordinator, AccessControlDefault
         bytes32 definitionHash = _validateDefinition(definition, inputs, successors, replacementCollateral, consents);
         planId = CompressionLib.derivePlanId(definitionHash);
         if (_plans[planId].status != CompressionPlanStatus.Unspecified) revert InvalidCompressionPlanState(planId);
-        _validateConsents(planId, definition.deadline, inputs, successors, consents, signatures);
+        _validateConsents(
+            planId, definition.qualificationHash, definition.deadline, inputs, successors, consents, signatures
+        );
         _usedPlanNonces[definition.planNonce] = true;
         _plans[planId] = CompressionPlanRecord({
             definitionHash: definitionHash, executionOutcomeHash: bytes32(0), status: CompressionPlanStatus.Authorized
@@ -194,6 +196,7 @@ contract CompressionCoordinator is ICompressionCoordinator, AccessControlDefault
 
     function _validateConsents(
         CompressionPlanId planId,
+        bytes32 qualificationHash,
         uint64 planDeadline,
         CompressionPosition[] calldata inputs,
         CompressionSuccessor[] calldata successors,
@@ -216,7 +219,9 @@ contract CompressionCoordinator is ICompressionCoordinator, AccessControlDefault
             if (_usedConsentNonces[consent.accountId][consent.nonce]) {
                 revert ConsentNonceAlreadyUsed(accountId, consent.nonce);
             }
-            if (!accountAuthority.isAuthorizedSigner(consent.accountId, consent.signer)) {
+            if (!accountAuthority.consumeAuthorizedSigner(
+                    consent.accountId, consent.signer, qualificationHash, consent.nonce
+                )) {
                 revert InvalidConsentSignature(accountId, consent.signer);
             }
             bytes32 digest = CompressionLib.consentDigest(consent, block.chainid, address(this));
