@@ -65,6 +65,7 @@ interface MarketSpec {
   payoff: PayoffSpec;
   impliedOrigin: string;
   solverOrigin: string;
+  liquiditySources: LiquiditySource[];
 }
 
 interface LevelSpec {
@@ -99,34 +100,36 @@ function buildBook(spec: MarketSpec): BookRow[] {
   const rows: BookRow[] = [];
 
   const push = (side: "BID" | "ASK", ladder: LevelSpec[]) => {
-    ladder.forEach((level, index) => {
-      const direction = side === "ASK" ? 1 : -1;
-      const price = round(
-        spec.mid + direction * (half + level.offsetTicks * spec.tickSize),
-        spec.priceDecimals,
-      );
-      const lots = Math.max(2, Math.round(level.lots * (0.72 + rand() * 0.56)));
-      rows.push({
-        id: `${spec.id}-${side}-${index}`,
-        side,
-        source: level.source,
-        price,
-        lots,
-        firmness: level.indicative
-          ? "INDICATIVE"
-          : level.source === "IMPLIED"
-            ? "CAPACITY_BACKED"
-            : "FIRM",
-        executable: level.executable,
-        ttlSeconds: level.source === "SOLVER_FIRM" ? 45 : undefined,
-        origin:
-          level.source === "IMPLIED"
-            ? spec.impliedOrigin
-            : level.source === "SOLVER_FIRM"
-              ? spec.solverOrigin
-              : undefined,
+    ladder
+      .filter((level) => spec.liquiditySources.includes(level.source))
+      .forEach((level, index) => {
+        const direction = side === "ASK" ? 1 : -1;
+        const price = round(
+          spec.mid + direction * (half + level.offsetTicks * spec.tickSize),
+          spec.priceDecimals,
+        );
+        const lots = Math.max(2, Math.round(level.lots * (0.72 + rand() * 0.56)));
+        rows.push({
+          id: `${spec.id}-${side}-${index}`,
+          side,
+          source: level.source,
+          price,
+          lots,
+          firmness: level.indicative
+            ? "INDICATIVE"
+            : level.source === "IMPLIED"
+              ? "CAPACITY_BACKED"
+              : "FIRM",
+          executable: level.executable,
+          ttlSeconds: level.source === "SOLVER_FIRM" ? 45 : undefined,
+          origin:
+            level.source === "IMPLIED"
+              ? spec.impliedOrigin
+              : level.source === "SOLVER_FIRM"
+                ? spec.solverOrigin
+                : undefined,
+        });
       });
-    });
   };
 
   push("ASK", ASK_LADDER);
@@ -140,14 +143,18 @@ function buildRoutes(spec: MarketSpec, book: BookRow[]): RouteQuote[] {
     executable.filter((row) => row.source === source).reduce((sum, row) => sum + row.lots, 0);
   const best = (source: LiquiditySource, side: "BID" | "ASK") => {
     const candidates = executable.filter((row) => row.source === source && row.side === side);
-    if (candidates.length === 0) return spec.mid;
+    if (candidates.length === 0) {
+      throw new Error(`${spec.id} has no executable ${source} ${side.toLowerCase()}`);
+    }
     return side === "ASK"
       ? Math.min(...candidates.map((row) => row.price))
       : Math.max(...candidates.map((row) => row.price));
   };
 
-  return [
-    {
+  const routes: RouteQuote[] = [];
+
+  if (lotsFor("DIRECT") > 0) {
+    routes.push({
       id: "DIRECT_BOOK",
       label: "Direct package book",
       source: "DIRECT",
@@ -163,8 +170,11 @@ function buildRoutes(spec: MarketSpec, book: BookRow[]): RouteQuote[] {
       intermediateExposureRate: 0,
       collateralMultiple: 1,
       note: "Resting package liquidity. All legs print in one match, so no leg can fill alone.",
-    },
-    {
+    });
+  }
+
+  if (lotsFor("IMPLIED") > 0) {
+    routes.push({
       id: "IMPLIED_LEGS",
       label: "Implied from component legs",
       source: "IMPLIED",
@@ -180,8 +190,11 @@ function buildRoutes(spec: MarketSpec, book: BookRow[]): RouteQuote[] {
       intermediateExposureRate: 0.34,
       collateralMultiple: 1.18,
       note: "Headline price improves, but legs print in sequence and the package is exposed until the last leg confirms.",
-    },
-    {
+    });
+  }
+
+  if (lotsFor("SOLVER_FIRM") > 0) {
+    routes.push({
       id: "SOLVER_RFQ",
       label: "Solver firm quote, private RFQ",
       source: "SOLVER_FIRM",
@@ -197,8 +210,10 @@ function buildRoutes(spec: MarketSpec, book: BookRow[]): RouteQuote[] {
       intermediateExposureRate: 0,
       collateralMultiple: 0.94,
       note: "Signed, capacity-backed commitment. Requires the private RFQ toggle because the request is disclosed only to invited solvers.",
-    },
-  ];
+    });
+  }
+
+  return routes;
 }
 
 /**
@@ -303,6 +318,7 @@ interface MaturityVariant {
   seed: number;
   qualification: Qualification;
   qualificationNote: string;
+  liquiditySources: LiquiditySource[];
   /** Marks that move with the maturity, by leg id. A spot leg keeps its anchor mark. */
   legMarks?: Record<string, number>;
 }
@@ -330,6 +346,7 @@ function maturity(anchor: MarketSpec, variant: MaturityVariant): MarketSpec {
     tenorLabel: variant.tenorLabel,
     qualification: variant.qualification,
     qualificationNote: variant.qualificationNote,
+    liquiditySources: variant.liquiditySources,
     snapshotAgeSeconds: variant.snapshotAgeSeconds,
     collateralPerLot: variant.collateralPerLot,
     residualPerLot: variant.residualPerLot,
@@ -387,6 +404,7 @@ const ANCHORS: MarketSpec[] = [
     seed: 10_007,
     impliedOrigin: "BTC 24DEC26 forward book plus USDC term book",
     solverOrigin: "Solver SLV-07, bonded capacity",
+    liquiditySources: ["DIRECT", "IMPLIED", "SOLVER_FIRM"],
     legs: [
       {
         id: "btc-fwd",
@@ -465,6 +483,7 @@ const ANCHORS: MarketSpec[] = [
     seed: 20_011,
     impliedOrigin: "ETH 25SEP26 forward book plus funding index book",
     solverOrigin: "Solver SLV-03, bonded capacity",
+    liquiditySources: ["DIRECT", "SOLVER_FIRM"],
     legs: [
       {
         id: "eth-fwd",
@@ -543,6 +562,7 @@ const ANCHORS: MarketSpec[] = [
     seed: 30_013,
     impliedOrigin: "ARB 26MAR27 forward book plus ARB spot book",
     solverOrigin: "Solver SLV-11, bonded capacity",
+    liquiditySources: ["DIRECT", "SOLVER_FIRM"],
     legs: [
       {
         id: "arb-fwd",
@@ -609,6 +629,7 @@ const ANCHORS: MarketSpec[] = [
     seed: 40_009,
     impliedOrigin: "EURUSD 30DEC26 outright book plus EUR term deposit book",
     solverOrigin: "Solver SLV-02, bonded capacity",
+    liquiditySources: ["DIRECT", "IMPLIED", "SOLVER_FIRM"],
     legs: [
       {
         id: "eur-fwd",
@@ -675,6 +696,7 @@ const ANCHORS: MarketSpec[] = [
     seed: 50_021,
     impliedOrigin: "XAU 29JUN27 forward book plus USD term book",
     solverOrigin: "Solver SLV-05, bonded capacity",
+    liquiditySources: ["IMPLIED", "SOLVER_FIRM"],
     legs: [
       {
         id: "xau-fwd",
@@ -733,6 +755,7 @@ const MATURITIES: Record<string, MaturityVariant[]> = {
       seed: 10_037,
       qualification: "QUALIFIED",
       qualificationNote: "Benchmark, oracle, and settlement asset all qualified for this tenor.",
+      liquiditySources: ["DIRECT", "IMPLIED", "SOLVER_FIRM"],
       legMarks: { "btc-fwd": 124_590, "usdc-term": 508 },
     },
     {
@@ -750,6 +773,7 @@ const MATURITIES: Record<string, MaturityVariant[]> = {
       qualification: "CONDITIONAL",
       qualificationNote:
         "Benchmark attestation runs one tenor short of this maturity. Entry is allowed, position size is capped.",
+      liquiditySources: ["IMPLIED", "SOLVER_FIRM"],
       legMarks: { "btc-fwd": 130_700, "usdc-term": 524 },
     },
   ],
@@ -768,6 +792,7 @@ const MATURITIES: Record<string, MaturityVariant[]> = {
       seed: 20_029,
       qualification: "QUALIFIED",
       qualificationNote: "Benchmark, oracle, and settlement asset all qualified for this tenor.",
+      liquiditySources: ["DIRECT", "IMPLIED"],
       legMarks: { "eth-fwd": 4_161.5, "eth-funding": 329.4, "eth-fin": 472 },
     },
     {
@@ -784,6 +809,7 @@ const MATURITIES: Record<string, MaturityVariant[]> = {
       seed: 20_047,
       qualification: "QUALIFIED",
       qualificationNote: "Benchmark, oracle, and settlement asset all qualified for this tenor.",
+      liquiditySources: ["DIRECT", "IMPLIED", "SOLVER_FIRM"],
       legMarks: { "eth-fwd": 4_177.3, "eth-funding": 341, "eth-fin": 486 },
     },
     {
@@ -801,6 +827,7 @@ const MATURITIES: Record<string, MaturityVariant[]> = {
       qualification: "CONDITIONAL",
       qualificationNote:
         "Funding index history is shorter than the qualification floor at this tenor. Entry is allowed, position size is capped.",
+      liquiditySources: ["IMPLIED", "SOLVER_FIRM"],
       legMarks: { "eth-fwd": 4_231.9, "eth-funding": 358.2, "eth-fin": 508 },
     },
   ],
@@ -820,6 +847,7 @@ const MATURITIES: Record<string, MaturityVariant[]> = {
       qualification: "CONDITIONAL",
       qualificationNote:
         "Benchmark window is thinner than the qualification floor for this tenor. Entry is allowed, position size is capped.",
+      liquiditySources: ["DIRECT", "IMPLIED"],
       legMarks: { "arb-fwd": 0.9051 },
     },
     {
@@ -837,6 +865,7 @@ const MATURITIES: Record<string, MaturityVariant[]> = {
       qualification: "CONDITIONAL",
       qualificationNote:
         "Benchmark window is thin and the forward book is one solver deep at this tenor. Entry is allowed, position size is capped.",
+      liquiditySources: ["SOLVER_FIRM"],
       legMarks: { "arb-fwd": 0.9215 },
     },
   ],
@@ -856,6 +885,7 @@ const MATURITIES: Record<string, MaturityVariant[]> = {
       qualification: "QUALIFIED",
       qualificationNote:
         "Benchmark, session calendar, and settlement asset all qualified for this tenor.",
+      liquiditySources: ["IMPLIED", "SOLVER_FIRM"],
       legMarks: { "eur-fwd": 1.09538 },
     },
     {
@@ -873,6 +903,7 @@ const MATURITIES: Record<string, MaturityVariant[]> = {
       qualification: "CONDITIONAL",
       qualificationNote:
         "The fixing calendar is published only to JUN 27, so the tail of this tenor is conditional. Entry is allowed, position size is capped.",
+      liquiditySources: ["SOLVER_FIRM"],
       legMarks: { "eur-fwd": 1.09762 },
     },
   ],
@@ -891,6 +922,7 @@ const MATURITIES: Record<string, MaturityVariant[]> = {
       seed: 50_039,
       qualification: "QUALIFIED",
       qualificationNote: "Benchmark, calendar, and settlement asset all qualified for this tenor.",
+      liquiditySources: ["DIRECT", "IMPLIED"],
       legMarks: { "xau-fwd": 3_385.4, "xau-fin": 468 },
     },
     {
@@ -908,6 +940,7 @@ const MATURITIES: Record<string, MaturityVariant[]> = {
       qualification: "CONDITIONAL",
       qualificationNote:
         "The fixing calendar is published only to JUN 27, so this tenor settles on a provisional session. Entry is allowed, position size is capped.",
+      liquiditySources: ["SOLVER_FIRM"],
       legMarks: { "xau-fwd": 3_439.85, "xau-fin": 526 },
     },
   ],

@@ -86,12 +86,14 @@ export function ExpiryLadder({ markets }: { markets: PackageMarket[] }) {
               </span>
             </h2>
 
-            {group.markets.map((market) => (
+            {group.markets.map((market, index) => (
               <Link
                 key={market.id}
                 href={tradeHref(market)}
                 aria-label={`Open the ${market.name} terminal, ${market.tenorLabel}`}
-                className="focus-ring group block border-b border-line-soft transition-colors hover:bg-raised"
+                className={`focus-ring group block border-b border-line-soft transition-colors hover:bg-raised ${
+                  index % 2 === 1 ? "bg-panel/45" : "bg-app"
+                }`}
               >
                 <CompactRung market={market} />
                 <DenseRung market={market} />
