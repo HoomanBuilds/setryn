@@ -1,22 +1,22 @@
 {
-  "name": "@setryn/indexer",
+  "name": "@setryn/application-data",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./local": "./src/adapters/local-fixture.ts",
+    "./sepolia": "./src/adapters/arbitrum-sepolia.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test test/*.test.ts",
-    "replay": "node --experimental-strip-types src/commands/replay-fixture.ts"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@setryn/indexer": "workspace:*",
     "@setryn/internal-contracts": "workspace:*",
     "@setryn/internal-schemas": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^20.17.24",
     "typescript": "^5.8.2"
   }
 }

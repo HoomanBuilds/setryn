@@ -13,7 +13,7 @@
     "check:full": "pnpm run check && pnpm run contracts:test:invariant",
     "lint": "pnpm --filter @setryn/web lint && pnpm run contracts:fmt:check",
     "typecheck": "pnpm --filter @setryn/web typecheck && pnpm run internal:typecheck",
-    "internal:typecheck": "pnpm --filter @setryn/internal-schemas --filter @setryn/internal-contracts --filter @setryn/indexer typecheck",
+    "internal:typecheck": "pnpm --filter @setryn/internal-schemas --filter @setryn/internal-contracts --filter @setryn/indexer --filter @setryn/application-data typecheck",
     "internal:test": "pnpm --filter @setryn/internal-schemas --filter @setryn/indexer test",
     "internal:bindings:generate": "pnpm --filter @setryn/internal-contracts generate",
     "internal:bindings:check": "pnpm --filter @setryn/internal-contracts check:generated",
