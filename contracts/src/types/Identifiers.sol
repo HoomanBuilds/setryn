@@ -51,7 +51,21 @@ type MarketId is bytes32;
 
 type InstrumentId is bytes32;
 
+type PayoffFamilyId is bytes32;
+
+type QuoteUnitId is bytes32;
+
+type SettlementClassId is bytes32;
+
 type SeriesId is bytes32;
+
+/// @dev An open, namespaced identifier for a holder action policy. Consumers must recognize the
+/// exact policy they implement and fail closed on unsupported policies.
+type ExercisePolicyId is bytes32;
+
+/// @dev An open, namespaced identifier for the finite terminal outcome used when fixing evidence
+/// cannot complete. Consumers must recognize the exact outcome they implement and fail closed.
+type DisruptionOutcomeId is bytes32;
 
 type PackageId is bytes32;
 
@@ -94,3 +108,12 @@ type CollateralId is bytes32;
 /// is claimed exactly once. Like AccountId and CollateralId it is derived by CollateralIdLib, never
 /// by IdLib, because it is scoped to one deployment on one chain.
 type CollateralLockId is bytes32;
+
+/// @dev A chain-local handle for the one non-expiring terminal liability reservation bound to a
+/// canonical position. The position identifier is globally namespaced by its owning position engine,
+/// while the chain and vault keep the resulting custody handle deployment specific.
+type TerminalLiabilityReservationId is bytes32;
+
+/// @dev A chain-local handle for immutable claim backing produced by terminalizing one reservation.
+/// It is derived from the reservation and its nonzero terminal outcome reference.
+type TerminalClaimId is bytes32;

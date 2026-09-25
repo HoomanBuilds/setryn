@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.37;
 
-import {LockStatus} from "./Enums.sol";
-import {AccountId, AssetId, CollateralId} from "./Identifiers.sol";
+import {LockStatus, TerminalClaimStatus, TerminalLiabilityReservationStatus, TerminalOutcomeKind} from "./Enums.sol";
+import {AccountId, AssetId, CollateralId, RiskDomainId, TerminalLiabilityReservationId} from "./Identifiers.sol";
 
 /// @dev Control of one segregated custody account. A zero controller is the never-created sentinel,
 /// so a stored record can never be confused with an uncreated one, and a controller may therefore
@@ -55,4 +55,40 @@ struct CollateralLock {
     LockStatus status;
     uint128 initialAmount;
     uint128 remainingAmount;
+}
+
+struct TerminalLiabilityReservation {
+    bytes32 positionId;
+    bytes32 positionEngineId;
+    bytes32 positionEngineCodeHash;
+    AccountId payerAccountId;
+    CollateralId collateralId;
+    AssetId assetId;
+    RiskDomainId riskDomainId;
+    address creator;
+    address positionEngine;
+    bytes32 terminalOutcomeReference;
+    AccountId terminalAccountId;
+    uint32 bindingVersion;
+    uint32 riskDomainVersion;
+    uint64 settlementDeadline;
+    uint64 finalResolutionAt;
+    TerminalLiabilityReservationStatus status;
+    TerminalOutcomeKind terminalOutcome;
+    uint128 initialAmount;
+    uint128 remainingAmount;
+    uint128 terminalAmount;
+}
+
+struct TerminalClaim {
+    TerminalLiabilityReservationId reservationId;
+    bytes32 positionId;
+    AccountId payerAccountId;
+    AccountId receiverAccountId;
+    CollateralId collateralId;
+    RiskDomainId riskDomainId;
+    bytes32 terminalOutcomeReference;
+    TerminalClaimStatus status;
+    uint32 riskDomainVersion;
+    uint128 amount;
 }

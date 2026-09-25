@@ -42,6 +42,7 @@ library AdapterDefinitionLib {
     AdapterKindId internal constant ADAPTER_KIND_CURVE = AdapterKindId.wrap(keccak256("SetrynAdapterKindV1:Curve"));
     AdapterKindId internal constant ADAPTER_KIND_RISK = AdapterKindId.wrap(keccak256("SetrynAdapterKindV1:Risk"));
     AdapterKindId internal constant ADAPTER_KIND_PRIVACY = AdapterKindId.wrap(keccak256("SetrynAdapterKindV1:Privacy"));
+    AdapterKindId internal constant ADAPTER_KIND_PAYOFF = AdapterKindId.wrap(keccak256("SetrynAdapterKindV1:Payoff"));
 
     /// @dev The typestring is kept beside the typehash so a test can prove they agree. Solidity
     /// cannot hash a string constant inside another constant initializer, so the literal is repeated

@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.37;
 
-import {AccountId, AssetId, CollateralId, CollateralLockId} from "../types/Identifiers.sol";
+import {
+    AccountId,
+    AssetId,
+    CollateralId,
+    CollateralLockId,
+    TerminalClaimId,
+    TerminalLiabilityReservationId
+} from "../types/Identifiers.sol";
 
 /// @dev Derivation for the vault's chain-local operational identifiers. This library is deliberately
 /// separate from IdLib: IdLib derives chain-portable product identities and therefore excludes
@@ -46,6 +53,18 @@ library CollateralIdLib {
     bytes32 internal constant LOCK_ID_TYPE_TAG =
         keccak256("SetrynCollateralLockIdV1(uint256 chainId,address vault,address operator,bytes32 lockReference)");
 
+    string internal constant TERMINAL_RESERVATION_ID_TYPESTRING =
+        "SetrynTerminalLiabilityReservationIdV2(uint256 chainId,address vault,address positionEngine,bytes32 positionEngineId,bytes32 positionId)";
+    bytes32 internal constant TERMINAL_RESERVATION_ID_TYPE_TAG = keccak256(
+        "SetrynTerminalLiabilityReservationIdV2(uint256 chainId,address vault,address positionEngine,bytes32 positionEngineId,bytes32 positionId)"
+    );
+
+    string internal constant TERMINAL_CLAIM_ID_TYPESTRING =
+        "SetrynTerminalClaimIdV1(uint256 chainId,address vault,bytes32 reservationId,bytes32 terminalOutcomeReference)";
+    bytes32 internal constant TERMINAL_CLAIM_ID_TYPE_TAG = keccak256(
+        "SetrynTerminalClaimIdV1(uint256 chainId,address vault,bytes32 reservationId,bytes32 terminalOutcomeReference)"
+    );
+
     /// @dev bindingVersion is the exact immutable version, never the registry's moving active
     /// pointer. A caller that resolved activeVersion must pass the concrete number it read, so the
     /// balance it touches is the one it decided on.
@@ -70,5 +89,40 @@ library CollateralIdLib {
         returns (CollateralLockId)
     {
         return CollateralLockId.wrap(keccak256(abi.encode(LOCK_ID_TYPE_TAG, chainId, vault, operator, lockReference)));
+    }
+
+    function deriveTerminalLiabilityReservationId(
+        uint256 chainId,
+        address vault,
+        address positionEngine,
+        bytes32 positionEngineId,
+        bytes32 positionId
+    ) internal pure returns (TerminalLiabilityReservationId) {
+        return TerminalLiabilityReservationId.wrap(
+            keccak256(
+                abi.encode(
+                    TERMINAL_RESERVATION_ID_TYPE_TAG, chainId, vault, positionEngine, positionEngineId, positionId
+                )
+            )
+        );
+    }
+
+    function deriveTerminalClaimId(
+        uint256 chainId,
+        address vault,
+        TerminalLiabilityReservationId reservationId,
+        bytes32 terminalOutcomeReference
+    ) internal pure returns (TerminalClaimId) {
+        return TerminalClaimId.wrap(
+            keccak256(
+                abi.encode(
+                    TERMINAL_CLAIM_ID_TYPE_TAG,
+                    chainId,
+                    vault,
+                    TerminalLiabilityReservationId.unwrap(reservationId),
+                    terminalOutcomeReference
+                )
+            )
+        );
     }
 }

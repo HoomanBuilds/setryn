@@ -1,10 +1,24 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.37;
 
-import {LockStatus} from "../types/Enums.sol";
-import {AccountId, AssetId, CollateralId, CollateralLockId} from "../types/Identifiers.sol";
-import {CollateralLock} from "../types/CollateralTypes.sol";
+import {
+    LockStatus,
+    TerminalClaimStatus,
+    TerminalLiabilityReservationStatus,
+    TerminalOutcomeKind
+} from "../types/Enums.sol";
+import {
+    AccountId,
+    AssetId,
+    CollateralId,
+    CollateralLockId,
+    RiskDomainId,
+    TerminalClaimId,
+    TerminalLiabilityReservationId
+} from "../types/Identifiers.sol";
+import {CollateralLock, TerminalClaim, TerminalLiabilityReservation} from "../types/CollateralTypes.sol";
 import {ISettlementAssetRegistry} from "./ISettlementAssetRegistry.sol";
+import {IRiskDomainRegistry} from "./IRiskDomainRegistry.sol";
 
 /// @dev The first value-custody contract in the protocol. It holds ERC-20 collateral for segregated
 /// accounts, keyed by the exact settlement binding the collateral was deposited under, and lets
@@ -17,6 +31,11 @@ import {ISettlementAssetRegistry} from "./ISettlementAssetRegistry.sol";
 /// CollateralId for per-binding accounting, and per token address because several binding versions
 /// may alias one physical token and solvency is a property of the token contract, not of the
 /// binding.
+///
+/// @dev Non-expiring terminal liability reservations are a separate encumbrance class. They bind a
+/// canonical position, payer account, exact collateral binding, risk-domain version, and pinned
+/// position-engine identity and code. They have no expiry path and terminalize only from the exact
+/// read-only engine state into a fully backed claim or a deterministic NoEffect or Flat release.
 ///
 /// @dev Custody invariants this contract is responsible for. One, every credited unit is backed by a
 /// unit actually received: there is no admin credit path, no minting, and no unbacked balance. Two,
@@ -146,6 +165,71 @@ interface ICollateralVault {
         address settler
     );
 
+    event CollateralLockConverted(
+        CollateralLockId indexed lockId,
+        TerminalLiabilityReservationId indexed reservationId,
+        AccountId indexed payerAccountId,
+        CollateralId collateralId,
+        uint128 convertedAmount,
+        uint128 remainingAmount,
+        LockStatus newStatus,
+        address creator
+    );
+
+    event TerminalLiabilityReservationCreated(
+        TerminalLiabilityReservationId indexed reservationId,
+        bytes32 indexed positionId,
+        AccountId indexed payerAccountId,
+        CollateralId collateralId,
+        AssetId assetId,
+        RiskDomainId riskDomainId,
+        uint32 bindingVersion,
+        uint32 riskDomainVersion,
+        address creator,
+        address positionEngine,
+        bytes32 positionEngineId,
+        bytes32 positionEngineCodeHash,
+        uint128 amount,
+        uint64 settlementDeadline,
+        uint64 finalResolutionAt,
+        CollateralLockId sourceLockId
+    );
+
+    event TerminalLiabilityReservationResolved(
+        TerminalLiabilityReservationId indexed reservationId,
+        bytes32 indexed positionId,
+        bytes32 indexed terminalOutcomeReference,
+        AccountId payerAccountId,
+        AccountId terminalAccountId,
+        CollateralId collateralId,
+        uint128 terminalAmount,
+        uint128 releasedAmount,
+        TerminalOutcomeKind terminalOutcome,
+        TerminalLiabilityReservationStatus newStatus,
+        address caller
+    );
+
+    event TerminalClaimCreated(
+        TerminalClaimId indexed claimId,
+        TerminalLiabilityReservationId indexed reservationId,
+        bytes32 indexed positionId,
+        AccountId payerAccountId,
+        AccountId receiverAccountId,
+        CollateralId collateralId,
+        bytes32 terminalOutcomeReference,
+        uint128 amount
+    );
+
+    event TerminalClaimFulfilled(
+        TerminalClaimId indexed claimId,
+        TerminalLiabilityReservationId indexed reservationId,
+        AccountId indexed receiverAccountId,
+        AccountId payerAccountId,
+        CollateralId collateralId,
+        uint128 amount,
+        address caller
+    );
+
     /// @dev tokenLiability is logged as it stood before the transfer, so a reviewer can verify from
     /// logs alone that the recovered amount sat strictly above backing.
     event ExcessRecovered(
@@ -165,6 +249,12 @@ interface ICollateralVault {
     error SettlementAssetRegistryHasNoCode(address settlementAssetRegistry);
 
     error ZeroMaxLockDuration();
+
+    error ZeroRiskDomainRegistry();
+
+    error RiskDomainRegistryHasNoCode(address riskDomainRegistry);
+
+    error RiskDomainSettlementRegistryMismatch(address expected, address actual);
 
     error AccountAlreadyExists(AccountId accountId);
 
@@ -255,6 +345,82 @@ interface ICollateralVault {
 
     error SelfConsumption(AccountId accountId);
 
+    error ZeroPositionId();
+
+    error ZeroRiskDomainId();
+
+    error ZeroRiskDomainVersion();
+
+    error PositionEngineHasNoCode(address positionEngine);
+
+    error PositionEngineNotAuthorized(address positionEngine);
+
+    error PositionEngineInterfaceVersionMismatch(address positionEngine, uint32 required, uint32 actual);
+
+    error ZeroPositionEngineId(address positionEngine);
+
+    error PositionEngineCodeChanged(address positionEngine, bytes32 required, bytes32 actual);
+
+    error PositionEngineIdentityChanged(address positionEngine, bytes32 required, bytes32 actual);
+
+    error PositionStateMismatch(bytes32 requiredPositionId, bytes32 actualPositionId);
+
+    error InvalidPositionDeadlines(uint64 settlementDeadline, uint64 finalResolutionAt, uint64 nowTs);
+
+    error PositionDeadlinesChanged(
+        uint64 requiredSettlementDeadline,
+        uint64 actualSettlementDeadline,
+        uint64 requiredFinalResolutionAt,
+        uint64 actualFinalResolutionAt
+    );
+
+    error PositionAlreadyTerminal(bytes32 positionId, TerminalOutcomeKind outcome);
+
+    error PositionNotTerminal(bytes32 positionId);
+
+    error TerminalClaimFallbackNotReached(uint64 finalResolutionAt, uint64 nowTs);
+
+    error InvalidTerminalState(TerminalOutcomeKind outcome, AccountId receiverAccountId, uint128 amount);
+
+    error RiskDomainNotOpenForNewRisk(RiskDomainId riskDomainId, uint32 version);
+
+    error RiskDomainCollateralMismatch(
+        RiskDomainId riskDomainId,
+        uint32 version,
+        AssetId expectedAssetId,
+        uint32 expectedBindingVersion,
+        AssetId actualAssetId,
+        uint32 actualBindingVersion
+    );
+
+    error TerminalReservationsDisabled(RiskDomainId riskDomainId, uint32 version);
+
+    error AggregateTerminalLiabilityCapExceeded(
+        RiskDomainId riskDomainId, uint32 version, uint256 cap, uint256 requested
+    );
+
+    error AccountTerminalLiabilityCapExceeded(
+        RiskDomainId riskDomainId, uint32 version, AccountId accountId, uint256 cap, uint256 requested
+    );
+
+    error TerminalLiabilityReservationAlreadyExists(TerminalLiabilityReservationId reservationId);
+
+    error UnknownTerminalLiabilityReservation(TerminalLiabilityReservationId reservationId);
+
+    error TerminalLiabilityReservationNotActive(
+        TerminalLiabilityReservationId reservationId, TerminalLiabilityReservationStatus status
+    );
+
+    error AmountAboveTerminalLiabilityReservation(
+        TerminalLiabilityReservationId reservationId, uint128 remaining, uint128 requested
+    );
+
+    error TerminalClaimAlreadyExists(TerminalClaimId claimId);
+
+    error UnknownTerminalClaim(TerminalClaimId claimId);
+
+    error TerminalClaimNotActive(TerminalClaimId claimId, TerminalClaimStatus status);
+
     error InsufficientExcess(address token, uint256 tokenBalance, uint256 tokenLiability, uint128 requested);
 
     function createAccount(bytes32 salt) external returns (AccountId accountId);
@@ -336,6 +502,35 @@ interface ICollateralVault {
     /// collateral: the permissionless expiry path returns it regardless.
     function consumeLock(CollateralLockId lockId, AccountId recipientAccountId, uint128 amount) external;
 
+    function createTerminalLiabilityReservation(
+        bytes32 positionId,
+        AccountId payerAccountId,
+        AssetId assetId,
+        uint32 bindingVersion,
+        RiskDomainId riskDomainId,
+        uint32 riskDomainVersion,
+        uint128 amount,
+        address positionEngine
+    ) external returns (TerminalLiabilityReservationId reservationId);
+
+    function convertLockToTerminalLiabilityReservation(
+        CollateralLockId lockId,
+        bytes32 positionId,
+        RiskDomainId riskDomainId,
+        uint32 riskDomainVersion,
+        uint128 amount
+    ) external returns (TerminalLiabilityReservationId reservationId);
+
+    function finalizeTerminalLiabilityReservation(TerminalLiabilityReservationId reservationId)
+        external
+        returns (TerminalClaimId claimId);
+
+    function materializeTerminalClaimAfterFinalResolution(TerminalLiabilityReservationId reservationId)
+        external
+        returns (TerminalClaimId claimId);
+
+    function fulfillTerminalClaim(TerminalClaimId claimId) external;
+
     /// @dev Only the token balance strictly above total token liability across every binding version
     /// may leave this way, so recovery can never reduce backing. It works for any historically known
     /// binding, which is how a donated or stuck balance under a deprecated binding is still
@@ -343,6 +538,12 @@ interface ICollateralVault {
     function recoverExcess(AssetId assetId, uint32 bindingVersion, address recipient, uint128 amount) external;
 
     function settlementAssetRegistry() external view returns (ISettlementAssetRegistry);
+
+    function riskDomainRegistry() external view returns (IRiskDomainRegistry);
+
+    function terminalReservationCapabilityVersion() external pure returns (uint32);
+
+    function supportsTerminalReservationCapability(uint32 version) external pure returns (bool);
 
     function maxLockDuration() external view returns (uint64);
 
@@ -353,6 +554,16 @@ interface ICollateralVault {
     /// @dev The handle a given operator would claim for a given reference. Two operators passing one
     /// reference get two different answers, which is the whole point of the derivation.
     function deriveLockId(address operator, bytes32 lockReference) external view returns (CollateralLockId);
+
+    function deriveTerminalLiabilityReservationId(address positionEngine, bytes32 positionEngineId, bytes32 positionId)
+        external
+        view
+        returns (TerminalLiabilityReservationId);
+
+    function deriveTerminalClaimId(TerminalLiabilityReservationId reservationId, bytes32 terminalOutcomeReference)
+        external
+        view
+        returns (TerminalClaimId);
 
     function accountExists(AccountId accountId) external view returns (bool);
 
@@ -392,6 +603,37 @@ interface ICollateralVault {
 
     /// @dev Sentinel read. An unknown lock reads back as Unspecified, which is never a stored state.
     function lockStatusOf(CollateralLockId lockId) external view returns (LockStatus);
+
+    function terminalLiabilityReservationOf(TerminalLiabilityReservationId reservationId)
+        external
+        view
+        returns (TerminalLiabilityReservation memory reservation);
+
+    function terminalLiabilityReservationStatusOf(TerminalLiabilityReservationId reservationId)
+        external
+        view
+        returns (TerminalLiabilityReservationStatus);
+
+    function terminalClaimOf(TerminalClaimId claimId) external view returns (TerminalClaim memory claim);
+
+    function terminalClaimStatusOf(TerminalClaimId claimId) external view returns (TerminalClaimStatus);
+
+    function encumbranceOf(AccountId accountId, CollateralId collateralId)
+        external
+        view
+        returns (uint128 preTradeLocked, uint128 terminalReserved, uint128 terminalClaimBacking, uint128 totalLocked);
+
+    function collateralEncumbrance(CollateralId collateralId)
+        external
+        view
+        returns (uint256 preTradeLocked, uint256 terminalReserved, uint256 terminalClaimBacking);
+
+    function riskDomainTerminalLiability(RiskDomainId riskDomainId, uint32 version) external view returns (uint256);
+
+    function accountRiskDomainTerminalLiability(AccountId accountId, RiskDomainId riskDomainId, uint32 version)
+        external
+        view
+        returns (uint256);
 
     /// @dev Reverts while the vault's reentrancy guard is entered. A downstream contract that reads
     /// this vault inside a token callback can call this first and fail closed rather than acting on

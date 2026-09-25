@@ -8,6 +8,7 @@ import {Test} from "forge-std/Test.sol";
 
 import {CollateralVault} from "../../src/collateral/CollateralVault.sol";
 import {ICollateralVault} from "../../src/interfaces/ICollateralVault.sol";
+import {IRiskDomainRegistry} from "../../src/interfaces/IRiskDomainRegistry.sol";
 import {ISettlementAssetRegistry} from "../../src/interfaces/ISettlementAssetRegistry.sol";
 import {CollateralIdLib} from "../../src/libraries/CollateralIdLib.sol";
 import {AssetRegistry} from "../../src/registry/AssetRegistry.sol";
@@ -24,6 +25,7 @@ import {
     ReentrantERC20,
     SilentNoOpERC20
 } from "../mocks/CollateralTokenMocks.sol";
+import {VaultRiskDomainRegistryMock} from "../mocks/TerminalLiabilityMocks.sol";
 
 contract CollateralVaultTest is Test {
     uint48 internal constant ADMIN_DELAY = 3 days;
@@ -53,6 +55,7 @@ contract CollateralVaultTest is Test {
 
     AssetRegistry internal canonical;
     SettlementAssetRegistry internal settlement;
+    VaultRiskDomainRegistryMock internal risks;
     CollateralVault internal vault;
     MockCollateralERC20 internal token;
 
@@ -83,7 +86,9 @@ contract CollateralVaultTest is Test {
         settlement.activateBinding(assetId, versionOne);
         vm.stopPrank();
 
-        vault = new CollateralVault(ADMIN_DELAY, admin, settlement, MAX_LOCK_DURATION);
+        risks = new VaultRiskDomainRegistryMock(settlement);
+        vault =
+            new CollateralVault(ADMIN_DELAY, admin, settlement, IRiskDomainRegistry(address(risks)), MAX_LOCK_DURATION);
         collateralOne = vault.deriveCollateralId(assetId, versionOne);
         lockOne = vault.deriveLockId(locker, REF_ONE);
         lockTwo = vault.deriveLockId(locker, REF_TWO);
@@ -126,16 +131,28 @@ contract CollateralVaultTest is Test {
         assertTrue(vault.hasRole(vault.EXCESS_RECOVERY_ROLE(), admin));
 
         vm.expectRevert(ICollateralVault.ZeroInitialAdmin.selector);
-        new CollateralVault(ADMIN_DELAY, address(0), settlement, MAX_LOCK_DURATION);
+        new CollateralVault(ADMIN_DELAY, address(0), settlement, IRiskDomainRegistry(address(risks)), MAX_LOCK_DURATION);
 
         vm.expectRevert(ICollateralVault.ZeroSettlementAssetRegistry.selector);
-        new CollateralVault(ADMIN_DELAY, admin, ISettlementAssetRegistry(address(0)), MAX_LOCK_DURATION);
+        new CollateralVault(
+            ADMIN_DELAY,
+            admin,
+            ISettlementAssetRegistry(address(0)),
+            IRiskDomainRegistry(address(risks)),
+            MAX_LOCK_DURATION
+        );
 
         vm.expectRevert(abi.encodeWithSelector(ICollateralVault.SettlementAssetRegistryHasNoCode.selector, outsider));
-        new CollateralVault(ADMIN_DELAY, admin, ISettlementAssetRegistry(outsider), MAX_LOCK_DURATION);
+        new CollateralVault(
+            ADMIN_DELAY,
+            admin,
+            ISettlementAssetRegistry(outsider),
+            IRiskDomainRegistry(address(risks)),
+            MAX_LOCK_DURATION
+        );
 
         vm.expectRevert(ICollateralVault.ZeroMaxLockDuration.selector);
-        new CollateralVault(ADMIN_DELAY, admin, settlement, 0);
+        new CollateralVault(ADMIN_DELAY, admin, settlement, IRiskDomainRegistry(address(risks)), 0);
     }
 
     function test_AccountIdIsDeterministicPerVaultCreatorAndSalt() public {
@@ -160,7 +177,8 @@ contract CollateralVaultTest is Test {
         assertTrue(AccountId.unwrap(vault.deriveAccountId(bob, salt)) != AccountId.unwrap(expected));
         assertTrue(AccountId.unwrap(vault.deriveAccountId(alice, keccak256("other"))) != AccountId.unwrap(expected));
 
-        CollateralVault otherVault = new CollateralVault(ADMIN_DELAY, admin, settlement, MAX_LOCK_DURATION);
+        CollateralVault otherVault =
+            new CollateralVault(ADMIN_DELAY, admin, settlement, IRiskDomainRegistry(address(risks)), MAX_LOCK_DURATION);
         assertTrue(AccountId.unwrap(otherVault.deriveAccountId(alice, salt)) != AccountId.unwrap(expected));
     }
 

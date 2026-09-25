@@ -6,6 +6,7 @@ solc_version = "0.8.37"
 evm_version = "cancun"
 optimizer = true
 optimizer_runs = 1_000_000
+via_ir = true
 bytecode_hash = "none"
 remappings = [
   "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
@@ -28,6 +29,12 @@ fuzz = { runs = 10_000 }
 invariant = { runs = 1_000, depth = 2_000 }
 verbosity = 3
 
+[profile.arbitrum_one_fork]
+eth_rpc_url = "${ARBITRUM_RPC_URL}"
+
+[profile.arbitrum_one_current]
+eth_rpc_url = "${ARBITRUM_RPC_URL}"
+
 [fmt]
 line_length = 120
 tab_width = 4
@@ -38,6 +45,7 @@ quote_style = "double"
 [rpc_endpoints]
 arbitrum = "${ARBITRUM_RPC_URL}"
 arbitrum_sepolia = "${ARBITRUM_SEPOLIA_RPC_URL}"
+local = "${LOCAL_RPC_URL}"
 
 [etherscan]
 arbitrum = { key = "${ETHERSCAN_API_KEY}", chain = 42161 }

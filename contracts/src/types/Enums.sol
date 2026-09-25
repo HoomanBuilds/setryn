@@ -49,3 +49,25 @@ enum LockStatus {
     Consumed,
     Expired
 }
+
+enum TerminalLiabilityReservationStatus {
+    Unspecified,
+    Active,
+    Settled,
+    ReleasedAtTerminal,
+    ConvertedToClaim
+}
+
+enum TerminalOutcomeKind {
+    Unspecified,
+    Payout,
+    NoEffect,
+    Flat,
+    Claim
+}
+
+enum TerminalClaimStatus {
+    Unspecified,
+    Active,
+    Fulfilled
+}
