@@ -5,6 +5,8 @@ type AssetId is bytes32;
 
 type BenchmarkId is bytes32;
 
+type EvidenceOriginId is bytes32;
+
 /// @dev An open, namespaced category for one kind of economic reference benchmark, never a closed
 /// enum, so a spot, perpetual mark, index, NAV, redemption, reference rate, settlement fixing, or
 /// not-yet-invented benchmark kind can be qualified without redeploying or reordering anything. It
@@ -63,6 +65,8 @@ type SeriesId is bytes32;
 /// deployment that created it. Position identifiers are derived by PositionEngine from the chain,
 /// engine identity, fill identity, exact series version, both accounts, and fill ordinal.
 type PositionId is bytes32;
+
+type FillId is bytes32;
 
 /// @dev An open, namespaced identifier for a holder action policy. Consumers must recognize the
 /// exact policy they implement and fail closed on unsupported policies.
