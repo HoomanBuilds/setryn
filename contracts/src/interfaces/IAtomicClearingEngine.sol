@@ -2,13 +2,19 @@
 pragma solidity 0.8.37;
 
 import {IClearingAdmissionGate} from "./IClearingAdmissionGate.sol";
-import {IClearingFeePolicy} from "./IClearingFeePolicy.sol";
 import {IOrderState} from "./IOrderState.sol";
 import {IPackageRegistry} from "./IPackageRegistry.sol";
 import {IPositionEngine} from "./IPositionEngine.sol";
 import {ISeriesRegistry} from "./ISeriesRegistry.sol";
 import {ICollateralVault} from "./ICollateralVault.sol";
-import {ClearingEntryKind, FillRecord, PackageClearingRequest, SeriesClearingRequest} from "../types/ClearingTypes.sol";
+import {IFundedFeeEngine} from "./IFundedFeeEngine.sol";
+import {
+    ClearingChannelKind,
+    ClearingEntryKind,
+    FillRecord,
+    PackageClearingRequest,
+    SeriesClearingRequest
+} from "../types/ClearingTypes.sol";
 import {AccountId, CollateralLockId, FillId, PositionId} from "../types/Identifiers.sol";
 
 interface IAtomicClearingEngine {
@@ -64,8 +70,6 @@ interface IAtomicClearingEngine {
     error PriceDoesNotCross(int128 buyerLimit, int128 sellerLimit, int128 executionPrice);
     error InvalidPackageWitness();
     error PackageLegPriceMismatch(int256 expected, int256 actual);
-    error FeeQuoteMismatch();
-    error FeeAboveOrderMaximum(bytes32 orderHash, uint128 maximum, uint128 actual);
     error ConsiderationOverflow(uint256 amount);
     error FundingLockRequired(bytes32 orderHash, bytes32 purpose);
     error FundingLockUnexpected(bytes32 orderHash, bytes32 purpose);
@@ -74,6 +78,7 @@ interface IAtomicClearingEngine {
     error UnauthorizedFundingCaller(bytes32 orderHash, address caller);
     error InvalidFundingPurpose(bytes32 purpose);
     error InvalidFundingCumulativeLots(uint128 filled, uint128 cumulative, uint128 total);
+    error UnsupportedClearingChannel(ClearingChannelKind channelKind);
 
     function clearSeries(SeriesClearingRequest calldata request) external returns (FillId fillId);
     function clearPackage(PackageClearingRequest calldata request) external returns (FillId fillId);
@@ -93,5 +98,5 @@ interface IAtomicClearingEngine {
     function positionEngine() external view returns (IPositionEngine);
     function collateralVault() external view returns (ICollateralVault);
     function admissionGate() external view returns (IClearingAdmissionGate);
-    function feePolicy() external view returns (IClearingFeePolicy);
+    function fundedFeeEngine() external view returns (IFundedFeeEngine);
 }

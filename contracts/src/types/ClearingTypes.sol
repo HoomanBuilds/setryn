@@ -12,10 +12,22 @@ enum ClearingEntryKind {
     TakerFee
 }
 
+enum ClearingChannelKind {
+    Unspecified,
+    Direct,
+    PrivateRfq,
+    SealedAuction
+}
+
 struct OrderFunding {
     CollateralLockId terminalLiabilityLockId;
     CollateralLockId considerationLockId;
-    CollateralLockId feeLockId;
+}
+
+struct ClearingFeeFunding {
+    bytes32 consumptionId;
+    CollateralLockId chargeLockId;
+    CollateralLockId budgetLockId;
 }
 
 struct BilateralMatch {
@@ -25,11 +37,14 @@ struct BilateralMatch {
     PriceTicks executionPriceTicks;
     OrderFunding takerFunding;
     OrderFunding makerFunding;
+    ClearingFeeFunding takerFeeFunding;
+    ClearingFeeFunding makerFeeFunding;
 }
 
 struct SeriesClearingRequest {
     BilateralMatch matchData;
     bytes payoffTerms;
+    ClearingChannelKind channelKind;
 }
 
 struct PackageClearingRequest {
@@ -37,6 +52,7 @@ struct PackageClearingRequest {
     PackageLeg[] legs;
     PriceTicks[] legEntryPriceTicks;
     bytes[] legPayoffTerms;
+    ClearingChannelKind channelKind;
 }
 
 struct ClearingFeeQuote {
@@ -68,11 +84,15 @@ struct FillRecord {
     bytes32 targetId;
     bytes32 witnessHash;
     bytes32 executionModeId;
+    bytes32 channelConsumptionId;
+    bytes32 routeCommitment;
+    address channelSource;
+    ClearingChannelKind channelKind;
     AssetId settlementAssetId;
     AccountId buyerAccountId;
     AccountId sellerAccountId;
-    AccountId feeRecipientAccountId;
-    bytes32 feeQuoteReference;
+    bytes32 makerFeeResultHash;
+    bytes32 takerFeeResultHash;
     uint32 targetVersion;
     uint32 settlementAssetVersion;
     uint64 clearedAt;
@@ -81,8 +101,10 @@ struct FillRecord {
     Lots makerCumulativeLots;
     PriceTicks executionPriceTicks;
     int256 considerationMinor;
-    uint128 makerFeeMinor;
-    uint128 takerFeeMinor;
+    uint128 makerFeeChargeMinor;
+    uint128 makerFeeRebateMinor;
+    uint128 takerFeeChargeMinor;
+    uint128 takerFeeRebateMinor;
     uint16 positionCount;
     bool isPackage;
 }

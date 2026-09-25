@@ -8,14 +8,17 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 
 import {IAtomicClearingEngine} from "../interfaces/IAtomicClearingEngine.sol";
 import {IClearingAdmissionGate} from "../interfaces/IClearingAdmissionGate.sol";
-import {IClearingFeePolicy} from "../interfaces/IClearingFeePolicy.sol";
 import {ICollateralVault} from "../interfaces/ICollateralVault.sol";
+import {IFundedFeeEngine} from "../interfaces/IFundedFeeEngine.sol";
 import {IMarketRegistry} from "../interfaces/IMarketRegistry.sol";
 import {IOrderState} from "../interfaces/IOrderState.sol";
 import {IPackageRegistry} from "../interfaces/IPackageRegistry.sol";
 import {IPositionEngine} from "../interfaces/IPositionEngine.sol";
 import {ISeriesRegistry} from "../interfaces/ISeriesRegistry.sol";
 import {ClearingLib} from "../libraries/ClearingLib.sol";
+import {ClearingFeeLib} from "../libraries/ClearingFeeLib.sol";
+import {ClearingChannelLib} from "../libraries/ClearingChannelLib.sol";
+import {FeeScheduleDefinitionLib} from "../libraries/FeeScheduleDefinitionLib.sol";
 import {NotionalLib} from "../libraries/NotionalLib.sol";
 import {PackageDefinitionLib} from "../libraries/PackageDefinitionLib.sol";
 import {PositionMathLib} from "../libraries/PositionMathLib.sol";
@@ -23,18 +26,22 @@ import {CollateralLock} from "../types/CollateralTypes.sol";
 import {
     BilateralMatch,
     ClearingAdmission,
+    ClearingChannelKind,
     ClearingEntryKind,
-    ClearingFeeQuote,
+    ClearingFeeFunding,
     FillRecord,
     PackageClearingRequest,
     SeriesClearingRequest
 } from "../types/ClearingTypes.sol";
 import {LockStatus} from "../types/Enums.sol";
+import {FeeActionRequest, FeeActionResult} from "../types/FeeEngineTypes.sol";
+import {FeeScheduleVersion} from "../types/FeeScheduleDefinition.sol";
 import {
     AccountId,
     AssetId,
     CollateralId,
     CollateralLockId,
+    FeeActionId,
     FeeScheduleId,
     FillId,
     PackageId,
@@ -54,8 +61,11 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
 
     bytes32 public constant TERMINAL_LIABILITY_PURPOSE = keccak256("SETRYN_FILL_TERMINAL_LIABILITY");
     bytes32 public constant CONSIDERATION_PURPOSE = keccak256("SETRYN_FILL_CONSIDERATION");
-    bytes32 public constant FEE_PURPOSE = keccak256("SETRYN_FILL_FEE");
-
+    bytes32 private constant DIRECT_CHANNEL_TYPEHASH =
+        keccak256("SetrynDirectClearingChannelV1(bytes32 fillId,address submitter,bytes32 witnessHash)");
+    bytes32 private constant ROUTE_COMMITMENT_TYPEHASH = keccak256(
+        "SetrynClearingRouteV1(bytes32 fillId,bytes32 takerOrderHash,bytes32 makerOrderHash,bytes32 executionModeId,bytes32 witnessHash)"
+    );
     IOrderState private immutable _orderState;
     ISeriesRegistry private immutable _seriesRegistry;
     IPackageRegistry private immutable _packageRegistry;
@@ -63,7 +73,7 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
     ICollateralVault private immutable _collateralVault;
     IMarketRegistry private immutable _marketRegistry;
     IClearingAdmissionGate private immutable _admissionGate;
-    IClearingFeePolicy private immutable _feePolicy;
+    IFundedFeeEngine private immutable _fundedFeeEngine;
 
     mapping(FillId fillId => FillRecord record) private _fills;
     mapping(FillId fillId => PositionId[] positionIds) private _fillPositions;
@@ -89,6 +99,11 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         uint128 shortLiabilityMinor;
     }
 
+    struct FeeContext {
+        FeeActionResult maker;
+        FeeActionResult taker;
+    }
+
     constructor(
         uint48 defaultAdminDelay,
         address initialAdmin,
@@ -98,7 +113,7 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         IPositionEngine positionEngine_,
         ICollateralVault collateralVault_,
         IClearingAdmissionGate admissionGate_,
-        IClearingFeePolicy feePolicy_
+        IFundedFeeEngine fundedFeeEngine_
     ) AccessControlDefaultAdminRules(defaultAdminDelay, _requireInitialAdmin(initialAdmin)) {
         _requireDependency(address(orderState_));
         _requireDependency(address(seriesRegistry_));
@@ -106,7 +121,7 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         _requireDependency(address(positionEngine_));
         _requireDependency(address(collateralVault_));
         _requireDependency(address(admissionGate_));
-        _requireDependency(address(feePolicy_));
+        _requireDependency(address(fundedFeeEngine_));
         IMarketRegistry marketRegistry_ = seriesRegistry_.marketRegistry();
         _requireDependency(address(marketRegistry_));
         if (address(packageRegistry_.seriesRegistry()) != address(seriesRegistry_)) {
@@ -121,6 +136,9 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         if (address(marketRegistry_.collateralVault()) != address(collateralVault_)) {
             revert DependencyGraphMismatch(address(collateralVault_), address(marketRegistry_.collateralVault()));
         }
+        if (address(fundedFeeEngine_.collateralVault()) != address(collateralVault_)) {
+            revert DependencyGraphMismatch(address(collateralVault_), address(fundedFeeEngine_.collateralVault()));
+        }
 
         _orderState = orderState_;
         _seriesRegistry = seriesRegistry_;
@@ -129,7 +147,7 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         _collateralVault = collateralVault_;
         _marketRegistry = marketRegistry_;
         _admissionGate = admissionGate_;
-        _feePolicy = feePolicy_;
+        _fundedFeeEngine = fundedFeeEngine_;
         _grantRole(MATCH_EXECUTOR_ROLE, initialAdmin);
     }
 
@@ -139,6 +157,7 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         onlyRole(MATCH_EXECUTOR_ROLE)
         returns (FillId fillId)
     {
+        ClearingChannelLib.requireDirect(request.channelKind);
         BilateralMatch calldata matchData = request.matchData;
         OrderRecord memory taker = _orderState.getOrder(matchData.takerOrderHash);
         OrderRecord memory maker = _orderState.getOrder(matchData.makerOrderHash);
@@ -174,9 +193,9 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
             )
         });
 
-        ClearingFeeQuote memory fees = _quoteAndValidateFees(context, matchData, witnessHash);
         _consumeOrders(context, matchData.fillLots);
-        _applyFunding(context, matchData, settlement, fees);
+        _applyFunding(context, matchData, settlement);
+        FeeContext memory fees = _consumeFees(context, matchData, settlement);
 
         PositionId positionId = _positionEngine.createPosition(
             PositionCreation({
@@ -217,6 +236,7 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         onlyRole(MATCH_EXECUTOR_ROLE)
         returns (FillId fillId)
     {
+        ClearingChannelLib.requireDirect(request.channelKind);
         BilateralMatch calldata matchData = request.matchData;
         OrderRecord memory taker = _orderState.getOrder(matchData.takerOrderHash);
         OrderRecord memory maker = _orderState.getOrder(matchData.makerOrderHash);
@@ -255,9 +275,9 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
                 definition.maxShortDebitMinorPerPackageLot, matchData.fillLots
             )
         });
-        ClearingFeeQuote memory fees = _quoteAndValidateFees(context, matchData, witnessHash);
         _consumeOrders(context, matchData.fillLots);
-        _applyFunding(context, matchData, settlement, fees);
+        _applyFunding(context, matchData, settlement);
+        FeeContext memory fees = _consumeFees(context, matchData, settlement);
 
         uint256 legCount = request.legs.length;
         uint256 buyerLiabilityCreated;
@@ -394,8 +414,8 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         return _admissionGate;
     }
 
-    function feePolicy() external view returns (IClearingFeePolicy) {
-        return _feePolicy;
+    function fundedFeeEngine() external view returns (IFundedFeeEngine) {
+        return _fundedFeeEngine;
     }
 
     function _prepareMatch(
@@ -459,28 +479,6 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         });
     }
 
-    function _quoteAndValidateFees(MatchContext memory context, BilateralMatch calldata matchData, bytes32 witnessHash)
-        private
-        view
-        returns (ClearingFeeQuote memory fees)
-    {
-        fees = _feePolicy.quoteFees(
-            context.taker.order, context.maker.order, matchData.fillLots, matchData.executionPriceTicks, witnessHash
-        );
-        if (
-            fees.quoteReference == bytes32(0)
-                || FeeScheduleId.unwrap(fees.feeScheduleId) != FeeScheduleId.unwrap(context.taker.order.feeScheduleId)
-                || fees.feeScheduleVersion != context.taker.order.feeScheduleVersion
-                || AccountId.unwrap(fees.recipientAccountId) == bytes32(0)
-        ) revert FeeQuoteMismatch();
-        if (fees.takerFeeMinor > context.taker.order.maxFeeMinor) {
-            revert FeeAboveOrderMaximum(matchData.takerOrderHash, context.taker.order.maxFeeMinor, fees.takerFeeMinor);
-        }
-        if (fees.makerFeeMinor > context.maker.order.maxFeeMinor) {
-            revert FeeAboveOrderMaximum(matchData.makerOrderHash, context.maker.order.maxFeeMinor, fees.makerFeeMinor);
-        }
-    }
-
     function _consumeOrders(MatchContext memory context, Lots fillLots) private {
         bytes32 executionReference = FillId.unwrap(context.fillId);
         _orderState.consumeOrderFill(context.takerOrderHash, fillLots, executionReference);
@@ -490,8 +488,7 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
     function _applyFunding(
         MatchContext memory context,
         BilateralMatch calldata matchData,
-        SettlementContext memory settlement,
-        ClearingFeeQuote memory fees
+        SettlementContext memory settlement
     ) private {
         _applyLiabilityFunding(
             context,
@@ -502,31 +499,66 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
             settlement.shortLiabilityMinor
         );
         _applyConsiderationFunding(context, matchData, settlement, context.fillId);
-        _consumeFundingLock(
-            matchData.makerOrderHash,
-            context.makerCumulativeLots,
+    }
+
+    function _consumeFees(
+        MatchContext memory context,
+        BilateralMatch calldata matchData,
+        SettlementContext memory settlement
+    ) private returns (FeeContext memory fees) {
+        FeeScheduleVersion memory schedule = _fundedFeeEngine.feeScheduleRegistry()
+            .getFeeSchedule(context.taker.order.feeScheduleId, context.taker.order.feeScheduleVersion);
+        if (
+            !_fundedFeeEngine.feeScheduleRegistry()
+                    .isOpenForNewRisk(context.taker.order.feeScheduleId, context.taker.order.feeScheduleVersion)
+                || schedule.version != context.taker.order.feeScheduleVersion
+                || AssetId.unwrap(schedule.definition.settlementAssetId) != AssetId.unwrap(settlement.assetId)
+                || schedule.definition.settlementAssetVersion != settlement.bindingVersion
+        ) revert FeeScheduleMismatch();
+        uint128 notionalMinor = _absoluteMinor(settlement.considerationMinor);
+        fees.maker = _consumeFeeAction(
+            context,
             context.maker.order.accountId,
-            settlement.assetId,
-            settlement.bindingVersion,
-            fees.makerFeeMinor,
-            matchData.makerFunding.feeLockId,
-            fees.recipientAccountId,
-            FEE_PURPOSE,
-            ClearingEntryKind.MakerFee,
-            context.fillId
+            context.maker.order.maxFeeMinor,
+            matchData.makerFeeFunding,
+            FeeScheduleDefinitionLib.FEE_ACTION_MAKER_FILL,
+            notionalMinor,
+            0
         );
-        _consumeFundingLock(
-            matchData.takerOrderHash,
-            context.takerCumulativeLots,
+        fees.taker = _consumeFeeAction(
+            context,
             context.taker.order.accountId,
-            settlement.assetId,
-            settlement.bindingVersion,
-            fees.takerFeeMinor,
-            matchData.takerFunding.feeLockId,
-            fees.recipientAccountId,
-            FEE_PURPOSE,
-            ClearingEntryKind.TakerFee,
-            context.fillId
+            context.taker.order.maxFeeMinor,
+            matchData.takerFeeFunding,
+            FeeScheduleDefinitionLib.FEE_ACTION_TAKER_FILL,
+            notionalMinor,
+            1
+        );
+    }
+
+    function _consumeFeeAction(
+        MatchContext memory context,
+        AccountId payerAccountId,
+        uint128 signedMaximum,
+        ClearingFeeFunding calldata funding,
+        FeeActionId actionId,
+        uint128 notionalMinor,
+        uint32 ordinal
+    ) private returns (FeeActionResult memory result) {
+        FeeActionRequest memory request = ClearingFeeLib.buildRequest(
+            FillId.unwrap(context.fillId),
+            context.taker.order.feeScheduleId,
+            context.taker.order.feeScheduleVersion,
+            actionId,
+            payerAccountId,
+            notionalMinor,
+            signedMaximum,
+            funding,
+            ordinal
+        );
+        result = _fundedFeeEngine.consumeFeeAction(request);
+        ClearingFeeLib.validateResult(
+            result, funding, context.taker.order.feeScheduleId, context.taker.order.feeScheduleVersion, signedMaximum
         );
     }
 
@@ -777,7 +809,7 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         BilateralMatch calldata matchData,
         bytes32 witnessHash,
         SettlementContext memory settlement,
-        ClearingFeeQuote memory fees,
+        FeeContext memory fees,
         uint16 positionCount,
         bool isPackage
     ) private {
@@ -791,11 +823,26 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
             targetId: targetId,
             witnessHash: witnessHash,
             executionModeId: context.taker.order.executionModeId,
+            channelConsumptionId: keccak256(
+                abi.encode(DIRECT_CHANNEL_TYPEHASH, FillId.unwrap(context.fillId), msg.sender, witnessHash)
+            ),
+            routeCommitment: keccak256(
+                abi.encode(
+                    ROUTE_COMMITMENT_TYPEHASH,
+                    FillId.unwrap(context.fillId),
+                    matchData.takerOrderHash,
+                    matchData.makerOrderHash,
+                    context.taker.order.executionModeId,
+                    witnessHash
+                )
+            ),
+            channelSource: msg.sender,
+            channelKind: ClearingChannelKind.Direct,
             settlementAssetId: settlement.assetId,
             buyerAccountId: context.buyerAccountId,
             sellerAccountId: context.sellerAccountId,
-            feeRecipientAccountId: fees.recipientAccountId,
-            feeQuoteReference: fees.quoteReference,
+            makerFeeResultHash: fees.maker.resultHash,
+            takerFeeResultHash: fees.taker.resultHash,
             targetVersion: context.taker.order.targetVersion,
             settlementAssetVersion: settlement.bindingVersion,
             clearedAt: uint64(block.timestamp),
@@ -804,8 +851,10 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
             makerCumulativeLots: context.makerCumulativeLots,
             executionPriceTicks: matchData.executionPriceTicks,
             considerationMinor: settlement.considerationMinor,
-            makerFeeMinor: fees.makerFeeMinor,
-            takerFeeMinor: fees.takerFeeMinor,
+            makerFeeChargeMinor: fees.maker.chargeMinor,
+            makerFeeRebateMinor: fees.maker.rebateMinor,
+            takerFeeChargeMinor: fees.taker.chargeMinor,
+            takerFeeRebateMinor: fees.taker.rebateMinor,
             positionCount: positionCount,
             isPackage: isPackage
         });
@@ -818,9 +867,15 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
     }
 
     function _requireFundingPurpose(bytes32 purpose) private pure {
-        if (purpose != TERMINAL_LIABILITY_PURPOSE && purpose != CONSIDERATION_PURPOSE && purpose != FEE_PURPOSE) {
+        if (purpose != TERMINAL_LIABILITY_PURPOSE && purpose != CONSIDERATION_PURPOSE) {
             revert InvalidFundingPurpose(purpose);
         }
+    }
+
+    function _absoluteMinor(int256 signedAmount) private pure returns (uint128 amount) {
+        uint256 magnitude = signedAmount < 0 ? uint256(-(signedAmount + 1)) + 1 : uint256(signedAmount);
+        if (magnitude > type(uint128).max) revert ConsiderationOverflow(magnitude);
+        return uint128(magnitude);
     }
 
     function _requireInitialAdmin(address initialAdmin) private pure returns (address) {
