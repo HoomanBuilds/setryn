@@ -145,10 +145,28 @@ function validateManifest(manifestPath) {
       throw new Error(`${manifestPath}: CollateralVault role ${name} drifted`);
     }
     if (
-      manifest.environment === "arbitrum-sepolia" &&
+      manifest.environment === "arbitrum-sepolia" && manifest.status === "planned" &&
       (role.members.length !== 1 || role.members[0]?.source !== "SETRYN_INITIAL_ADMIN")
     ) {
       throw new Error(`${manifestPath}: CollateralVault role ${name} bootstrap authority drifted`);
+    }
+  }
+
+  if (manifest.status === "broadcast") {
+    const evidence = manifest.phase2.qualificationEvidence;
+    if (
+      !evidence.configurationHash || !evidence.capabilityHash || !evidence.postWiringEvidenceHash ||
+      evidence.activation !== "qualified" || !evidence.bootstrapRolesRevoked || !evidence.adminTransfersBegun
+    ) {
+      throw new Error(`${manifestPath}: broadcast qualification evidence is incomplete`);
+    }
+    for (const deployment of phase2Deployments) {
+      for (const field of ["configurationHash", "capabilityHash", "evidenceHash"]) {
+        if (!deployment[field]) throw new Error(`${manifestPath}: ${deployment.name} is missing ${field}`);
+      }
+      for (const field of ["dependencies", "roleAuthority", "supported", "disabled"]) {
+        if (!Array.isArray(deployment[field])) throw new Error(`${manifestPath}: ${deployment.name} has invalid ${field}`);
+      }
     }
   }
 

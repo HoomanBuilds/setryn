@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import {execFileSync} from "node:child_process";
+import {createHash} from "node:crypto";
 import {readFileSync, renameSync, rmSync, writeFileSync} from "node:fs";
 import {dirname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -8,6 +9,7 @@ import {fileURLToPath} from "node:url";
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const phase2Inventory = readJson(resolve(repositoryRoot, "deployments/phase2-contract-inventory.json"));
 const phase2ContractNames = new Set(phase2Inventory.contracts.map(({name}) => name));
+const phase2Contracts = new Map(phase2Inventory.contracts.map((contract) => [contract.name, contract]));
 const environments = {
   local: {
     chainIds: [1337, 31337],
@@ -70,6 +72,62 @@ async function rpc(url, method, params = []) {
 
 function keccak(hexValue) {
   return execFileSync("cast", ["keccak", hexValue], {encoding: "utf8"}).trim();
+}
+
+function sha256(value) {
+  return `0x${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
+}
+
+function requiredPrincipal(source) {
+  const address = process.env[source];
+  if (!address || !/^0x[0-9a-fA-F]{40}$/.test(address)) {
+    throw new Error(`${source} must be provided as a deployment evidence environment variable.`);
+  }
+  return address.toLowerCase();
+}
+
+function principalSource(address, principals, contracts) {
+  const principal = Object.entries(principals).find(([, value]) => value === address);
+  if (principal) return manifestPrincipalSource(principal[0]);
+  const contract = [...contracts.entries()].find(([, value]) => value?.toLowerCase() === address.toLowerCase());
+  if (contract) return `$contracts.${contract[0]}.address`;
+  throw new Error(`No evidence source for role member ${address}`);
+}
+
+function manifestPrincipalSource(name) {
+  const sources = {
+    governanceAdmin: "SETRYN_GOVERNANCE_ADMIN",
+    governanceOperator: "SETRYN_GOVERNANCE_OPERATOR",
+    guardian: "SETRYN_GUARDIAN",
+    excessRecoveryOperator: "SETRYN_EXCESS_RECOVERY_OPERATOR",
+    privacyKeyPublisher: "SETRYN_PRIVACY_KEY_PUBLISHER",
+    lifecycleWitnessStager: "SETRYN_LIFECYCLE_WITNESS_STAGER",
+  };
+  return sources[name];
+}
+
+function calldata(signature, values = []) {
+  return execFileSync("cast", ["calldata", signature, ...values], {encoding: "utf8"}).trim();
+}
+
+async function ethCall(rpcUrl, to, data, blockTag) {
+  return rpc(rpcUrl, "eth_call", [{to, data}, blockTag]);
+}
+
+function roleId(label) {
+  return execFileSync("cast", ["keccak", label], {encoding: "utf8"}).trim();
+}
+
+async function verifyRole(rpcUrl, addresses, blockTag, check, bootstrap) {
+  const target = addresses.get(check.contractName);
+  const member = addresses.get(check.memberContract) ?? check.member;
+  if (!target || !member) throw new Error(`Cannot resolve role evidence for ${check.contractName}.${check.role}`);
+  const id = roleId(check.label);
+  const expected = await ethCall(rpcUrl, target, calldata("hasRole(bytes32,address)", [id, member]), blockTag);
+  if (BigInt(expected) !== 1n) throw new Error(`${check.contractName}.${check.role} is not held by ${member}`);
+  const bootstrapState = await ethCall(rpcUrl, target, calldata("hasRole(bytes32,address)", [id, bootstrap]), blockTag);
+  if (BigInt(bootstrapState) !== 0n) throw new Error(`${check.contractName}.${check.role} remains held by bootstrap`);
+  return {contractName: check.contractName, role: check.role, roleId: id, member};
 }
 
 function transactionHash(transaction) {
@@ -178,15 +236,40 @@ async function main() {
     const artifact = artifactFor(transaction.contractName);
     compiler ??= compilerMetadata(artifact);
     if (!contract) {
-      manifest.phase2.deployments.push({
+      const inventory = phase2Contracts.get(transaction.contractName);
+      const constructorArguments = transaction.arguments ?? [];
+      const configurationHash = sha256({
+        chainId,
+        contractName: transaction.contractName,
+        constructorArguments,
+        dependencies: inventory.dependencies,
+      });
+      const capabilityHash = sha256({
+        contractName: transaction.contractName,
+        roleAuthority: inventory.roleAuthority,
+        supported: inventory.supported,
+        disabled: inventory.disabled,
+      });
+      const runtimeCodeHash = keccak(runtimeCode);
+      const deploymentEvidence = {
         name: transaction.contractName,
         artifact: artifactPathFor(transaction.contractName),
         address,
-        runtimeCodeHash: keccak(runtimeCode),
-        evidenceHash: null,
+        runtimeCodeHash,
+        configurationHash,
+        capabilityHash,
         transactionHash: transactionHash(transaction),
         blockNumber: Number.parseInt(receipt.blockNumber, 16),
-        constructorArguments: transaction.arguments ?? [],
+        constructorArguments,
+        dependencies: inventory.dependencies,
+        roleAuthority: inventory.roleAuthority,
+        supported: inventory.supported,
+        disabled: inventory.disabled,
+        activation: "qualified",
+      };
+      manifest.phase2.deployments.push({
+        ...deploymentEvidence,
+        evidenceHash: sha256(deploymentEvidence),
       });
       continue;
     }
@@ -209,17 +292,6 @@ async function main() {
           cap.value = argumentValues.get(cap.name);
         }
       });
-      const initialAdmin = transaction.arguments[1];
-      if (typeof initialAdmin === "string" && /^0x[0-9a-fA-F]{40}$/.test(initialAdmin)) {
-        contract.owner.address = initialAdmin;
-        contract.roles.forEach((role) => {
-          role.members.forEach((member) => {
-            if (member.source === "SETRYN_INITIAL_ADMIN") {
-              member.address = initialAdmin;
-            }
-          });
-        });
-      }
     }
   }
 
@@ -227,6 +299,121 @@ async function main() {
   if (missingContracts.length > 0) {
     throw new Error(`Broadcast evidence is missing: ${missingContracts.map((contract) => contract.name).join(", ")}.`);
   }
+
+  const principalValues = Object.fromEntries(
+    Object.entries(manifest.phase2.finalPrincipals).map(([name, principal]) => [name, requiredPrincipal(principal.source)]),
+  );
+  for (const [name, principal] of Object.entries(manifest.phase2.finalPrincipals)) {
+    principal.address = principalValues[name];
+  }
+  if (new Set(Object.values(principalValues)).size !== Object.values(principalValues).length) {
+    throw new Error("Final deployment principals must be pairwise distinct.");
+  }
+  const bootstrap = requiredPrincipal(manifest.phase2.bootstrapAuthority.source);
+  const addresses = new Map([
+    ...manifest.contracts.map((contract) => [contract.name, contract.address]),
+    ...manifest.phase2.deployments.map((contract) => [contract.name, contract.address]),
+  ]);
+  const operatorRoles = [
+    ["AssetRegistry", "REGISTRAR_ROLE", "SETRYN_REGISTRAR_ROLE"],
+    ["AssetRegistry", "STATUS_MANAGER_ROLE", "SETRYN_STATUS_MANAGER_ROLE"],
+    ["AdapterRegistry", "ADAPTER_QUALIFIER_ROLE", "SETRYN_ADAPTER_QUALIFIER_ROLE"],
+    ["AdapterRegistry", "ADAPTER_STATUS_MANAGER_ROLE", "SETRYN_ADAPTER_STATUS_MANAGER_ROLE"],
+    ["CalendarRegistry", "CALENDAR_REGISTRAR_ROLE", "SETRYN_CALENDAR_REGISTRAR_ROLE"],
+    ["CalendarRegistry", "CALENDAR_STATUS_MANAGER_ROLE", "SETRYN_CALENDAR_STATUS_MANAGER_ROLE"],
+    ["SessionRegistry", "SESSION_REGISTRAR_ROLE", "SETRYN_SESSION_REGISTRAR_ROLE"],
+    ["SessionRegistry", "SESSION_STATUS_MANAGER_ROLE", "SETRYN_SESSION_STATUS_MANAGER_ROLE"],
+    ["SettlementAssetRegistry", "QUALIFIER_ROLE", "SETRYN_QUALIFIER_ROLE"],
+    ["SettlementAssetRegistry", "STATUS_MANAGER_ROLE", "SETRYN_SETTLEMENT_STATUS_MANAGER_ROLE"],
+    ["BenchmarkRegistry", "BENCHMARK_QUALIFIER_ROLE", "SETRYN_BENCHMARK_QUALIFIER_ROLE"],
+    ["BenchmarkRegistry", "BENCHMARK_STATUS_MANAGER_ROLE", "SETRYN_BENCHMARK_STATUS_MANAGER_ROLE"],
+    ["FeeScheduleRegistry", "FEE_SCHEDULE_QUALIFIER_ROLE", "SETRYN_FEE_SCHEDULE_QUALIFIER_ROLE"],
+    ["FeeScheduleRegistry", "FEE_SCHEDULE_STATUS_MANAGER_ROLE", "SETRYN_FEE_SCHEDULE_STATUS_MANAGER_ROLE"],
+    ["RiskDomainRegistry", "RISK_DOMAIN_QUALIFIER_ROLE", "SETRYN_RISK_DOMAIN_QUALIFIER_ROLE"],
+    ["RiskDomainRegistry", "RISK_DOMAIN_STATUS_MANAGER_ROLE", "SETRYN_RISK_DOMAIN_STATUS_MANAGER_ROLE"],
+    ["InstrumentRegistry", "INSTRUMENT_QUALIFIER_ROLE", "SETRYN_INSTRUMENT_QUALIFIER_ROLE"],
+    ["InstrumentRegistry", "INSTRUMENT_STATUS_MANAGER_ROLE", "SETRYN_INSTRUMENT_STATUS_MANAGER_ROLE"],
+    ["MarketRegistry", "MARKET_QUALIFIER_ROLE", "SETRYN_MARKET_QUALIFIER_ROLE"],
+    ["MarketRegistry", "MARKET_STATUS_MANAGER_ROLE", "SETRYN_MARKET_STATUS_MANAGER_ROLE"],
+    ["SeriesRegistry", "SERIES_QUALIFIER_ROLE", "SETRYN_SERIES_QUALIFIER_ROLE"],
+    ["SeriesRegistry", "SERIES_STATUS_MANAGER_ROLE", "SETRYN_SERIES_STATUS_MANAGER_ROLE"],
+    ["PackageRegistry", "PACKAGE_QUALIFIER_ROLE", "SETRYN_PACKAGE_QUALIFIER_ROLE"],
+    ["PackageRegistry", "PACKAGE_STATUS_MANAGER_ROLE", "SETRYN_PACKAGE_STATUS_MANAGER_ROLE"],
+    ["PrivacyCommitmentRegistry", "POLICY_QUALIFIER_ROLE", "SETRYN_PRIVACY_POLICY_QUALIFIER_ROLE"],
+    ["PrivacyCommitmentRegistry", "POLICY_ACTIVATOR_ROLE", "SETRYN_PRIVACY_POLICY_ACTIVATOR_ROLE"],
+  ].map(([contractName, role, label]) => ({contractName, role, label, member: principalValues.governanceOperator}));
+  const roleChecks = [
+    ...operatorRoles,
+    {contractName: "CollateralVault", role: "COLLATERAL_LOCKER_ROLE", label: "SETRYN_COLLATERAL_LOCKER_ROLE", memberContract: "PositionEngine"},
+    {contractName: "CollateralVault", role: "COLLATERAL_SETTLER_ROLE", label: "SETRYN_COLLATERAL_SETTLER_ROLE", memberContract: "FundedFeeEngine"},
+    {contractName: "CollateralVault", role: "TERMINAL_RESERVATION_CREATOR_ROLE", label: "SETRYN_TERMINAL_RESERVATION_CREATOR_ROLE", memberContract: "PositionEngine"},
+    {contractName: "CollateralVault", role: "TERMINAL_RESERVATION_RESOLVER_ROLE", label: "SETRYN_TERMINAL_RESERVATION_RESOLVER_ROLE", memberContract: "CashSettlementCoordinator"},
+    {contractName: "CollateralVault", role: "TERMINAL_RESERVATION_RESOLVER_ROLE", label: "SETRYN_TERMINAL_RESERVATION_RESOLVER_ROLE", memberContract: "PositionLifecycleExecutor"},
+    {contractName: "CollateralVault", role: "COLLATERAL_LOCKER_ROLE", label: "SETRYN_COLLATERAL_LOCKER_ROLE", memberContract: "DefaultProcessEngine"},
+    {contractName: "CollateralVault", role: "COLLATERAL_SETTLER_ROLE", label: "SETRYN_COLLATERAL_SETTLER_ROLE", memberContract: "DefaultProcessEngine"},
+    {contractName: "CollateralVault", role: "EXCESS_RECOVERY_ROLE", label: "SETRYN_EXCESS_RECOVERY_ROLE", member: principalValues.excessRecoveryOperator},
+    {contractName: "PositionEngine", role: "FIXING_ENGINE_ROLE", label: "SETRYN_FIXING_ENGINE_ROLE", memberContract: "CashSettlementCoordinator"},
+    {contractName: "PositionEngine", role: "LIFECYCLE_ENGINE_ROLE", label: "SETRYN_LIFECYCLE_ENGINE_ROLE", memberContract: "PositionLifecycleExecutor"},
+    {contractName: "PositionEngine", role: "DEFAULT_ENGINE_ROLE", label: "SETRYN_DEFAULT_ENGINE_ROLE", memberContract: "PositionLifecycleExecutor"},
+    {contractName: "FundedFeeEngine", role: "FEE_ACTION_CONSUMER_ROLE", label: "SETRYN_FEE_ACTION_CONSUMER_ROLE", memberContract: "CashSettlementCoordinator"},
+    {contractName: "PortfolioRiskEngine", role: "EXPOSURE_REDUCER_ROLE", label: "SETRYN_EXPOSURE_REDUCER_ROLE", memberContract: "PositionLifecycleExecutor"},
+    {contractName: "PortfolioRiskEngine", role: "EXPOSURE_REDUCER_ROLE", label: "SETRYN_EXPOSURE_REDUCER_ROLE", memberContract: "CashSettlementCoordinator"},
+    {contractName: "PortfolioRiskEngine", role: "EXPOSURE_REDUCER_ROLE", label: "SETRYN_EXPOSURE_REDUCER_ROLE", memberContract: "DefaultProcessEngine"},
+    {contractName: "PositionLifecycleExecutor", role: "SIGNED_LIFECYCLE_ENGINE_ROLE", label: "SETRYN_SIGNED_LIFECYCLE_ENGINE_ROLE", memberContract: "SignedLifecycleEngine"},
+    {contractName: "PositionLifecycleExecutor", role: "COMPRESSION_COORDINATOR_ROLE", label: "SETRYN_COMPRESSION_COORDINATOR_ROLE", memberContract: "CompressionCoordinator"},
+    {contractName: "PositionLifecycleExecutor", role: "DEFAULT_PROCESS_ENGINE_ROLE", label: "SETRYN_DEFAULT_PROCESS_ENGINE_ROLE", memberContract: "DefaultProcessEngine"},
+    {contractName: "PositionLifecycleExecutor", role: "WITNESS_STAGER_ROLE", label: "SETRYN_LIFECYCLE_WITNESS_STAGER_ROLE", member: principalValues.lifecycleWitnessStager},
+    {contractName: "SignedLifecycleEngine", role: "LIFECYCLE_GUARDIAN_ROLE", label: "SETRYN_LIFECYCLE_GUARDIAN_ROLE", member: principalValues.guardian},
+    {contractName: "CompressionCoordinator", role: "COMPRESSION_GUARDIAN_ROLE", label: "SETRYN_COMPRESSION_GUARDIAN_ROLE", member: principalValues.guardian},
+    {contractName: "PrivacyCommitmentRegistry", role: "EPOCH_KEY_PUBLISHER_ROLE", label: "SETRYN_PRIVACY_EPOCH_KEY_PUBLISHER_ROLE", member: principalValues.privacyKeyPublisher},
+  ];
+  const verifiedRoles = [];
+  for (const check of roleChecks) verifiedRoles.push(await verifyRole(rpcUrl, addresses, blockTag, check, bootstrap));
+  for (const check of [
+    ["PositionEngine", "CLEARING_ENGINE_ROLE", "SETRYN_CLEARING_ENGINE_ROLE"],
+    ["PositionEngine", "FUNDING_REQUESTER_ROLE", "SETRYN_POSITION_FUNDING_REQUESTER_ROLE"],
+    ["PortfolioRiskEngine", "RISK_CONSUMER_ROLE", "SETRYN_RISK_CONSUMER_ROLE"],
+  ]) {
+    const [contractName, role, label] = check;
+    const target = addresses.get(contractName);
+    const id = roleId(label);
+    const state = await ethCall(rpcUrl, target, calldata("hasRole(bytes32,address)", [id, bootstrap]), blockTag);
+    if (BigInt(state) !== 0n) throw new Error(`${contractName}.${role} remains held by bootstrap`);
+    verifiedRoles.push({contractName, role, roleId: id, member: null});
+  }
+  for (const contract of manifest.contracts) {
+    for (const role of contract.roles) {
+      role.members = verifiedRoles
+        .filter((entry) => entry.contractName === contract.name && entry.role === role.name && entry.member)
+        .map((entry) => ({address: entry.member, source: principalSource(entry.member, principalValues, addresses)}));
+    }
+  }
+  const adminContracts = [
+    "AssetRegistry", "AdapterRegistry", "CalendarRegistry", "SessionRegistry", "SettlementAssetRegistry",
+    "BenchmarkRegistry", "FeeScheduleRegistry", "RiskDomainRegistry", "InstrumentRegistry", "MarketRegistry",
+    "SeriesRegistry", "CollateralVault", "PackageRegistry", "PositionEngine", "FundedFeeEngine",
+    "PortfolioRiskEngine", "PositionLifecycleExecutor", "SignedLifecycleEngine", "CompressionCoordinator",
+    "PrivacyCommitmentRegistry",
+  ];
+  const pendingAdmins = [];
+  for (const contractName of adminContracts) {
+    const result = await ethCall(rpcUrl, addresses.get(contractName), calldata("pendingDefaultAdmin()"), blockTag);
+    const pendingAdmin = `0x${result.slice(26, 66)}`.toLowerCase();
+    if (pendingAdmin !== principalValues.governanceAdmin) throw new Error(`${contractName} pending admin drifted`);
+    pendingAdmins.push({contractName, pendingAdmin, acceptSchedule: `0x${result.slice(66, 130)}`});
+  }
+  const aggregateConfiguration = sha256(manifest.phase2.deployments.map(({name, configurationHash}) => [name, configurationHash]));
+  const aggregateCapabilities = sha256(manifest.phase2.deployments.map(({name, capabilityHash}) => [name, capabilityHash]));
+  const postWiringEvidenceHash = sha256({verifiedRoles, pendingAdmins, bootstrap});
+  manifest.phase2.qualificationEvidence = {
+    ...manifest.phase2.qualificationEvidence,
+    configurationHash: aggregateConfiguration,
+    capabilityHash: aggregateCapabilities,
+    activation: "qualified",
+    postWiringEvidenceHash,
+    bootstrapRolesRevoked: true,
+    adminTransfersBegun: true,
+  };
 
   for (const dependency of manifest.externalDependencies) {
     if (!dependency.address) {

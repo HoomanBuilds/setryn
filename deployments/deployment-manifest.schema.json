@@ -191,16 +191,23 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["name", "artifact", "address", "runtimeCodeHash", "evidenceHash", "transactionHash", "blockNumber", "constructorArguments"],
+            "required": ["name", "artifact", "address", "runtimeCodeHash", "configurationHash", "capabilityHash", "evidenceHash", "transactionHash", "blockNumber", "constructorArguments", "dependencies", "roleAuthority", "supported", "disabled", "activation"],
             "properties": {
               "name": {"type": "string", "minLength": 1},
               "artifact": {"type": "string", "minLength": 1},
               "address": {"$ref": "#/$defs/address"},
               "runtimeCodeHash": {"$ref": "#/$defs/bytes32"},
-              "evidenceHash": {"$ref": "#/$defs/nullableBytes32"},
+              "configurationHash": {"$ref": "#/$defs/bytes32"},
+              "capabilityHash": {"$ref": "#/$defs/bytes32"},
+              "evidenceHash": {"$ref": "#/$defs/bytes32"},
               "transactionHash": {"$ref": "#/$defs/bytes32"},
               "blockNumber": {"type": "integer", "minimum": 0},
-              "constructorArguments": {"type": "array", "items": {}}
+              "constructorArguments": {"type": "array", "items": {}},
+              "dependencies": {"type": "array", "items": {"type": "string", "minLength": 1}},
+              "roleAuthority": {"type": "array", "items": {"type": "string", "minLength": 1}},
+              "supported": {"type": "array", "items": {"type": "string", "minLength": 1}},
+              "disabled": {"type": "array", "items": {"type": "string", "minLength": 1}},
+              "activation": {"enum": ["planned", "qualified", "blocked"]}
             }
           }
         },
