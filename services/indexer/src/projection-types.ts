@@ -4,6 +4,7 @@ import type {
   JsonObject,
   RegistryKind,
   RegistryStatus,
+  ProtocolEventDomain,
 } from "@setryn/internal-schemas";
 
 export interface RegistryVersionProjection {
@@ -128,6 +129,28 @@ export interface DeploymentProjection {
   readonly observedAtBlock: bigint;
 }
 
+export interface ProtocolTransitionProjection {
+  readonly chainId: number;
+  readonly domain: ProtocolEventDomain;
+  readonly subjectId: Bytes32;
+  readonly eventName: string;
+  readonly payload: JsonObject;
+  readonly transactionHash: Bytes32;
+  readonly transactionIndex: number;
+  readonly logIndex: number;
+  readonly blockNumber: bigint;
+}
+
+export interface ProtocolSubjectProjection {
+  readonly chainId: number;
+  readonly domain: ProtocolEventDomain;
+  readonly subjectId: Bytes32;
+  readonly latestEventName: string;
+  readonly latestPayload: JsonObject;
+  readonly transitionCount: number;
+  readonly updatedAtBlock: bigint;
+}
+
 export interface ProjectionState {
   readonly processedLogIds: Set<string>;
   readonly registryVersions: Map<string, RegistryVersionProjection>;
@@ -140,6 +163,8 @@ export interface ProjectionState {
   readonly terminalClaims: Map<string, TerminalClaimProjection>;
   readonly excessRecoveries: Map<string, ExcessRecoveryProjection>;
   readonly deployments: Map<string, DeploymentProjection>;
+  readonly protocolTransitions: Map<string, ProtocolTransitionProjection>;
+  readonly protocolSubjects: Map<string, ProtocolSubjectProjection>;
 }
 
 export function emptyProjectionState(): ProjectionState {
@@ -155,5 +180,7 @@ export function emptyProjectionState(): ProjectionState {
     terminalClaims: new Map(),
     excessRecoveries: new Map(),
     deployments: new Map(),
+    protocolTransitions: new Map(),
+    protocolSubjects: new Map(),
   };
 }

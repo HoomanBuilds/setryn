@@ -16,6 +16,8 @@ if (manifestArgumentIndex !== -1 && !process.argv[manifestArgumentIndex + 1]) {
 }
 const manifestPaths =
   manifestArgumentIndex === -1 ? trackedManifestPaths : [process.argv[manifestArgumentIndex + 1]];
+const phase2Inventory = readJson("deployments/phase2-contract-inventory.json");
+const phase2ContractNames = phase2Inventory.contracts.map(({ name }) => name);
 const requiredContracts = [
   "AssetRegistry",
   "AdapterRegistry",
@@ -79,6 +81,27 @@ function validateManifest(manifestPath) {
   };
   if (!allowedChainIds[manifest.environment]?.includes(manifest.chainId)) {
     throw new Error(`${manifestPath}: environment and chain ID do not match`);
+  }
+  if (
+    manifest.phase2?.inventoryFile !== "../phase2-contract-inventory.json" ||
+    JSON.stringify(manifest.phase2.contracts) !== JSON.stringify(phase2ContractNames) ||
+    manifest.phase2.mainnetBroadcastAllowed !== false ||
+    manifest.phase2.bootstrapAuthority?.postWiringRevocationRequired !== true
+  ) {
+    throw new Error(`${manifestPath}: Phase 2 inventory or authority policy drifted`);
+  }
+  const phase2Deployments = manifest.phase2.deployments;
+  const deployedPhase2Names = phase2Deployments.map(({ name }) => name);
+  if (new Set(deployedPhase2Names).size !== deployedPhase2Names.length) {
+    throw new Error(`${manifestPath}: duplicate Phase 2 deployment evidence`);
+  }
+  for (const name of deployedPhase2Names) {
+    if (!phase2ContractNames.includes(name)) {
+      throw new Error(`${manifestPath}: unknown Phase 2 deployed contract ${name}`);
+    }
+  }
+  if ((manifest.status === "planned" || manifest.status === "disabled") && phase2Deployments.length !== 0) {
+    throw new Error(`${manifestPath}: non-broadcast manifest contains Phase 2 deployment evidence`);
   }
   const contracts = new Map(manifest.contracts.map((contract) => [contract.name, contract]));
   if (contracts.size !== manifest.contracts.length) {
@@ -157,4 +180,4 @@ for (const manifestPath of manifestPaths) {
   validateManifest(manifestPath);
 }
 
-process.stdout.write("Deployment manifests match the Phase 1 contract graph.\n");
+process.stdout.write("Deployment manifests match the Phase 1 graph and Phase 2 inventory.\n");

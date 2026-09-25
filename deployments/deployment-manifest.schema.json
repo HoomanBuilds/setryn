@@ -14,6 +14,7 @@
     "blockReference",
     "compiler",
     "broadcast",
+    "phase2",
     "contracts",
     "externalDependencies"
   ],
@@ -33,6 +34,7 @@
     "blockReference": {"$ref": "#/$defs/blockReference"},
     "compiler": {"$ref": "#/$defs/compiler"},
     "broadcast": {"$ref": "#/$defs/broadcast"},
+    "phase2": {"$ref": "#/$defs/phase2"},
     "contracts": {
       "type": "array",
       "minItems": 1,
@@ -170,6 +172,49 @@
         "enabled": {"type": "boolean"},
         "signed": {"type": "boolean"},
         "transactionCount": {"type": "integer", "minimum": 0}
+      }
+    },
+    "phase2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inventoryFile", "contracts", "deployments", "bootstrapAuthority", "activationPolicy", "mainnetBroadcastAllowed"],
+      "properties": {
+        "inventoryFile": {"const": "../phase2-contract-inventory.json"},
+        "contracts": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "deployments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "artifact", "address", "runtimeCodeHash", "evidenceHash", "transactionHash", "blockNumber", "constructorArguments"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "artifact": {"type": "string", "minLength": 1},
+              "address": {"$ref": "#/$defs/address"},
+              "runtimeCodeHash": {"$ref": "#/$defs/bytes32"},
+              "evidenceHash": {"$ref": "#/$defs/nullableBytes32"},
+              "transactionHash": {"$ref": "#/$defs/bytes32"},
+              "blockNumber": {"type": "integer", "minimum": 0},
+              "constructorArguments": {"type": "array", "items": {}}
+            }
+          }
+        },
+        "bootstrapAuthority": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source", "postWiringRevocationRequired"],
+          "properties": {
+            "source": {"const": "SETRYN_DEPLOYER_ADDRESS"},
+            "postWiringRevocationRequired": {"const": true}
+          }
+        },
+        "activationPolicy": {"const": "registered-paused-until-qualified"},
+        "mainnetBroadcastAllowed": {"const": false}
       }
     },
     "principal": {

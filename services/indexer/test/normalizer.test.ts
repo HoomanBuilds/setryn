@@ -91,3 +91,26 @@ test("normalizer rejects unknown enum ordinals", () => {
     }),
   );
 });
+
+test("normalizer projects async adapter state with canonical enum names", () => {
+  const actionId = `0x${"ab".repeat(32)}`;
+  const normalized = normalizeDecodedLog({
+    contractName: "OperationalAdapterExecutor",
+    eventName: "ExternalActionAdvanced",
+    args: { actionId, previousState: 1n, newState: 4n, resultHash: hash },
+    log: {
+      block: { chainId: 31337, number: 1n, hash, parentHash, timestamp: 1n },
+      transactionHash: hash,
+      transactionIndex: 0,
+      logIndex: 0,
+      contractAddress: vault,
+    },
+  });
+
+  assert.equal(normalized?.name, "protocol.transition");
+  if (normalized?.name !== "protocol.transition") assert.fail("adapter event did not normalize");
+  assert.equal(normalized.payload.domain, "asyncAdapters");
+  assert.equal(normalized.payload.subjectId, actionId);
+  assert.equal(normalized.payload.payload.previousState, "submitted");
+  assert.equal(normalized.payload.payload.newState, "reconciling");
+});

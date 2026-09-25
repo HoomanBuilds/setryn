@@ -21,6 +21,8 @@ export interface DeploymentManifestIdentity {
   readonly blockNumber: number | null;
   readonly blockHash: Bytes32 | null;
   readonly contracts: readonly ContractDeploymentIdentity[];
+  readonly phase2Contracts: readonly string[];
+  readonly mainnetBroadcastAllowed: false;
 }
 
 const statuses = new Set<DeploymentStatus>(["planned", "simulated", "broadcast", "disabled"]);
@@ -37,6 +39,19 @@ export function parseDeploymentManifestIdentity(value: unknown): DeploymentManif
     throw new TypeError("deployment manifest must contain contracts");
   }
   const block = requireObject(value.blockReference, "blockReference");
+  const phase2 = requireObject(value.phase2, "phase2");
+  if (!Array.isArray(phase2.contracts) || phase2.contracts.length === 0) {
+    throw new TypeError("Phase 2 manifest contract inventory must be non-empty");
+  }
+  const phase2Contracts = phase2.contracts.map((name, index) =>
+    requireNonEmptyString(name, `phase2.contracts[${index}]`),
+  );
+  if (new Set(phase2Contracts).size !== phase2Contracts.length) {
+    throw new TypeError("Phase 2 manifest contract names must be unique");
+  }
+  if (phase2.mainnetBroadcastAllowed !== false) {
+    throw new TypeError("Phase 2 mainnet broadcast must remain disabled");
+  }
   return {
     schemaVersion: requireNonEmptyString(value.schemaVersion, "schemaVersion"),
     environment: requireNonEmptyString(value.environment, "environment"),
@@ -44,8 +59,37 @@ export function parseDeploymentManifestIdentity(value: unknown): DeploymentManif
     status: status as DeploymentStatus,
     blockNumber: block.number === null ? null : parseNonNegativeInteger(block.number, "blockReference.number"),
     blockHash: block.hash === null ? null : parseBytes32(block.hash, "blockReference.hash"),
-    contracts: value.contracts.map(parseContractIdentity),
+    contracts: [
+      ...value.contracts.map(parseContractIdentity),
+      ...parsePhase2Deployments(phase2.deployments),
+    ],
+    phase2Contracts,
+    mainnetBroadcastAllowed: false,
   };
+}
+
+function parsePhase2Deployments(value: unknown): ContractDeploymentIdentity[] {
+  if (!Array.isArray(value)) throw new TypeError("phase2.deployments must be an array");
+  return value.map((item, index) => {
+    const deployment = requireObject(item, `phase2.deployments[${index}]`);
+    return {
+      name: requireNonEmptyString(deployment.name, `phase2.deployments[${index}].name`),
+      artifact: requireNonEmptyString(deployment.artifact, `phase2.deployments[${index}].artifact`),
+      address: parseAddress(deployment.address, `phase2.deployments[${index}].address`),
+      runtimeCodeHash: parseBytes32(
+        deployment.runtimeCodeHash,
+        `phase2.deployments[${index}].runtimeCodeHash`,
+      ),
+      deploymentTransactionHash: parseBytes32(
+        deployment.transactionHash,
+        `phase2.deployments[${index}].transactionHash`,
+      ),
+      deploymentBlockNumber: parseNonNegativeInteger(
+        deployment.blockNumber,
+        `phase2.deployments[${index}].blockNumber`,
+      ),
+    };
+  });
 }
 
 function parseContractIdentity(value: unknown, index: number): ContractDeploymentIdentity {

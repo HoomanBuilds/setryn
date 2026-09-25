@@ -82,6 +82,33 @@ export function applyEvent(state: ProjectionState, event: CanonicalEvent): void 
     });
     return;
   }
+  if (event.name === "protocol.transition") {
+    const payload = event.payload;
+    const transitionKey = `${event.log.block.chainId}:${event.log.transactionHash}:${event.log.logIndex}`;
+    state.protocolTransitions.set(transitionKey, {
+      chainId: event.log.block.chainId,
+      domain: payload.domain,
+      subjectId: payload.subjectId,
+      eventName: payload.eventName,
+      payload: payload.payload,
+      transactionHash: event.log.transactionHash,
+      transactionIndex: event.log.transactionIndex,
+      logIndex: event.log.logIndex,
+      blockNumber: event.log.block.number,
+    });
+    const subjectKey = `${event.log.block.chainId}:${payload.domain}:${payload.subjectId}`;
+    const current = state.protocolSubjects.get(subjectKey);
+    state.protocolSubjects.set(subjectKey, {
+      chainId: event.log.block.chainId,
+      domain: payload.domain,
+      subjectId: payload.subjectId,
+      latestEventName: payload.eventName,
+      latestPayload: payload.payload,
+      transitionCount: (current?.transitionCount ?? 0) + 1,
+      updatedAtBlock: event.log.block.number,
+    });
+    return;
+  }
 
   applyCollateralEvent(state, event.name, event.payload, event.log.block.chainId, event.log.block.number);
 }

@@ -203,6 +203,7 @@ SETRYN_DEPLOYMENT_ENVIRONMENT=local \
 SETRYN_DEPLOYER_ADDRESS="$deployer_address" \
 SETRYN_INITIAL_ADMIN="$deployer_address" \
 SETRYN_EVALUATION_GAS_HARD_CAP=2000000 \
+SETRYN_DEPLOYMENT_ID=0x6c6f63616c2d73657472796e2d7068617365320000000000000000000000000000 \
 forge script script/DeploySetryn.s.sol:DeploySetryn \
     --root "$repository_root/contracts" \
     --rpc-url "$rpc_url" \

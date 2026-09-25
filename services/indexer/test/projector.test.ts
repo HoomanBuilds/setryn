@@ -72,6 +72,26 @@ test("duplicate blocks are idempotent", () => {
   assert.equal(projector.ingest(first), "duplicate");
 });
 
+test("protocol projections rollback with their block", () => {
+  const store = new InMemoryProjectionStore();
+  const projector = new SetrynProjector(store);
+  projector.ingest(block(1, blockOneHash, zero, []));
+  const actionId = `0x${"ab".repeat(32)}`;
+  projector.ingest(block(2, orphanHash, blockOneHash, [
+    event("protocol.transition", orphanHash, blockOneHash, 2, 0, {
+      domain: "asyncAdapters",
+      eventName: "ExternalActionAdvanced",
+      subjectId: actionId,
+      payload: { previousState: "submitted", newState: "included" },
+    }),
+  ]));
+
+  assert.equal(store.state().protocolSubjects.size, 1);
+  projector.ingest(block(2, canonicalHash, blockOneHash, []));
+  assert.equal(store.state().protocolSubjects.size, 0);
+  assert.equal(store.state().protocolTransitions.size, 0);
+});
+
 function block(number: number, hash: string, parentHash: string, events: unknown[]) {
   return parseCanonicalBlock({ chainId: 31337, number, hash, parentHash, timestamp: number, events });
 }

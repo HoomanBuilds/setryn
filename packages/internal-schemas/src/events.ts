@@ -20,6 +20,7 @@ export const registryKinds = [
   "instrument",
   "market",
   "series",
+  "package",
 ] as const;
 
 export type RegistryKind = (typeof registryKinds)[number];
@@ -86,6 +87,37 @@ export type CollateralEventName =
 
 export type CollateralEvent = EventBase<CollateralEventName, JsonObject>;
 
+export const protocolEventDomains = [
+  "orders",
+  "books",
+  "rfqs",
+  "auctions",
+  "streams",
+  "routes",
+  "fills",
+  "positions",
+  "fixing",
+  "settlement",
+  "fees",
+  "risk",
+  "lifecycle",
+  "default",
+  "privacy",
+  "receipts",
+  "asyncAdapters",
+] as const;
+
+export type ProtocolEventDomain = (typeof protocolEventDomains)[number];
+
+export interface ProtocolTransitionPayload {
+  readonly domain: ProtocolEventDomain;
+  readonly eventName: string;
+  readonly subjectId: Bytes32;
+  readonly payload: JsonObject;
+}
+
+export type ProtocolTransitionEvent = EventBase<"protocol.transition", ProtocolTransitionPayload>;
+
 export interface DeploymentIdentityPayload {
   readonly environment: string;
   readonly chainId: number;
@@ -99,7 +131,7 @@ export interface DeploymentIdentityPayload {
 
 export type DeploymentIdentityEvent = EventBase<"deployment.identity.observed", DeploymentIdentityPayload>;
 
-export type CanonicalEvent = RegistryEvent | CollateralEvent | DeploymentIdentityEvent;
+export type CanonicalEvent = RegistryEvent | CollateralEvent | DeploymentIdentityEvent | ProtocolTransitionEvent;
 
 export interface CanonicalBlock {
   readonly chainId: number;
@@ -132,6 +164,7 @@ const collateralEventNames = new Set<CollateralEventName>([
 
 const registryStatuses = new Set<RegistryStatus>(["unspecified", "active", "paused", "deprecated"]);
 const registryKindSet = new Set<RegistryKind>(registryKinds);
+const protocolEventDomainSet = new Set<ProtocolEventDomain>(protocolEventDomains);
 
 export function parseCanonicalBlock(value: unknown): CanonicalBlock {
   if (!isJsonObject(value)) {
@@ -178,10 +211,29 @@ export function parseCanonicalEvent(value: unknown): CanonicalEvent {
   if (name === "deployment.identity.observed") {
     return { name, log, contractName, payload: parseDeploymentPayload(value.payload) };
   }
+  if (name === "protocol.transition") {
+    return { name, log, contractName, payload: parseProtocolTransitionPayload(value.payload) };
+  }
   if (collateralEventNames.has(name as CollateralEventName)) {
     return { name: name as CollateralEventName, log, contractName, payload: value.payload };
   }
   throw new TypeError(`unsupported canonical event ${name}`);
+}
+
+function parseProtocolTransitionPayload(value: JsonObject): ProtocolTransitionPayload {
+  const domain = value.domain;
+  if (typeof domain !== "string" || !protocolEventDomainSet.has(domain as ProtocolEventDomain)) {
+    throw new TypeError("protocol event domain is unsupported");
+  }
+  if (!isJsonObject(value.payload)) {
+    throw new TypeError("protocol event payload must be an object");
+  }
+  return {
+    domain: domain as ProtocolEventDomain,
+    eventName: requireString(value.eventName, "protocol event name"),
+    subjectId: parseBytes32(value.subjectId, "protocol subject ID"),
+    payload: value.payload,
+  };
 }
 
 function parseRegisteredPayload(value: JsonObject): RegistryVersionRegisteredPayload {

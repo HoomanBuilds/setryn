@@ -6,6 +6,8 @@ import {dirname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const phase2Inventory = readJson(resolve(repositoryRoot, "deployments/phase2-contract-inventory.json"));
+const phase2ContractNames = new Set(phase2Inventory.contracts.map(({name}) => name));
 const environments = {
   local: {
     chainIds: [1337, 31337],
@@ -79,7 +81,12 @@ function receiptByHash(receipts) {
 }
 
 function artifactFor(contractName) {
-  return readJson(resolve(repositoryRoot, "contracts", "out", `${contractName}.sol`, `${contractName}.json`));
+  return readJson(resolve(repositoryRoot, artifactPathFor(contractName)));
+}
+
+function artifactPathFor(contractName) {
+  const sourceName = contractName.endsWith("PayoffModule") ? "ProductionPayoffModules" : contractName;
+  return `contracts/out/${sourceName}.sol/${contractName}.json`;
 }
 
 function sourceCommit() {
@@ -153,12 +160,13 @@ async function main() {
     manifest.externalDependencies = [];
   }
   const templateContracts = new Map(manifest.contracts.map((contract) => [contract.name, contract]));
+  manifest.phase2.deployments = [];
   let compiler;
 
   for (const transaction of creates) {
     const contract = templateContracts.get(transaction.contractName);
-    if (!contract) {
-      throw new Error(`No manifest entry exists for ${transaction.contractName}.`);
+    if (!contract && !phase2ContractNames.has(transaction.contractName)) {
+      throw new Error(`No Phase 2 inventory entry exists for ${transaction.contractName}.`);
     }
     const receipt = receipts.get(transactionHash(transaction).toLowerCase());
     const address = transaction.contractAddress ?? receipt.contractAddress;
@@ -169,6 +177,19 @@ async function main() {
 
     const artifact = artifactFor(transaction.contractName);
     compiler ??= compilerMetadata(artifact);
+    if (!contract) {
+      manifest.phase2.deployments.push({
+        name: transaction.contractName,
+        artifact: artifactPathFor(transaction.contractName),
+        address,
+        runtimeCodeHash: keccak(runtimeCode),
+        evidenceHash: null,
+        transactionHash: transactionHash(transaction),
+        blockNumber: Number.parseInt(receipt.blockNumber, 16),
+        constructorArguments: transaction.arguments ?? [],
+      });
+      continue;
+    }
     contract.address = address;
     contract.bytecode.creationCodeHash = keccak(artifact.bytecode.object);
     contract.bytecode.runtimeCodeHash = keccak(runtimeCode);

@@ -42,7 +42,22 @@ export class SetrynProjector {
 }
 
 export function assertBindingsReady(): void {
-  const required = ["AssetRegistry", "InstrumentRegistry", "MarketRegistry", "SeriesRegistry", "CollateralVault"];
+  const required = [
+    "AssetRegistry",
+    "AdapterRegistry",
+    "InstrumentRegistry",
+    "MarketRegistry",
+    "SeriesRegistry",
+    "PackageRegistry",
+    "CollateralVault",
+    "PositionEngine",
+    "FixingEngine",
+    "FundedFeeEngine",
+    "PortfolioRiskEngine",
+    "CashSettlementCoordinator",
+    "PrivacyCommitmentRegistry",
+    "OperationalAdapterExecutor",
+  ];
   for (const contractName of required) {
     if (!(contractName in contractBindings)) {
       throw new Error(`Missing generated internal binding for ${contractName}`);

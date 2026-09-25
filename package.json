@@ -31,6 +31,8 @@
     "phase1:bindings:gate": "pnpm run contracts:build && pnpm run internal:bindings:generate && pnpm run internal:bindings:check",
     "phase1:platform:gate": "pnpm run phase1:bindings:gate && pnpm run internal:typecheck && pnpm run internal:test && pnpm run contracts:deployment:validate",
     "contracts:deployment:validate": "node scripts/validate-deployment-manifests.mjs",
+    "phase2:drift:check": "node scripts/check-phase2-integration.mjs",
+    "phase2:gate": "pnpm run phase2:drift:check && pnpm run contracts:deployment:validate && pnpm run internal:typecheck && pnpm run contracts:fmt:check",
     "contracts:fmt": "forge fmt --root contracts",
     "contracts:fmt:check": "forge fmt --root contracts --check"
   }
