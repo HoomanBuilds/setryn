@@ -7,7 +7,14 @@ import {ICompressionPositionSource} from "./ICompressionPositionSource.sol";
 import {ICollateralVault} from "./ICollateralVault.sol";
 import {ISeriesRegistry} from "./ISeriesRegistry.sol";
 import {AccountId, AssetId, CollateralLockId, PositionId} from "../types/Identifiers.sol";
-import {PositionCreation, PositionEconomics, PositionLifecycle, PositionStatus} from "../types/PositionTypes.sol";
+import {
+    PositionCreation,
+    PositionEconomics,
+    PositionLifecycle,
+    PositionProvenance,
+    PositionStatus
+} from "../types/PositionTypes.sol";
+import {Lots} from "../types/Units.sol";
 
 interface IPositionEngine is IPositionEngineTerminalState, ILifecyclePositionSource, ICompressionPositionSource {
     event PositionCreated(
@@ -37,6 +44,21 @@ interface IPositionEngine is IPositionEngineTerminalState, ILifecyclePositionSou
         bytes32 finalFixingsHash,
         int256 transferMinorPerLot,
         int256 terminalTransferMinor
+    );
+    event PositionExactPayoffComputed(
+        PositionId indexed positionId,
+        bytes32 indexed fixingReference,
+        bytes32 finalFixingsHash,
+        uint128 evaluatedLots,
+        int256 terminalTransferMinor
+    );
+    event PositionQuantityChanged(
+        PositionId indexed positionId,
+        uint128 remainingLots,
+        uint128 exercisedLots,
+        uint128 closedLots,
+        uint64 lifecycleNonce,
+        bytes32 indexed transitionReference
     );
 
     event PositionFundingLockCreated(
@@ -82,10 +104,18 @@ interface IPositionEngine is IPositionEngineTerminalState, ILifecyclePositionSou
     error UnexpectedPositionFunding(bytes32 liabilityKey, CollateralLockId lockId);
     error UnauthorizedPositionFundingRequester(CollateralLockId lockId, address expected, address actual);
     error UnsupportedTerminalAlternative(PositionStatus status);
+    error ExactLotsCapabilityMismatch(address implementation, bytes32 actualCapability);
+    error InvalidPositionQuantity(PositionId positionId, uint128 remaining, uint128 requested);
+    error LifecycleOwnerMismatch(PositionId positionId, AccountId expected, AccountId actual);
+    error LifecycleNonceMismatch(PositionId positionId, uint64 expected, uint64 actual);
 
     function createPosition(PositionCreation calldata creation) external returns (PositionId positionId);
 
     function createLifecycleSuccessor(PositionCreation calldata creation) external returns (PositionId positionId);
+    function createLifecycleSuccessorWithProvenance(
+        PositionCreation calldata creation,
+        PositionProvenance calldata provenance
+    ) external returns (PositionId positionId);
 
     function createPositionFundingLock(
         bytes32 lockReference,
@@ -107,6 +137,29 @@ interface IPositionEngine is IPositionEngineTerminalState, ILifecyclePositionSou
     function beginFixing(PositionId positionId) external;
 
     function acceptFinalFixing(PositionId positionId, bytes32 fixingReference, bytes calldata finalFixings) external;
+    function exercisePositionQuantity(
+        PositionId positionId,
+        Lots exerciseLots,
+        AccountId actorAccountId,
+        uint64 expectedLifecycleNonce,
+        bytes32 fixingReference,
+        bytes calldata finalFixings
+    ) external;
+    function closePositionQuantity(
+        PositionId positionId,
+        Lots closeLots,
+        AccountId actorAccountId,
+        uint64 expectedLifecycleNonce,
+        PositionStatus terminalStatus,
+        bytes32 transitionReference
+    ) external;
+    function transferLifecycleOwner(
+        PositionId positionId,
+        AccountId currentOwnerAccountId,
+        AccountId newOwnerAccountId,
+        uint64 expectedOwnerNonce,
+        bytes32 transitionReference
+    ) external;
 
     function settle(PositionId positionId) external;
 

@@ -7,6 +7,7 @@ import {TerminalLiabilityReservationStatus, TerminalOutcomeKind} from "../../src
 import {AccountId, PositionId, TerminalLiabilityReservationId} from "../../src/types/Identifiers.sol";
 import {PositionEconomics, PositionLifecycle, PositionStatus} from "../../src/types/PositionTypes.sol";
 import {LifecyclePositionSnapshot} from "../../src/types/LifecycleTypes.sol";
+import {Lots} from "../../src/types/Units.sol";
 import {LocalSetrynFixture, SetrynLocalFixture} from "../fixtures/SetrynLocalFixture.sol";
 import {PositionEngineHandler} from "./handlers/PositionEngineHandler.sol";
 
@@ -100,6 +101,19 @@ contract PositionEngineInvariantTest is SetrynLocalFixture {
             assertTrue(snapshot.immutableHash != bytes32(0));
             assertTrue(snapshot.lifecycleHash != bytes32(0));
             assertTrue(snapshot.economicsHash != bytes32(0));
+        }
+    }
+
+    function invariant_OriginalQuantityAlwaysEqualsRemainingExercisedAndClosed() public view {
+        uint256 count = handler.positionCount();
+        for (uint256 i; i < count; ++i) {
+            (PositionEconomics memory economics, PositionLifecycle memory lifecycle) =
+                engine.getPosition(handler.positionAt(i));
+            assertEq(
+                Lots.unwrap(economics.originalLots),
+                Lots.unwrap(lifecycle.remainingLots) + Lots.unwrap(lifecycle.exercisedLots)
+                    + Lots.unwrap(lifecycle.closedLots)
+            );
         }
     }
 

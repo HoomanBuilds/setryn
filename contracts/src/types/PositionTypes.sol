@@ -9,6 +9,7 @@ import {
     FeeScheduleId,
     InstrumentId,
     MarketId,
+    PackageId,
     PositionId,
     RiskDomainId,
     SeriesId,
@@ -57,6 +58,13 @@ struct PositionCreation {
     bytes payoffTerms;
 }
 
+struct PositionProvenance {
+    PackageId packageId;
+    uint32 packageVersion;
+    uint32 packageOrdinal;
+    bytes32 packageProvenanceHash;
+}
+
 struct PositionEconomics {
     PositionId positionId;
     bytes32 fillIdentity;
@@ -87,6 +95,7 @@ struct PositionEconomics {
     uint64 settlementDeadline;
     uint64 maxEvaluationGas;
     Lots lots;
+    Lots originalLots;
     PriceTicks entryPriceTicks;
     uint128 maxLongDebitMinorPerLot;
     uint128 maxShortDebitMinorPerLot;
@@ -97,6 +106,10 @@ struct PositionEconomics {
     bytes32 shortLiabilityKey;
     TerminalLiabilityReservationId longReservationId;
     TerminalLiabilityReservationId shortReservationId;
+    PackageId packageId;
+    uint32 packageVersion;
+    uint32 packageOrdinal;
+    bytes32 packageProvenanceHash;
 }
 
 struct PositionLifecycle {
@@ -105,4 +118,10 @@ struct PositionLifecycle {
     bytes32 finalFixingsHash;
     bytes32 terminalOutcomeReference;
     int256 terminalTransferMinor;
+    Lots remainingLots;
+    Lots exercisedLots;
+    Lots closedLots;
+    AccountId lifecycleOwnerAccountId;
+    uint64 ownerNonce;
+    uint64 lifecycleNonce;
 }

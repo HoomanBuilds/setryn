@@ -39,6 +39,7 @@ import {
 import {InstrumentVersion} from "../types/InstrumentDefinition.sol";
 import {MarketVersion} from "../types/MarketDefinition.sol";
 import {PositionEconomics, PositionLifecycle, PositionStatus} from "../types/PositionTypes.sol";
+import {CanonicalFixing} from "../types/PayoffTypes.sol";
 import {
     CanonicalSettlementFixing,
     SettlementCollateralDelta,
@@ -109,7 +110,7 @@ contract CashSettlementCoordinator is ICashSettlementCoordinator, ReentrancyGuar
         settlementId = SettlementLib.deriveSettlementId(
             block.chainid, address(this), positionId, SettlementMode.Normal, fixingsHash
         );
-        bytes memory encodedFixings = abi.encode(fixings);
+        bytes memory encodedFixings = _encodePayoffFixings(context.economics, fixingSlots);
         _advanceNormalPosition(positionId, context.lifecycle, fixingsHash, encodedFixings);
         (, PositionLifecycle memory terminalLifecycle) = _positionEngine.getPosition(positionId);
         if (terminalLifecycle.status != PositionStatus.Settled) revert SettlementOutcomeMismatch();
@@ -151,7 +152,7 @@ contract CashSettlementCoordinator is ICashSettlementCoordinator, ReentrancyGuar
             _positionEngine.applyTerminalFallback(positionId);
         }
         (, PositionLifecycle memory terminalLifecycle) = _positionEngine.getPosition(positionId);
-        int256 expectedTransfer = _scaleDisruptionTransfer(context.economics);
+        int256 expectedTransfer = _scaleDisruptionTransfer(context.economics, context.lifecycle);
         if (
             terminalLifecycle.terminalTransferMinor != expectedTransfer
                 || terminalLifecycle.terminalOutcomeReference == bytes32(0)
@@ -415,6 +416,29 @@ contract CashSettlementCoordinator is ICashSettlementCoordinator, ReentrancyGuar
             ) revert InvalidDisruptionFixing(uint8(i));
             fixings[i] = _canonicalFixing(economics, uint8(i), result);
         }
+    }
+
+    function _encodePayoffFixings(PositionEconomics memory economics, FixingSlot[] calldata fixingSlots)
+        private
+        view
+        returns (bytes memory)
+    {
+        CanonicalFixing[] memory payoffFixings = new CanonicalFixing[](fixingSlots.length);
+        for (uint256 i; i < fixingSlots.length; ++i) {
+            FixingResult memory result =
+                _fixingEngine.getFinalizedFixing(economics.seriesId, economics.seriesVersion, uint8(i));
+            if (result.candidateIndex >= fixingSlots[i].candidates.length) {
+                revert FixingSlotsMismatch(bytes32(0), bytes32(0));
+            }
+            payoffFixings[i] = CanonicalFixing({
+                slot: uint8(i),
+                benchmarkId: fixingSlots[i].candidates[result.candidateIndex].benchmarkId,
+                benchmarkVersion: fixingSlots[i].candidates[result.candidateIndex].benchmarkVersion,
+                decimals: result.decimals,
+                value: result.value
+            });
+        }
+        return abi.encode(payoffFixings);
     }
 
     function _canonicalFixing(PositionEconomics memory economics, uint8 slot, FixingResult memory result)
@@ -702,8 +726,22 @@ contract CashSettlementCoordinator is ICashSettlementCoordinator, ReentrancyGuar
         return (economics.shortAccountId, economics.longAccountId, uint128(uint256(transfer)));
     }
 
-    function _scaleDisruptionTransfer(PositionEconomics memory economics) private pure returns (int256) {
-        return PositionMathLib.scaleTransfer(economics.terminalDisruptionTransferMinorPerLot, economics.lots);
+    function _scaleDisruptionTransfer(PositionEconomics memory economics, PositionLifecycle memory lifecycle)
+        private
+        pure
+        returns (int256)
+    {
+        int256 unresolved = PositionMathLib.scaleTransfer(
+            economics.terminalDisruptionTransferMinorPerLot, lifecycle.remainingLots
+        );
+        int256 total = lifecycle.terminalTransferMinor + unresolved;
+        if (
+            (unresolved > 0 && total < lifecycle.terminalTransferMinor)
+                || (unresolved < 0 && total > lifecycle.terminalTransferMinor)
+        ) {
+            revert SettlementOutcomeMismatch();
+        }
+        return total;
     }
 
     function _isPositionTerminal(PositionStatus status) private pure returns (bool) {

@@ -4,7 +4,7 @@ pragma solidity 0.8.37;
 import {Test} from "forge-std/Test.sol";
 
 import {IPositionEngine} from "../../src/interfaces/IPositionEngine.sol";
-import {IPositionPayoffModuleV1} from "../../src/interfaces/IPositionPayoffModuleV1.sol";
+import {IExactLotsPayoffModuleV1} from "../../src/interfaces/IExactLotsPayoffModuleV1.sol";
 import {PositionLifecycleExecutor} from "../../src/lifecycle/PositionLifecycleExecutor.sol";
 import {PositionEngine} from "../../src/position/PositionEngine.sol";
 import {CollateralLock, TerminalLiabilityReservation} from "../../src/types/CollateralTypes.sol";
@@ -13,6 +13,7 @@ import {
     AccountId,
     CollateralId,
     CollateralLockId,
+    PackageId,
     PositionId,
     TerminalLiabilityReservationId
 } from "../../src/types/Identifiers.sol";
@@ -21,6 +22,7 @@ import {
     PositionEconomics,
     PositionFunding,
     PositionLifecycle,
+    PositionProvenance,
     PositionStatus
 } from "../../src/types/PositionTypes.sol";
 import {CompressionPosition} from "../../src/types/CompressionTypes.sol";
@@ -140,9 +142,10 @@ contract PositionEngineTest is SetrynLocalFixture {
         vm.mockCall(
             address(fixture.adapterImplementation),
             abi.encodeCall(
-                IPositionPayoffModuleV1.evaluatePosition, (fixture.seriesQualification.payoffTerms, finalFixings)
+                IExactLotsPayoffModuleV1.evaluatePositionLots,
+                (fixture.seriesQualification.payoffTerms, finalFixings, uint128(2))
             ),
-            abi.encode(int256(25_000))
+            abi.encode(int256(50_000))
         );
         engine.acceptFinalFixing(positionId, FIXING, finalFixings);
         engine.settle(positionId);
@@ -167,7 +170,8 @@ contract PositionEngineTest is SetrynLocalFixture {
         vm.mockCall(
             address(fixture.adapterImplementation),
             abi.encodeCall(
-                IPositionPayoffModuleV1.evaluatePosition, (fixture.seriesQualification.payoffTerms, finalFixings)
+                IExactLotsPayoffModuleV1.evaluatePositionLots,
+                (fixture.seriesQualification.payoffTerms, finalFixings, uint128(1))
             ),
             abi.encode(int256(100_001))
         );
@@ -226,10 +230,10 @@ contract PositionEngineTest is SetrynLocalFixture {
         assertEq(compression.lifecycleHash, lifecycle.lifecycleHash);
     }
 
-    function test_LifecycleEligibilityFailsClosedForUnsupportedPartialActions() public {
+    function test_LifecycleEligibilityTracksRemainingQuantity() public {
         PositionId positionId = engine.createPosition(_creation(FILL, 0, 1));
 
-        assertFalse(engine.isLifecycleActionEligible(positionId, LifecycleActionKind.PartialUnwind));
+        assertTrue(engine.isLifecycleActionEligible(positionId, LifecycleActionKind.PartialUnwind));
         assertTrue(engine.isLifecycleActionEligible(positionId, LifecycleActionKind.FullUnwind));
         assertTrue(engine.isCompressionEligible(positionId));
 
@@ -248,7 +252,76 @@ contract PositionEngineTest is SetrynLocalFixture {
         assertEq(snapshot.shortTerminalLiabilityBaseUnits, lots * 100_000);
     }
 
-    function test_LifecycleExecutorFailsClosedForPartialUnwind() public {
+    function test_PartialCloseMaintainsAuthoritativeQuantityConservation() public {
+        PositionId positionId = engine.createPosition(_creation(FILL, 0, 5));
+
+        engine.closePositionQuantity(
+            positionId,
+            Lots.wrap(2),
+            fixture.traderAccountId,
+            0,
+            PositionStatus.ClosedByUnwind,
+            keccak256("partial-close")
+        );
+
+        (, PositionLifecycle memory lifecycle) = engine.getPosition(positionId);
+        assertEq(uint8(lifecycle.status), uint8(PositionStatus.Live));
+        assertEq(Lots.unwrap(lifecycle.remainingLots), 3);
+        assertEq(Lots.unwrap(lifecycle.exercisedLots), 0);
+        assertEq(Lots.unwrap(lifecycle.closedLots), 2);
+        assertEq(lifecycle.lifecycleNonce, 1);
+    }
+
+    function test_PartialExerciseUsesExactLotsAndAccumulatesTransfer() public {
+        PositionId positionId = engine.createPosition(_creation(FILL, 0, 5));
+        vm.warp(fixture.seriesDefinition.exerciseOpensAt);
+        bytes memory finalFixings = abi.encode(int256(123));
+        vm.mockCall(
+            address(fixture.adapterImplementation),
+            abi.encodeCall(
+                IExactLotsPayoffModuleV1.evaluatePositionLots,
+                (fixture.seriesQualification.payoffTerms, finalFixings, uint128(2))
+            ),
+            abi.encode(int256(7))
+        );
+
+        engine.exercisePositionQuantity(positionId, Lots.wrap(2), fixture.traderAccountId, 0, FIXING, finalFixings);
+
+        (, PositionLifecycle memory lifecycle) = engine.getPosition(positionId);
+        assertEq(uint8(lifecycle.status), uint8(PositionStatus.Live));
+        assertEq(Lots.unwrap(lifecycle.remainingLots), 3);
+        assertEq(Lots.unwrap(lifecycle.exercisedLots), 2);
+        assertEq(Lots.unwrap(lifecycle.closedLots), 0);
+        assertEq(lifecycle.terminalTransferMinor, 7);
+    }
+
+    function test_LifecycleSuccessorPinsPackageProvenance() public {
+        PackageId packageId = PackageId.wrap(keccak256("package"));
+        bytes32 provenanceHash = keccak256(
+            abi.encode(
+                keccak256(
+                    "SetrynPositionPackageProvenanceV1(bytes32 packageId,uint32 packageVersion,uint32 packageOrdinal)"
+                ),
+                packageId,
+                uint32(2),
+                uint32(3)
+            )
+        );
+        PositionProvenance memory provenance = PositionProvenance({
+            packageId: packageId, packageVersion: 2, packageOrdinal: 3, packageProvenanceHash: provenanceHash
+        });
+
+        PositionId positionId =
+            engine.createLifecycleSuccessorWithProvenance(_creation(keccak256("successor"), 3, 2), provenance);
+        (PositionEconomics memory economics,) = engine.getPosition(positionId);
+
+        assertEq(PackageId.unwrap(economics.packageId), PackageId.unwrap(provenance.packageId));
+        assertEq(economics.packageVersion, 2);
+        assertEq(economics.packageOrdinal, 3);
+        assertEq(engine.getLifecyclePosition(positionId).packageProvenanceHash, provenanceHash);
+    }
+
+    function test_LifecycleExecutorFailsClosedForPartialUnwindWithoutSuccessor() public {
         PositionLifecycleExecutor executor = new PositionLifecycleExecutor(2 days, address(this), engine);
         LifecycleAction memory action;
         action.kind = LifecycleActionKind.PartialUnwind;

@@ -30,6 +30,7 @@ import {
     AccountId,
     CollateralId,
     CollateralLockId,
+    PackageId,
     PositionId,
     SeriesId,
     TerminalLiabilityReservationId
@@ -48,6 +49,7 @@ import {
     PositionEconomics,
     PositionFunding,
     PositionLifecycle,
+    PositionProvenance,
     PositionStatus
 } from "../types/PositionTypes.sol";
 import {Lots, PriceTicks} from "../types/Units.sol";
@@ -62,6 +64,7 @@ contract PositionLifecycleExecutor is
     bytes32 public constant SIGNED_LIFECYCLE_ENGINE_ROLE = keccak256("SETRYN_SIGNED_LIFECYCLE_ENGINE_ROLE");
     bytes32 public constant COMPRESSION_COORDINATOR_ROLE = keccak256("SETRYN_COMPRESSION_COORDINATOR_ROLE");
     bytes32 public constant DEFAULT_PROCESS_ENGINE_ROLE = keccak256("SETRYN_DEFAULT_PROCESS_ENGINE_ROLE");
+    bytes32 public constant WITNESS_STAGER_ROLE = keccak256("SETRYN_LIFECYCLE_WITNESS_STAGER_ROLE");
     bytes32 private constant LIFECYCLE_OUTCOME_TYPEHASH = keccak256("SetrynLifecycleExecutionOutcomeV1");
     bytes32 private constant COMPRESSION_OUTCOME_TYPEHASH = keccak256("SetrynCompressionExecutionOutcomeV1");
     bytes32 private constant DEFAULT_OUTCOME_TYPEHASH = keccak256("SetrynDefaultExecutionOutcomeV1");
@@ -70,6 +73,11 @@ contract PositionLifecycleExecutor is
     ICollateralVault public immutable collateralVault;
 
     mapping(bytes32 executionId => bool consumed) public executionConsumed;
+    mapping(bytes32 executionId => mapping(bytes32 successorKey => bytes32 witnessHash)) public successorWitnessHash;
+    mapping(bytes32 witnessKey => bytes payoffTerms) private _successorTerms;
+    mapping(bytes32 witnessKey => PositionProvenance provenance) private _successorProvenance;
+    mapping(bytes32 executionId => bytes32 fixingReference) private _exerciseFixingReference;
+    mapping(bytes32 executionId => bytes finalFixings) private _exerciseFixings;
 
     error ZeroDependency(address dependency);
     error DependencyHasNoCode(address dependency);
@@ -81,6 +89,9 @@ contract PositionLifecycleExecutor is
     error CollateralReplacementMismatch(AccountId accountId);
     error DefaultPositionMismatch(PositionId positionId, AccountId accountId);
     error DefaultResidualNotZero(uint128 residualMinor);
+    error WitnessAlreadyStaged(bytes32 witnessKey);
+    error MissingSuccessorWitness(bytes32 successorKey);
+    error ExerciseWitnessMismatch(bytes32 executionId);
 
     constructor(uint48 defaultAdminDelay, address initialAdmin, IPositionEngine positionEngine_)
         AccessControlDefaultAdminRules(defaultAdminDelay, initialAdmin)
@@ -93,6 +104,38 @@ contract PositionLifecycleExecutor is
         _grantRole(SIGNED_LIFECYCLE_ENGINE_ROLE, initialAdmin);
         _grantRole(COMPRESSION_COORDINATOR_ROLE, initialAdmin);
         _grantRole(DEFAULT_PROCESS_ENGINE_ROLE, initialAdmin);
+        _grantRole(WITNESS_STAGER_ROLE, initialAdmin);
+    }
+
+    function stageSuccessorWitness(
+        bytes32 executionId,
+        bytes32 successorKey,
+        bytes calldata payoffTerms,
+        PositionProvenance calldata provenance
+    ) external onlyRole(WITNESS_STAGER_ROLE) {
+        if (executionId == bytes32(0) || successorKey == bytes32(0) || payoffTerms.length == 0) {
+            revert MissingSuccessorWitness(successorKey);
+        }
+        bytes32 witnessKey = keccak256(abi.encode(executionId, successorKey));
+        if (successorWitnessHash[executionId][successorKey] != bytes32(0)) {
+            revert WitnessAlreadyStaged(witnessKey);
+        }
+        bytes32 witnessHash = keccak256(abi.encode(payoffTerms, provenance));
+        successorWitnessHash[executionId][successorKey] = witnessHash;
+        _successorTerms[witnessKey] = payoffTerms;
+        _successorProvenance[witnessKey] = provenance;
+    }
+
+    function stageExerciseWitness(bytes32 executionId, bytes32 fixingReference, bytes calldata finalFixings)
+        external
+        onlyRole(WITNESS_STAGER_ROLE)
+    {
+        if (executionId == bytes32(0) || fixingReference == bytes32(0) || finalFixings.length == 0) {
+            revert ExerciseWitnessMismatch(executionId);
+        }
+        if (_exerciseFixingReference[executionId] != bytes32(0)) revert WitnessAlreadyStaged(executionId);
+        _exerciseFixingReference[executionId] = fixingReference;
+        _exerciseFixings[executionId] = finalFixings;
     }
 
     function executeLifecycleAction(
@@ -112,13 +155,14 @@ contract PositionLifecycleExecutor is
                 snapshot.immutableHash != inputs[i].expectedImmutableHash
                     || snapshot.lifecycleHash != inputs[i].expectedLifecycleHash
                     || Lots.unwrap(snapshot.positionLots) != Lots.unwrap(inputs[i].expectedPositionLots)
-                    || Lots.unwrap(inputs[i].actionLots) != Lots.unwrap(snapshot.positionLots)
+                    || Lots.unwrap(inputs[i].actionLots) > Lots.unwrap(snapshot.positionLots)
             ) revert InputPositionMismatch(inputs[i].positionId);
         }
         _validateLifecycleReplacements(successors, collateralReplacements);
         PositionId[] memory created = new PositionId[](successors.length);
         for (uint256 i; i < successors.length; ++i) {
-            bytes memory terms = _findLifecycleTerms(successors[i], inputs);
+            (bytes memory terms, PositionProvenance memory provenance) =
+                _lifecycleSuccessorWitness(executionId, successors[i], inputs);
             created[i] = _createLifecycleSuccessor(
                 executionId,
                 i,
@@ -129,16 +173,12 @@ contract PositionLifecycleExecutor is
                 successors[i].shortAccountId,
                 successors[i].lots,
                 successors[i].entryPriceTicks,
-                terms
+                terms,
+                provenance
             );
             _validateLifecycleSuccessor(created[i], successors[i]);
         }
-        PositionStatus terminalStatus = action.kind == LifecycleActionKind.Lapse
-            ? PositionStatus.Lapsed
-            : successors.length == 0 ? PositionStatus.ClosedByUnwind : PositionStatus.Replaced;
-        for (uint256 i; i < inputs.length; ++i) {
-            _closeAndRelease(inputs[i].positionId, terminalStatus, executionId);
-        }
+        _applyLifecycleInputs(executionId, action, inputs, successors.length);
         outcomeHash = keccak256(
             abi.encode(
                 LIFECYCLE_OUTCOME_TYPEHASH,
@@ -164,7 +204,8 @@ contract PositionLifecycleExecutor is
         _validateCompressionReplacements(successors, replacementCollateral);
         PositionId[] memory created = new PositionId[](successors.length);
         for (uint256 i; i < successors.length; ++i) {
-            bytes memory terms = _findCompressionTerms(successors[i], inputs);
+            (bytes memory terms, PositionProvenance memory provenance) =
+                _compressionSuccessorWitness(executionId, successors[i], inputs);
             created[i] = _createLifecycleSuccessor(
                 executionId,
                 i,
@@ -175,7 +216,8 @@ contract PositionLifecycleExecutor is
                 successors[i].shortAccountId,
                 successors[i].lots,
                 successors[i].entryPriceTicks,
-                terms
+                terms,
+                provenance
             );
             _validateCompressionSuccessor(created[i], successors[i]);
         }
@@ -210,7 +252,7 @@ contract PositionLifecycleExecutor is
         if (terminalResidualMinor != 0) revert DefaultResidualNotZero(terminalResidualMinor);
         (PositionEconomics memory economics, PositionLifecycle memory lifecycle) =
             positionEngine.getPosition(process.positionId);
-        if (lifecycle.status != PositionStatus.Live) {
+        if (lifecycle.status != PositionStatus.Live || Lots.unwrap(lifecycle.exercisedLots) != 0) {
             revert InputPositionMismatch(process.positionId);
         }
         AccountId longAccount = economics.longAccountId;
@@ -230,15 +272,20 @@ contract PositionLifecycleExecutor is
             economics.seriesVersion,
             longAccount,
             shortAccount,
-            economics.lots,
+            lifecycle.remainingLots,
             economics.entryPriceTicks,
-            positionEngine.payoffTerms(process.positionId)
+            positionEngine.payoffTerms(process.positionId),
+            PositionProvenance({
+                packageId: economics.packageId,
+                packageVersion: economics.packageVersion,
+                packageOrdinal: economics.packageOrdinal,
+                packageProvenanceHash: economics.packageProvenanceHash
+            })
         );
         LifecyclePositionSnapshot memory source = positionEngine.getLifecyclePosition(process.positionId);
         LifecyclePositionSnapshot memory successor = positionEngine.getLifecyclePosition(successorId);
         if (
-            successor.economicsHash != source.economicsHash
-                || successor.longTerminalLiabilityBaseUnits != source.longTerminalLiabilityBaseUnits
+            successor.longTerminalLiabilityBaseUnits != source.longTerminalLiabilityBaseUnits
                 || successor.shortTerminalLiabilityBaseUnits != source.shortTerminalLiabilityBaseUnits
                 || successor.riskDomainId != source.riskDomainId
                 || successor.riskDomainVersion != source.riskDomainVersion
@@ -307,7 +354,8 @@ contract PositionLifecycleExecutor is
         AccountId shortAccountId,
         Lots lots,
         PriceTicks entryPriceTicks,
-        bytes memory terms
+        bytes memory terms,
+        PositionProvenance memory provenance
     ) private returns (PositionId) {
         PositionFunding memory noFunding = PositionFunding({
             lockId: CollateralLockId.wrap(bytes32(0)),
@@ -315,7 +363,7 @@ contract PositionLifecycleExecutor is
             expectedRemainingAmount: 0,
             expectedExpiry: 0
         });
-        return positionEngine.createLifecycleSuccessor(
+        return positionEngine.createLifecycleSuccessorWithProvenance(
             PositionCreation({
                 fillIdentity: keccak256(abi.encode(executionId, successorKey)),
                 seriesId: seriesId,
@@ -328,7 +376,8 @@ contract PositionLifecycleExecutor is
                 longFunding: noFunding,
                 shortFunding: noFunding,
                 payoffTerms: terms
-            })
+            }),
+            provenance
         );
     }
 
@@ -396,6 +445,107 @@ contract PositionLifecycleExecutor is
             ) return positionEngine.payoffTerms(inputs[i].positionId);
         }
         revert SuccessorMismatch(successor.successorKey);
+    }
+
+    function _lifecycleSuccessorWitness(
+        bytes32 executionId,
+        LifecycleSuccessor calldata successor,
+        LifecycleInput[] calldata inputs
+    ) private view returns (bytes memory terms, PositionProvenance memory provenance) {
+        bytes32 witnessKey = keccak256(abi.encode(executionId, successor.successorKey));
+        if (successorWitnessHash[executionId][successor.successorKey] != bytes32(0)) {
+            terms = _successorTerms[witnessKey];
+            provenance = _successorProvenance[witnessKey];
+            if (provenance.packageProvenanceHash != successor.packageProvenanceHash) {
+                revert SuccessorMismatch(successor.successorKey);
+            }
+            return (terms, provenance);
+        }
+        if (successor.packageProvenanceHash != bytes32(0)) revert MissingSuccessorWitness(successor.successorKey);
+        terms = _findLifecycleTerms(successor, inputs);
+    }
+
+    function _compressionSuccessorWitness(
+        bytes32 executionId,
+        CompressionSuccessor calldata successor,
+        CompressionPosition[] calldata inputs
+    ) private view returns (bytes memory terms, PositionProvenance memory provenance) {
+        bytes32 witnessKey = keccak256(abi.encode(executionId, successor.successorKey));
+        if (successorWitnessHash[executionId][successor.successorKey] != bytes32(0)) {
+            terms = _successorTerms[witnessKey];
+            provenance = _successorProvenance[witnessKey];
+            if (PackageId.unwrap(provenance.packageId) != bytes32(0)) {
+                revert SuccessorMismatch(successor.successorKey);
+            }
+            return (terms, provenance);
+        }
+        terms = _findCompressionTerms(successor, inputs);
+    }
+
+    function _applyLifecycleInputs(
+        bytes32 executionId,
+        LifecycleAction calldata action,
+        LifecycleInput[] calldata inputs,
+        uint256 successorCount
+    ) private {
+        if (action.kind == LifecycleActionKind.Exercise) {
+            bytes32 fixingReference = _exerciseFixingReference[executionId];
+            bytes memory finalFixings = _exerciseFixings[executionId];
+            if (
+                fixingReference == bytes32(0) || finalFixings.length == 0
+                    || keccak256(abi.encode(fixingReference, keccak256(finalFixings))) != action.economicTransitionHash
+            ) revert ExerciseWitnessMismatch(executionId);
+            for (uint256 i; i < inputs.length; ++i) {
+                (, PositionLifecycle memory lifecycleBefore) = positionEngine.getPosition(inputs[i].positionId);
+                positionEngine.exercisePositionQuantity(
+                    inputs[i].positionId,
+                    inputs[i].actionLots,
+                    action.actorAccountId,
+                    lifecycleBefore.lifecycleNonce,
+                    fixingReference,
+                    finalFixings
+                );
+                (PositionEconomics memory economics, PositionLifecycle memory lifecycleAfter) =
+                    positionEngine.getPosition(inputs[i].positionId);
+                if (Lots.unwrap(lifecycleAfter.remainingLots) != 0) {
+                    positionEngine.closePositionQuantity(
+                        inputs[i].positionId,
+                        lifecycleAfter.remainingLots,
+                        action.actorAccountId,
+                        lifecycleAfter.lifecycleNonce,
+                        PositionStatus.Replaced,
+                        executionId
+                    );
+                }
+                _finalize(economics.longReservationId);
+                _finalize(economics.shortReservationId);
+            }
+            return;
+        }
+        if (action.kind == LifecycleActionKind.PartialUnwind) {
+            if (successorCount == 0) revert UnsupportedLifecycleAction(action.kind);
+            for (uint256 i; i < inputs.length; ++i) {
+                (PositionEconomics memory economics, PositionLifecycle memory lifecycle) =
+                    positionEngine.getPosition(inputs[i].positionId);
+                positionEngine.closePositionQuantity(
+                    inputs[i].positionId,
+                    lifecycle.remainingLots,
+                    action.actorAccountId,
+                    lifecycle.lifecycleNonce,
+                    PositionStatus.Replaced,
+                    executionId
+                );
+                _finalize(economics.longReservationId);
+                _finalize(economics.shortReservationId);
+            }
+            return;
+        }
+        PositionStatus terminalStatus = action.kind == LifecycleActionKind.Lapse
+            ? PositionStatus.Lapsed
+            : successorCount == 0 ? PositionStatus.ClosedByUnwind : PositionStatus.Replaced;
+        for (uint256 i; i < inputs.length; ++i) {
+            _closeAndRelease(inputs[i].positionId, terminalStatus, executionId);
+        }
     }
 
     function _validateLifecycleReplacements(
@@ -507,10 +657,11 @@ contract PositionLifecycleExecutor is
         if (kind == LifecycleActionKind.FullUnwind || kind == LifecycleActionKind.Lapse) return successorCount == 0;
         if (successorCount == 0) return false;
         return kind == LifecycleActionKind.Transfer || kind == LifecycleActionKind.Assignment
-            || kind == LifecycleActionKind.Split || kind == LifecycleActionKind.Merge
-            || kind == LifecycleActionKind.Amendment || kind == LifecycleActionKind.Novation
-            || kind == LifecycleActionKind.Roll || kind == LifecycleActionKind.CollateralPolicyChange
-            || kind == LifecycleActionKind.CompressionHandoff;
+            || kind == LifecycleActionKind.PartialUnwind || kind == LifecycleActionKind.Split
+            || kind == LifecycleActionKind.Merge || kind == LifecycleActionKind.Amendment
+            || kind == LifecycleActionKind.Novation || kind == LifecycleActionKind.Roll
+            || kind == LifecycleActionKind.CollateralPolicyChange || kind == LifecycleActionKind.CompressionHandoff
+            || kind == LifecycleActionKind.Exercise;
     }
 
     function _consume(bytes32 executionId) private {

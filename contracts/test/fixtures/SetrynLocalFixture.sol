@@ -71,6 +71,14 @@ contract FixtureAdapterImplementation is ISeriesPayoffModuleV1 {
         return 1;
     }
 
+    function exactLotsCapability() external pure returns (bytes32) {
+        return keccak256("SETRYN_EXACT_LOTS_PAYOFF_V1");
+    }
+
+    function evaluatePositionLots(bytes calldata, bytes calldata, uint128) external pure returns (int256) {
+        return 0;
+    }
+
     function payoffFamilyId() external view returns (PayoffFamilyId) {
         return _payoffFamily;
     }
