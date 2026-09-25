@@ -10,3 +10,6 @@
 - Preview market movement must come from one coherent feed so marks, quotes, books, routes, and charts do not contradict each other.
 - Build the complete user trading platform before public developer products. Internal schemas, generated bindings, indexing, and application data services may be built when the platform consumes them, but public APIs, external SDKs, webhooks, widgets, and partner tooling belong after the core user product.
 - Treat code under `inspiration/` as reference material, never as a runtime dependency or source of truth.
+- Do not qualify or activate an economic object from opaque commitments alone. Registration and activation must validate the same bounded canonical data against exact versioned dependencies and publish enough event data for deterministic reconstruction.
+- Revoking authority may stop new risk, but it must not deadlock historical positions or collateral. Terminal resolution must follow objective committed state with a permissionless completion path.
+- Indexer payloads must canonicalize contract enums explicitly and cover every state-changing event. Never let decoder-specific values silently shape projected accounting.
