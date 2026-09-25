@@ -128,14 +128,16 @@ export function PositionsTable({
               </th>
             </tr>
 
-            {group.positions.map((position) => {
+            {group.positions.map((position, positionIndex) => {
               const selected = position.id === selectedId;
               const { level, detail } = buffer(position);
               return (
                 <tr
                   key={position.id}
                   className={`border-b border-line-soft transition-colors ${
-                    selected ? "bg-raised" : "hover:bg-raised/60"
+                    selected
+                      ? "bg-raised"
+                      : `${positionIndex % 2 === 0 ? "bg-panel" : "bg-inset/35"} hover:bg-raised/60`
                   }`}
                 >
                   <td className={`${TD} relative py-0`}>
@@ -263,17 +265,22 @@ export function PositionsList({
           </h3>
 
           <ul>
-            {group.positions.map((position) => {
+            {group.positions.map((position, positionIndex) => {
               const open = position.id === selectedId;
               return (
-                <li key={position.id} className="border-b border-line">
+                <li
+                  key={position.id}
+                  className={`border-b border-line ${
+                    positionIndex % 2 === 0 ? "bg-panel" : "bg-inset/35"
+                  }`}
+                >
                   <button
                     type="button"
                     aria-expanded={open}
                     aria-controls={open ? `position-detail-${position.id}` : undefined}
                     onClick={() => onSelect(position.id)}
                     className={`focus-ring flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left transition-colors ${
-                      open ? "bg-raised" : ""
+                      open ? "bg-raised" : "hover:bg-raised/60"
                     }`}
                   >
                     <span className="flex min-w-0 flex-1 flex-col gap-1">

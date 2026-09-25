@@ -123,7 +123,7 @@ export function OrderTicket({
   };
 
   return (
-    <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-panel">
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-panel">
       <div className="hidden h-9 shrink-0 items-center border-b border-line px-4 lg:flex">
         <SectionLabel>Order ticket</SectionLabel>
       </div>
@@ -253,36 +253,36 @@ export function OrderTicket({
         />
 
         <TicketEconomics market={market} preview={preview} route={route} />
+      </div>
 
-        <div className="sticky bottom-0 -mx-3 -mb-3 mt-auto space-y-2.5 border-t border-line bg-panel px-3 pt-3 pb-3 lg:-mx-4 lg:px-4">
-          {invalid ? (
-            <ul
-              id={BLOCKER_LIST_ID}
-              className="space-y-1.5 rounded-md border-l-2 border-down bg-down-soft px-3 py-2.5"
-            >
-              {preview.blockers.map((blocker) => (
-                <li key={blocker} className="flex gap-2 text-xs leading-snug text-down">
-                  <TriangleAlert size={13} aria-hidden="true" className="mt-[2px] shrink-0" />
-                  <span>{blocker}</span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
+      <div className="shrink-0 space-y-2.5 border-t border-line bg-panel px-3 pt-3 pb-3 lg:px-4">
+        {invalid ? (
+          <ul
+            id={BLOCKER_LIST_ID}
+            className="space-y-1.5 rounded-md border-l-2 border-down bg-down-soft px-3 py-2.5"
+          >
+            {preview.blockers.map((blocker) => (
+              <li key={blocker} className="flex gap-2 text-xs leading-snug text-down">
+                <TriangleAlert size={13} aria-hidden="true" className="mt-[2px] shrink-0" />
+                <span>{blocker}</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
 
-          <StageArea
-            market={market}
-            state={state}
-            preview={preview}
-            route={route}
-            stage={stage}
-            blocked={blocked}
-            invalid={invalid}
-            routeMissing={preview.routeMissing}
-            onStage={onStage}
-            onConfirm={onConfirm}
-            onReset={onReset}
-          />
-        </div>
+        <StageArea
+          market={market}
+          state={state}
+          preview={preview}
+          route={route}
+          stage={stage}
+          blocked={blocked}
+          invalid={invalid}
+          routeMissing={preview.routeMissing}
+          onStage={onStage}
+          onConfirm={onConfirm}
+          onReset={onReset}
+        />
       </div>
     </section>
   );
