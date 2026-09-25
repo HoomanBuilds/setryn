@@ -337,7 +337,8 @@ contract VerifiableReceiptLedger is IVerifiableReceiptLedger {
         PrivacyEnvelopeCommitment memory envelope = privacyRegistry.getEnvelope(draft.privacyEnvelopeId);
         if (
             envelope.subjectKindId != draft.subjectKindId || envelope.subjectId != draft.subjectId
-                || envelope.policyId != draft.privacyPolicyId || envelope.policyVersion != draft.privacyPolicyVersion
+                || PrivacyPolicyId.unwrap(envelope.policyId) != PrivacyPolicyId.unwrap(draft.privacyPolicyId)
+                || envelope.policyVersion != draft.privacyPolicyVersion
         ) revert InvalidPrivacyEvidence();
         PrivacyPolicyVersion memory policy =
             privacyRegistry.getPolicy(draft.privacyPolicyId, draft.privacyPolicyVersion);
@@ -346,7 +347,8 @@ contract VerifiableReceiptLedger is IVerifiableReceiptLedger {
         }
         DisclosureGrant memory grant = privacyRegistry.getDisclosureGrant(draft.disclosureGrantId);
         if (
-            grant.envelopeId != draft.privacyEnvelopeId || grant.disclosureScopeHash != draft.disclosureScopeHash
+            PrivacyEnvelopeId.unwrap(grant.envelopeId) != PrivacyEnvelopeId.unwrap(draft.privacyEnvelopeId)
+                || grant.disclosureScopeHash != draft.disclosureScopeHash
                 || grant.status != DisclosureGrantStatus.Consumed || grant.accessReceiptCommitment == bytes32(0)
         ) revert InvalidPrivacyEvidence();
     }

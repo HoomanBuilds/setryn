@@ -11,6 +11,7 @@ import {ITradingSessionPolicy} from "../interfaces/ITradingSessionPolicy.sol";
 import {ExecutionPolicyLib} from "../libraries/ExecutionPolicyLib.sol";
 import {PolicyGateBase} from "./PolicyGateBase.sol";
 import {AdapterVersion} from "../types/AdapterDefinition.sol";
+import {AssetId, RiskDomainId} from "../types/Identifiers.sol";
 import {
     AuctionDefinition,
     AuctionTargetKind,
@@ -55,9 +56,9 @@ contract AuctionValidationGate is IAuctionValidationGate, PolicyGateBase {
         ExecutionPolicyLib.ResolvedTarget memory resolved =
             _validateTarget(definition, packageLegs, definition.totalLots, PriceTicks.wrap(0), false);
         if (
-            resolved.settlementAssetId != definition.settlementAssetId
+            AssetId.unwrap(resolved.settlementAssetId) != AssetId.unwrap(definition.settlementAssetId)
                 || resolved.settlementAssetVersion != definition.settlementAssetVersion
-                || resolved.riskDomainId != definition.riskDomainId
+                || RiskDomainId.unwrap(resolved.riskDomainId) != RiskDomainId.unwrap(definition.riskDomainId)
                 || resolved.riskDomainVersion != definition.riskDomainVersion
         ) revert InvalidAuctionPolicy();
     }

@@ -8,6 +8,7 @@ import {
     RiskAdmissionId,
     RiskAdmissionStatus
 } from "../../src/types/RiskTypes.sol";
+import {AccountId, RiskDomainId} from "../../src/types/Identifiers.sol";
 import {PackageLeg} from "../../src/types/PackageDefinition.sol";
 import {CoincidencePlan, ExecutableRoute, RouteComponent, RouteId} from "../../src/types/RoutingTypes.sol";
 
@@ -84,8 +85,8 @@ contract RouteRiskEngineMock {
         RiskAdmission storage admission = _admissions[consumption.admissionId];
         require(admission.status == RiskAdmissionStatus.Reserved);
         require(admission.resultHash == consumption.expectedResultHash);
-        require(admission.accountId == consumption.expectedAccountId);
-        require(admission.riskDomainId == consumption.expectedRiskDomainId);
+        require(AccountId.unwrap(admission.accountId) == AccountId.unwrap(consumption.expectedAccountId));
+        require(RiskDomainId.unwrap(admission.riskDomainId) == RiskDomainId.unwrap(consumption.expectedRiskDomainId));
         require(admission.riskDomainVersion == consumption.expectedRiskDomainVersion);
         require(admission.remainingOpenInterestBaseUnits >= consumption.expectedOpenInterestBaseUnits);
         require(admission.remainingTerminalLiabilityBaseUnits >= consumption.expectedTerminalLiabilityBaseUnits);

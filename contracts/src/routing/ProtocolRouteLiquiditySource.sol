@@ -28,7 +28,15 @@ import {
 import {BookIdentity, BookLiquidityKind, BookOrder, BookOrderStatus, PriceLevel} from "../types/BookTypes.sol";
 import {CollateralLock} from "../types/CollateralTypes.sol";
 import {LockStatus, Side} from "../types/Enums.sol";
-import {AccountId, BookId, CollateralLockId, PackageId, SeriesId} from "../types/Identifiers.sol";
+import {
+    AccountId,
+    BookId,
+    CollateralLockId,
+    FeeScheduleId,
+    PackageId,
+    RiskDomainId,
+    SeriesId
+} from "../types/Identifiers.sol";
 import {OrderRecord, OrderStatus, OrderTargetKind} from "../types/OrderTypes.sol";
 import {PackageLeg, PackageVersion} from "../types/PackageDefinition.sol";
 import {
@@ -292,8 +300,8 @@ contract ProtocolRouteLiquiditySource is IRouteLiquiditySource, AccessControlDef
             : book.targetKind == OrderTargetKind.Series && book.targetId == SeriesId.unwrap(component.seriesId)
                 && book.targetVersion == component.seriesVersion;
         if (
-            !targetMatches || book.liquidityKind != BookLiquidityKind.Direct || order.bookId != bookId
-                || order.status != BookOrderStatus.Resting
+            !targetMatches || book.liquidityKind != BookLiquidityKind.Direct
+                || BookId.unwrap(order.bookId) != BookId.unwrap(bookId) || order.status != BookOrderStatus.Resting
                 || (_reservations[routeId] != bytes32(0) && !reservedForRoute)
                 || (!reservedForRoute && available < Lots.unwrap(component.componentLots))
                 || PriceTicks.unwrap(order.priceTicks) != PriceTicks.unwrap(component.priceTicks)
@@ -305,8 +313,9 @@ contract ProtocolRouteLiquiditySource is IRouteLiquiditySource, AccessControlDef
                 || authorizedLots - filledLots < Lots.unwrap(component.componentLots)
         ) revert InvalidRouteSource(index);
         if (
-            (packageTarget && authorization.order.packageId != route.packageId)
-                || (!packageTarget && authorization.order.seriesId != component.seriesId)
+            (packageTarget && PackageId.unwrap(authorization.order.packageId) != PackageId.unwrap(route.packageId))
+                || (!packageTarget
+                    && SeriesId.unwrap(authorization.order.seriesId) != SeriesId.unwrap(component.seriesId))
         ) revert InvalidRouteSource(index);
         _requireFundingLock(
             component.fundingLockId,
@@ -340,18 +349,20 @@ contract ProtocolRouteLiquiditySource is IRouteLiquiditySource, AccessControlDef
         PriceTicks expectedPrice = component.side == Side.Buy ? quote.quote.askPriceTicks : quote.quote.bidPriceTicks;
         if (
             (quote.status != MakerQuoteStatus.Reserved && quote.status != MakerQuoteStatus.Selected)
-                || quote.quote.targetKind != RfqTargetKind.Package || quote.quote.packageId != route.packageId
+                || quote.quote.targetKind != RfqTargetKind.Package
+                || PackageId.unwrap(quote.quote.packageId) != PackageId.unwrap(route.packageId)
                 || quote.quote.targetVersion != route.packageVersion
                 || quote.quote.packageLegsHash != route.packageWitnessHash
                 || quote.quote.makerOrderHash != component.orderHash
                 || Lots.unwrap(quote.quote.lots) < Lots.unwrap(component.componentLots)
                 || PriceTicks.unwrap(expectedPrice) != PriceTicks.unwrap(component.priceTicks)
-                || quote.quote.feeScheduleId != route.feeScheduleId
+                || FeeScheduleId.unwrap(quote.quote.feeScheduleId) != FeeScheduleId.unwrap(route.feeScheduleId)
                 || quote.quote.feeScheduleVersion != route.feeScheduleVersion
-                || quote.quote.riskDomainId != route.riskDomainId
+                || RiskDomainId.unwrap(quote.quote.riskDomainId) != RiskDomainId.unwrap(route.riskDomainId)
                 || quote.quote.riskDomainVersion != route.riskDomainVersion || quote.quote.deadline < block.timestamp
                 || quote.quote.capacityExpiry < route.expiry || capacity.status != FirmCapacityStatus.Active
-                || capacity.lockId != component.capacityLockId || capacity.remainingLiability == 0
+                || CollateralLockId.unwrap(capacity.lockId) != CollateralLockId.unwrap(component.capacityLockId)
+                || capacity.remainingLiability == 0
         ) revert InvalidRouteSource(index);
         bytes32 expectedReference =
             keccak256(abi.encode(keccak256("SetrynFirmCapacityLockV1(bytes32 quoteId)"), MakerQuoteId.unwrap(quoteId)));
@@ -376,7 +387,8 @@ contract ProtocolRouteLiquiditySource is IRouteLiquiditySource, AccessControlDef
             !streamingQuoteEngine.streamExecutable(streamId) || policy.makerOrderHash != component.orderHash
                 || !_oppositeSides(policy.makerSide, component.side)
                 || PriceTicks.unwrap(price) != PriceTicks.unwrap(component.priceTicks)
-                || lockId != component.capacityLockId || remaining == 0 || policy.capacityExpiry < component.expiry
+                || CollateralLockId.unwrap(lockId) != CollateralLockId.unwrap(component.capacityLockId)
+                || remaining == 0 || policy.capacityExpiry < component.expiry
         ) revert InvalidRouteSource(index);
         if (
             streamingQuoteEngine.capacityManager().getStreamCapacity(streamId).capacity.lockReference
@@ -401,20 +413,22 @@ contract ProtocolRouteLiquiditySource is IRouteLiquiditySource, AccessControlDef
             sealedAuctionHouse.getClearingResult(solver.route.auctionId, solver.route.auctionVersion);
         BidRecord memory bid = sealedAuctionHouse.getBid(result.winningRouteBidId);
         if (
-            !solver.revealed || bid.status != BidStatus.Winner || bid.routeId != solverRouteId
+            !solver.revealed || bid.status != BidStatus.Winner
+                || SolverRouteId.unwrap(bid.routeId) != SolverRouteId.unwrap(solverRouteId)
                 || bid.bid.bidderOrderHash != component.orderHash
                 || solver.route.packageLegsHash != route.packageWitnessHash
                 || auction.definition.targetKind != AuctionTargetKind.Package
-                || auction.definition.packageId != route.packageId
+                || PackageId.unwrap(auction.definition.packageId) != PackageId.unwrap(route.packageId)
                 || auction.definition.targetVersion != route.packageVersion
                 || auction.definition.packageLegsHash != route.packageWitnessHash
-                || auction.definition.feeScheduleId != route.feeScheduleId
+                || FeeScheduleId.unwrap(auction.definition.feeScheduleId) != FeeScheduleId.unwrap(route.feeScheduleId)
                 || auction.definition.feeScheduleVersion != route.feeScheduleVersion
-                || auction.definition.riskDomainId != route.riskDomainId
+                || RiskDomainId.unwrap(auction.definition.riskDomainId) != RiskDomainId.unwrap(route.riskDomainId)
                 || auction.definition.riskDomainVersion != route.riskDomainVersion
                 || PriceTicks.unwrap(solver.route.packageOutcomeTicks) != PriceTicks.unwrap(component.priceTicks)
                 || solver.route.expiry < route.expiry || solver.route.guaranteeClassId != route.guaranteeClassId
-                || solver.route.capacityLockId != component.capacityLockId || solver.route.capacityAmount == 0
+                || CollateralLockId.unwrap(solver.route.capacityLockId)
+                    != CollateralLockId.unwrap(component.capacityLockId) || solver.route.capacityAmount == 0
         ) revert InvalidRouteSource(index);
         bytes32 expectedReference = keccak256(
             abi.encode(keccak256("SetrynAuctionCapacityLockV1(bytes32 routeId)"), SolverRouteId.unwrap(solverRouteId))
@@ -444,8 +458,9 @@ contract ProtocolRouteLiquiditySource is IRouteLiquiditySource, AccessControlDef
         bytes32 sourceId,
         RouteComponent calldata component
     ) private pure returns (bool) {
-        return reservation.status == SourceReservationStatus.Active && reservation.routeId == routeId
-            && reservation.sourceId == sourceId && reservation.reservationKey == component.reservationKey
+        return reservation.status == SourceReservationStatus.Active
+            && RouteId.unwrap(reservation.routeId) == RouteId.unwrap(routeId) && reservation.sourceId == sourceId
+            && reservation.reservationKey == component.reservationKey
             && Lots.unwrap(reservation.quantity) == Lots.unwrap(component.componentLots)
             && reservation.expiry == component.expiry
             && reservation.clearingConsumer == component.intendedClearingConsumer;
@@ -483,8 +498,9 @@ contract ProtocolRouteLiquiditySource is IRouteLiquiditySource, AccessControlDef
         }
         CollateralLock memory lock = collateralVault.getLock(lockId);
         if (
-            lock.status != LockStatus.Active || lock.lockReference != lockReference || lock.accountId != accountId
-                || lock.remainingAmount == 0 || lock.expiry < expiry || lock.expiry <= block.timestamp
+            lock.status != LockStatus.Active || lock.lockReference != lockReference
+                || AccountId.unwrap(lock.accountId) != AccountId.unwrap(accountId) || lock.remainingAmount == 0
+                || lock.expiry < expiry || lock.expiry <= block.timestamp
         ) revert InvalidRouteSource(index);
     }
 
@@ -573,7 +589,10 @@ contract ProtocolRouteLiquiditySource is IRouteLiquiditySource, AccessControlDef
         bytes32[] storage sourceKeys = _sourceReservationKeys[routeId];
         for (uint256 i; i < kinds.length; ++i) {
             SourceRouteReservation memory sourceReservation = _sourceReservation(kinds[i], sourceKeys[i]);
-            if (sourceReservation.routeId != routeId || sourceReservation.sourceId != sourceIds[i]) {
+            if (
+                RouteId.unwrap(sourceReservation.routeId) != RouteId.unwrap(routeId)
+                    || sourceReservation.sourceId != sourceIds[i]
+            ) {
                 revert RouteReservationMismatch(routeId);
             }
             if (settled) {
@@ -594,7 +613,7 @@ contract ProtocolRouteLiquiditySource is IRouteLiquiditySource, AccessControlDef
         CollateralLockId[] storage locks = _reservationLocks[routeId];
         for (uint256 i; i < keys.length; ++i) {
             reservationRegistry.closeCapacityReference(keys[i], closeReference);
-            delete _lockRoutes[locks[i]];
+            _lockRoutes[locks[i]] = RouteId.wrap(bytes32(0));
         }
         emit RouteSourcesClosed(routeId, reservationHash, closeReference);
     }

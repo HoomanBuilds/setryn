@@ -35,6 +35,8 @@ import {
 } from "../types/DefaultTypes.sol";
 import {LockStatus} from "../types/Enums.sol";
 import {AccountId, AssetId, CollateralId, CollateralLockId, PositionId, RiskDomainId} from "../types/Identifiers.sol";
+import {PositionEconomics} from "../types/PositionTypes.sol";
+import {RiskExposureReduction} from "../types/RiskTypes.sol";
 import {RiskDomainVersion} from "../types/RiskDomainDefinition.sol";
 
 contract DefaultProcessEngine is IDefaultProcessEngine, ReentrancyGuard {
@@ -523,10 +525,12 @@ contract DefaultProcessEngine is IDefaultProcessEngine, ReentrancyGuard {
                 winner.capacityLockId, rules.recoveryAccountId, process.takeoverContributionMinor
             );
         }
+        _releaseIfActive(winner.capacityLockId);
         _consumeInsurance(process, rules.recoveryAccountId);
         DefaultExecutionResult memory result = _lifecycleExecutor.executeDefaultNovation(
             process, rules, policy, winner, process.insuranceDrawMinor, process.terminalResidualMinor
         );
+        _reducePositionExposure(process.positionId);
         _validateExecutionResult(
             result,
             winner.bidderAccountId,
@@ -536,7 +540,6 @@ contract DefaultProcessEngine is IDefaultProcessEngine, ReentrancyGuard {
             process.terminalResidualMinor
         );
         _releaseIfActive(winner.bondLockId);
-        _releaseIfActive(winner.capacityLockId);
         winner.status = LiquidationBidStatus.Settled;
         _releaseDefaulterRemainder(process);
         return _recordOutcome(process, result, DefaultProcessStatus.Resolved);
@@ -582,6 +585,7 @@ contract DefaultProcessEngine is IDefaultProcessEngine, ReentrancyGuard {
         }
         DefaultExecutionResult memory result =
             _lifecycleExecutor.applyTerminalDefaultRule(process, rules, policy, insuranceDraw, residual);
+        _reducePositionExposure(process.positionId);
         _validateExecutionResult(result, AccountId.wrap(bytes32(0)), defaulterApplied, 0, insuranceDraw, residual);
         _releaseDefaulterRemainder(process);
         return _recordOutcome(process, result, DefaultProcessStatus.TerminalResolved);
@@ -589,6 +593,19 @@ contract DefaultProcessEngine is IDefaultProcessEngine, ReentrancyGuard {
 
     function portfolioRiskEngine() external view returns (IPortfolioRiskEngine) {
         return _portfolioRiskEngine;
+    }
+
+    function _reducePositionExposure(PositionId positionId) private {
+        (PositionEconomics memory economics,) = _portfolioRiskEngine.positionEngine().getPosition(positionId);
+        _reduceAccountExposure(positionId, economics.longAccountId);
+        if (AccountId.unwrap(economics.shortAccountId) != AccountId.unwrap(economics.longAccountId)) {
+            _reduceAccountExposure(positionId, economics.shortAccountId);
+        }
+    }
+
+    function _reduceAccountExposure(PositionId positionId, AccountId accountId) private {
+        RiskExposureReduction memory reduction = _portfolioRiskEngine.exposureReductionWitness(positionId, accountId);
+        if (reduction.exposureId != bytes32(0)) _portfolioRiskEngine.reduceExposure(reduction);
     }
 
     function collateralVault() external view returns (ICollateralVault) {

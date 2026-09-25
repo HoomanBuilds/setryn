@@ -12,6 +12,7 @@ import {PackageDefinitionLib} from "../libraries/PackageDefinitionLib.sol";
 import {
     AuctionClearingResult,
     AuctionDefinition,
+    AuctionId,
     AuctionKind,
     AuctionPriceRule,
     AuctionTargetKind,
@@ -146,13 +147,14 @@ contract BatchClearingEngine is IBatchClearingEngine, ReentrancyGuard {
                 || result.winnerCount != header.winnerCount
                 || Lots.unwrap(result.totalAllocatedLots) != Lots.unwrap(header.totalAllocatedLots)
                 || definition.priceRule != header.priceRule || definition.targetVersion != header.targetVersion
-                || definition.feeScheduleId != header.feeScheduleId
+                || FeeScheduleId.unwrap(definition.feeScheduleId) != FeeScheduleId.unwrap(header.feeScheduleId)
                 || definition.feeScheduleVersion != header.feeScheduleVersion
-                || definition.riskDomainId != header.riskDomainId
+                || RiskDomainId.unwrap(definition.riskDomainId) != RiskDomainId.unwrap(header.riskDomainId)
                 || definition.riskDomainVersion != header.riskDomainVersion
                 || definition.settlementDeadline != header.settlementDeadline
                 || definition.targetKind != (packageTarget ? AuctionTargetKind.Package : AuctionTargetKind.Series)
-                || definition.seriesId != header.seriesId || definition.packageId != header.packageId
+                || SeriesId.unwrap(definition.seriesId) != SeriesId.unwrap(header.seriesId)
+                || PackageId.unwrap(definition.packageId) != PackageId.unwrap(header.packageId)
                 || definition.packageLegsHash != header.packageWitnessHash
                 || BatchClearingLib.hashAuctionAllocations(allocations) != header.allocationsHash
         ) revert BatchSourceMismatch();
@@ -160,7 +162,8 @@ contract BatchClearingEngine is IBatchClearingEngine, ReentrancyGuard {
             BatchAllocation calldata allocation = allocations[i];
             BidRecord memory bid = _auctionHouse.getBid(allocation.bidId);
             if (
-                bid.status != BidStatus.Winner || bid.bid.auctionId != header.auctionId
+                bid.status != BidStatus.Winner
+                    || AuctionId.unwrap(bid.bid.auctionId) != AuctionId.unwrap(header.auctionId)
                     || bid.bid.auctionVersion != header.auctionVersion
                     || bid.bid.bidderOrderHash != allocation.makerOrderHash
                     || definition.initiatorOrderHash != allocation.takerOrderHash

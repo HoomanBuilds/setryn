@@ -11,9 +11,10 @@ import {ICompressionLifecycleExecutor} from "../interfaces/ICompressionLifecycle
 import {IDefaultLifecycleExecutor} from "../interfaces/IDefaultLifecycleExecutor.sol";
 import {ILifecycleAtomicExecutor} from "../interfaces/ILifecycleAtomicExecutor.sol";
 import {IPositionEngine} from "../interfaces/IPositionEngine.sol";
+import {IPortfolioRiskEngine} from "../interfaces/IPortfolioRiskEngine.sol";
 import {CompressionLib} from "../libraries/CompressionLib.sol";
 import {LifecycleHashLib} from "../libraries/LifecycleHashLib.sol";
-import {TerminalLiabilityReplacement, TerminalLiabilityReservation} from "../types/CollateralTypes.sol";
+import {CollateralLock, TerminalLiabilityReplacement, TerminalLiabilityReservation} from "../types/CollateralTypes.sol";
 import {
     CompressionPlanId,
     CompressionPosition,
@@ -56,8 +57,9 @@ import {
     PositionStatus
 } from "../types/PositionTypes.sol";
 import {SeriesVersion} from "../types/SeriesDefinition.sol";
+import {RiskExposureReduction} from "../types/RiskTypes.sol";
 import {Lots, PriceTicks} from "../types/Units.sol";
-import {TerminalLiabilityReservationStatus} from "../types/Enums.sol";
+import {LockStatus, TerminalLiabilityReservationStatus} from "../types/Enums.sol";
 
 contract PositionLifecycleExecutor is
     ILifecycleAtomicExecutor,
@@ -86,6 +88,7 @@ contract PositionLifecycleExecutor is
 
     IPositionEngine public immutable positionEngine;
     ICollateralVault public immutable collateralVault;
+    IPortfolioRiskEngine public immutable portfolioRiskEngine;
 
     mapping(bytes32 executionId => bool consumed) public executionConsumed;
     mapping(bytes32 executionId => mapping(bytes32 successorKey => bytes32 witnessHash)) public successorWitnessHash;
@@ -108,14 +111,22 @@ contract PositionLifecycleExecutor is
     error MissingSuccessorWitness(bytes32 successorKey);
     error ExerciseWitnessMismatch(bytes32 executionId);
 
-    constructor(uint48 defaultAdminDelay, address initialAdmin, IPositionEngine positionEngine_)
-        AccessControlDefaultAdminRules(defaultAdminDelay, initialAdmin)
-    {
+    constructor(
+        uint48 defaultAdminDelay,
+        address initialAdmin,
+        IPositionEngine positionEngine_,
+        IPortfolioRiskEngine portfolioRiskEngine_
+    ) AccessControlDefaultAdminRules(defaultAdminDelay, initialAdmin) {
         _requireDependency(address(positionEngine_));
+        _requireDependency(address(portfolioRiskEngine_));
+        if (address(portfolioRiskEngine_.positionEngine()) != address(positionEngine_)) {
+            revert ZeroDependency(address(portfolioRiskEngine_.positionEngine()));
+        }
         ICollateralVault vault = positionEngine_.collateralVault();
         _requireDependency(address(vault));
         positionEngine = positionEngine_;
         collateralVault = vault;
+        portfolioRiskEngine = portfolioRiskEngine_;
         _grantRole(SIGNED_LIFECYCLE_ENGINE_ROLE, initialAdmin);
         _grantRole(COMPRESSION_COORDINATOR_ROLE, initialAdmin);
         _grantRole(DEFAULT_PROCESS_ENGINE_ROLE, initialAdmin);
@@ -174,7 +185,12 @@ contract PositionLifecycleExecutor is
             ) revert InputPositionMismatch(inputs[i].positionId);
         }
         _validateLifecycleReplacements(successors, collateralReplacements);
-        _replaceLifecycleBacking(executionId, inputs, successors);
+        bool settleInputsFirst = action.kind == LifecycleActionKind.Exercise;
+        if (settleInputsFirst) {
+            _applyLifecycleInputs(executionId, action, inputs, successors.length);
+        } else {
+            _replaceLifecycleBacking(executionId, inputs, successors);
+        }
         PositionId[] memory created = new PositionId[](successors.length);
         for (uint256 i; i < successors.length; ++i) {
             (bytes memory terms, PositionProvenance memory provenance) =
@@ -194,7 +210,7 @@ contract PositionLifecycleExecutor is
             );
             _validateLifecycleSuccessor(created[i], successors[i]);
         }
-        _applyLifecycleInputs(executionId, action, inputs, successors.length);
+        if (!settleInputsFirst) _applyLifecycleInputs(executionId, action, inputs, successors.length);
         outcomeHash = keccak256(
             abi.encode(
                 LIFECYCLE_OUTCOME_TYPEHASH,
@@ -281,6 +297,18 @@ contract PositionLifecycleExecutor is
         } else {
             revert DefaultPositionMismatch(process.positionId, process.accountId);
         }
+        PositionId expectedSuccessorId = _deriveSuccessorPositionId(
+            executionId,
+            0,
+            winningBid.eligibilityEvidenceHash,
+            economics.seriesId,
+            economics.seriesVersion,
+            longAccount,
+            shortAccount,
+            lifecycle.remainingLots,
+            economics.entryPriceTicks
+        );
+        _prepareDefaultSuccessorBacking(expectedSuccessorId, process, winningBid, economics, longAccount, shortAccount);
         PositionId successorId = _createLifecycleSuccessor(
             executionId,
             0,
@@ -299,16 +327,19 @@ contract PositionLifecycleExecutor is
                 packageProvenanceHash: economics.packageProvenanceHash
             })
         );
+        if (PositionId.unwrap(successorId) != PositionId.unwrap(expectedSuccessorId)) {
+            revert SuccessorMismatch(winningBid.eligibilityEvidenceHash);
+        }
         LifecyclePositionSnapshot memory source = positionEngine.getLifecyclePosition(process.positionId);
         LifecyclePositionSnapshot memory successor = positionEngine.getLifecyclePosition(successorId);
         if (
             successor.longTerminalLiabilityBaseUnits != source.longTerminalLiabilityBaseUnits
                 || successor.shortTerminalLiabilityBaseUnits != source.shortTerminalLiabilityBaseUnits
-                || successor.riskDomainId != source.riskDomainId
+                || RiskDomainId.unwrap(successor.riskDomainId) != RiskDomainId.unwrap(source.riskDomainId)
                 || successor.riskDomainVersion != source.riskDomainVersion
                 || CollateralId.unwrap(successor.collateralId) != CollateralId.unwrap(source.collateralId)
         ) revert SuccessorMismatch(winningBid.eligibilityEvidenceHash);
-        _closeAndRelease(process.positionId, PositionStatus.Replaced, executionId);
+        _closeAndReleaseWithoutRisk(process.positionId, PositionStatus.Replaced, executionId);
         (, PositionLifecycle memory closedLifecycle) = positionEngine.getPosition(process.positionId);
         uint128 defaulterApplied = process.deficiencyMinor < process.lockedDefaulterCollateralMinor
             ? process.deficiencyMinor
@@ -324,6 +355,58 @@ contract PositionLifecycleExecutor is
             fullyBackedClaimMinor: 0,
             unbackedClaimMinor: 0
         });
+    }
+
+    function _prepareDefaultSuccessorBacking(
+        PositionId successorId,
+        DefaultProcess calldata process,
+        LiquidationBidRecord calldata winningBid,
+        PositionEconomics memory economics,
+        AccountId successorLong,
+        AccountId successorShort
+    ) private {
+        bool defaultedLong = AccountId.unwrap(process.accountId) == AccountId.unwrap(economics.longAccountId);
+        uint128 bidderLiability = defaultedLong ? economics.maxLongDebitMinor : economics.maxShortDebitMinor;
+        if (winningBid.capacityMinor < process.takeoverContributionMinor) {
+            revert CollateralReplacementMismatch(winningBid.bidderAccountId);
+        }
+        uint128 capacityForLiability = winningBid.capacityMinor - process.takeoverContributionMinor;
+        CollateralLock memory capacityLock = collateralVault.getLock(winningBid.capacityLockId);
+        if (
+            capacityForLiability < bidderLiability || capacityLock.initialAmount != winningBid.capacityMinor
+                || capacityLock.remainingAmount != 0 || capacityLock.status != LockStatus.Released
+                || AccountId.unwrap(capacityLock.accountId) != AccountId.unwrap(winningBid.bidderAccountId)
+        ) revert CollateralReplacementMismatch(winningBid.bidderAccountId);
+
+        TerminalLiabilityReservationId survivorReservationId =
+            defaultedLong ? economics.shortReservationId : economics.longReservationId;
+        uint128 survivorLiability = defaultedLong ? economics.maxShortDebitMinor : economics.maxLongDebitMinor;
+        if (survivorLiability == 0) return;
+        TerminalLiabilityReservation memory survivor =
+            collateralVault.terminalLiabilityReservationOf(survivorReservationId);
+        AccountId survivorAccount = defaultedLong ? successorShort : successorLong;
+        PositionLiabilitySide survivorSide = defaultedLong ? PositionLiabilitySide.Short : PositionLiabilitySide.Long;
+        if (
+            survivor.status != TerminalLiabilityReservationStatus.Active
+                || AccountId.unwrap(survivor.payerAccountId) != AccountId.unwrap(survivorAccount)
+                || survivor.remainingAmount != survivorLiability
+        ) revert CollateralReplacementMismatch(survivorAccount);
+
+        TerminalLiabilityReservationId[] memory sources = new TerminalLiabilityReservationId[](1);
+        sources[0] = survivorReservationId;
+        TerminalLiabilityReplacement[] memory replacements = new TerminalLiabilityReplacement[](1);
+        replacements[0] = TerminalLiabilityReplacement({
+            positionId: positionEngine.deriveLiabilityKey(successorId, uint8(survivorSide)),
+            payerAccountId: survivorAccount,
+            assetId: survivor.assetId,
+            riskDomainId: survivor.riskDomainId,
+            bindingVersion: survivor.bindingVersion,
+            riskDomainVersion: survivor.riskDomainVersion,
+            settlementDeadline: economics.settlementDeadline,
+            finalResolutionAt: economics.finalResolutionAt,
+            amount: survivorLiability
+        });
+        positionEngine.replaceLifecycleReservations(sources, replacements);
     }
 
     function applyTerminalDefaultRule(
@@ -712,7 +795,7 @@ contract PositionLifecycleExecutor is
                 || actual.seriesVersion != expected.seriesVersion
                 || AccountId.unwrap(actual.longAccountId) != AccountId.unwrap(expected.longAccountId)
                 || AccountId.unwrap(actual.shortAccountId) != AccountId.unwrap(expected.shortAccountId)
-                || actual.riskDomainId != expected.riskDomainId
+                || RiskDomainId.unwrap(actual.riskDomainId) != RiskDomainId.unwrap(expected.riskDomainId)
                 || actual.riskDomainVersion != expected.riskDomainVersion
                 || CollateralId.unwrap(actual.collateralId) != CollateralId.unwrap(expected.collateralId)
                 || Lots.unwrap(actual.positionLots) != Lots.unwrap(expected.lots)
@@ -731,7 +814,7 @@ contract PositionLifecycleExecutor is
                 || actual.seriesVersion != expected.seriesVersion
                 || AccountId.unwrap(actual.longAccountId) != AccountId.unwrap(expected.longAccountId)
                 || AccountId.unwrap(actual.shortAccountId) != AccountId.unwrap(expected.shortAccountId)
-                || actual.riskDomainId != expected.riskDomainId
+                || RiskDomainId.unwrap(actual.riskDomainId) != RiskDomainId.unwrap(expected.riskDomainId)
                 || actual.riskDomainVersion != expected.riskDomainVersion
                 || CollateralId.unwrap(actual.collateralId) != CollateralId.unwrap(expected.collateralId)
                 || Lots.unwrap(actual.positionLots) != Lots.unwrap(expected.lots)
@@ -841,6 +924,7 @@ contract PositionLifecycleExecutor is
                         executionId
                     );
                 }
+                _reducePositionExposure(inputs[i].positionId);
                 _finalize(economics.longReservationId);
                 _finalize(economics.shortReservationId);
             }
@@ -868,6 +952,7 @@ contract PositionLifecycleExecutor is
                         executionId
                     );
                 }
+                _reducePositionExposure(inputs[i].positionId);
                 _finalize(economics.longReservationId);
                 _finalize(economics.shortReservationId);
             }
@@ -886,6 +971,7 @@ contract PositionLifecycleExecutor is
                     PositionStatus.Replaced,
                     executionId
                 );
+                _reducePositionExposure(inputs[i].positionId);
                 _finalize(economics.longReservationId);
                 _finalize(economics.shortReservationId);
             }
@@ -992,10 +1078,30 @@ contract PositionLifecycleExecutor is
     }
 
     function _closeAndRelease(PositionId positionId, PositionStatus status, bytes32 transitionReference) private {
+        _closeAndReleaseWithoutRisk(positionId, status, transitionReference);
+        _reducePositionExposure(positionId);
+    }
+
+    function _closeAndReleaseWithoutRisk(PositionId positionId, PositionStatus status, bytes32 transitionReference)
+        private
+    {
         (PositionEconomics memory economics,) = positionEngine.getPosition(positionId);
         positionEngine.recordZeroLiabilityAlternative(positionId, status, transitionReference);
         _finalize(economics.longReservationId);
         _finalize(economics.shortReservationId);
+    }
+
+    function _reducePositionExposure(PositionId positionId) private {
+        (PositionEconomics memory economics,) = positionEngine.getPosition(positionId);
+        _reduceAccountExposure(positionId, economics.longAccountId);
+        if (AccountId.unwrap(economics.shortAccountId) != AccountId.unwrap(economics.longAccountId)) {
+            _reduceAccountExposure(positionId, economics.shortAccountId);
+        }
+    }
+
+    function _reduceAccountExposure(PositionId positionId, AccountId accountId) private {
+        RiskExposureReduction memory reduction = portfolioRiskEngine.exposureReductionWitness(positionId, accountId);
+        if (reduction.exposureId != bytes32(0)) portfolioRiskEngine.reduceExposure(reduction);
     }
 
     function _finalize(TerminalLiabilityReservationId reservationId) private {

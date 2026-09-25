@@ -10,7 +10,7 @@ import {ICollateralAwareRouteEngine} from "../interfaces/ICollateralAwareRouteEn
 import {IPortfolioRiskEngine} from "../interfaces/IPortfolioRiskEngine.sol";
 import {IRouteLiquiditySource} from "../interfaces/IRouteLiquiditySource.sol";
 import {RouteLib} from "../libraries/RouteLib.sol";
-import {AccountId, FillId} from "../types/Identifiers.sol";
+import {AccountId, FeeScheduleId, FillId, PackageId, RiskDomainId} from "../types/Identifiers.sol";
 import {PackageLeg} from "../types/PackageDefinition.sol";
 import {RiskAdmission, RiskAdmissionId, RiskAdmissionStatus} from "../types/RiskTypes.sol";
 import {
@@ -26,6 +26,7 @@ import {
     RouteSettlement,
     RouteStatus
 } from "../types/RoutingTypes.sol";
+import {Lots, PriceTicks, TickSizeMinor} from "../types/Units.sol";
 
 contract CollateralAwareRouteEngine is ICollateralAwareRouteEngine, AccessControlDefaultAdminRules, ReentrancyGuard {
     bytes32 public constant ROUTE_CONSUMER_ROLE = keccak256("SETRYN_ROUTE_CONSUMER_ROLE");
@@ -111,7 +112,7 @@ contract CollateralAwareRouteEngine is ICollateralAwareRouteEngine, AccessContro
             routeHash,
             sourceReservationHash,
             uint8(selected.route.provenance),
-            selected.route.netPackagePriceTicks,
+            PriceTicks.unwrap(selected.route.netPackagePriceTicks),
             selected.route.totalFeeMinor
         );
         for (uint16 i; i < selected.components.length; ++i) {
@@ -220,8 +221,9 @@ contract CollateralAwareRouteEngine is ICollateralAwareRouteEngine, AccessContro
             RouteRiskBinding memory binding = candidate.riskBindings[i];
             RiskAdmission memory admission = _riskEngine.getAdmission(binding.admissionId);
             if (
-                admission.status != RiskAdmissionStatus.Reserved || admission.accountId != binding.accountId
-                    || admission.riskDomainId != binding.riskDomainId
+                admission.status != RiskAdmissionStatus.Reserved
+                    || AccountId.unwrap(admission.accountId) != AccountId.unwrap(binding.accountId)
+                    || RiskDomainId.unwrap(admission.riskDomainId) != RiskDomainId.unwrap(binding.riskDomainId)
                     || admission.riskDomainVersion != binding.riskDomainVersion
                     || admission.openInterestBaseUnits != binding.openInterestIncreaseBaseUnits
                     || admission.terminalLiabilityBaseUnits != binding.terminalLiabilityIncreaseBaseUnits
@@ -234,13 +236,15 @@ contract CollateralAwareRouteEngine is ICollateralAwareRouteEngine, AccessContro
 
     function _requireComparable(ExecutableRoute memory anchor, ExecutableRoute memory candidate) private pure {
         if (
-            anchor.packageId != candidate.packageId || anchor.packageVersion != candidate.packageVersion
+            PackageId.unwrap(anchor.packageId) != PackageId.unwrap(candidate.packageId)
+                || anchor.packageVersion != candidate.packageVersion
                 || anchor.packageWitnessHash != candidate.packageWitnessHash || anchor.userSide != candidate.userSide
-                || anchor.packageLots != candidate.packageLots
-                || anchor.packageTickSizeMinor != candidate.packageTickSizeMinor
-                || anchor.feeScheduleId != candidate.feeScheduleId
+                || Lots.unwrap(anchor.packageLots) != Lots.unwrap(candidate.packageLots)
+                || TickSizeMinor.unwrap(anchor.packageTickSizeMinor)
+                    != TickSizeMinor.unwrap(candidate.packageTickSizeMinor)
+                || FeeScheduleId.unwrap(anchor.feeScheduleId) != FeeScheduleId.unwrap(candidate.feeScheduleId)
                 || anchor.feeScheduleVersion != candidate.feeScheduleVersion
-                || anchor.riskDomainId != candidate.riskDomainId
+                || RiskDomainId.unwrap(anchor.riskDomainId) != RiskDomainId.unwrap(candidate.riskDomainId)
                 || anchor.riskDomainVersion != candidate.riskDomainVersion
                 || anchor.guaranteeClassId != candidate.guaranteeClassId
         ) revert InvalidRoute();

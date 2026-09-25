@@ -10,6 +10,7 @@ import {IFundedFeeEngine} from "../interfaces/IFundedFeeEngine.sol";
 import {IInstrumentRegistry} from "../interfaces/IInstrumentRegistry.sol";
 import {IMarketRegistry} from "../interfaces/IMarketRegistry.sol";
 import {IPositionEngine} from "../interfaces/IPositionEngine.sol";
+import {IPortfolioRiskEngine} from "../interfaces/IPortfolioRiskEngine.sol";
 import {PositionTerminalState} from "../interfaces/IPositionEngineTerminalState.sol";
 import {ISeriesRegistry} from "../interfaces/ISeriesRegistry.sol";
 import {FeeEngineLib} from "../libraries/FeeEngineLib.sol";
@@ -25,12 +26,14 @@ import {FeeActionRequest, FeeActionResult, FeeComputation} from "../types/FeeEng
 import {FixingResolutionKind, FixingResult, FixingStatus} from "../types/FixingTypes.sol";
 import {
     AccountId,
+    AdapterId,
     AssetId,
     FeeActionId,
     FeeScheduleId,
     InstrumentId,
     MarketId,
     PositionId,
+    RiskDomainId,
     SeriesId,
     SettlementId,
     TerminalClaimId,
@@ -39,6 +42,7 @@ import {
 import {InstrumentVersion} from "../types/InstrumentDefinition.sol";
 import {MarketVersion} from "../types/MarketDefinition.sol";
 import {PositionEconomics, PositionLifecycle, PositionStatus} from "../types/PositionTypes.sol";
+import {RiskExposureReduction} from "../types/RiskTypes.sol";
 import {CanonicalFixing} from "../types/PayoffTypes.sol";
 import {
     CanonicalSettlementFixing,
@@ -58,6 +62,7 @@ contract CashSettlementCoordinator is ICashSettlementCoordinator, ReentrancyGuar
     IFundedFeeEngine private immutable _fundedFeeEngine;
     ICollateralVault private immutable _collateralVault;
     ISeriesRegistry private immutable _seriesRegistry;
+    IPortfolioRiskEngine private immutable _portfolioRiskEngine;
 
     mapping(SettlementId settlementId => SettlementRecord record) private _settlements;
     mapping(PositionId positionId => SettlementId settlementId) private _positionSettlement;
@@ -72,10 +77,19 @@ contract CashSettlementCoordinator is ICashSettlementCoordinator, ReentrancyGuar
         bytes payoffTerms;
     }
 
-    constructor(IPositionEngine positionEngine_, IFixingEngine fixingEngine_, IFundedFeeEngine fundedFeeEngine_) {
+    constructor(
+        IPositionEngine positionEngine_,
+        IFixingEngine fixingEngine_,
+        IFundedFeeEngine fundedFeeEngine_,
+        IPortfolioRiskEngine portfolioRiskEngine_
+    ) {
         _requireDependency(address(positionEngine_));
         _requireDependency(address(fixingEngine_));
         _requireDependency(address(fundedFeeEngine_));
+        _requireDependency(address(portfolioRiskEngine_));
+        if (address(portfolioRiskEngine_.positionEngine()) != address(positionEngine_)) {
+            revert DependencyGraphMismatch(address(positionEngine_), address(portfolioRiskEngine_.positionEngine()));
+        }
         ISeriesRegistry seriesRegistry_ = positionEngine_.seriesRegistry();
         ICollateralVault collateralVault_ = positionEngine_.collateralVault();
         _requireDependency(address(seriesRegistry_));
@@ -91,6 +105,7 @@ contract CashSettlementCoordinator is ICashSettlementCoordinator, ReentrancyGuar
         _fundedFeeEngine = fundedFeeEngine_;
         _collateralVault = collateralVault_;
         _seriesRegistry = seriesRegistry_;
+        _portfolioRiskEngine = portfolioRiskEngine_;
     }
 
     function finalizeNormalSettlement(
@@ -114,6 +129,7 @@ contract CashSettlementCoordinator is ICashSettlementCoordinator, ReentrancyGuar
         _advanceNormalPosition(positionId, context.lifecycle, fixingsHash, encodedFixings);
         (, PositionLifecycle memory terminalLifecycle) = _positionEngine.getPosition(positionId);
         if (terminalLifecycle.status != PositionStatus.Settled) revert SettlementOutcomeMismatch();
+        _reducePositionExposure(positionId, context.economics);
 
         SettlementFeeReceipt[] memory feeReceipts = _consumeFees(settlementId, context.economics, feeActions);
         (SettlementCollateralDelta memory longDelta, SettlementCollateralDelta memory shortDelta) =
@@ -159,6 +175,7 @@ contract CashSettlementCoordinator is ICashSettlementCoordinator, ReentrancyGuar
                 || (terminalLifecycle.status != PositionStatus.Settled
                     && terminalLifecycle.status != PositionStatus.TerminalClaim)
         ) revert SettlementOutcomeMismatch();
+        _reducePositionExposure(positionId, context.economics);
 
         SettlementFeeReceipt[] memory feeReceipts = _consumeFees(settlementId, context.economics, feeActions);
         (SettlementCollateralDelta memory longDelta, SettlementCollateralDelta memory shortDelta) =
@@ -187,6 +204,7 @@ contract CashSettlementCoordinator is ICashSettlementCoordinator, ReentrancyGuar
         if (context.lifecycle.status != PositionStatus.Lapsed || context.lifecycle.terminalTransferMinor != 0) {
             revert InvalidPositionStatus(context.lifecycle.status);
         }
+        _reducePositionExposure(positionId, context.economics);
         bytes32 fixingsHash = SettlementLib.hashFixings(new CanonicalSettlementFixing[](0));
         settlementId = SettlementLib.deriveSettlementId(
             block.chainid, address(this), positionId, SettlementMode.Lapsed, fixingsHash
@@ -218,6 +236,18 @@ contract CashSettlementCoordinator is ICashSettlementCoordinator, ReentrancyGuar
             revert UnknownClaim(claimId);
         }
         emit SettlementClaimFulfilled(claimId, _settlements[settlementId].positionId, settlementId, msg.sender);
+    }
+
+    function _reducePositionExposure(PositionId positionId, PositionEconomics memory economics) private {
+        _reduceAccountExposure(positionId, economics.longAccountId);
+        if (AccountId.unwrap(economics.shortAccountId) != AccountId.unwrap(economics.longAccountId)) {
+            _reduceAccountExposure(positionId, economics.shortAccountId);
+        }
+    }
+
+    function _reduceAccountExposure(PositionId positionId, AccountId accountId) private {
+        RiskExposureReduction memory reduction = _portfolioRiskEngine.exposureReductionWitness(positionId, accountId);
+        if (reduction.exposureId != bytes32(0)) _portfolioRiskEngine.reduceExposure(reduction);
     }
 
     function positionEngine() external view returns (IPositionEngine) {
@@ -294,7 +324,8 @@ contract CashSettlementCoordinator is ICashSettlementCoordinator, ReentrancyGuar
                 || AssetId.unwrap(context.market.definition.settlementAssetId)
                     != AssetId.unwrap(context.economics.settlementAssetId)
                 || context.market.definition.settlementAssetVersion != context.economics.settlementAssetVersion
-                || context.market.definition.riskDomainId != context.economics.riskDomainId
+                || RiskDomainId.unwrap(context.market.definition.riskDomainId)
+                    != RiskDomainId.unwrap(context.economics.riskDomainId)
                 || context.market.definition.riskDomainVersion != context.economics.riskDomainVersion
                 || FeeScheduleId.unwrap(context.market.definition.feeScheduleId)
                     != FeeScheduleId.unwrap(context.economics.feeScheduleId)
@@ -320,7 +351,9 @@ contract CashSettlementCoordinator is ICashSettlementCoordinator, ReentrancyGuar
                         context.economics.instrumentVersion,
                         instrumentDefinitionHash,
                         block.chainid
-                    ) || context.instrument.definition.payoffModuleId != context.economics.payoffModuleId
+                    )
+                || AdapterId.unwrap(context.instrument.definition.payoffModuleId)
+                    != AdapterId.unwrap(context.economics.payoffModuleId)
                 || context.instrument.definition.payoffModuleVersion != context.economics.payoffModuleVersion
                 || context.instrument.definition.maxEvaluationGas != context.economics.maxEvaluationGas
         ) revert InstrumentRecordMismatch();
@@ -356,9 +389,9 @@ contract CashSettlementCoordinator is ICashSettlementCoordinator, ReentrancyGuar
 
     function _requireEconomicMatch(PositionEconomics memory economics, SeriesVersion memory series) private pure {
         if (
-            series.definition.marketId != economics.marketId
+            MarketId.unwrap(series.definition.marketId) != MarketId.unwrap(economics.marketId)
                 || series.definition.marketVersion != economics.marketVersion
-                || series.definition.instrumentId != economics.instrumentId
+                || InstrumentId.unwrap(series.definition.instrumentId) != InstrumentId.unwrap(economics.instrumentId)
                 || series.definition.instrumentVersion != economics.instrumentVersion
                 || series.definition.fixingWindowOpen != economics.fixingWindowOpen
                 || series.definition.finalResolutionAt != economics.finalResolutionAt

@@ -27,6 +27,7 @@ import {
     ExercisePolicyId,
     PackageId,
     PositionId,
+    RiskDomainId,
     SeriesId,
     TerminalLiabilityReservationId
 } from "../types/Identifiers.sol";
@@ -98,6 +99,23 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
         TerminalOutcomeKind outcome;
         uint128 amount;
         bool exists;
+    }
+
+    struct PositionInitializationContext {
+        PositionId positionId;
+        SeriesVersion series;
+        MarketVersion market;
+        InstrumentVersion instrument;
+        PositionProvenance provenance;
+        bytes32 termsHash;
+        address payoffModule;
+        bytes32 payoffModuleCodeHash;
+        uint128 longMaximum;
+        uint128 shortMaximum;
+        bytes32 longLiabilityKey;
+        bytes32 shortLiabilityKey;
+        TerminalLiabilityReservationId longReservationId;
+        TerminalLiabilityReservationId shortReservationId;
     }
 
     mapping(PositionId positionId => PositionEconomics economics) private _economics;
@@ -199,132 +217,172 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
         if (!requireOpenForNewRisk && !_seriesRegistry.isLifecycleEnabled(creation.seriesId, creation.seriesVersion)) {
             revert SeriesClosedForNewRisk(bytes32(SeriesId.unwrap(creation.seriesId)), creation.seriesVersion);
         }
-
-        SeriesVersion memory series = _seriesRegistry.getSeries(creation.seriesId, creation.seriesVersion);
-        MarketVersion memory market =
-            _marketRegistry.getMarket(series.definition.marketId, series.definition.marketVersion);
-        InstrumentVersion memory instrument =
-            _instrumentRegistry.getInstrument(series.definition.instrumentId, series.definition.instrumentVersion);
-        bytes32 termsHash = _seriesRegistry.hashPayoffTerms(instrument.definition.termsSchemaHash, creation.payoffTerms);
-        if (termsHash != series.definition.payoffTermsHash) {
-            revert PayoffTermsHashMismatch(series.definition.payoffTermsHash, termsHash);
-        }
-
-        AdapterVersion memory adapter = _adapterRegistry.getAdapter(
-            instrument.definition.payoffModuleId, instrument.definition.payoffModuleVersion
+        PositionInitializationContext memory context = _preparePositionInitialization(creation, positionId, provenance);
+        _stagePositionLiabilities(creation, context);
+        context.longReservationId = _createReservation(
+            context.longLiabilityKey, creation.longAccountId, context.market, context.longMaximum, creation.longFunding
         );
-        address payoffModule = adapter.definition.implementation;
-        bytes32 actualCodeHash = payoffModule.codehash;
+        context.shortReservationId = _createReservation(
+            context.shortLiabilityKey,
+            creation.shortAccountId,
+            context.market,
+            context.shortMaximum,
+            creation.shortFunding
+        );
+        _storePositionEconomics(creation, context);
+        _storePositionLifecycle(creation, context);
+        _payoffTerms[positionId] = creation.payoffTerms;
+        _positionCount += 1;
+        _emitPositionCreated(creation, context);
+    }
+
+    function _preparePositionInitialization(
+        PositionCreation calldata creation,
+        PositionId positionId,
+        PositionProvenance memory provenance
+    ) private view returns (PositionInitializationContext memory context) {
+        context.positionId = positionId;
+        context.provenance = provenance;
+        context.series = _seriesRegistry.getSeries(creation.seriesId, creation.seriesVersion);
+        context.market =
+            _marketRegistry.getMarket(context.series.definition.marketId, context.series.definition.marketVersion);
+        context.instrument = _instrumentRegistry.getInstrument(
+            context.series.definition.instrumentId, context.series.definition.instrumentVersion
+        );
+        context.termsHash =
+            _seriesRegistry.hashPayoffTerms(context.instrument.definition.termsSchemaHash, creation.payoffTerms);
+        if (context.termsHash != context.series.definition.payoffTermsHash) {
+            revert PayoffTermsHashMismatch(context.series.definition.payoffTermsHash, context.termsHash);
+        }
+        AdapterVersion memory adapter = _adapterRegistry.getAdapter(
+            context.instrument.definition.payoffModuleId, context.instrument.definition.payoffModuleVersion
+        );
+        context.payoffModule = adapter.definition.implementation;
+        context.payoffModuleCodeHash = context.payoffModule.codehash;
         if (
             !_adapterRegistry.runtimeMatches(
-                    instrument.definition.payoffModuleId, instrument.definition.payoffModuleVersion
-                ) || actualCodeHash != adapter.definition.expectedRuntimeCodeHash
+                    context.instrument.definition.payoffModuleId, context.instrument.definition.payoffModuleVersion
+                ) || context.payoffModuleCodeHash != adapter.definition.expectedRuntimeCodeHash
         ) {
-            revert PayoffModuleRuntimeMismatch(payoffModule, adapter.definition.expectedRuntimeCodeHash, actualCodeHash);
+            revert PayoffModuleRuntimeMismatch(
+                context.payoffModule, adapter.definition.expectedRuntimeCodeHash, context.payoffModuleCodeHash
+            );
         }
-        bytes32 exactLotsCapability = _readExactLotsCapability(payoffModule, instrument.definition.maxEvaluationGas);
+        bytes32 exactLotsCapability =
+            _readExactLotsCapability(context.payoffModule, context.instrument.definition.maxEvaluationGas);
         if (exactLotsCapability != EXACT_LOTS_CAPABILITY) {
-            revert ExactLotsCapabilityMismatch(payoffModule, exactLotsCapability);
+            revert ExactLotsCapabilityMismatch(context.payoffModule, exactLotsCapability);
         }
+        context.longMaximum =
+            PositionMathLib.checkedAmount(context.series.definition.maxLongDebitMinorPerLot, creation.lots);
+        context.shortMaximum =
+            PositionMathLib.checkedAmount(context.series.definition.maxShortDebitMinorPerLot, creation.lots);
+        context.longLiabilityKey = _deriveLiabilityKey(positionId, PositionLiabilitySide.Long);
+        context.shortLiabilityKey = _deriveLiabilityKey(positionId, PositionLiabilitySide.Short);
+    }
 
-        uint128 longMaximum = PositionMathLib.checkedAmount(series.definition.maxLongDebitMinorPerLot, creation.lots);
-        uint128 shortMaximum = PositionMathLib.checkedAmount(series.definition.maxShortDebitMinorPerLot, creation.lots);
-        bytes32 longLiabilityKey = _deriveLiabilityKey(positionId, PositionLiabilitySide.Long);
-        bytes32 shortLiabilityKey = _deriveLiabilityKey(positionId, PositionLiabilitySide.Short);
-
+    function _stagePositionLiabilities(PositionCreation calldata creation, PositionInitializationContext memory context)
+        private
+    {
         _stageLiability(
-            longLiabilityKey,
-            positionId,
+            context.longLiabilityKey,
+            context.positionId,
             PositionLiabilitySide.Long,
             creation.longAccountId,
-            series.definition.settlementDeadline,
-            series.definition.finalResolutionAt
+            context.series.definition.settlementDeadline,
+            context.series.definition.finalResolutionAt
         );
         _stageLiability(
-            shortLiabilityKey,
-            positionId,
+            context.shortLiabilityKey,
+            context.positionId,
             PositionLiabilitySide.Short,
             creation.shortAccountId,
-            series.definition.settlementDeadline,
-            series.definition.finalResolutionAt
+            context.series.definition.settlementDeadline,
+            context.series.definition.finalResolutionAt
         );
+    }
 
-        TerminalLiabilityReservationId longReservationId =
-            _createReservation(longLiabilityKey, creation.longAccountId, market, longMaximum, creation.longFunding);
-        TerminalLiabilityReservationId shortReservationId =
-            _createReservation(shortLiabilityKey, creation.shortAccountId, market, shortMaximum, creation.shortFunding);
-
-        PositionEconomics storage economics = _economics[positionId];
-        economics.positionId = positionId;
+    function _storePositionEconomics(PositionCreation calldata creation, PositionInitializationContext memory context)
+        private
+    {
+        PositionEconomics storage economics = _economics[context.positionId];
+        economics.positionId = context.positionId;
         economics.fillIdentity = creation.fillIdentity;
         economics.seriesId = creation.seriesId;
-        economics.seriesVersionHash = series.versionHash;
-        economics.marketId = series.definition.marketId;
-        economics.instrumentId = series.definition.instrumentId;
+        economics.seriesVersionHash = context.series.versionHash;
+        economics.marketId = context.series.definition.marketId;
+        economics.instrumentId = context.series.definition.instrumentId;
         economics.longAccountId = creation.longAccountId;
         economics.shortAccountId = creation.shortAccountId;
-        economics.payoffModuleId = instrument.definition.payoffModuleId;
-        economics.payoffModule = payoffModule;
-        economics.payoffModuleCodeHash = actualCodeHash;
-        economics.settlementAssetId = market.definition.settlementAssetId;
-        economics.riskDomainId = market.definition.riskDomainId;
-        economics.feeScheduleId = market.definition.feeScheduleId;
-        economics.payoffTermsHash = termsHash;
-        economics.fixingSlotsHash = series.definition.fixingSlotsHash;
+        economics.payoffModuleId = context.instrument.definition.payoffModuleId;
+        economics.payoffModule = context.payoffModule;
+        economics.payoffModuleCodeHash = context.payoffModuleCodeHash;
+        economics.settlementAssetId = context.market.definition.settlementAssetId;
+        economics.riskDomainId = context.market.definition.riskDomainId;
+        economics.feeScheduleId = context.market.definition.feeScheduleId;
+        economics.payoffTermsHash = context.termsHash;
+        economics.fixingSlotsHash = context.series.definition.fixingSlotsHash;
         economics.seriesVersion = creation.seriesVersion;
-        economics.marketVersion = series.definition.marketVersion;
-        economics.instrumentVersion = series.definition.instrumentVersion;
-        economics.payoffModuleVersion = instrument.definition.payoffModuleVersion;
-        economics.settlementAssetVersion = market.definition.settlementAssetVersion;
-        economics.riskDomainVersion = market.definition.riskDomainVersion;
-        economics.feeScheduleVersion = market.definition.feeScheduleVersion;
+        economics.marketVersion = context.series.definition.marketVersion;
+        economics.instrumentVersion = context.series.definition.instrumentVersion;
+        economics.payoffModuleVersion = context.instrument.definition.payoffModuleVersion;
+        economics.settlementAssetVersion = context.market.definition.settlementAssetVersion;
+        economics.riskDomainVersion = context.market.definition.riskDomainVersion;
+        economics.feeScheduleVersion = context.market.definition.feeScheduleVersion;
         economics.ordinal = creation.ordinal;
-        economics.fixingWindowOpen = series.definition.fixingWindowOpen;
-        economics.finalResolutionAt = series.definition.finalResolutionAt;
-        economics.settlementDeadline = series.definition.settlementDeadline;
-        economics.maxEvaluationGas = instrument.definition.maxEvaluationGas;
-        economics.exerciseOpensAt = series.definition.exerciseOpensAt;
-        economics.exerciseCutoffAt = series.definition.exerciseCutoffAt;
-        economics.exercisePolicyId = series.definition.exercisePolicyId;
-        economics.automaticExerciseThresholdMinor = series.definition.automaticExerciseThresholdMinor;
+        economics.fixingWindowOpen = context.series.definition.fixingWindowOpen;
+        economics.finalResolutionAt = context.series.definition.finalResolutionAt;
+        economics.settlementDeadline = context.series.definition.settlementDeadline;
+        economics.maxEvaluationGas = context.instrument.definition.maxEvaluationGas;
+        economics.exerciseOpensAt = context.series.definition.exerciseOpensAt;
+        economics.exerciseCutoffAt = context.series.definition.exerciseCutoffAt;
+        economics.exercisePolicyId = context.series.definition.exercisePolicyId;
+        economics.automaticExerciseThresholdMinor = context.series.definition.automaticExerciseThresholdMinor;
         economics.lots = creation.lots;
         economics.originalLots = creation.lots;
         economics.entryPriceTicks = creation.entryPriceTicks;
-        economics.maxLongDebitMinorPerLot = series.definition.maxLongDebitMinorPerLot;
-        economics.maxShortDebitMinorPerLot = series.definition.maxShortDebitMinorPerLot;
-        economics.maxLongDebitMinor = longMaximum;
-        economics.maxShortDebitMinor = shortMaximum;
-        economics.terminalDisruptionTransferMinorPerLot = series.definition.terminalDisruptionTransferMinorPerLot;
-        economics.longLiabilityKey = longLiabilityKey;
-        economics.shortLiabilityKey = shortLiabilityKey;
-        economics.longReservationId = longReservationId;
-        economics.shortReservationId = shortReservationId;
-        economics.packageId = provenance.packageId;
-        economics.packageVersion = provenance.packageVersion;
-        economics.packageOrdinal = provenance.packageOrdinal;
-        economics.packageProvenanceHash = provenance.packageProvenanceHash;
+        economics.maxLongDebitMinorPerLot = context.series.definition.maxLongDebitMinorPerLot;
+        economics.maxShortDebitMinorPerLot = context.series.definition.maxShortDebitMinorPerLot;
+        economics.maxLongDebitMinor = context.longMaximum;
+        economics.maxShortDebitMinor = context.shortMaximum;
+        economics.terminalDisruptionTransferMinorPerLot =
+        context.series.definition.terminalDisruptionTransferMinorPerLot;
+        economics.longLiabilityKey = context.longLiabilityKey;
+        economics.shortLiabilityKey = context.shortLiabilityKey;
+        economics.longReservationId = context.longReservationId;
+        economics.shortReservationId = context.shortReservationId;
+        economics.packageId = context.provenance.packageId;
+        economics.packageVersion = context.provenance.packageVersion;
+        economics.packageOrdinal = context.provenance.packageOrdinal;
+        economics.packageProvenanceHash = context.provenance.packageProvenanceHash;
+    }
 
-        _payoffTerms[positionId] = creation.payoffTerms;
-        PositionLifecycle storage lifecycle = _lifecycles[positionId];
+    function _storePositionLifecycle(PositionCreation calldata creation, PositionInitializationContext memory context)
+        private
+    {
+        PositionLifecycle storage lifecycle = _lifecycles[context.positionId];
         lifecycle.status = PositionStatus.Live;
-        lifecycle.exerciseState = ExercisePolicyId.unwrap(series.definition.exercisePolicyId)
+        lifecycle.exerciseState = ExercisePolicyId.unwrap(context.series.definition.exercisePolicyId)
             == ExercisePolicyId.unwrap(SeriesDefinitionLib.EXERCISE_POLICY_AUTOMATIC)
             ? PositionExerciseState.AwaitingFixing
             : PositionExerciseState.ElectionOpen;
         lifecycle.remainingLots = creation.lots;
         lifecycle.lifecycleOwnerAccountId = creation.longAccountId;
-        _positionCount += 1;
+    }
 
+    function _emitPositionCreated(PositionCreation calldata creation, PositionInitializationContext memory context)
+        private
+    {
         emit PositionCreated(
-            positionId,
+            context.positionId,
             creation.fillIdentity,
             SeriesId.unwrap(creation.seriesId),
             creation.seriesVersion,
             AccountId.unwrap(creation.longAccountId),
             AccountId.unwrap(creation.shortAccountId),
             Lots.unwrap(creation.lots),
-            TerminalLiabilityReservationId.unwrap(longReservationId),
-            TerminalLiabilityReservationId.unwrap(shortReservationId),
+            TerminalLiabilityReservationId.unwrap(context.longReservationId),
+            TerminalLiabilityReservationId.unwrap(context.shortReservationId),
             msg.sender
         );
     }
@@ -482,11 +540,10 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
         }
         uint128 quantity = _requireQuantity(positionId, lifecycle, exerciseLots);
         bytes32 suppliedFixingsHash = keccak256(finalFixings);
-        if (lifecycle.finalFixingReference == bytes32(0)) {
-            lifecycle.finalFixingReference = fixingReference;
-            lifecycle.finalFixingsHash = suppliedFixingsHash;
-        } else if (
-            lifecycle.finalFixingReference != fixingReference || lifecycle.finalFixingsHash != suppliedFixingsHash
+        if (
+            lifecycle.finalFixingReference == bytes32(0) || lifecycle.finalFixingsHash == bytes32(0)
+                || lifecycle.finalFixingReference != fixingReference
+                || lifecycle.finalFixingsHash != suppliedFixingsHash
         ) {
             revert ZeroReference();
         }
@@ -772,7 +829,8 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
         returns (PositionEconomics memory economics, PositionLifecycle memory lifecycle)
     {
         _requirePositionView(positionId);
-        return (_economics[positionId], _lifecycles[positionId]);
+        economics = _economics[positionId];
+        lifecycle = _lifecycles[positionId];
     }
 
     function positionRiskSnapshot(PositionId positionId, AccountId accountId)
@@ -783,24 +841,63 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
         _requirePositionView(positionId);
         PositionEconomics storage economics = _economics[positionId];
         PositionLifecycle storage lifecycle = _lifecycles[positionId];
-        bool isLong = economics.longAccountId == accountId;
-        if (!isLong && economics.shortAccountId != accountId) {
+        bool isLong = AccountId.unwrap(economics.longAccountId) == AccountId.unwrap(accountId);
+        if (!isLong && AccountId.unwrap(economics.shortAccountId) != AccountId.unwrap(accountId)) {
             revert PositionRiskAccountMismatch(positionId, accountId);
         }
         uint128 remaining = Lots.unwrap(lifecycle.remainingLots);
         if (remaining > uint128(type(int128).max)) revert PositionRiskLotsOverflow(positionId, remaining);
-        (uint128 longLiability, uint128 shortLiability) = _currentLiabilityBounds(economics, lifecycle);
-        int128 signedLots = isLong ? int128(remaining) : -int128(remaining);
-        PortfolioPositionWitness memory witness = PortfolioPositionWitness({
+        PortfolioPositionWitness memory witness = _riskWitness(positionId, economics, lifecycle, isLong, remaining);
+        snapshot = PositionRiskSnapshot({
+            witness: witness,
+            accountId: accountId,
+            riskDomainId: economics.riskDomainId,
+            riskDomainVersion: economics.riskDomainVersion,
+            remainingLots: remaining,
+            finalResolutionAt: economics.finalResolutionAt,
+            settlementDeadline: economics.settlementDeadline,
+            lifecycleNonce: lifecycle.lifecycleNonce,
+            status: lifecycle.status,
+            terminalOutcomeReference: lifecycle.terminalOutcomeReference,
+            stateHash: _riskStateHash(witness, accountId, economics, lifecycle, remaining)
+        });
+    }
+
+    function _riskWitness(
+        PositionId positionId,
+        PositionEconomics storage economics,
+        PositionLifecycle storage lifecycle,
+        bool isLong,
+        uint128 remaining
+    ) private view returns (PortfolioPositionWitness memory witness) {
+        witness = PortfolioPositionWitness({
             positionId: positionId,
             seriesId: economics.seriesId,
             seriesVersion: economics.seriesVersion,
-            signedLots: signedLots,
+            signedLots: isLong ? int128(remaining) : -int128(remaining),
             entryPriceTicks: economics.entryPriceTicks,
-            maximumTerminalLiabilityBaseUnits: isLong ? longLiability : shortLiability,
+            maximumTerminalLiabilityBaseUnits: _currentAccountLiability(economics, lifecycle, isLong),
             economicsHash: _economicsHash(economics)
         });
-        bytes32 stateHash = keccak256(
+    }
+
+    function _currentAccountLiability(
+        PositionEconomics storage economics,
+        PositionLifecycle storage lifecycle,
+        bool isLong
+    ) private view returns (uint128) {
+        (uint128 longLiability, uint128 shortLiability) = _currentLiabilityBounds(economics, lifecycle);
+        return isLong ? longLiability : shortLiability;
+    }
+
+    function _riskStateHash(
+        PortfolioPositionWitness memory witness,
+        AccountId accountId,
+        PositionEconomics storage economics,
+        PositionLifecycle storage lifecycle,
+        uint128 remaining
+    ) private view returns (bytes32) {
+        return keccak256(
             abi.encode(
                 RISK_SNAPSHOT_TYPEHASH,
                 witness,
@@ -815,19 +912,6 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
                 lifecycle.terminalOutcomeReference
             )
         );
-        snapshot = PositionRiskSnapshot({
-            witness: witness,
-            accountId: accountId,
-            riskDomainId: economics.riskDomainId,
-            riskDomainVersion: economics.riskDomainVersion,
-            remainingLots: remaining,
-            finalResolutionAt: economics.finalResolutionAt,
-            settlementDeadline: economics.settlementDeadline,
-            lifecycleNonce: lifecycle.lifecycleNonce,
-            status: lifecycle.status,
-            terminalOutcomeReference: lifecycle.terminalOutcomeReference,
-            stateHash: stateHash
-        });
     }
 
     function payoffTerms(PositionId positionId) external view returns (bytes memory) {
@@ -953,35 +1037,32 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
                 keccak256(_payoffTerms[positionId])
             )
         );
-        (uint128 currentLongLiability, uint128 currentShortLiability) = _currentLiabilityBounds(economics, lifecycle);
-        snapshot = LifecyclePositionSnapshot({
-            positionId: positionId,
-            immutableHash: immutableHash,
-            lifecycleHash: lifecycleHash,
-            seriesId: economics.seriesId,
-            seriesVersion: economics.seriesVersion,
-            longAccountId: economics.longAccountId,
-            shortAccountId: economics.shortAccountId,
-            riskDomainId: economics.riskDomainId,
-            riskDomainVersion: economics.riskDomainVersion,
-            feeScheduleId: economics.feeScheduleId,
-            feeScheduleVersion: economics.feeScheduleVersion,
-            collateralId: collateralId,
-            positionLots: lifecycle.remainingLots,
-            remainingExerciseLots: lifecycle.remainingLots,
-            entryPriceTicks: economics.entryPriceTicks,
-            economicsHash: economicsHash,
-            packageProvenanceHash: economics.packageProvenanceHash,
-            exercisePolicyId: series.definition.exercisePolicyId,
-            exerciseState: lifecycle.exerciseState,
-            automaticExerciseThresholdMinor: economics.automaticExerciseThresholdMinor,
-            expiryAt: series.definition.expiryAt,
-            exerciseOpensAt: series.definition.exerciseOpensAt,
-            exerciseCutoffAt: series.definition.exerciseCutoffAt,
-            lapseEligibleAt: series.definition.exerciseCutoffAt,
-            longTerminalLiabilityBaseUnits: currentLongLiability,
-            shortTerminalLiabilityBaseUnits: currentShortLiability
-        });
+        snapshot.positionId = positionId;
+        snapshot.immutableHash = immutableHash;
+        snapshot.lifecycleHash = lifecycleHash;
+        snapshot.seriesId = economics.seriesId;
+        snapshot.seriesVersion = economics.seriesVersion;
+        snapshot.longAccountId = economics.longAccountId;
+        snapshot.shortAccountId = economics.shortAccountId;
+        snapshot.riskDomainId = economics.riskDomainId;
+        snapshot.riskDomainVersion = economics.riskDomainVersion;
+        snapshot.feeScheduleId = economics.feeScheduleId;
+        snapshot.feeScheduleVersion = economics.feeScheduleVersion;
+        snapshot.collateralId = collateralId;
+        snapshot.positionLots = lifecycle.remainingLots;
+        snapshot.remainingExerciseLots = lifecycle.remainingLots;
+        snapshot.entryPriceTicks = economics.entryPriceTicks;
+        snapshot.economicsHash = economicsHash;
+        snapshot.packageProvenanceHash = economics.packageProvenanceHash;
+        snapshot.exercisePolicyId = series.definition.exercisePolicyId;
+        snapshot.exerciseState = lifecycle.exerciseState;
+        snapshot.automaticExerciseThresholdMinor = economics.automaticExerciseThresholdMinor;
+        snapshot.expiryAt = series.definition.expiryAt;
+        snapshot.exerciseOpensAt = series.definition.exerciseOpensAt;
+        snapshot.exerciseCutoffAt = series.definition.exerciseCutoffAt;
+        snapshot.lapseEligibleAt = series.definition.exerciseCutoffAt;
+        (snapshot.longTerminalLiabilityBaseUnits, snapshot.shortTerminalLiabilityBaseUnits) =
+            _currentLiabilityBounds(economics, lifecycle);
     }
 
     function _currentLiabilityBounds(PositionEconomics storage economics, PositionLifecycle storage lifecycle)
@@ -1111,7 +1192,7 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
                 || reservation.positionEngine != address(this) || reservation.positionEngineId != positionEngineId
                 || AssetId.unwrap(reservation.assetId) != AssetId.unwrap(market.definition.settlementAssetId)
                 || reservation.bindingVersion != market.definition.settlementAssetVersion
-                || reservation.riskDomainId != market.definition.riskDomainId
+                || RiskDomainId.unwrap(reservation.riskDomainId) != RiskDomainId.unwrap(market.definition.riskDomainId)
                 || reservation.riskDomainVersion != market.definition.riskDomainVersion
                 || reservation.settlementDeadline != _liabilityDeadline(liabilityKey, true)
                 || reservation.finalResolutionAt != _liabilityDeadline(liabilityKey, false)

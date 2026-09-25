@@ -56,6 +56,7 @@ import {
     FillId,
     PackageId,
     PositionId,
+    RiskDomainId,
     SeriesId,
     TerminalLiabilityReservationId
 } from "../types/Identifiers.sol";
@@ -118,6 +119,12 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
     struct FeeContext {
         FeeActionResult maker;
         FeeActionResult taker;
+    }
+
+    struct PackagePositionResult {
+        PositionId[] exposurePositions;
+        uint256 buyerLiabilityCreated;
+        uint256 sellerLiabilityCreated;
     }
 
     constructor(
@@ -275,7 +282,8 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
             1,
             matchData.fillLots,
             matchData.executionPriceTicks,
-            created
+            created.longReservationId,
+            created.shortReservationId
         );
         _recordFill(
             context,
@@ -362,77 +370,90 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         _applyFunding(context, matchData, settlement, request.channelKind, channelClaim);
         FeeContext memory fees = _consumeFees(context, matchData, settlement);
 
-        uint256 legCount = request.legs.length;
-        PositionId[] memory exposurePositions = new PositionId[](legCount);
-        uint256 buyerLiabilityCreated;
-        uint256 sellerLiabilityCreated;
-        for (uint256 i; i < legCount; ++i) {
-            PackageLeg calldata leg = request.legs[i];
-            Lots legLots = PackageDefinitionLib.legLots(matchData.fillLots, leg.ratio);
-            bool packageBuyerIsLong = leg.ratio > 0;
-            AccountId longAccountId = packageBuyerIsLong ? context.buyerAccountId : context.sellerAccountId;
-            AccountId shortAccountId = packageBuyerIsLong ? context.sellerAccountId : context.buyerAccountId;
-            SeriesVersion memory legSeries = _seriesRegistry.getSeries(leg.seriesId, leg.seriesVersion);
-            uint128 createdLongAmount =
-                PositionMathLib.checkedAmount(legSeries.definition.maxLongDebitMinorPerLot, legLots);
-            uint128 createdShortAmount =
-                PositionMathLib.checkedAmount(legSeries.definition.maxShortDebitMinorPerLot, legLots);
-            PositionId positionId = _positionEngine.createPosition(
-                PositionCreation({
-                    fillIdentity: FillId.unwrap(context.fillId),
-                    seriesId: leg.seriesId,
-                    seriesVersion: leg.seriesVersion,
-                    longAccountId: longAccountId,
-                    shortAccountId: shortAccountId,
-                    ordinal: uint32(i),
-                    lots: legLots,
-                    entryPriceTicks: request.legEntryPriceTicks[i],
-                    longFunding: _positionFunding(channelClaim, uint32(i), true, longAccountId, createdLongAmount),
-                    shortFunding: _positionFunding(channelClaim, uint32(i), false, shortAccountId, createdShortAmount),
-                    payoffTerms: request.legPayoffTerms[i]
-                })
-            );
-            PositionEconomics memory created = _verifyPosition(positionId, context.fillId, uint32(i));
-            exposurePositions[i] = positionId;
-            _verifyAdoptedReservation(channelClaim, uint32(i), true, created.longReservationId);
-            _verifyAdoptedReservation(channelClaim, uint32(i), false, created.shortReservationId);
-            _recordPosition(
-                context.fillId,
-                positionId,
-                leg.seriesId,
-                leg.seriesVersion,
-                uint16(i),
-                leg.ratio,
-                legLots,
-                request.legEntryPriceTicks[i],
-                created
-            );
-            if (packageBuyerIsLong) {
-                buyerLiabilityCreated += created.maxLongDebitMinor;
-                sellerLiabilityCreated += created.maxShortDebitMinor;
-            } else {
-                buyerLiabilityCreated += created.maxShortDebitMinor;
-                sellerLiabilityCreated += created.maxLongDebitMinor;
-            }
-        }
+        PackagePositionResult memory positions = _createPackagePositions(request, channelClaim, context);
         if (
-            buyerLiabilityCreated != settlement.longLiabilityMinor
-                || sellerLiabilityCreated != settlement.shortLiabilityMinor
-        ) revert PositionCreationMismatch(settlement.longLiabilityMinor, buyerLiabilityCreated);
-        _bindRiskExposures(matchData, FillId.unwrap(context.fillId), exposurePositions);
+            positions.buyerLiabilityCreated != settlement.longLiabilityMinor
+                || positions.sellerLiabilityCreated != settlement.shortLiabilityMinor
+        ) revert PositionCreationMismatch(settlement.longLiabilityMinor, positions.buyerLiabilityCreated);
+        _bindRiskExposures(matchData, FillId.unwrap(context.fillId), positions.exposurePositions);
         _recordFill(
             context,
             matchData,
             witnessHash,
             settlement,
             fees,
-            uint16(legCount),
+            uint16(request.legs.length),
             true,
             request.channelKind,
             channelClaim,
             channelSource
         );
         return context.fillId;
+    }
+
+    function _createPackagePositions(
+        PackageClearingRequest calldata request,
+        ClearingHandoffClaim memory channelClaim,
+        MatchContext memory context
+    ) private returns (PackagePositionResult memory result) {
+        uint256 legCount = request.legs.length;
+        result.exposurePositions = new PositionId[](legCount);
+        for (uint256 i; i < legCount; ++i) {
+            (PositionId positionId, uint128 buyerLiability, uint128 sellerLiability) =
+                _createPackagePosition(request, channelClaim, context, i);
+            result.exposurePositions[i] = positionId;
+            result.buyerLiabilityCreated += buyerLiability;
+            result.sellerLiabilityCreated += sellerLiability;
+        }
+    }
+
+    function _createPackagePosition(
+        PackageClearingRequest calldata request,
+        ClearingHandoffClaim memory channelClaim,
+        MatchContext memory context,
+        uint256 index
+    ) private returns (PositionId positionId, uint128 buyerLiability, uint128 sellerLiability) {
+        PackageLeg calldata leg = request.legs[index];
+        Lots legLots = PackageDefinitionLib.legLots(request.matchData.fillLots, leg.ratio);
+        bool packageBuyerIsLong = leg.ratio > 0;
+        AccountId longAccountId = packageBuyerIsLong ? context.buyerAccountId : context.sellerAccountId;
+        AccountId shortAccountId = packageBuyerIsLong ? context.sellerAccountId : context.buyerAccountId;
+        SeriesVersion memory legSeries = _seriesRegistry.getSeries(leg.seriesId, leg.seriesVersion);
+        uint128 createdLongAmount = PositionMathLib.checkedAmount(legSeries.definition.maxLongDebitMinorPerLot, legLots);
+        uint128 createdShortAmount =
+            PositionMathLib.checkedAmount(legSeries.definition.maxShortDebitMinorPerLot, legLots);
+        positionId = _positionEngine.createPosition(
+            PositionCreation({
+                fillIdentity: FillId.unwrap(context.fillId),
+                seriesId: leg.seriesId,
+                seriesVersion: leg.seriesVersion,
+                longAccountId: longAccountId,
+                shortAccountId: shortAccountId,
+                ordinal: uint32(index),
+                lots: legLots,
+                entryPriceTicks: request.legEntryPriceTicks[index],
+                longFunding: _positionFunding(channelClaim, uint32(index), true, longAccountId, createdLongAmount),
+                shortFunding: _positionFunding(channelClaim, uint32(index), false, shortAccountId, createdShortAmount),
+                payoffTerms: request.legPayoffTerms[index]
+            })
+        );
+        PositionEconomics memory created = _verifyPosition(positionId, context.fillId, uint32(index));
+        _verifyAdoptedReservation(channelClaim, uint32(index), true, created.longReservationId);
+        _verifyAdoptedReservation(channelClaim, uint32(index), false, created.shortReservationId);
+        _recordPosition(
+            context.fillId,
+            positionId,
+            leg.seriesId,
+            leg.seriesVersion,
+            uint16(index),
+            leg.ratio,
+            legLots,
+            request.legEntryPriceTicks[index],
+            created.longReservationId,
+            created.shortReservationId
+        );
+        buyerLiability = packageBuyerIsLong ? created.maxLongDebitMinor : created.maxShortDebitMinor;
+        sellerLiability = packageBuyerIsLong ? created.maxShortDebitMinor : created.maxLongDebitMinor;
     }
 
     function reserveOrderFunding(bytes32 orderHash, uint128 cumulativeLots, bytes32 purpose, uint128 amount)
@@ -477,15 +498,14 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         emit OrderFundingReleased(orderHash, purpose, lockId, cumulativeLots, msg.sender);
     }
 
-    function getFill(FillId fillId) external view returns (FillRecord memory) {
-        FillRecord memory record = _fills[fillId];
+    function getFill(FillId fillId) external view returns (FillRecord memory record) {
+        record = _fills[fillId];
         if (FillId.unwrap(record.fillId) == bytes32(0)) revert UnknownFill(fillId);
-        return record;
     }
 
-    function fillPositions(FillId fillId) external view returns (PositionId[] memory) {
+    function fillPositions(FillId fillId) external view returns (PositionId[] memory positionIds) {
         if (FillId.unwrap(_fills[fillId].fillId) == bytes32(0)) revert UnknownFill(fillId);
-        return _fillPositions[fillId];
+        positionIds = _fillPositions[fillId];
     }
 
     function deriveFundingReference(bytes32 orderHash, uint128 cumulativeLots, bytes32 purpose)
@@ -605,9 +625,9 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
                 || claim.takerMaximumFeeMinor != context.taker.order.maxFeeMinor
                 || claim.makerMaximumFeeMinor != context.maker.order.maxFeeMinor
                 || claim.executionModeId != context.taker.order.executionModeId
-                || claim.longAdmissionId != matchData.longAdmissionId
+                || RiskAdmissionId.unwrap(claim.longAdmissionId) != RiskAdmissionId.unwrap(matchData.longAdmissionId)
                 || claim.longAdmissionResultHash != matchData.longAdmissionResultHash
-                || claim.shortAdmissionId != matchData.shortAdmissionId
+                || RiskAdmissionId.unwrap(claim.shortAdmissionId) != RiskAdmissionId.unwrap(matchData.shortAdmissionId)
                 || claim.shortAdmissionResultHash != matchData.shortAdmissionResultHash
                 || claim.deadline > context.taker.order.deadline || claim.deadline > context.maker.order.deadline
         ) revert ClearingHandoffMismatch();
@@ -732,7 +752,8 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         if (
             RiskAdmissionId.unwrap(matchData.longAdmissionId) == bytes32(0)
                 || RiskAdmissionId.unwrap(matchData.shortAdmissionId) == bytes32(0)
-                || matchData.longAdmissionId == matchData.shortAdmissionId
+                || RiskAdmissionId.unwrap(matchData.longAdmissionId)
+                    == RiskAdmissionId.unwrap(matchData.shortAdmissionId)
                 || matchData.longAdmissionResultHash == bytes32(0) || matchData.shortAdmissionResultHash == bytes32(0)
         ) revert ClearingHandoffMismatch();
         RiskAdmission memory longAdmission = _riskEngine.getAdmission(matchData.longAdmissionId);
@@ -740,7 +761,7 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         if (
             longAdmission.status != RiskAdmissionStatus.Reserved
                 || shortAdmission.status != RiskAdmissionStatus.Reserved
-                || longAdmission.riskDomainId != shortAdmission.riskDomainId
+                || RiskDomainId.unwrap(longAdmission.riskDomainId) != RiskDomainId.unwrap(shortAdmission.riskDomainId)
                 || longAdmission.riskDomainVersion != shortAdmission.riskDomainVersion
         ) revert ClearingHandoffMismatch();
         uint128 openInterest = Lots.unwrap(matchData.fillLots);
@@ -1116,7 +1137,8 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         int32 ratio,
         Lots lots,
         PriceTicks entryPriceTicks,
-        PositionEconomics memory economics
+        TerminalLiabilityReservationId longReservationId,
+        TerminalLiabilityReservationId shortReservationId
     ) private {
         _fillPositions[fillId].push(positionId);
         emit FillPositionCreated(
@@ -1128,8 +1150,8 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
             ratio,
             Lots.unwrap(lots),
             PriceTicks.unwrap(entryPriceTicks),
-            TerminalLiabilityReservationId.unwrap(economics.longReservationId),
-            TerminalLiabilityReservationId.unwrap(economics.shortReservationId)
+            TerminalLiabilityReservationId.unwrap(longReservationId),
+            TerminalLiabilityReservationId.unwrap(shortReservationId)
         );
     }
 

@@ -8,6 +8,7 @@ import {ICashSettlementCoordinator} from "../../src/interfaces/ICashSettlementCo
 import {IFixingEngine} from "../../src/interfaces/IFixingEngine.sol";
 import {IFundedFeeEngine} from "../../src/interfaces/IFundedFeeEngine.sol";
 import {IPositionEngine} from "../../src/interfaces/IPositionEngine.sol";
+import {IPortfolioRiskEngine} from "../../src/interfaces/IPortfolioRiskEngine.sol";
 import {CashSettlementCoordinator} from "../../src/settlement/CashSettlementCoordinator.sol";
 import {SeriesDefinitionLib} from "../../src/libraries/SeriesDefinitionLib.sol";
 import {TerminalLiabilityReservation} from "../../src/types/CollateralTypes.sol";
@@ -55,6 +56,7 @@ import {
     SettlementPositionEngineMock,
     SettlementSeriesRegistryMock
 } from "../mocks/CashSettlementCoordinatorMocks.sol";
+import {PortfolioRiskEngineMock} from "../mocks/PortfolioRiskEngineMock.sol";
 
 contract CashSettlementCoordinatorTest is Test {
     uint32 internal constant VERSION = 1;
@@ -118,7 +120,10 @@ contract CashSettlementCoordinatorTest is Test {
             })
         );
         coordinator = new CashSettlementCoordinator(
-            IPositionEngine(address(positions)), IFixingEngine(address(fixings)), IFundedFeeEngine(address(fees))
+            IPositionEngine(address(positions)),
+            IFixingEngine(address(fixings)),
+            IFundedFeeEngine(address(fees)),
+            IPortfolioRiskEngine(address(new PortfolioRiskEngineMock(IPositionEngine(address(positions)))))
         );
     }
 

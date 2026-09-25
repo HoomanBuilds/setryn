@@ -107,6 +107,10 @@ interface IPortfolioRiskEngine {
     function releaseAdmission(RiskAdmissionId admissionId, bytes32 releaseReference) external;
     function expireAdmission(RiskAdmissionId admissionId) external;
     function reduceExposure(RiskExposureReduction calldata reduction) external;
+    function exposureReductionWitness(PositionId positionId, AccountId accountId)
+        external
+        view
+        returns (RiskExposureReduction memory reduction);
     function previewRisk(
         RiskAdmissionRequest calldata request,
         PortfolioPositionWitness[] calldata positions,

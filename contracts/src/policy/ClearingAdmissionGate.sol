@@ -13,7 +13,7 @@ import {PolicyGateBase} from "./PolicyGateBase.sol";
 import {ExecutionPolicyLib} from "../libraries/ExecutionPolicyLib.sol";
 import {ClearingAdmission} from "../types/ClearingTypes.sol";
 import {Side} from "../types/Enums.sol";
-import {AccountId, PackageId, RiskDomainId, SeriesId} from "../types/Identifiers.sol";
+import {AccountId, FeeScheduleId, PackageId, RiskDomainId, SeriesId} from "../types/Identifiers.sol";
 import {OrderTargetKind, PublicOrder} from "../types/OrderTypes.sol";
 import {Lots, PriceTicks} from "../types/Units.sol";
 import {RiskAdmission, RiskAdmissionId, RiskAdmissionStatus} from "../types/RiskTypes.sol";
@@ -52,7 +52,7 @@ contract ClearingAdmissionGate is IClearingAdmissionGate, PolicyGateBase {
                 || takerOrder.targetVersion != makerOrder.targetVersion
                 || takerOrder.executionModeId != makerOrder.executionModeId
                 || takerOrder.executionModeId != admission.executionModeId
-                || takerOrder.feeScheduleId != makerOrder.feeScheduleId
+                || FeeScheduleId.unwrap(takerOrder.feeScheduleId) != FeeScheduleId.unwrap(makerOrder.feeScheduleId)
                 || takerOrder.feeScheduleVersion != makerOrder.feeScheduleVersion
                 || Lots.unwrap(admission.fillLots) == 0 || block.timestamp > takerOrder.deadline
                 || block.timestamp > makerOrder.deadline || takerOrder.reduceOnly || makerOrder.reduceOnly
@@ -69,11 +69,13 @@ contract ClearingAdmissionGate is IClearingAdmissionGate, PolicyGateBase {
         ) revert InvalidClearingAdmission();
         if (admission.isPackage) {
             if (
-                takerOrder.targetKind != OrderTargetKind.Package || takerOrder.packageId != makerOrder.packageId
+                takerOrder.targetKind != OrderTargetKind.Package
+                    || PackageId.unwrap(takerOrder.packageId) != PackageId.unwrap(makerOrder.packageId)
                     || admission.targetId != PackageId.unwrap(takerOrder.packageId)
             ) revert InvalidClearingAdmission();
         } else if (
-            takerOrder.targetKind != OrderTargetKind.Series || takerOrder.seriesId != makerOrder.seriesId
+            takerOrder.targetKind != OrderTargetKind.Series
+                || SeriesId.unwrap(takerOrder.seriesId) != SeriesId.unwrap(makerOrder.seriesId)
                 || admission.targetId != SeriesId.unwrap(takerOrder.seriesId)
         ) {
             revert InvalidClearingAdmission();
@@ -91,7 +93,9 @@ contract ClearingAdmissionGate is IClearingAdmissionGate, PolicyGateBase {
         if (
             RiskAdmissionId.unwrap(takerAdmissionId) == bytes32(0)
                 || RiskAdmissionId.unwrap(makerAdmissionId) == bytes32(0) || takerResultHash == bytes32(0)
-                || makerResultHash == bytes32(0) || boundTaker != takerAdmissionId || boundMaker != makerAdmissionId
+                || makerResultHash == bytes32(0)
+                || RiskAdmissionId.unwrap(boundTaker) != RiskAdmissionId.unwrap(takerAdmissionId)
+                || RiskAdmissionId.unwrap(boundMaker) != RiskAdmissionId.unwrap(makerAdmissionId)
                 || boundTakerResult != takerResultHash || boundMakerResult != makerResultHash
                 || !riskBindings.isLiveBinding(
                     admission.takerOrderHash, takerOrder, resolved.riskDomainId, resolved.riskDomainVersion
@@ -129,10 +133,11 @@ contract ClearingAdmissionGate is IClearingAdmissionGate, PolicyGateBase {
     ) private view {
         RiskAdmission memory admission = riskBindings.riskEngine().getAdmission(admissionId);
         if (
-            admission.status != RiskAdmissionStatus.Reserved || admission.accountId != accountId
-                || admission.riskDomainId != riskDomainId || admission.riskDomainVersion != riskDomainVersion
-                || admission.resultHash != resultHash || admission.reservedResultCommitment != resultHash
-                || admission.deadline < block.timestamp
+            admission.status != RiskAdmissionStatus.Reserved
+                || AccountId.unwrap(admission.accountId) != AccountId.unwrap(accountId)
+                || RiskDomainId.unwrap(admission.riskDomainId) != RiskDomainId.unwrap(riskDomainId)
+                || admission.riskDomainVersion != riskDomainVersion || admission.resultHash != resultHash
+                || admission.reservedResultCommitment != resultHash || admission.deadline < block.timestamp
         ) revert InvalidClearingAdmission();
     }
 }

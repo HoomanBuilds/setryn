@@ -52,7 +52,9 @@ import {
     RfqId,
     RfqRecord,
     RfqSelectionAuthorization,
-    RfqStatus
+    RfqSidePolicy,
+    RfqStatus,
+    RfqTargetKind
 } from "../types/RfqTypes.sol";
 import {Lots, PriceTicks} from "../types/Units.sol";
 import {RouteId, SourceReservationStatus, SourceRouteReservation} from "../types/RoutingTypes.sol";
@@ -440,8 +442,9 @@ contract PrivateRfqBook is
             claim.sourceCommitment != expectedCommitment || claim.selectedQuoteOrRouteId != MakerQuoteId.unwrap(quoteId)
                 || RiskAdmissionId.unwrap(claim.longAdmissionId) == bytes32(0)
                 || RiskAdmissionId.unwrap(claim.shortAdmissionId) == bytes32(0)
-                || claim.longAdmissionId == claim.shortAdmissionId || claim.longAdmissionResultHash == bytes32(0)
-                || claim.shortAdmissionResultHash == bytes32(0) || claim.takerOrderHash != rfq.request.takerOrderHash
+                || RiskAdmissionId.unwrap(claim.longAdmissionId) == RiskAdmissionId.unwrap(claim.shortAdmissionId)
+                || claim.longAdmissionResultHash == bytes32(0) || claim.shortAdmissionResultHash == bytes32(0)
+                || claim.takerOrderHash != rfq.request.takerOrderHash
                 || claim.makerOrderHash != quote.quote.makerOrderHash
                 || AccountId.unwrap(claim.takerAccountId) != AccountId.unwrap(rfq.request.takerAccountId)
                 || AccountId.unwrap(claim.makerAccountId) != AccountId.unwrap(quote.quote.makerAccountId)
@@ -451,7 +454,7 @@ contract PrivateRfqBook is
                 || claim.feeScheduleVersion != rfq.request.feeScheduleVersion
                 || claim.takerMaximumFeeMinor != rfq.request.maxFeeMinor
                 || claim.makerMaximumFeeMinor != quote.quote.maxFeeMinor
-                || claim.riskDomainId != rfq.request.riskDomainId
+                || RiskDomainId.unwrap(claim.riskDomainId) != RiskDomainId.unwrap(rfq.request.riskDomainId)
                 || claim.riskDomainVersion != rfq.request.riskDomainVersion
                 || claim.executionModeId != rfq.request.executionModeId
                 || !_sideAllowed(rfq.request.sidePolicy, claim.takerSide)

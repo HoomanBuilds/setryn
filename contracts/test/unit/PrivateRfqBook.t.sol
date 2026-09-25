@@ -4,6 +4,7 @@ pragma solidity 0.8.37;
 import {Test} from "forge-std/Test.sol";
 
 import {IPrivateRfqBook} from "../../src/interfaces/IPrivateRfqBook.sol";
+import {IClearingChannelHandoffAdapter} from "../../src/interfaces/IClearingChannelHandoffAdapter.sol";
 import {RfqHashLib} from "../../src/libraries/RfqHashLib.sol";
 import {PrivateRfqBook} from "../../src/rfq/PrivateRfqBook.sol";
 import {LockStatus} from "../../src/types/Enums.sol";
@@ -73,7 +74,9 @@ contract PrivateRfqBookTest is Test {
         assertEq(uint8(book.getQuote(quoteId).status), uint8(MakerQuoteStatus.Consumed));
         assertEq(uint8(book.getCapacity(quoteId).status), uint8(FirmCapacityStatus.Consumed));
 
-        vm.expectRevert(abi.encodeWithSelector(IPrivateRfqBook.HandoffAlreadyConsumed.selector, executionReference));
+        vm.expectRevert(
+            abi.encodeWithSelector(IClearingChannelHandoffAdapter.HandoffAlreadyConsumed.selector, executionReference)
+        );
         vm.prank(clearing);
         book.consumeClearingHandoff(rfqId, Lots.wrap(1), 1, executionReference);
 

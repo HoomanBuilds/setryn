@@ -10,6 +10,7 @@ import {AccountId, AdapterId, AdapterKindId, MarketId, PackageId, SeriesId} from
 import {
     AdapterReference,
     ExecutionGuaranteeClass,
+    ExternalTerminalFallback,
     ExternalVenueRequest,
     OperationalActionState,
     OperationalBinding
@@ -81,7 +82,15 @@ contract OperationalAdapterExecutorTest is Test {
             recoveryDeadline: binding.deadline + 1 days,
             interimExposureOwner: AccountId.wrap(keccak256("solver")),
             recoveryPolicyHash: keccak256("recovery"),
-            reservationHash: keccak256("reservation")
+            reservationHash: keccak256("reservation"),
+            maximumResidual: 0,
+            terminalFallback: ExternalTerminalFallback({
+                state: OperationalActionState.NoEffect,
+                realizedValue: 0,
+                residualValue: 0,
+                postconditionsHash: binding.expectedPostconditionsHash,
+                outcomeHash: keccak256("terminal-fallback")
+            })
         });
         (bytes32 actionId,) = executor.submitExternal(adapterRef, request);
 

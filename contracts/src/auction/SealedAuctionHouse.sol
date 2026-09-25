@@ -32,6 +32,7 @@ import {
     CollateralLockId,
     FeeScheduleId,
     PackageId,
+    RiskDomainId,
     SeriesId
 } from "../types/Identifiers.sol";
 import {PackageLeg} from "../types/PackageDefinition.sol";
@@ -44,6 +45,7 @@ import {
     AuctionKind,
     AuctionPriceRule,
     AuctionStatus,
+    AuctionTargetKind,
     AuctionVersion,
     BidCommitAuthorization,
     BidCommitmentId,
@@ -529,8 +531,8 @@ contract SealedAuctionHouse is
                 || claim.selectedQuoteOrRouteId != SolverRouteId.unwrap(winner.routeId)
                 || RiskAdmissionId.unwrap(claim.longAdmissionId) == bytes32(0)
                 || RiskAdmissionId.unwrap(claim.shortAdmissionId) == bytes32(0)
-                || claim.longAdmissionId == claim.shortAdmissionId || claim.longAdmissionResultHash == bytes32(0)
-                || claim.shortAdmissionResultHash == bytes32(0)
+                || RiskAdmissionId.unwrap(claim.longAdmissionId) == RiskAdmissionId.unwrap(claim.shortAdmissionId)
+                || claim.longAdmissionResultHash == bytes32(0) || claim.shortAdmissionResultHash == bytes32(0)
                 || claim.takerOrderHash != auction.definition.initiatorOrderHash
                 || claim.makerOrderHash != winner.bid.bidderOrderHash
                 || AccountId.unwrap(claim.takerAccountId) != AccountId.unwrap(auction.definition.initiatorAccountId)
@@ -542,7 +544,7 @@ contract SealedAuctionHouse is
                 || claim.feeScheduleVersion != auction.definition.feeScheduleVersion
                 || claim.takerMaximumFeeMinor != auction.definition.initiatorMaximumFeeMinor
                 || claim.makerMaximumFeeMinor != winner.bid.maximumFeeMinor
-                || claim.riskDomainId != auction.definition.riskDomainId
+                || RiskDomainId.unwrap(claim.riskDomainId) != RiskDomainId.unwrap(auction.definition.riskDomainId)
                 || claim.riskDomainVersion != auction.definition.riskDomainVersion
                 || claim.executionModeId != auction.definition.executionModeId
                 || claim.deadline != auction.definition.settlementDeadline
@@ -733,8 +735,8 @@ contract SealedAuctionHouse is
         }
         BidCommitAuthorization storage authorization = record.authorization;
         if (
-            bid.auctionId != authorization.auctionId || bid.auctionVersion != authorization.auctionVersion
-                || bid.bidder != authorization.bidder
+            AuctionId.unwrap(bid.auctionId) != AuctionId.unwrap(authorization.auctionId)
+                || bid.auctionVersion != authorization.auctionVersion || bid.bidder != authorization.bidder
                 || AccountId.unwrap(bid.bidderAccountId) != AccountId.unwrap(authorization.bidderAccountId)
                 || bid.nonce != authorization.nonce
         ) revert BidAuthorizationMismatch();
@@ -950,7 +952,7 @@ contract SealedAuctionHouse is
             _setBidStatus(bidIds[i], bid, BidStatus.Loser);
             if (SolverRouteId.unwrap(bid.routeId) != bytes32(0)) {
                 CollateralLockId capacityLockId = _routes[bid.routeId].route.capacityLockId;
-                delete _capacityLockClaims[CollateralLockId.unwrap(capacityLockId)];
+                _capacityLockClaims[CollateralLockId.unwrap(capacityLockId)] = SolverRouteId.wrap(bytes32(0));
                 CollateralLock memory capacityLock = _auctionVault.getLock(capacityLockId);
                 if (capacityLock.status == LockStatus.Active) {
                     IAtomicClearingEngine(_clearingEngine).positionEngine().releasePositionFundingLock(capacityLockId);
@@ -1025,7 +1027,7 @@ contract SealedAuctionHouse is
         ) revert BondLockMismatch(bidId);
     }
 
-    function _requireCapacityLock(SolverRoute storage route, AuctionDefinition storage definition) private view {
+    function _requireCapacityLock(SolverRoute memory route, AuctionDefinition storage definition) private view {
         CollateralLock memory lock = _auctionVault.getLock(route.capacityLockId);
         bytes32 expectedReference =
             keccak256(abi.encode(CAPACITY_LOCK_REFERENCE_TYPEHASH, SolverRouteId.unwrap(route.routeId)));

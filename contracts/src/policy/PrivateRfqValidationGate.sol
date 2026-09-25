@@ -9,6 +9,7 @@ import {ISeriesRegistry} from "../interfaces/ISeriesRegistry.sol";
 import {ITradingSessionPolicy} from "../interfaces/ITradingSessionPolicy.sol";
 import {ExecutionPolicyLib} from "../libraries/ExecutionPolicyLib.sol";
 import {PolicyGateBase} from "./PolicyGateBase.sol";
+import {AccountId, AssetId, FeeScheduleId, PackageId, RiskDomainId, SeriesId} from "../types/Identifiers.sol";
 import {OrderTargetKind, RemainderPolicy} from "../types/OrderTypes.sol";
 import {PackageLeg} from "../types/PackageDefinition.sol";
 import {
@@ -50,12 +51,15 @@ contract PrivateRfqValidationGate is IPrivateRfqValidationGate, PolicyGateBase {
                 || quote.disclosurePolicyHash != request.disclosurePolicyHash
                 || quote.eligibleMakerSetHash != request.eligibleMakerSetHash
                 || quote.executionModeId != request.executionModeId || quote.targetKind != request.targetKind
-                || quote.seriesId != request.seriesId || quote.packageId != request.packageId
+                || SeriesId.unwrap(quote.seriesId) != SeriesId.unwrap(request.seriesId)
+                || PackageId.unwrap(quote.packageId) != PackageId.unwrap(request.packageId)
                 || quote.targetVersion != request.targetVersion || quote.packageLegsHash != request.packageLegsHash
-                || quote.feeScheduleId != request.feeScheduleId
-                || quote.feeScheduleVersion != request.feeScheduleVersion || quote.riskDomainId != request.riskDomainId
+                || FeeScheduleId.unwrap(quote.feeScheduleId) != FeeScheduleId.unwrap(request.feeScheduleId)
+                || quote.feeScheduleVersion != request.feeScheduleVersion
+                || RiskDomainId.unwrap(quote.riskDomainId) != RiskDomainId.unwrap(request.riskDomainId)
                 || quote.riskDomainVersion != request.riskDomainVersion
-                || quote.takerAccountId != request.takerAccountId || block.timestamp > quote.deadline
+                || AccountId.unwrap(quote.takerAccountId) != AccountId.unwrap(request.takerAccountId)
+                || block.timestamp > quote.deadline
                 || !policyRegistry.eligible(request.eligibleMakerSetHash, quote.maker, eligibleMakerProof)
         ) revert InvalidRfqPolicy();
         PackageLeg[] memory legs = _legs(request, new PackageLeg[](0));
@@ -63,10 +67,13 @@ contract PrivateRfqValidationGate is IPrivateRfqValidationGate, PolicyGateBase {
             request, legs, quote.sidePolicy == RfqSidePolicy.BuyOnly ? quote.bidPriceTicks : quote.askPriceTicks, true
         );
         if (
-            resolved.riskDomainId != quote.riskDomainId || resolved.riskDomainVersion != quote.riskDomainVersion
-                || quote.collateralAssetId
-                    != marketRegistry.riskDomainRegistry().getRiskDomain(quote.riskDomainId, quote.riskDomainVersion)
-                        .definition.collateralAssetId
+            RiskDomainId.unwrap(resolved.riskDomainId) != RiskDomainId.unwrap(quote.riskDomainId)
+                || resolved.riskDomainVersion != quote.riskDomainVersion
+                || AssetId.unwrap(quote.collateralAssetId)
+                    != AssetId.unwrap(
+                        marketRegistry.riskDomainRegistry().getRiskDomain(quote.riskDomainId, quote.riskDomainVersion)
+                            .definition.collateralAssetId
+                    )
                 || quote.collateralBindingVersion
                     != marketRegistry.riskDomainRegistry().getRiskDomain(quote.riskDomainId, quote.riskDomainVersion)
                         .definition.collateralAssetVersion
@@ -81,7 +88,8 @@ contract PrivateRfqValidationGate is IPrivateRfqValidationGate, PolicyGateBase {
         if (
             selection.taker != request.taker || selection.executor != request.permittedExecutor
                 || selection.deadline > request.deadline || block.timestamp > selection.deadline
-                || quote.deadline < selection.deadline || quote.takerAccountId != request.takerAccountId
+                || quote.deadline < selection.deadline
+                || AccountId.unwrap(quote.takerAccountId) != AccountId.unwrap(request.takerAccountId)
         ) revert InvalidRfqPolicy();
         _validatePolicyTags(request);
     }
@@ -97,7 +105,8 @@ contract PrivateRfqValidationGate is IPrivateRfqValidationGate, PolicyGateBase {
             clearingEngine == address(0) || request.permittedExecutor != clearingEngine
                 || block.timestamp > quote.deadline || Lots.unwrap(fillLots) == 0
                 || Lots.unwrap(fillLots) > Lots.unwrap(quote.lots) || liabilityAmount == 0
-                || liabilityAmount > quote.maximumLiability || quote.riskDomainId != request.riskDomainId
+                || liabilityAmount > quote.maximumLiability
+                || RiskDomainId.unwrap(quote.riskDomainId) != RiskDomainId.unwrap(request.riskDomainId)
                 || quote.riskDomainVersion != request.riskDomainVersion
         ) revert InvalidRfqPolicy();
         PackageLeg[] memory legs = _legs(request, new PackageLeg[](0));
@@ -115,7 +124,10 @@ contract PrivateRfqValidationGate is IPrivateRfqValidationGate, PolicyGateBase {
         _validatePolicyTags(request);
         PackageLeg[] memory legs = _legs(request, suppliedLegs);
         ExecutionPolicyLib.ResolvedTarget memory resolved = _validateTarget(request, legs, PriceTicks.wrap(0), false);
-        if (resolved.riskDomainId != request.riskDomainId || resolved.riskDomainVersion != request.riskDomainVersion) {
+        if (
+            RiskDomainId.unwrap(resolved.riskDomainId) != RiskDomainId.unwrap(request.riskDomainId)
+                || resolved.riskDomainVersion != request.riskDomainVersion
+        ) {
             revert InvalidRfqPolicy();
         }
     }

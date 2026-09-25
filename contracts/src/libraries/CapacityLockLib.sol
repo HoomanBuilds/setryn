@@ -26,10 +26,11 @@ library CapacityLockLib {
         if (
             lock.status != LockStatus.Active || lock.operator != address(positionEngine)
                 || lock.settlementOperator != address(positionEngine) || lock.lockReference != lockReference
-                || lock.accountId != accountId || lock.assetId != assetId || lock.bindingVersion != bindingVersion
+                || AccountId.unwrap(lock.accountId) != AccountId.unwrap(accountId)
+                || AssetId.unwrap(lock.assetId) != AssetId.unwrap(assetId) || lock.bindingVersion != bindingVersion
                 || lock.remainingAmount != remainingAmount || lock.expiry != expiry || expiry <= block.timestamp
-                || vault.deriveLockId(address(positionEngine), lockReference) != lockId
-                || positionEngine.positionFundingRequester(lockId) != requester
+                || CollateralLockId.unwrap(vault.deriveLockId(address(positionEngine), lockReference))
+                    != CollateralLockId.unwrap(lockId) || positionEngine.positionFundingRequester(lockId) != requester
         ) revert CapacityLockMismatch(lockId);
     }
 }

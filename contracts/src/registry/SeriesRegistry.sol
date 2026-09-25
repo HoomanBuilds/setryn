@@ -272,14 +272,7 @@ contract SeriesRegistry is ISeriesRegistry, AccessControlDefaultAdminRules {
 
         for (uint256 i; i < dateProofs.length; ++i) {
             SeriesDateProof calldata dateProof = dateProofs[i];
-            for (uint256 j; j < dateProof.calendarDays.length; ++j) {
-                if (!calendars.verifyDay(
-                        market.definition.tradingCalendarId,
-                        market.definition.tradingCalendarVersion,
-                        dateProof.calendarDays[j].calendarDay,
-                        dateProof.calendarDays[j].merkleProof
-                    )) revert InvalidCalendarDayProof(i, j);
-            }
+            _validateCalendarDays(market, dateProof, i);
 
             uint32 day = SeriesDefinitionLib.effectiveDay(dateProof);
             if (!calendars.coversDay(
@@ -295,6 +288,21 @@ contract SeriesRegistry is ISeriesRegistry, AccessControlDefaultAdminRules {
             if (!sessions.isOpenForNewRisk(
                     market.definition.tradingSessionId, market.definition.tradingSessionVersion, day
                 )) revert SessionDateNotOpen(i, day);
+        }
+    }
+
+    function _validateCalendarDays(MarketVersion memory market, SeriesDateProof calldata dateProof, uint256 proofIndex)
+        private
+        view
+    {
+        ICalendarRegistry calendars = _marketRegistry.calendarRegistry();
+        for (uint256 j; j < dateProof.calendarDays.length; ++j) {
+            if (!calendars.verifyDay(
+                    market.definition.tradingCalendarId,
+                    market.definition.tradingCalendarVersion,
+                    dateProof.calendarDays[j].calendarDay,
+                    dateProof.calendarDays[j].merkleProof
+                )) revert InvalidCalendarDayProof(proofIndex, j);
         }
     }
 

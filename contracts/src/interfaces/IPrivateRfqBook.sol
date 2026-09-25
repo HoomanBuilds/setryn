@@ -118,7 +118,6 @@ interface IPrivateRfqBook {
     error CapacityExhaustedBeforeTerminalFill(MakerQuoteId quoteId);
     error ZeroFillLots();
     error InvalidFillLots(uint128 requested, uint128 remaining, uint128 minimum);
-    error HandoffAlreadyConsumed(bytes32 executionReference);
     error ZeroReference();
     error SelectionAlreadyExists(RfqId rfqId);
     error InvalidRouteReservation();

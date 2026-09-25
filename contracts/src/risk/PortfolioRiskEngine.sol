@@ -17,7 +17,15 @@ import {AdapterDefinitionLib} from "../libraries/AdapterDefinitionLib.sol";
 import {PortfolioRiskLib} from "../libraries/PortfolioRiskLib.sol";
 import {RiskDomainDefinitionLib} from "../libraries/RiskDomainDefinitionLib.sol";
 import {AdapterVersion} from "../types/AdapterDefinition.sol";
-import {AccountId, AdapterId, CollateralId, PositionId, RiskDomainId, RiskModelId} from "../types/Identifiers.sol";
+import {
+    AccountId,
+    AdapterId,
+    AdapterKindId,
+    CollateralId,
+    PositionId,
+    RiskDomainId,
+    RiskModelId
+} from "../types/Identifiers.sol";
 import {DefaultProcessLib} from "../libraries/DefaultProcessLib.sol";
 import {ObjectiveDefaultState} from "../types/DefaultTypes.sol";
 import {RiskDomainVersion} from "../types/RiskDomainDefinition.sol";
@@ -189,8 +197,8 @@ contract PortfolioRiskEngine is
         if (
             admission.reservedResultCommitment != consumption.expectedResultHash
                 || admission.resultHash != consumption.expectedResultHash
-                || admission.accountId != consumption.expectedAccountId
-                || admission.riskDomainId != consumption.expectedRiskDomainId
+                || AccountId.unwrap(admission.accountId) != AccountId.unwrap(consumption.expectedAccountId)
+                || RiskDomainId.unwrap(admission.riskDomainId) != RiskDomainId.unwrap(consumption.expectedRiskDomainId)
                 || admission.riskDomainVersion != consumption.expectedRiskDomainVersion
                 || consumption.expectedOpenInterestBaseUnits == 0
                 || consumption.expectedOpenInterestBaseUnits > admission.remainingOpenInterestBaseUnits
@@ -254,7 +262,10 @@ contract PortfolioRiskEngine is
         }
         bytes32 exposureId = _exposureId(admissionId, executionReference, admission.accountId);
         PendingRiskExposure storage pending = _pendingExposures[exposureId];
-        if (pending.admissionId != admissionId || pending.bound || pending.expectedPositionCount != positionIds.length) revert RiskAdmissionConsumptionMismatch(admissionId);
+        if (
+            RiskAdmissionId.unwrap(pending.admissionId) != RiskAdmissionId.unwrap(admissionId) || pending.bound
+                || pending.expectedPositionCount != positionIds.length
+        ) revert RiskAdmissionConsumptionMismatch(admissionId);
         _bindPositionExposure(exposureId, pending, positionIds);
         pending.bound = true;
     }
@@ -295,16 +306,19 @@ contract PortfolioRiskEngine is
         PositionRiskExposure storage exposure = _positionExposures[reduction.exposureId];
         PositionId[] storage positionIds = _exposurePositions[reduction.exposureId];
         if (
-            exposure.exposureId != reduction.exposureId || exposure.admissionId != reduction.admissionId
-                || exposure.accountId != reduction.accountId || positionIds.length == 0
-                || positionIds[0] != reduction.canonicalPositionId
+            exposure.exposureId != reduction.exposureId
+                || RiskAdmissionId.unwrap(exposure.admissionId) != RiskAdmissionId.unwrap(reduction.admissionId)
+                || AccountId.unwrap(exposure.accountId) != AccountId.unwrap(reduction.accountId)
+                || positionIds.length == 0
+                || PositionId.unwrap(positionIds[0]) != PositionId.unwrap(reduction.canonicalPositionId)
                 || _positionExposureIds[_positionKey(reduction.canonicalPositionId, reduction.accountId)]
                     != reduction.exposureId || exposure.accountedPositionLots != reduction.expectedPreviousPositionLots
         ) revert InvalidExposureReduction(reduction.canonicalPositionId, reduction.accountId);
         PositionRiskSnapshot memory snapshot =
             _positionEngine.positionRiskSnapshot(reduction.canonicalPositionId, reduction.accountId);
         if (
-            snapshot.riskDomainId != exposure.riskDomainId || snapshot.riskDomainVersion != exposure.riskDomainVersion
+            RiskDomainId.unwrap(snapshot.riskDomainId) != RiskDomainId.unwrap(exposure.riskDomainId)
+                || snapshot.riskDomainVersion != exposure.riskDomainVersion
                 || snapshot.remainingLots != reduction.expectedNewPositionLots
                 || snapshot.remainingLots >= exposure.accountedPositionLots
         ) revert InvalidExposureReduction(reduction.canonicalPositionId, reduction.accountId);
@@ -316,7 +330,7 @@ contract PortfolioRiskEngine is
             uint128 initialLots = _initialPositionLots[reduction.exposureId][positionIds[i]];
             uint128 accountedLots = _accountedPositionLots[reduction.exposureId][positionIds[i]];
             if (
-                component.riskDomainId != exposure.riskDomainId
+                RiskDomainId.unwrap(component.riskDomainId) != RiskDomainId.unwrap(exposure.riskDomainId)
                     || component.riskDomainVersion != exposure.riskDomainVersion
                     || component.remainingLots >= accountedLots
                     || uint256(component.remainingLots) * canonicalInitial
@@ -384,6 +398,67 @@ contract PortfolioRiskEngine is
         );
     }
 
+    function exposureReductionWitness(PositionId positionId, AccountId accountId)
+        external
+        view
+        returns (RiskExposureReduction memory reduction)
+    {
+        bytes32 exposureId = _positionExposureIds[_positionKey(positionId, accountId)];
+        if (exposureId == bytes32(0)) return reduction;
+        PositionRiskExposure storage exposure = _positionExposures[exposureId];
+        PositionId[] storage positionIds = _exposurePositions[exposureId];
+        PositionRiskSnapshot memory requested = _positionEngine.positionRiskSnapshot(positionId, accountId);
+        if (requested.remainingLots >= _accountedPositionLots[exposureId][positionId]) return reduction;
+        PositionId canonicalPositionId = positionIds[0];
+        PositionRiskSnapshot memory canonical = _positionEngine.positionRiskSnapshot(canonicalPositionId, accountId);
+        if (canonical.remainingLots >= exposure.accountedPositionLots) {
+            revert InvalidExposureReduction(canonicalPositionId, accountId);
+        }
+        bytes32[] memory stateHashes = new bytes32[](positionIds.length);
+        for (uint256 i; i < positionIds.length; ++i) {
+            PositionRiskSnapshot memory component = _positionEngine.positionRiskSnapshot(positionIds[i], accountId);
+            uint128 initialLots = _initialPositionLots[exposureId][positionIds[i]];
+            uint128 accountedLots = _accountedPositionLots[exposureId][positionIds[i]];
+            if (
+                component.remainingLots >= accountedLots
+                    || uint256(component.remainingLots) * exposure.initialPositionLots
+                        != uint256(canonical.remainingLots) * initialLots
+            ) revert InvalidExposureReduction(canonicalPositionId, accountId);
+            stateHashes[i] = component.stateHash;
+        }
+        uint128 expectedRemaining = uint128(
+            Math.mulDiv(
+                exposure.initialOpenInterestBaseUnits,
+                canonical.remainingLots,
+                exposure.initialPositionLots,
+                Math.Rounding.Ceil
+            )
+        );
+        uint128 expectedReduction = exposure.remainingOpenInterestBaseUnits - expectedRemaining;
+        reduction = RiskExposureReduction({
+            exposureId: exposureId,
+            canonicalPositionId: canonicalPositionId,
+            admissionId: exposure.admissionId,
+            accountId: accountId,
+            expectedPreviousPositionLots: exposure.accountedPositionLots,
+            expectedNewPositionLots: canonical.remainingLots,
+            expectedOpenInterestReductionBaseUnits: expectedReduction,
+            transitionId: keccak256(
+                abi.encode(
+                    EXPOSURE_REDUCTION_TYPEHASH,
+                    exposureId,
+                    canonicalPositionId,
+                    accountId,
+                    exposure.admissionId,
+                    exposure.accountedPositionLots,
+                    canonical.remainingLots,
+                    expectedReduction,
+                    keccak256(abi.encodePacked(stateHashes))
+                )
+            )
+        });
+    }
+
     function riskDomainRegistry() external view returns (IRiskDomainRegistry) {
         return _riskDomainRegistry;
     }
@@ -427,15 +502,17 @@ contract PortfolioRiskEngine is
         if (
             PositionId.unwrap(proof.positionId) == bytes32(0)
                 || (admission.status != RiskAdmissionStatus.Reserved
-                    && admission.status != RiskAdmissionStatus.Consumed) || exposure.admissionId != proof.admissionId
-                || exposure.accountId != admission.accountId || exposure.remainingOpenInterestBaseUnits == 0
+                    && admission.status != RiskAdmissionStatus.Consumed)
+                || RiskAdmissionId.unwrap(exposure.admissionId) != RiskAdmissionId.unwrap(proof.admissionId)
+                || AccountId.unwrap(exposure.accountId) != AccountId.unwrap(admission.accountId)
+                || exposure.remainingOpenInterestBaseUnits == 0
         ) revert InvalidDefaultRiskProof();
         RiskDomainVersion memory domain = _requireDomain(admission.riskDomainId, admission.riskDomainVersion);
         PositionRiskSnapshot memory target = _positionEngine.positionRiskSnapshot(proof.positionId, admission.accountId);
         if (
-            target.riskDomainId != admission.riskDomainId || target.riskDomainVersion != admission.riskDomainVersion
-                || target.remainingLots == 0 || target.finalResolutionAt <= block.timestamp
-                || target.settlementDeadline <= target.finalResolutionAt
+            RiskDomainId.unwrap(target.riskDomainId) != RiskDomainId.unwrap(admission.riskDomainId)
+                || target.riskDomainVersion != admission.riskDomainVersion || target.remainingLots == 0
+                || target.finalResolutionAt <= block.timestamp || target.settlementDeadline <= target.finalResolutionAt
                 || (target.status != PositionStatus.Live
                     && target.status != PositionStatus.Fixing
                     && target.status != PositionStatus.SettlementReady)
@@ -452,15 +529,17 @@ contract PortfolioRiskEngine is
                 _positionExposureIds[_positionKey(proof.positions[i].positionId, admission.accountId)]
             ];
             if (
-                canonical.riskDomainId != admission.riskDomainId
+                RiskDomainId.unwrap(canonical.riskDomainId) != RiskDomainId.unwrap(admission.riskDomainId)
                     || canonical.riskDomainVersion != admission.riskDomainVersion
                     || keccak256(abi.encode(canonical.witness)) != keccak256(abi.encode(proof.positions[i]))
-                    || memberExposure.accountId != admission.accountId
-                    || memberExposure.riskDomainId != admission.riskDomainId
+                    || AccountId.unwrap(memberExposure.accountId) != AccountId.unwrap(admission.accountId)
+                    || RiskDomainId.unwrap(memberExposure.riskDomainId) != RiskDomainId.unwrap(admission.riskDomainId)
                     || memberExposure.riskDomainVersion != admission.riskDomainVersion
                     || memberExposure.remainingOpenInterestBaseUnits == 0
             ) revert InvalidDefaultRiskProof();
-            if (proof.positions[i].positionId == proof.positionId) targetIncluded = true;
+            if (PositionId.unwrap(proof.positions[i].positionId) == PositionId.unwrap(proof.positionId)) {
+                targetIncluded = true;
+            }
         }
         if (!targetIncluded) revert InvalidDefaultRiskProof();
         PortfolioRiskResult memory result =
@@ -837,7 +916,8 @@ contract PortfolioRiskEngine is
                     != AdapterId.unwrap(adapterId) || adapter.definitionHash != definitionHash
                 || adapter.versionHash
                     != AdapterDefinitionLib.hashVersion(adapterId, version, definitionHash, block.chainid)
-                || adapter.definition.kindId != domain.definition.requiredAdapterKindId
+                || AdapterKindId.unwrap(adapter.definition.kindId)
+                    != AdapterKindId.unwrap(domain.definition.requiredAdapterKindId)
                 || adapter.definition.interfaceHash != domain.definition.requiredInterfaceHash
                 || adapter.definition.capabilityHash != domain.definition.requiredCapabilityHash
                 || adapter.definition.implementation.codehash != adapter.definition.expectedRuntimeCodeHash
@@ -897,11 +977,12 @@ contract PortfolioRiskEngine is
             }
             PositionRiskSnapshot memory snapshot = _positionEngine.positionRiskSnapshot(positionId, pending.accountId);
             if (
-                snapshot.riskDomainId != pending.riskDomainId || snapshot.riskDomainVersion != pending.riskDomainVersion
-                    || snapshot.remainingLots == 0 || snapshot.status != PositionStatus.Live
+                RiskDomainId.unwrap(snapshot.riskDomainId) != RiskDomainId.unwrap(pending.riskDomainId)
+                    || snapshot.riskDomainVersion != pending.riskDomainVersion || snapshot.remainingLots == 0
+                    || snapshot.status != PositionStatus.Live
             ) revert InvalidExposurePosition(positionId, pending.accountId);
             for (uint256 j; j < i; ++j) {
-                if (positionIds[j] == positionId) {
+                if (PositionId.unwrap(positionIds[j]) == PositionId.unwrap(positionId)) {
                     revert DuplicateExposurePosition(positionId, pending.accountId);
                 }
             }

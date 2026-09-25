@@ -15,7 +15,7 @@ import {RiskDomainVersion} from "../types/RiskDomainDefinition.sol";
 import {AuctionId, BidCommitmentId} from "../types/AuctionTypes.sol";
 import {BatchCapacityDisposition, BatchExecutionId, BatchRemainderDisposition} from "../types/BatchTypes.sol";
 import {CapacityConsumptionRecord, ManagedCapacity, ManagedCapacityStatus} from "../types/CapacityManagerTypes.sol";
-import {CollateralLockId, FillId} from "../types/Identifiers.sol";
+import {AssetId, CollateralLockId, FillId} from "../types/Identifiers.sol";
 import {Lots} from "../types/Units.sol";
 
 contract VaultBackedBatchCapacityManager is IBatchCapacityManager, AccessControlDefaultAdminRules, ReentrancyGuard {
@@ -72,7 +72,9 @@ contract VaultBackedBatchCapacityManager is IBatchCapacityManager, AccessControl
             disposition.reservedLiability,
             disposition.expiry
         );
-        if (lockId != disposition.lockId) revert InvalidBatchCapacity();
+        if (CollateralLockId.unwrap(lockId) != CollateralLockId.unwrap(disposition.lockId)) {
+            revert InvalidBatchCapacity();
+        }
         CapacityLockLib.requireExact(
             positionEngine,
             collateralVault,
@@ -198,7 +200,7 @@ contract VaultBackedBatchCapacityManager is IBatchCapacityManager, AccessControl
         RiskDomainVersion memory risk =
             collateralVault.riskDomainRegistry().getRiskDomain(disposition.riskDomainId, disposition.riskDomainVersion);
         if (
-            risk.definition.collateralAssetId != disposition.collateralAssetId
+            AssetId.unwrap(risk.definition.collateralAssetId) != AssetId.unwrap(disposition.collateralAssetId)
                 || risk.definition.collateralAssetVersion != disposition.collateralBindingVersion
                 || risk.definition.maxAccountReservationBaseUnits < disposition.reservedLiability
         ) revert InvalidBatchCapacity();

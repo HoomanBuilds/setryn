@@ -62,7 +62,8 @@ contract RiskAdmissionBindingRegistry is IRiskAdmissionBindingRegistry {
         ) revert DuplicateRiskBinding();
         RiskAdmission memory admission = riskEngine.getAdmission(admissionId);
         if (
-            admission.status != RiskAdmissionStatus.Reserved || admission.accountId != order.accountId
+            admission.status != RiskAdmissionStatus.Reserved
+                || AccountId.unwrap(admission.accountId) != AccountId.unwrap(order.accountId)
                 || admission.deadline < block.timestamp || admission.reservedResultCommitment == bytes32(0)
         ) {
             revert InvalidRiskBinding();
@@ -93,12 +94,15 @@ contract RiskAdmissionBindingRegistry is IRiskAdmissionBindingRegistry {
             RiskAdmissionId.unwrap(admissionId) == bytes32(0) || cancellation.cancellationReference == bytes32(0)
                 || cancellation.deadline < block.timestamp || cancellation.signer == address(0)
                 || _admissionOrders[admissionId] != cancellation.orderHash
-                || _orderAdmissions[cancellation.orderHash] != admissionId
-                || _admissionSigners[admissionId] != cancellation.signer
+                || RiskAdmissionId.unwrap(_orderAdmissions[cancellation.orderHash])
+                    != RiskAdmissionId.unwrap(admissionId) || _admissionSigners[admissionId] != cancellation.signer
                 || _usedCancellationNonces[cancellation.signer][cancellation.nonce]
         ) revert InvalidCancellation();
         RiskAdmission memory admission = riskEngine.getAdmission(admissionId);
-        if (admission.status != RiskAdmissionStatus.Reserved || admission.accountId != cancellation.accountId) {
+        if (
+            admission.status != RiskAdmissionStatus.Reserved
+                || AccountId.unwrap(admission.accountId) != AccountId.unwrap(cancellation.accountId)
+        ) {
             revert InvalidCancellation();
         }
         bytes32 structHash = keccak256(
@@ -133,9 +137,10 @@ contract RiskAdmissionBindingRegistry is IRiskAdmissionBindingRegistry {
         RiskAdmissionId admissionId = _orderAdmissions[orderHash];
         if (RiskAdmissionId.unwrap(admissionId) == bytes32(0)) return false;
         RiskAdmission memory admission = riskEngine.getAdmission(admissionId);
-        return admission.status == RiskAdmissionStatus.Reserved && admission.accountId == order.accountId
-            && admission.riskDomainId == riskDomainId && admission.riskDomainVersion == riskVersion
-            && admission.openInterestBaseUnits != 0 && admission.deadline >= block.timestamp
-            && admission.reservedResultCommitment != bytes32(0);
+        return admission.status == RiskAdmissionStatus.Reserved
+            && AccountId.unwrap(admission.accountId) == AccountId.unwrap(order.accountId)
+            && RiskDomainId.unwrap(admission.riskDomainId) == RiskDomainId.unwrap(riskDomainId)
+            && admission.riskDomainVersion == riskVersion && admission.openInterestBaseUnits != 0
+            && admission.deadline >= block.timestamp && admission.reservedResultCommitment != bytes32(0);
     }
 }

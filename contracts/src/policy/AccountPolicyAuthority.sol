@@ -68,7 +68,12 @@ contract AccountPolicyAuthority is ILifecycleAccountAuthority, ICompressionAutho
         emit AccountPolicyRevoked(accountId, signer, collateralVault.lockOperatorEpoch(accountId));
     }
 
-    function isAuthorizedSigner(AccountId accountId, address signer) external view returns (bool) {
+    function isAuthorizedSigner(AccountId accountId, address signer)
+        external
+        view
+        override(ILifecycleAccountAuthority, ICompressionAuthority)
+        returns (bool)
+    {
         (address controller,) = collateralVault.getAccount(accountId);
         return signer != address(0) && signer == controller;
     }

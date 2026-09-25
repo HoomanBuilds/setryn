@@ -46,7 +46,8 @@ contract TradingSessionPolicy is ITradingSessionPolicy {
         if (
             WindowKindId.unwrap(tradingWindowKind_) == bytes32(0)
                 || WindowKindId.unwrap(maintenanceWindowKind_) == bytes32(0)
-                || tradingWindowKind_ == maintenanceWindowKind_ || recoveryGracePeriod_ == 0
+                || WindowKindId.unwrap(tradingWindowKind_) == WindowKindId.unwrap(maintenanceWindowKind_)
+                || recoveryGracePeriod_ == 0
         ) revert InvalidSessionPolicy();
         sessionRegistry = sessionRegistry_;
         sequencerFeed = sequencerFeed_;
@@ -132,8 +133,10 @@ contract TradingSessionPolicy is ITradingSessionPolicy {
         for (uint256 i; i < windows.length; ++i) {
             SessionWindow storage window = windows[i];
             if (timestamp < window.opensAt || timestamp >= window.closesAt) continue;
-            if (window.kindId == tradingWindowKind) nextTrading = true;
-            if (window.kindId == maintenanceWindowKind) nextMaintenance = true;
+            if (WindowKindId.unwrap(window.kindId) == WindowKindId.unwrap(tradingWindowKind)) nextTrading = true;
+            if (WindowKindId.unwrap(window.kindId) == WindowKindId.unwrap(maintenanceWindowKind)) {
+                nextMaintenance = true;
+            }
         }
     }
 

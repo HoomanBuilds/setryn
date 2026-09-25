@@ -135,7 +135,13 @@ contract MockOperationalAdapter is
 
     function _externalResult() private view returns (ExternalVenueResult memory) {
         return ExternalVenueResult(
-            externalState, resultValue, postconditionsHash, keccak256("venue-action"), keccak256("venue-evidence")
+            externalState,
+            resultValue,
+            0,
+            postconditionsHash,
+            keccak256("venue-action"),
+            keccak256("venue-evidence"),
+            keccak256("recovery-outcome")
         );
     }
 }

@@ -70,6 +70,6 @@ contract PublicBookEligibilityGate is IPublicBookEligibilityGate, PolicyGateBase
             order.feeScheduleVersion,
             resolved.packageWitnessHash
         );
-        if (expected != bookId) revert ZeroPolicyDependency(book);
+        if (BookId.unwrap(expected) != BookId.unwrap(bookId)) revert ZeroPolicyDependency(book);
     }
 }

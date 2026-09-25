@@ -116,7 +116,7 @@ library ExecutionPolicyLib {
             else _requireSamePolicy(resolved, legResolved);
         }
         if (
-            resolved.settlementAssetId != package.definition.settlementAssetId
+            AssetId.unwrap(resolved.settlementAssetId) != AssetId.unwrap(package.definition.settlementAssetId)
                 || resolved.settlementAssetVersion != package.definition.settlementAssetVersion
         ) revert TargetDependencyMismatch();
         resolved.packageWitnessHash = legsHash;
@@ -136,10 +136,14 @@ library ExecutionPolicyLib {
         MarketVersion memory market = dependencies.marketRegistry.getMarket(marketId, marketVersion);
         MarketDefinition memory definition = market.definition;
         if (
-            definition.feeScheduleId != feeScheduleId || definition.feeScheduleVersion != feeScheduleVersion
+            FeeScheduleId.unwrap(definition.feeScheduleId) != FeeScheduleId.unwrap(feeScheduleId)
+                || definition.feeScheduleVersion != feeScheduleVersion
                 || !dependencies.policyRegistry.executionModeAllowed(definition.executionModeSetHash, executionModeId)
         ) {
-            if (definition.feeScheduleId == feeScheduleId && definition.feeScheduleVersion == feeScheduleVersion) {
+            if (
+                FeeScheduleId.unwrap(definition.feeScheduleId) == FeeScheduleId.unwrap(feeScheduleId)
+                    && definition.feeScheduleVersion == feeScheduleVersion
+            ) {
                 revert UnsupportedExecutionMode(executionModeId);
             }
             revert TargetDependencyMismatch();
@@ -172,10 +176,12 @@ library ExecutionPolicyLib {
 
     function _requireSamePolicy(ResolvedTarget memory left, ResolvedTarget memory right) private pure {
         if (
-            left.settlementAssetId != right.settlementAssetId
+            AssetId.unwrap(left.settlementAssetId) != AssetId.unwrap(right.settlementAssetId)
                 || left.settlementAssetVersion != right.settlementAssetVersion
-                || left.riskDomainId != right.riskDomainId || left.riskDomainVersion != right.riskDomainVersion
-                || left.feeScheduleId != right.feeScheduleId || left.feeScheduleVersion != right.feeScheduleVersion
+                || RiskDomainId.unwrap(left.riskDomainId) != RiskDomainId.unwrap(right.riskDomainId)
+                || left.riskDomainVersion != right.riskDomainVersion
+                || FeeScheduleId.unwrap(left.feeScheduleId) != FeeScheduleId.unwrap(right.feeScheduleId)
+                || left.feeScheduleVersion != right.feeScheduleVersion
         ) revert TargetDependencyMismatch();
     }
 

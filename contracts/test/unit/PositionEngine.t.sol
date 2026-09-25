@@ -4,6 +4,7 @@ pragma solidity 0.8.37;
 import {Test} from "forge-std/Test.sol";
 
 import {IPositionEngine} from "../../src/interfaces/IPositionEngine.sol";
+import {IPortfolioRiskEngine} from "../../src/interfaces/IPortfolioRiskEngine.sol";
 import {IExactLotsPayoffModuleV1} from "../../src/interfaces/IExactLotsPayoffModuleV1.sol";
 import {PositionLifecycleExecutor} from "../../src/lifecycle/PositionLifecycleExecutor.sol";
 import {PositionEngine} from "../../src/position/PositionEngine.sol";
@@ -37,6 +38,7 @@ import {
 } from "../../src/types/LifecycleTypes.sol";
 import {Lots, PriceTicks} from "../../src/types/Units.sol";
 import {LocalSetrynFixture, SetrynLocalFixture} from "../fixtures/SetrynLocalFixture.sol";
+import {PortfolioRiskEngineMock} from "../mocks/PortfolioRiskEngineMock.sol";
 
 contract PositionEngineTest is SetrynLocalFixture {
     bytes32 internal constant SEED = keccak256("position.engine.unit");
@@ -322,7 +324,9 @@ contract PositionEngineTest is SetrynLocalFixture {
     }
 
     function test_LifecycleExecutorFailsClosedForPartialUnwindWithoutSuccessor() public {
-        PositionLifecycleExecutor executor = new PositionLifecycleExecutor(2 days, address(this), engine);
+        IPortfolioRiskEngine riskEngine =
+            IPortfolioRiskEngine(address(new PortfolioRiskEngineMock(IPositionEngine(address(engine)))));
+        PositionLifecycleExecutor executor = new PositionLifecycleExecutor(2 days, address(this), engine, riskEngine);
         LifecycleAction memory action;
         action.kind = LifecycleActionKind.PartialUnwind;
 

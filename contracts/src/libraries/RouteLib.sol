@@ -4,7 +4,7 @@ pragma solidity 0.8.37;
 import {PackageDefinitionLib} from "./PackageDefinitionLib.sol";
 import {PortfolioRiskLib} from "./PortfolioRiskLib.sol";
 import {Side} from "../types/Enums.sol";
-import {AccountId, CollateralLockId, PackageId} from "../types/Identifiers.sol";
+import {AccountId, CollateralLockId, PackageId, RiskDomainId, SeriesId} from "../types/Identifiers.sol";
 import {PackageLeg} from "../types/PackageDefinition.sol";
 import {
     CoincidencePlan,
@@ -73,7 +73,7 @@ library RouteLib {
         ExecutableRoute memory route = candidate.route;
         if (
             PackageId.unwrap(route.packageId) == bytes32(0) || route.packageVersion == 0
-                || route.packageWitnessHash == bytes32(0) || route.packageLots == Lots.wrap(0)
+                || route.packageWitnessHash == bytes32(0) || Lots.unwrap(route.packageLots) == 0
                 || TickSizeMinor.unwrap(route.packageTickSizeMinor) == 0 || route.feeScheduleVersion == 0
                 || route.riskDomainVersion == 0 || route.guaranteeClassId == bytes32(0) || route.salt == bytes32(0)
                 || route.expiry < currentTimestamp || (route.userSide != Side.Buy && route.userSide != Side.Sell)
@@ -99,7 +99,8 @@ library RouteLib {
         RouteSelectionBounds memory bounds
     ) internal pure {
         if (
-            bounds.deadline == 0 || route.userSide != bounds.userSide || route.riskDomainId != bounds.riskDomainId
+            bounds.deadline == 0 || route.userSide != bounds.userSide
+                || RiskDomainId.unwrap(route.riskDomainId) != RiskDomainId.unwrap(bounds.riskDomainId)
                 || route.riskDomainVersion != bounds.riskDomainVersion
                 || route.guaranteeClassId != bounds.guaranteeClassId || route.totalFeeMinor > bounds.maximumFeeMinor
         ) revert RouteOutsideBounds();
@@ -221,7 +222,8 @@ library RouteLib {
         RouteComponent memory component
     ) private pure {
         if (
-            component.sourceKind != RouteSourceKind.SeriesBookHead || component.seriesId != leg.seriesId
+            component.sourceKind != RouteSourceKind.SeriesBookHead
+                || SeriesId.unwrap(component.seriesId) != SeriesId.unwrap(leg.seriesId)
                 || component.seriesVersion != leg.seriesVersion || component.packageRatio != leg.ratio
                 || TickSizeMinor.unwrap(component.tickSizeMinor) == 0
         ) revert InvalidRouteGraph();
@@ -262,7 +264,7 @@ library RouteLib {
             if (
                 account == bytes32(0) || (i != 0 && account <= previous)
                     || RiskAdmissionId.unwrap(binding.admissionId) == bytes32(0)
-                    || binding.riskDomainId != route.riskDomainId
+                    || RiskDomainId.unwrap(binding.riskDomainId) != RiskDomainId.unwrap(route.riskDomainId)
                     || binding.riskDomainVersion != route.riskDomainVersion
                     || binding.openInterestIncreaseBaseUnits == 0 || binding.openInterestReductionBaseUnits != 0
                     || binding.result.metrics.availableHeadroomBaseUnits == 0

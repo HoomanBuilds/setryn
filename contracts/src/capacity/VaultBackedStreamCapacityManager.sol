@@ -19,7 +19,7 @@ import {
     ManagedCapacityStatus,
     StreamCapacityState
 } from "../types/CapacityManagerTypes.sol";
-import {CollateralLockId, FillId} from "../types/Identifiers.sol";
+import {AssetId, CollateralLockId, FillId} from "../types/Identifiers.sol";
 import {StreamCapacityConsumption, StreamId, StreamPolicy} from "../types/StreamTypes.sol";
 import {Lots} from "../types/Units.sol";
 
@@ -305,7 +305,7 @@ contract VaultBackedStreamCapacityManager is IStreamCapacityManager, AccessContr
         RiskDomainVersion memory risk =
             collateralVault.riskDomainRegistry().getRiskDomain(policy.riskDomainId, policy.riskDomainVersion);
         if (
-            risk.definition.collateralAssetId != policy.collateralAssetId
+            AssetId.unwrap(risk.definition.collateralAssetId) != AssetId.unwrap(policy.collateralAssetId)
                 || risk.definition.collateralAssetVersion != policy.collateralBindingVersion
                 || risk.definition.maxAccountReservationBaseUnits < policy.maximumLiability
         ) revert InvalidCapacityPolicy();

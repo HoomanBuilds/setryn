@@ -163,7 +163,7 @@ contract PositionReceiptAuthority is ReceiptAuthorityBase {
         bool terminal = uint8(lifecycle.status) >= uint8(PositionStatus.Settled);
         bytes32 outcome =
             lifecycle.terminalOutcomeReference == bytes32(0) ? stateHash : lifecycle.terminalOutcomeReference;
-        return _state(stateHash, outcome, terminal, economics.positionId == PositionId.wrap(subjectId));
+        return _state(stateHash, outcome, terminal, PositionId.unwrap(economics.positionId) == subjectId);
     }
 }
 

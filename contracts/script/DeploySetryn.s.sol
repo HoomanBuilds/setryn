@@ -143,6 +143,9 @@ contract DeploySetryn is Script {
         _requireSeparatedPrincipal(deployer, governanceAdmin, excessRecovery);
         _requireSeparatedPrincipal(deployer, governanceAdmin, privacyKeyPublisher);
         _requireSeparatedPrincipal(deployer, governanceAdmin, lifecycleWitnessStager);
+        _requireDistinctOperationalPrincipals(
+            governanceOperator, guardian, excessRecovery, privacyKeyPublisher, lifecycleWitnessStager
+        );
         uint48 defaultAdminDelay = _envUint48("SETRYN_DEFAULT_ADMIN_DELAY", 2 days);
         uint64 maxLockDuration = _envUint64("SETRYN_MAX_LOCK_DURATION", 30 days);
         uint64 evaluationGasHardCap = _envUint64("SETRYN_EVALUATION_GAS_HARD_CAP");
@@ -235,7 +238,10 @@ contract DeploySetryn is Script {
             maximumRiskObservationAge
         );
         deployment.positionLifecycleExecutor = new PositionLifecycleExecutor(
-            defaultAdminDelay, initialAdmin, IPositionEngine(address(deployment.positionEngine))
+            defaultAdminDelay,
+            initialAdmin,
+            IPositionEngine(address(deployment.positionEngine)),
+            deployment.portfolioRiskEngine
         );
         deployment.accountPolicyAuthority =
             new AccountPolicyAuthority(ICollateralVault(address(deployment.collateralVault)));
@@ -267,7 +273,10 @@ contract DeploySetryn is Script {
             deployment.portfolioRiskEngine, deployment.defaultBidderGate, deployment.positionLifecycleExecutor
         );
         deployment.cashSettlementCoordinator = new CashSettlementCoordinator(
-            IPositionEngine(address(deployment.positionEngine)), deployment.fixingEngine, deployment.fundedFeeEngine
+            IPositionEngine(address(deployment.positionEngine)),
+            deployment.fixingEngine,
+            deployment.fundedFeeEngine,
+            deployment.portfolioRiskEngine
         );
         deployment.privacyCommitmentRegistry = new PrivacyCommitmentRegistry(defaultAdminDelay, initialAdmin);
         deployment.operationalAdapterExecutor = new OperationalAdapterExecutor(
@@ -376,31 +385,27 @@ contract DeploySetryn is Script {
             .grantRole(
                 deployment.fundedFeeEngine.FEE_ACTION_CONSUMER_ROLE(), address(deployment.cashSettlementCoordinator)
             );
-        deployment.portfolioRiskEngine.grantRole(
-            deployment.portfolioRiskEngine.EXPOSURE_REDUCER_ROLE(), address(deployment.positionLifecycleExecutor)
-        );
-        deployment.portfolioRiskEngine.grantRole(
-            deployment.portfolioRiskEngine.EXPOSURE_REDUCER_ROLE(), address(deployment.cashSettlementCoordinator)
-        );
-        deployment.portfolioRiskEngine.grantRole(
-            deployment.portfolioRiskEngine.EXPOSURE_REDUCER_ROLE(), address(deployment.defaultProcessEngine)
-        );
-        deployment.positionLifecycleExecutor.grantRole(
-            deployment.positionLifecycleExecutor.WITNESS_STAGER_ROLE(), lifecycleWitnessStager
-        );
+        deployment.portfolioRiskEngine
+            .grantRole(
+                deployment.portfolioRiskEngine.EXPOSURE_REDUCER_ROLE(), address(deployment.positionLifecycleExecutor)
+            );
+        deployment.portfolioRiskEngine
+            .grantRole(
+                deployment.portfolioRiskEngine.EXPOSURE_REDUCER_ROLE(), address(deployment.cashSettlementCoordinator)
+            );
+        deployment.portfolioRiskEngine
+            .grantRole(deployment.portfolioRiskEngine.EXPOSURE_REDUCER_ROLE(), address(deployment.defaultProcessEngine));
+        deployment.positionLifecycleExecutor
+            .grantRole(deployment.positionLifecycleExecutor.WITNESS_STAGER_ROLE(), lifecycleWitnessStager);
         deployment.signedLifecycleEngine.grantRole(deployment.signedLifecycleEngine.LIFECYCLE_GUARDIAN_ROLE(), guardian);
-        deployment.compressionCoordinator.grantRole(
-            deployment.compressionCoordinator.COMPRESSION_GUARDIAN_ROLE(), guardian
-        );
-        deployment.privacyCommitmentRegistry.grantRole(
-            deployment.privacyCommitmentRegistry.POLICY_QUALIFIER_ROLE(), governanceOperator
-        );
-        deployment.privacyCommitmentRegistry.grantRole(
-            deployment.privacyCommitmentRegistry.POLICY_ACTIVATOR_ROLE(), governanceOperator
-        );
-        deployment.privacyCommitmentRegistry.grantRole(
-            deployment.privacyCommitmentRegistry.EPOCH_KEY_PUBLISHER_ROLE(), privacyKeyPublisher
-        );
+        deployment.compressionCoordinator
+            .grantRole(deployment.compressionCoordinator.COMPRESSION_GUARDIAN_ROLE(), guardian);
+        deployment.privacyCommitmentRegistry
+            .grantRole(deployment.privacyCommitmentRegistry.POLICY_QUALIFIER_ROLE(), governanceOperator);
+        deployment.privacyCommitmentRegistry
+            .grantRole(deployment.privacyCommitmentRegistry.POLICY_ACTIVATOR_ROLE(), governanceOperator);
+        deployment.privacyCommitmentRegistry
+            .grantRole(deployment.privacyCommitmentRegistry.EPOCH_KEY_PUBLISHER_ROLE(), privacyKeyPublisher);
 
         _revokeBootstrapOperationalRoles(deployment, bootstrapAdmin);
         _beginAdminTransfers(deployment, governanceAdmin);
@@ -521,8 +526,7 @@ contract DeploySetryn is Script {
         address lifecycleWitnessStager
     ) private view returns (bytes32) {
         (address registryPendingAdmin, uint48 registryAcceptSchedule) = d.assetRegistry.pendingDefaultAdmin();
-        (address privacyPendingAdmin, uint48 privacyAcceptSchedule) =
-            d.privacyCommitmentRegistry.pendingDefaultAdmin();
+        (address privacyPendingAdmin, uint48 privacyAcceptSchedule) = d.privacyCommitmentRegistry.pendingDefaultAdmin();
         if (registryPendingAdmin != governanceAdmin || privacyPendingAdmin != governanceAdmin) {
             revert InvalidDeploymentPrincipal(governanceAdmin);
         }
@@ -536,15 +540,12 @@ contract DeploySetryn is Script {
                 privacyKeyPublisher,
                 lifecycleWitnessStager,
                 !d.portfolioRiskEngine.hasRole(d.portfolioRiskEngine.EXPOSURE_REDUCER_ROLE(), bootstrap),
-                d.portfolioRiskEngine.hasRole(
-                    d.portfolioRiskEngine.EXPOSURE_REDUCER_ROLE(), address(d.positionLifecycleExecutor)
-                ),
-                d.portfolioRiskEngine.hasRole(
-                    d.portfolioRiskEngine.EXPOSURE_REDUCER_ROLE(), address(d.cashSettlementCoordinator)
-                ),
-                d.portfolioRiskEngine.hasRole(
-                    d.portfolioRiskEngine.EXPOSURE_REDUCER_ROLE(), address(d.defaultProcessEngine)
-                ),
+                d.portfolioRiskEngine
+                    .hasRole(d.portfolioRiskEngine.EXPOSURE_REDUCER_ROLE(), address(d.positionLifecycleExecutor)),
+                d.portfolioRiskEngine
+                    .hasRole(d.portfolioRiskEngine.EXPOSURE_REDUCER_ROLE(), address(d.cashSettlementCoordinator)),
+                d.portfolioRiskEngine
+                    .hasRole(d.portfolioRiskEngine.EXPOSURE_REDUCER_ROLE(), address(d.defaultProcessEngine)),
                 registryPendingAdmin,
                 registryAcceptSchedule,
                 privacyPendingAdmin,
@@ -557,6 +558,25 @@ contract DeploySetryn is Script {
         if (governanceAdmin == address(0) || operational == address(0)) revert InvalidDeploymentPrincipal(address(0));
         if (governanceAdmin == bootstrap || operational == bootstrap || operational == governanceAdmin) {
             revert PrincipalSeparationRequired(governanceAdmin, operational);
+        }
+    }
+
+    function _requireDistinctOperationalPrincipals(
+        address governanceOperator,
+        address guardian,
+        address excessRecovery,
+        address privacyKeyPublisher,
+        address lifecycleWitnessStager
+    ) private pure {
+        address[5] memory principals = [
+            governanceOperator, guardian, excessRecovery, privacyKeyPublisher, lifecycleWitnessStager
+        ];
+        for (uint256 i; i < principals.length; ++i) {
+            for (uint256 j = i + 1; j < principals.length; ++j) {
+                if (principals[i] == principals[j]) {
+                    revert PrincipalSeparationRequired(principals[i], principals[j]);
+                }
+            }
         }
     }
 

@@ -62,6 +62,13 @@ contract FixingEngine is IFixingEngine {
     mapping(bytes32 fixingKey => FixingResult result) private _results;
     mapping(bytes32 vectorKey => uint16 slotCount) private _vectorSlotCount;
 
+    struct FixingSubmissionKey {
+        SeriesId seriesId;
+        uint32 seriesVersion;
+        uint8 slot;
+        uint8 candidateIndex;
+    }
+
     constructor(ISeriesRegistry seriesRegistry_) {
         if (address(seriesRegistry_) == address(0)) revert ZeroSeriesRegistry();
         if (address(seriesRegistry_).code.length == 0) {
@@ -127,46 +134,108 @@ contract FixingEngine is IFixingEngine {
         HistoricalObservation[] calldata observations,
         bytes calldata adapterEvidence
     ) private returns (bytes32 fixingKey, bytes32 proposalHash) {
-        bytes32 vectorKey = _deriveVectorKey(seriesId, seriesVersion);
-        uint16 recordedCount = _vectorSlotCount[vectorKey];
-        if (recordedCount == 0) {
-            _vectorSlotCount[vectorKey] = uint16(fixingSlots.length);
-        } else if (recordedCount != fixingSlots.length) {
-            revert IncompleteFixingVector(recordedCount, fixingSlots.length);
-        }
-        fixingKey = _deriveFixingKey(seriesId, seriesVersion, slot);
+        FixingSubmissionKey memory submissionKey = FixingSubmissionKey({
+            seriesId: seriesId, seriesVersion: seriesVersion, slot: slot, candidateIndex: candidateIndex
+        });
+        _recordVectorSlotCount(submissionKey.seriesId, submissionKey.seriesVersion, fixingSlots.length);
+        fixingKey = _deriveFixingKey(submissionKey.seriesId, submissionKey.seriesVersion, submissionKey.slot);
         FixingStatus currentStatus = _status[fixingKey];
         if (currentStatus == FixingStatus.Finalized) revert FixingAlreadyFinalized(fixingKey);
 
-        FixingDependencies memory dependencies =
-            _loadDependencies(seriesId, seriesVersion, fixingSlots, slot, candidateIndex);
+        FixingDependencies memory dependencies = _loadDependencies(
+            submissionKey.seriesId,
+            submissionKey.seriesVersion,
+            fixingSlots,
+            submissionKey.slot,
+            submissionKey.candidateIndex
+        );
         _requireSubmissionWindow(
             dependencies.series,
-            fixingSlots[slot],
-            candidateIndex,
+            fixingSlots[submissionKey.slot],
+            submissionKey.candidateIndex,
             dependencies.candidateDeadline,
             currentStatus != FixingStatus.Unspecified
         );
 
         FixingProposal storage currentProposal = _proposals[fixingKey];
         if (currentStatus == FixingStatus.Proposed || currentStatus == FixingStatus.Disputed) {
-            if (candidateIndex > currentProposal.candidateIndex) {
-                revert CandidateCannotReplaceProposal(currentProposal.candidateIndex, candidateIndex);
+            if (submissionKey.candidateIndex > currentProposal.candidateIndex) {
+                revert CandidateCannotReplaceProposal(currentProposal.candidateIndex, submissionKey.candidateIndex);
             }
         }
 
+        FixingProposal memory proposal =
+            _buildProposal(submissionKey, fixingKey, dependencies, observations, adapterEvidence);
+        proposalHash = proposal.proposalHash;
+        if (
+            (currentStatus == FixingStatus.Proposed || currentStatus == FixingStatus.Disputed)
+                && submissionKey.candidateIndex == currentProposal.candidateIndex
+        ) {
+            if (proposal.batchSequence < currentProposal.batchSequence) {
+                revert BatchSequenceNotNewer(currentProposal.batchSequence, proposal.batchSequence);
+            }
+            if (proposal.batchSequence == currentProposal.batchSequence) {
+                if (proposalHash == currentProposal.proposalHash) return (fixingKey, proposalHash);
+                _status[fixingKey] = FixingStatus.Disputed;
+                emit FixingDisputed(
+                    fixingKey,
+                    submissionKey.seriesId,
+                    submissionKey.seriesVersion,
+                    submissionKey.slot,
+                    currentProposal.proposalHash,
+                    proposalHash,
+                    proposal.batchSequence,
+                    msg.sender
+                );
+                return (fixingKey, proposalHash);
+            }
+        }
+        _proposals[fixingKey] = proposal;
+        _status[fixingKey] = FixingStatus.Proposed;
+
+        emit FixingEvidenceProposed(
+            fixingKey,
+            submissionKey.seriesId,
+            submissionKey.seriesVersion,
+            submissionKey.slot,
+            submissionKey.candidateIndex,
+            dependencies.candidate.benchmarkId,
+            dependencies.candidate.benchmarkVersion,
+            proposal.evidenceOriginId,
+            proposal.batchSequence,
+            proposal.observationsHash,
+            proposal.evidenceHash,
+            proposal.completenessHash,
+            proposalHash,
+            proposal.value,
+            dependencies.benchmark.definition.outputDecimals,
+            msg.sender
+        );
+    }
+
+    function _buildProposal(
+        FixingSubmissionKey memory submissionKey,
+        bytes32 fixingKey,
+        FixingDependencies memory dependencies,
+        HistoricalObservation[] calldata observations,
+        bytes calldata adapterEvidence
+    ) private returns (FixingProposal memory proposal) {
         if (adapterEvidence.length > MAX_EVIDENCE_BYTES) {
             revert EvidenceTooLarge(adapterEvidence.length, MAX_EVIDENCE_BYTES);
         }
         bytes32 observationsHash = FixingEvidenceLib.hashObservations(observations);
         ObservationBatchValidation memory validation = _validateWithAdapter(
-            seriesId, seriesVersion, slot, candidateIndex, dependencies, observationsHash, adapterEvidence
+            submissionKey.seriesId,
+            submissionKey.seriesVersion,
+            submissionKey.slot,
+            submissionKey.candidateIndex,
+            dependencies,
+            observationsHash,
+            adapterEvidence
         );
         (uint64 firstObservedAt, uint64 lastObservedAt, uint64 latestPublishedAt) =
             _validateObservations(dependencies, observations, validation);
-        int256 value = FixingAggregationLib.aggregate(dependencies.candidate, observations);
-
-        FixingProposal memory proposal = FixingProposal({
+        proposal = FixingProposal({
             proposalHash: bytes32(0),
             observationsHash: observationsHash,
             evidenceHash: validation.evidenceHash,
@@ -180,56 +249,21 @@ contract FixingEngine is IFixingEngine {
             lastObservedAt: lastObservedAt,
             latestPublishedAt: latestPublishedAt,
             observationCount: uint16(observations.length),
-            candidateIndex: candidateIndex,
+            candidateIndex: submissionKey.candidateIndex,
             decimals: dependencies.benchmark.definition.outputDecimals,
-            value: value
+            value: FixingAggregationLib.aggregate(dependencies.candidate, observations)
         });
-        proposalHash = FixingEvidenceLib.hashProposal(fixingKey, proposal);
-        proposal.proposalHash = proposalHash;
-        if (
-            (currentStatus == FixingStatus.Proposed || currentStatus == FixingStatus.Disputed)
-                && candidateIndex == currentProposal.candidateIndex
-        ) {
-            if (validation.batchSequence < currentProposal.batchSequence) {
-                revert BatchSequenceNotNewer(currentProposal.batchSequence, validation.batchSequence);
-            }
-            if (validation.batchSequence == currentProposal.batchSequence) {
-                if (proposalHash == currentProposal.proposalHash) return (fixingKey, proposalHash);
-                _status[fixingKey] = FixingStatus.Disputed;
-                emit FixingDisputed(
-                    fixingKey,
-                    seriesId,
-                    seriesVersion,
-                    slot,
-                    currentProposal.proposalHash,
-                    proposalHash,
-                    validation.batchSequence,
-                    msg.sender
-                );
-                return (fixingKey, proposalHash);
-            }
-        }
-        _proposals[fixingKey] = proposal;
-        _status[fixingKey] = FixingStatus.Proposed;
+        proposal.proposalHash = FixingEvidenceLib.hashProposal(fixingKey, proposal);
+    }
 
-        emit FixingEvidenceProposed(
-            fixingKey,
-            seriesId,
-            seriesVersion,
-            slot,
-            candidateIndex,
-            dependencies.candidate.benchmarkId,
-            dependencies.candidate.benchmarkVersion,
-            validation.evidenceOriginId,
-            validation.batchSequence,
-            observationsHash,
-            validation.evidenceHash,
-            validation.completenessHash,
-            proposalHash,
-            value,
-            dependencies.benchmark.definition.outputDecimals,
-            msg.sender
-        );
+    function _recordVectorSlotCount(SeriesId seriesId, uint32 seriesVersion, uint256 suppliedCount) private {
+        bytes32 vectorKey = _deriveVectorKey(seriesId, seriesVersion);
+        uint16 recordedCount = _vectorSlotCount[vectorKey];
+        if (recordedCount == 0) {
+            _vectorSlotCount[vectorKey] = uint16(suppliedCount);
+        } else if (recordedCount != suppliedCount) {
+            revert IncompleteFixingVector(recordedCount, suppliedCount);
+        }
     }
 
     function finalizeFixing(SeriesId seriesId, uint32 seriesVersion, uint8 slot)

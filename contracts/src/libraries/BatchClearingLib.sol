@@ -138,7 +138,9 @@ library BatchClearingLib {
             bytes32 bidId = BidCommitmentId.unwrap(allocation.bidId);
             if (bidId == bytes32(0)) revert DuplicateBid(bidId);
             for (uint256 j; j < i; ++j) {
-                if (allocation.bidId == allocations[j].bidId) revert DuplicateBid(bidId);
+                if (BidCommitmentId.unwrap(allocation.bidId) == BidCommitmentId.unwrap(allocations[j].bidId)) {
+                    revert DuplicateBid(bidId);
+                }
             }
             uint128 lots = Lots.unwrap(allocation.allocatedLots);
             if (lots == 0 || allocation.fundingHash == bytes32(0)) revert InvalidBatchPolicy();
