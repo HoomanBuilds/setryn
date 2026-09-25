@@ -26,6 +26,13 @@ contract VerifiableReceiptLedger is IVerifiableReceiptLedger {
     bytes32 public constant SUBJECT_DEFAULT = keccak256("SetrynReceiptSubjectV1:Default");
     bytes32 public constant SUBJECT_RECOVERY = keccak256("SetrynReceiptSubjectV1:Recovery");
     bytes32 public constant SUBJECT_LIFECYCLE = keccak256("SetrynReceiptSubjectV1:Lifecycle");
+    bytes32 public constant SUBJECT_STREAM = keccak256("SetrynReceiptSubjectV1:Stream");
+    bytes32 public constant SUBJECT_ROUTE = keccak256("SetrynReceiptSubjectV1:Route");
+    bytes32 public constant SUBJECT_POSITION = keccak256("SetrynReceiptSubjectV1:Position");
+    bytes32 public constant SUBJECT_FEE = keccak256("SetrynReceiptSubjectV1:Fee");
+    bytes32 public constant SUBJECT_RISK = keccak256("SetrynReceiptSubjectV1:Risk");
+    bytes32 public constant SUBJECT_PRIVACY = keccak256("SetrynReceiptSubjectV1:Privacy");
+    bytes32 public constant SUBJECT_ASYNC = keccak256("SetrynReceiptSubjectV1:Async");
 
     uint256 internal constant MAX_AUTHORITIES = 32;
     uint256 internal constant MAX_TERMINAL_STATE_GAS = 100_000;

@@ -18,6 +18,7 @@ import {IInstrumentRegistry} from "../src/interfaces/IInstrumentRegistry.sol";
 import {IMarketRegistry} from "../src/interfaces/IMarketRegistry.sol";
 import {IPositionEngine} from "../src/interfaces/IPositionEngine.sol";
 import {IRiskDomainRegistry} from "../src/interfaces/IRiskDomainRegistry.sol";
+import {ISeriesRegistry} from "../src/interfaces/ISeriesRegistry.sol";
 import {ISettlementAssetRegistry} from "../src/interfaces/ISettlementAssetRegistry.sol";
 import {ISessionRegistry} from "../src/interfaces/ISessionRegistry.sol";
 import {AdapterRegistry} from "../src/registry/AdapterRegistry.sol";
@@ -36,7 +37,13 @@ import {PositionEngine} from "../src/position/PositionEngine.sol";
 import {PortfolioRiskEngine} from "../src/risk/PortfolioRiskEngine.sol";
 import {CashSettlementCoordinator} from "../src/settlement/CashSettlementCoordinator.sol";
 import {PositionLifecycleExecutor} from "../src/lifecycle/PositionLifecycleExecutor.sol";
+import {SignedLifecycleEngine} from "../src/lifecycle/SignedLifecycleEngine.sol";
+import {CompressionCoordinator} from "../src/lifecycle/CompressionCoordinator.sol";
 import {PrivacyCommitmentRegistry} from "../src/privacy/PrivacyCommitmentRegistry.sol";
+import {AccountPolicyAuthority} from "../src/policy/AccountPolicyAuthority.sol";
+import {DefaultBidderGate} from "../src/policy/DefaultBidderGate.sol";
+import {LifecyclePolicyValidator} from "../src/policy/LifecyclePolicyValidator.sol";
+import {DefaultProcessEngine} from "../src/default/DefaultProcessEngine.sol";
 import {
     BasisSpreadPayoffModule,
     CalendarSpreadPayoffModule,
@@ -89,6 +96,12 @@ contract DeploySetryn is Script {
         FundedFeeEngine fundedFeeEngine;
         PortfolioRiskEngine portfolioRiskEngine;
         PositionLifecycleExecutor positionLifecycleExecutor;
+        AccountPolicyAuthority accountPolicyAuthority;
+        LifecyclePolicyValidator lifecyclePolicyValidator;
+        SignedLifecycleEngine signedLifecycleEngine;
+        CompressionCoordinator compressionCoordinator;
+        DefaultBidderGate defaultBidderGate;
+        DefaultProcessEngine defaultProcessEngine;
         CashSettlementCoordinator cashSettlementCoordinator;
         PrivacyCommitmentRegistry privacyCommitmentRegistry;
         OperationalAdapterExecutor operationalAdapterExecutor;
@@ -207,6 +220,35 @@ contract DeploySetryn is Script {
         deployment.positionLifecycleExecutor = new PositionLifecycleExecutor(
             defaultAdminDelay, initialAdmin, IPositionEngine(address(deployment.positionEngine))
         );
+        deployment.accountPolicyAuthority =
+            new AccountPolicyAuthority(ICollateralVault(address(deployment.collateralVault)));
+        deployment.lifecyclePolicyValidator = new LifecyclePolicyValidator(
+            IPositionEngine(address(deployment.positionEngine)), deployment.packageRegistry
+        );
+        deployment.signedLifecycleEngine = new SignedLifecycleEngine(
+            defaultAdminDelay,
+            initialAdmin,
+            deployment.positionEngine,
+            deployment.accountPolicyAuthority,
+            deployment.lifecyclePolicyValidator,
+            deployment.positionLifecycleExecutor,
+            IRiskDomainRegistry(address(deployment.riskDomainRegistry))
+        );
+        deployment.compressionCoordinator = new CompressionCoordinator(
+            defaultAdminDelay,
+            initialAdmin,
+            deployment.positionEngine,
+            deployment.accountPolicyAuthority,
+            deployment.positionLifecycleExecutor,
+            IRiskDomainRegistry(address(deployment.riskDomainRegistry))
+        );
+        deployment.defaultBidderGate = new DefaultBidderGate(
+            IRiskDomainRegistry(address(deployment.riskDomainRegistry)),
+            ICollateralVault(address(deployment.collateralVault))
+        );
+        deployment.defaultProcessEngine = new DefaultProcessEngine(
+            deployment.portfolioRiskEngine, deployment.defaultBidderGate, deployment.positionLifecycleExecutor
+        );
         deployment.cashSettlementCoordinator = new CashSettlementCoordinator(
             IPositionEngine(address(deployment.positionEngine)), deployment.fixingEngine, deployment.fundedFeeEngine
         );
@@ -260,6 +302,27 @@ contract DeploySetryn is Script {
             .grantRole(deployment.positionEngine.FIXING_ENGINE_ROLE(), address(deployment.cashSettlementCoordinator));
         deployment.positionEngine
             .grantRole(deployment.positionEngine.LIFECYCLE_ENGINE_ROLE(), address(deployment.positionLifecycleExecutor));
+        deployment.positionEngine
+            .grantRole(deployment.positionEngine.DEFAULT_ENGINE_ROLE(), address(deployment.positionLifecycleExecutor));
+        deployment.positionLifecycleExecutor
+            .grantRole(
+                deployment.positionLifecycleExecutor.SIGNED_LIFECYCLE_ENGINE_ROLE(),
+                address(deployment.signedLifecycleEngine)
+            );
+        deployment.positionLifecycleExecutor
+            .grantRole(
+                deployment.positionLifecycleExecutor.COMPRESSION_COORDINATOR_ROLE(),
+                address(deployment.compressionCoordinator)
+            );
+        deployment.positionLifecycleExecutor
+            .grantRole(
+                deployment.positionLifecycleExecutor.DEFAULT_PROCESS_ENGINE_ROLE(),
+                address(deployment.defaultProcessEngine)
+            );
+        deployment.collateralVault
+            .grantRole(deployment.collateralVault.COLLATERAL_LOCKER_ROLE(), address(deployment.defaultProcessEngine));
+        deployment.collateralVault
+            .grantRole(deployment.collateralVault.COLLATERAL_SETTLER_ROLE(), address(deployment.defaultProcessEngine));
         deployment.fundedFeeEngine
             .grantRole(
                 deployment.fundedFeeEngine.FEE_ACTION_CONSUMER_ROLE(), address(deployment.cashSettlementCoordinator)
@@ -333,6 +396,12 @@ contract DeploySetryn is Script {
         console2.log("FundedFeeEngine", address(deployment.fundedFeeEngine));
         console2.log("PortfolioRiskEngine", address(deployment.portfolioRiskEngine));
         console2.log("PositionLifecycleExecutor", address(deployment.positionLifecycleExecutor));
+        console2.log("AccountPolicyAuthority", address(deployment.accountPolicyAuthority));
+        console2.log("LifecyclePolicyValidator", address(deployment.lifecyclePolicyValidator));
+        console2.log("SignedLifecycleEngine", address(deployment.signedLifecycleEngine));
+        console2.log("CompressionCoordinator", address(deployment.compressionCoordinator));
+        console2.log("DefaultBidderGate", address(deployment.defaultBidderGate));
+        console2.log("DefaultProcessEngine", address(deployment.defaultProcessEngine));
         console2.log("CashSettlementCoordinator", address(deployment.cashSettlementCoordinator));
         console2.log("PrivacyCommitmentRegistry", address(deployment.privacyCommitmentRegistry));
         console2.log("OperationalAdapterExecutor", address(deployment.operationalAdapterExecutor));
