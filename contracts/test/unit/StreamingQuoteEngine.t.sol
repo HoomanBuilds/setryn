@@ -17,6 +17,7 @@ import {
 import {Side} from "../../src/types/Enums.sol";
 import {
     AccountId,
+    AssetId,
     CollateralLockId,
     FeeScheduleId,
     PackageId,
@@ -125,6 +126,11 @@ contract StreamingQuoteEngineTest is Test {
             feeScheduleVersion: 1,
             riskDomainId: RiskDomainId.wrap(keccak256("risk")),
             riskDomainVersion: 1,
+            collateralAssetId: AssetId.wrap(keccak256("collateral")),
+            collateralBindingVersion: 1,
+            maximumLiability: 1_000,
+            liabilityPerLot: 1,
+            capacityExpiry: uint64(block.timestamp + 2 days),
             executionModeId: keccak256("atomic"),
             permittedExecutor: address(this),
             capacityPolicyHash: keccak256("capacity policy"),

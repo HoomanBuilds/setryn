@@ -2,7 +2,16 @@
 pragma solidity 0.8.37;
 
 import {AuctionId, AuctionPriceRule, BidCommitmentId} from "./AuctionTypes.sol";
-import {FeeScheduleId, FillId, PackageId, RiskDomainId, SeriesId} from "./Identifiers.sol";
+import {
+    AccountId,
+    AssetId,
+    CollateralLockId,
+    FeeScheduleId,
+    FillId,
+    PackageId,
+    RiskDomainId,
+    SeriesId
+} from "./Identifiers.sol";
 import {OrderTargetKind} from "./OrderTypes.sol";
 import {Lots, PriceTicks} from "./Units.sol";
 
@@ -39,6 +48,14 @@ struct BatchCapacityDisposition {
     bytes32 reservationId;
     bytes32 capacityPolicyHash;
     bytes32 capacityEvidenceHash;
+    AccountId accountId;
+    AssetId collateralAssetId;
+    uint32 collateralBindingVersion;
+    RiskDomainId riskDomainId;
+    uint32 riskDomainVersion;
+    CollateralLockId lockId;
+    bytes32 lockReference;
+    uint64 expiry;
     uint128 reservedLiability;
     uint128 consumedLiability;
     uint128 expectedRemainingLiability;

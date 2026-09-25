@@ -5,8 +5,14 @@ import {IBatchCapacityManager} from "../../src/interfaces/IBatchCapacityManager.
 import {IStreamCapacityManager} from "../../src/interfaces/IStreamCapacityManager.sol";
 import {BidCommitmentId} from "../../src/types/AuctionTypes.sol";
 import {BatchCapacityDisposition, BatchExecutionId} from "../../src/types/BatchTypes.sol";
+import {
+    CapacityConsumptionRecord,
+    ManagedCapacity,
+    ManagedCapacityStatus,
+    StreamCapacityState
+} from "../../src/types/CapacityManagerTypes.sol";
 import {PackageClearingRequest, SeriesClearingRequest} from "../../src/types/ClearingTypes.sol";
-import {FillId} from "../../src/types/Identifiers.sol";
+import {CollateralLockId, FillId} from "../../src/types/Identifiers.sol";
 import {Side} from "../../src/types/Enums.sol";
 import {StreamCapacityConsumption, StreamId, StreamPolicy} from "../../src/types/StreamTypes.sol";
 import {Lots} from "../../src/types/Units.sol";
@@ -34,6 +40,16 @@ contract BatchCapacityManagerMock is IBatchCapacityManager {
         require(consumed[allocationId] && consumptionHash != bytes32(0));
         finalizedFill[allocationId] = fillId;
     }
+
+    function expireBatchCapacity(bytes32) external {}
+
+    function getBatchCapacity(bytes32) external pure returns (ManagedCapacity memory capacity) {
+        capacity.status = ManagedCapacityStatus.Active;
+    }
+
+    function getBatchConsumption(bytes32) external pure returns (CapacityConsumptionRecord memory record) {
+        return record;
+    }
 }
 
 contract StreamCapacityManagerMock is IStreamCapacityManager {
@@ -46,8 +62,13 @@ contract StreamCapacityManagerMock is IStreamCapacityManager {
         inventory = inventory_;
     }
 
-    function validateStreamCapacity(StreamId, StreamPolicy calldata policy) external pure {
+    function reserveStreamCapacity(StreamId, StreamPolicy calldata policy)
+        external
+        pure
+        returns (CollateralLockId lockId)
+    {
         require(policy.capacityReservationId != bytes32(0));
+        return CollateralLockId.wrap(keccak256(abi.encode(policy.capacityReservationId)));
     }
 
     function consumeStreamCapacity(StreamId streamId, uint64 sequence, Side makerSide, Lots fillLots)
@@ -72,6 +93,22 @@ contract StreamCapacityManagerMock is IStreamCapacityManager {
     {
         require(sequence == consumedSequence[streamId] && consumptionHash != bytes32(0));
         finalizedFill[streamId] = fillId;
+    }
+
+    function releaseStreamCapacity(StreamId) external {}
+
+    function expireStreamCapacity(StreamId) external {}
+
+    function getStreamCapacity(StreamId streamId) external view returns (StreamCapacityState memory state) {
+        state.streamId = streamId;
+        state.capacity.status = ManagedCapacityStatus.Active;
+        state.capacity.lockId = CollateralLockId.wrap(keccak256(abi.encode(streamId)));
+        state.capacity.remainingLiability = type(uint128).max;
+        state.inventoryLots = inventory;
+    }
+
+    function getStreamConsumption(StreamId, uint64) external pure returns (CapacityConsumptionRecord memory record) {
+        return record;
     }
 }
 

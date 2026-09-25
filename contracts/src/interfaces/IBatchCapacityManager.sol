@@ -5,6 +5,7 @@ import {BidCommitmentId} from "../types/AuctionTypes.sol";
 import {BatchCapacityDisposition, BatchExecutionId} from "../types/BatchTypes.sol";
 import {FillId} from "../types/Identifiers.sol";
 import {Lots} from "../types/Units.sol";
+import {CapacityConsumptionRecord, ManagedCapacity} from "../types/CapacityManagerTypes.sol";
 
 interface IBatchCapacityManager {
     function consumeBatchCapacity(
@@ -22,4 +23,8 @@ interface IBatchCapacityManager {
         FillId fillId,
         bytes32 consumptionHash
     ) external;
+
+    function expireBatchCapacity(bytes32 allocationId) external;
+    function getBatchCapacity(bytes32 allocationId) external view returns (ManagedCapacity memory capacity);
+    function getBatchConsumption(bytes32 allocationId) external view returns (CapacityConsumptionRecord memory record);
 }

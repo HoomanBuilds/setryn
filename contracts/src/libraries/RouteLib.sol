@@ -4,7 +4,7 @@ pragma solidity 0.8.37;
 import {PackageDefinitionLib} from "./PackageDefinitionLib.sol";
 import {PortfolioRiskLib} from "./PortfolioRiskLib.sol";
 import {Side} from "../types/Enums.sol";
-import {AccountId, PackageId} from "../types/Identifiers.sol";
+import {AccountId, CollateralLockId, PackageId} from "../types/Identifiers.sol";
 import {PackageLeg} from "../types/PackageDefinition.sol";
 import {
     CoincidencePlan,
@@ -183,6 +183,10 @@ library RouteLib {
                     || component.orderHash == bytes32(0) || !component.executable || component.expiry < route.expiry
                     || component.sourceBlock != route.sourceBlock
                     || component.guaranteeClassId != route.guaranteeClassId || (component.dependencyMask >> i) != 0
+                    || (CollateralLockId.unwrap(component.capacityLockId) == bytes32(0))
+                        != (component.capacityLockReference == bytes32(0))
+                    || (CollateralLockId.unwrap(component.fundingLockId) == bytes32(0))
+                        != (component.fundingLockReference == bytes32(0))
             ) revert InvalidRouteGraph();
             for (uint256 j; j < i; ++j) {
                 if (component.reservationKey == components[j].reservationKey) revert InvalidRouteGraph();

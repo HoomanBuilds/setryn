@@ -18,6 +18,8 @@ import {
     SeriesClearingRequest
 } from "../types/ClearingTypes.sol";
 import {FillId} from "../types/Identifiers.sol";
+import {CollateralLockId} from "../types/Identifiers.sol";
+import {StreamCapacityState} from "../types/CapacityManagerTypes.sol";
 import {OrderTargetKind} from "../types/OrderTypes.sol";
 import {PackageLeg} from "../types/PackageDefinition.sol";
 import {
@@ -68,7 +70,7 @@ contract StreamingQuoteEngine is IStreamingQuoteEngine, ReentrancyGuard {
         if (!SignatureChecker.isValidSignatureNowCalldata(policy.maker, digest, signature)) {
             revert InvalidSignature(policy.maker, digest);
         }
-        _capacityManager.validateStreamCapacity(streamId, policy);
+        _capacityManager.reserveStreamCapacity(streamId, policy);
         _usedNonces[policy.maker][policy.nonce] = true;
         _streams[streamId] = StreamRecord({policy: policy, nextSequence: 1, active: true});
         for (uint256 i; i < sizeBands.length; ++i) {
@@ -87,7 +89,57 @@ contract StreamingQuoteEngine is IStreamingQuoteEngine, ReentrancyGuard {
         if (msg.sender != record.policy.maker) revert UnauthorizedExecutor(record.policy.maker, msg.sender);
         if (!record.active) revert StreamNotLive(streamId);
         record.active = false;
+        _capacityManager.releaseStreamCapacity(streamId);
         emit StreamCancelled(streamId, msg.sender);
+    }
+
+    function expireStream(StreamId streamId) external nonReentrant {
+        StreamRecord storage record = _requireStream(streamId);
+        if (!record.active || block.timestamp <= record.policy.expiry) revert StreamNotLive(streamId);
+        record.active = false;
+        _capacityManager.expireStreamCapacity(streamId);
+        emit StreamCancelled(streamId, msg.sender);
+    }
+
+    function streamExecutable(StreamId streamId) external view returns (bool) {
+        StreamRecord storage record = _streams[streamId];
+        return record.active && block.timestamp >= record.policy.validAfter && block.timestamp <= record.policy.expiry;
+    }
+
+    function previewFirmQuote(StreamId streamId, Lots fillLots)
+        external
+        view
+        returns (
+            PriceTicks priceTicks,
+            uint64 sequence,
+            CollateralLockId capacityLockId,
+            uint128 remainingLiability,
+            bytes32 snapshotHash
+        )
+    {
+        StreamRecord storage record = _requireStream(streamId);
+        if (!record.active || block.timestamp < record.policy.validAfter || block.timestamp > record.policy.expiry) {
+            revert StreamNotLive(streamId);
+        }
+        StreamCapacityState memory capacity = _capacityManager.getStreamCapacity(streamId);
+        priceTicks = StreamPricingLib.quote(
+            record.policy, _sizeBands[streamId], _ladders[streamId], fillLots, capacity.inventoryLots
+        );
+        sequence = record.nextSequence;
+        capacityLockId = capacity.capacity.lockId;
+        remainingLiability = capacity.capacity.remainingLiability;
+        snapshotHash = keccak256(
+            abi.encode(
+                StreamId.unwrap(streamId),
+                StreamHashLib.hashPolicy(record.policy),
+                sequence,
+                fillLots,
+                priceTicks,
+                capacityLockId,
+                remainingLiability,
+                capacity.inventoryLots
+            )
+        );
     }
 
     function fillSeries(StreamFill calldata fill, SeriesClearingRequest calldata request)

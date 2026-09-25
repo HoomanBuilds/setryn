@@ -3,30 +3,40 @@ pragma solidity 0.8.37;
 
 import {RouteLib} from "../../src/libraries/RouteLib.sol";
 import {RiskAdmission, RiskAdmissionId, RiskAdmissionStatus} from "../../src/types/RiskTypes.sol";
-import {RouteComponent, RouteId} from "../../src/types/RoutingTypes.sol";
+import {PackageLeg} from "../../src/types/PackageDefinition.sol";
+import {ExecutableRoute, RouteComponent, RouteId} from "../../src/types/RoutingTypes.sol";
 
 contract RouteLiquiditySourceMock {
     mapping(RouteId routeId => bool live) public live;
     mapping(RouteId routeId => bytes32 reservationHash) public reservations;
 
-    function validateComponents(RouteId, RouteComponent[] calldata components) external pure returns (bytes32) {
+    function validateComponents(
+        RouteId,
+        ExecutableRoute calldata,
+        PackageLeg[] calldata,
+        RouteComponent[] calldata components
+    ) external pure returns (bytes32) {
         return RouteLib.sourceSnapshotHash(components);
     }
 
-    function reserveComponents(RouteId routeId, RouteComponent[] calldata components)
-        external
-        returns (bytes32 reservationHash)
-    {
+    function reserveComponents(
+        RouteId routeId,
+        ExecutableRoute calldata,
+        PackageLeg[] calldata,
+        RouteComponent[] calldata components
+    ) external returns (bytes32 reservationHash) {
         reservationHash = keccak256(abi.encode(routeId, components));
         reservations[routeId] = reservationHash;
         live[routeId] = true;
     }
 
-    function componentsRemainExecutable(RouteId routeId, bytes32 reservationHash, RouteComponent[] calldata)
-        external
-        view
-        returns (bool)
-    {
+    function componentsRemainExecutable(
+        RouteId routeId,
+        bytes32 reservationHash,
+        ExecutableRoute calldata,
+        PackageLeg[] calldata,
+        RouteComponent[] calldata
+    ) external view returns (bool) {
         return live[routeId] && reservations[routeId] == reservationHash;
     }
 

@@ -36,6 +36,7 @@ contract CollateralAwareRouteEngine is ICollateralAwareRouteEngine, AccessContro
     mapping(RouteId routeId => RouteReservation reservation) private _reservations;
     mapping(RouteId routeId => ExecutableRoute route) private _routes;
     mapping(RouteId routeId => RouteComponent[] components) private _components;
+    mapping(RouteId routeId => PackageLeg[] legs) private _packageLegs;
     mapping(RouteId routeId => RouteRiskBinding[] bindings) private _riskBindings;
     mapping(bytes32 reservationKey => RouteId routeId) private _reservationRoutes;
     mapping(RiskAdmissionId admissionId => RouteId routeId) private _admissionRoutes;
@@ -72,7 +73,9 @@ contract CollateralAwareRouteEngine is ICollateralAwareRouteEngine, AccessContro
             _validateRiskAdmissions(candidate);
             RouteId candidateId = RouteLib.deriveRouteId(candidate.route, block.chainid, address(this));
             bytes32 expectedSnapshot = RouteLib.sourceSnapshotHash(candidate.components);
-            bytes32 currentSnapshot = _liquiditySource.validateComponents(candidateId, candidate.components);
+            bytes32 currentSnapshot = _liquiditySource.validateComponents(
+                candidateId, candidate.route, candidate.packageLegs, candidate.components
+            );
             if (currentSnapshot != expectedSnapshot) revert SourceSnapshotMismatch(expectedSnapshot, currentSnapshot);
             if (i != 0 && RouteLib.isBetter(candidate, candidates[bestIndex])) bestIndex = i;
         }
@@ -86,10 +89,14 @@ contract CollateralAwareRouteEngine is ICollateralAwareRouteEngine, AccessContro
         for (uint256 i; i < selected.components.length; ++i) {
             _components[routeId].push(selected.components[i]);
         }
+        for (uint256 i; i < selected.packageLegs.length; ++i) {
+            _packageLegs[routeId].push(selected.packageLegs[i]);
+        }
         for (uint256 i; i < selected.riskBindings.length; ++i) {
             _riskBindings[routeId].push(selected.riskBindings[i]);
         }
-        bytes32 sourceReservationHash = _liquiditySource.reserveComponents(routeId, selected.components);
+        bytes32 sourceReservationHash =
+            _liquiditySource.reserveComponents(routeId, selected.route, selected.packageLegs, selected.components);
         if (sourceReservationHash == bytes32(0)) revert InvalidRoute();
         bytes32 routeHash = RouteLib.hashRoute(selected.route);
         _reservations[routeId] = RouteReservation({
@@ -268,7 +275,11 @@ contract CollateralAwareRouteEngine is ICollateralAwareRouteEngine, AccessContro
     function _isExecutable(RouteId routeId, RouteReservation storage reservation) private view returns (bool) {
         if (block.timestamp > _routes[routeId].expiry) return false;
         if (!_liquiditySource.componentsRemainExecutable(
-                routeId, reservation.sourceReservationHash, _components[routeId]
+                routeId,
+                reservation.sourceReservationHash,
+                _routes[routeId],
+                _packageLegs[routeId],
+                _components[routeId]
             )) return false;
         RouteRiskBinding[] storage bindings = _riskBindings[routeId];
         for (uint256 i; i < bindings.length; ++i) {

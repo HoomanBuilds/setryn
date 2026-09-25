@@ -4,7 +4,8 @@ pragma solidity 0.8.37;
 import {IAtomicClearingEngine} from "./IAtomicClearingEngine.sol";
 import {IStreamCapacityManager} from "./IStreamCapacityManager.sol";
 import {PackageClearingRequest, SeriesClearingRequest} from "../types/ClearingTypes.sol";
-import {FillId} from "../types/Identifiers.sol";
+import {CollateralLockId, FillId} from "../types/Identifiers.sol";
+import {Lots, PriceTicks} from "../types/Units.sol";
 import {PackageLeg} from "../types/PackageDefinition.sol";
 import {StreamFill, StreamId, StreamLadderLevel, StreamPolicy, StreamSizeBand} from "../types/StreamTypes.sol";
 
@@ -47,6 +48,7 @@ interface IStreamingQuoteEngine {
         bytes calldata signature
     ) external returns (StreamId streamId);
     function cancelStream(StreamId streamId) external;
+    function expireStream(StreamId streamId) external;
     function fillSeries(StreamFill calldata fill, SeriesClearingRequest calldata request)
         external
         returns (FillId fillId);
@@ -58,4 +60,16 @@ interface IStreamingQuoteEngine {
     function atomicClearingEngine() external view returns (IAtomicClearingEngine);
     function capacityManager() external view returns (IStreamCapacityManager);
     function nextSequence(StreamId streamId) external view returns (uint64);
+    function getPolicy(StreamId streamId) external view returns (StreamPolicy memory);
+    function streamExecutable(StreamId streamId) external view returns (bool);
+    function previewFirmQuote(StreamId streamId, Lots fillLots)
+        external
+        view
+        returns (
+            PriceTicks priceTicks,
+            uint64 sequence,
+            CollateralLockId capacityLockId,
+            uint128 remainingLiability,
+            bytes32 snapshotHash
+        );
 }

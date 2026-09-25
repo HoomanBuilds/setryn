@@ -11,7 +11,15 @@ import {
     BatchExecutionHeader,
     BatchRemainderDisposition
 } from "../../src/types/BatchTypes.sol";
-import {FeeScheduleId, PackageId, RiskDomainId, SeriesId} from "../../src/types/Identifiers.sol";
+import {
+    AccountId,
+    AssetId,
+    CollateralLockId,
+    FeeScheduleId,
+    PackageId,
+    RiskDomainId,
+    SeriesId
+} from "../../src/types/Identifiers.sol";
 import {OrderTargetKind} from "../../src/types/OrderTypes.sol";
 import {PackageLeg} from "../../src/types/PackageDefinition.sol";
 import {Lots, PriceTicks} from "../../src/types/Units.sol";
@@ -84,6 +92,14 @@ contract BatchClearingLibTest is Test {
                 reservationId: keccak256("reservation"),
                 capacityPolicyHash: keccak256("capacity policy"),
                 capacityEvidenceHash: keccak256("capacity evidence"),
+                accountId: AccountId.wrap(keccak256("account")),
+                collateralAssetId: AssetId.wrap(keccak256("collateral")),
+                collateralBindingVersion: 1,
+                riskDomainId: RiskDomainId.wrap(keccak256("risk")),
+                riskDomainVersion: 1,
+                lockId: CollateralLockId.wrap(keccak256("lock")),
+                lockReference: keccak256("lock reference"),
+                expiry: 1,
                 reservedLiability: 2,
                 consumedLiability: 1,
                 expectedRemainingLiability: 1,

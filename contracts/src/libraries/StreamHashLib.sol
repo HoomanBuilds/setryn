@@ -3,7 +3,7 @@ pragma solidity 0.8.37;
 
 import {Eip712Lib} from "./Eip712Lib.sol";
 import {Side} from "../types/Enums.sol";
-import {AccountId, FeeScheduleId, PackageId, RiskDomainId, SeriesId} from "../types/Identifiers.sol";
+import {AccountId, AssetId, FeeScheduleId, PackageId, RiskDomainId, SeriesId} from "../types/Identifiers.sol";
 import {StreamId, StreamLadderLevel, StreamPolicy, StreamPricingKind, StreamSizeBand} from "../types/StreamTypes.sol";
 import {Lots, PriceTicks} from "../types/Units.sol";
 import {OrderTargetKind} from "../types/OrderTypes.sol";
@@ -12,7 +12,7 @@ library StreamHashLib {
     uint8 internal constant MAXIMUM_SIZE_BANDS = 8;
     uint8 internal constant MAXIMUM_LADDER_LEVELS = 8;
     bytes32 internal constant POLICY_TYPEHASH = keccak256(
-        "StreamPolicy(address maker,bytes32 makerAccountId,bytes32 makerOrderHash,uint8 targetKind,bytes32 seriesId,bytes32 packageId,uint32 targetVersion,bytes32 packageWitnessHash,uint8 makerSide,uint8 pricingKind,bytes32 sizeBandsHash,bytes32 ladderHash,int128 baseBidPriceTicks,int128 baseAskPriceTicks,int128 sizeSlopeTicksPerLot,int128 inventorySkewTicksPerLot,uint128 maximumAbsoluteInventoryLots,uint128 maximumAbsoluteSkewTicks,uint32 refreshInterval,uint32 quoteLifetime,uint64 validAfter,uint64 expiry,bytes32 feeScheduleId,uint32 feeScheduleVersion,bytes32 riskDomainId,uint32 riskDomainVersion,bytes32 executionModeId,address permittedExecutor,bytes32 capacityPolicyHash,bytes32 capacityReservationId,uint256 nonce,bytes32 salt)"
+        "StreamPolicy(address maker,bytes32 makerAccountId,bytes32 makerOrderHash,uint8 targetKind,bytes32 seriesId,bytes32 packageId,uint32 targetVersion,bytes32 packageWitnessHash,uint8 makerSide,uint8 pricingKind,bytes32 sizeBandsHash,bytes32 ladderHash,int128 baseBidPriceTicks,int128 baseAskPriceTicks,int128 sizeSlopeTicksPerLot,int128 inventorySkewTicksPerLot,uint128 maximumAbsoluteInventoryLots,uint128 maximumAbsoluteSkewTicks,uint32 refreshInterval,uint32 quoteLifetime,uint64 validAfter,uint64 expiry,bytes32 feeScheduleId,uint32 feeScheduleVersion,bytes32 riskDomainId,uint32 riskDomainVersion,bytes32 collateralAssetId,uint32 collateralBindingVersion,uint128 maximumLiability,uint128 liabilityPerLot,uint64 capacityExpiry,bytes32 executionModeId,address permittedExecutor,bytes32 capacityPolicyHash,bytes32 capacityReservationId,uint256 nonce,bytes32 salt)"
     );
     bytes32 internal constant SIZE_BAND_TYPEHASH =
         keccak256("StreamSizeBand(uint128 minimumLots,uint128 maximumLots,uint128 lotStep)");
@@ -58,6 +58,11 @@ library StreamHashLib {
                     policy.feeScheduleVersion,
                     RiskDomainId.unwrap(policy.riskDomainId),
                     policy.riskDomainVersion,
+                    AssetId.unwrap(policy.collateralAssetId),
+                    policy.collateralBindingVersion,
+                    policy.maximumLiability,
+                    policy.liabilityPerLot,
+                    policy.capacityExpiry,
                     policy.executionModeId,
                     policy.permittedExecutor,
                     policy.capacityPolicyHash,
@@ -122,6 +127,8 @@ library StreamHashLib {
                 || policy.makerOrderHash == bytes32(0) || policy.targetVersion == 0
                 || FeeScheduleId.unwrap(policy.feeScheduleId) == bytes32(0) || policy.feeScheduleVersion == 0
                 || RiskDomainId.unwrap(policy.riskDomainId) == bytes32(0) || policy.riskDomainVersion == 0
+                || AssetId.unwrap(policy.collateralAssetId) == bytes32(0) || policy.collateralBindingVersion == 0
+                || policy.maximumLiability == 0 || policy.liabilityPerLot == 0 || policy.capacityExpiry < policy.expiry
                 || policy.executionModeId == bytes32(0) || policy.capacityPolicyHash == bytes32(0)
                 || policy.capacityReservationId == bytes32(0) || policy.salt == bytes32(0)
                 || (policy.makerSide != Side.Buy && policy.makerSide != Side.Sell)

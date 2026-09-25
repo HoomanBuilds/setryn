@@ -10,7 +10,15 @@ import {
     BatchRemainderDisposition
 } from "../types/BatchTypes.sol";
 import {PackageDefinitionLib} from "./PackageDefinitionLib.sol";
-import {FeeScheduleId, PackageId, RiskDomainId, SeriesId} from "../types/Identifiers.sol";
+import {
+    AccountId,
+    AssetId,
+    CollateralLockId,
+    FeeScheduleId,
+    PackageId,
+    RiskDomainId,
+    SeriesId
+} from "../types/Identifiers.sol";
 import {PackageLeg} from "../types/PackageDefinition.sol";
 import {OrderTargetKind} from "../types/OrderTypes.sol";
 import {Lots, PriceTicks} from "../types/Units.sol";
@@ -165,7 +173,13 @@ library BatchClearingLib {
         if (
             disposition.reservationId == bytes32(0) || disposition.capacityPolicyHash == bytes32(0)
                 || disposition.capacityEvidenceHash == bytes32(0) || disposition.reservedLiability == 0
-                || disposition.consumedLiability == 0 || disposition.consumedLiability > disposition.reservedLiability
+                || AccountId.unwrap(disposition.accountId) == bytes32(0)
+                || AssetId.unwrap(disposition.collateralAssetId) == bytes32(0)
+                || disposition.collateralBindingVersion == 0
+                || RiskDomainId.unwrap(disposition.riskDomainId) == bytes32(0) || disposition.riskDomainVersion == 0
+                || CollateralLockId.unwrap(disposition.lockId) == bytes32(0) || disposition.lockReference == bytes32(0)
+                || disposition.expiry == 0 || disposition.consumedLiability == 0
+                || disposition.consumedLiability > disposition.reservedLiability
                 || disposition.expectedRemainingLiability
                     != disposition.reservedLiability - disposition.consumedLiability
                 || disposition.remainderDisposition == BatchRemainderDisposition.Unspecified

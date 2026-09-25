@@ -2,7 +2,7 @@
 pragma solidity 0.8.37;
 
 import {Side} from "./Enums.sol";
-import {AccountId, FeeScheduleId, PackageId, RiskDomainId, SeriesId} from "./Identifiers.sol";
+import {AccountId, AssetId, FeeScheduleId, PackageId, RiskDomainId, SeriesId} from "./Identifiers.sol";
 import {OrderTargetKind} from "./OrderTypes.sol";
 import {Lots, PriceTicks} from "./Units.sol";
 
@@ -53,6 +53,11 @@ struct StreamPolicy {
     uint32 feeScheduleVersion;
     RiskDomainId riskDomainId;
     uint32 riskDomainVersion;
+    AssetId collateralAssetId;
+    uint32 collateralBindingVersion;
+    uint128 maximumLiability;
+    uint128 liabilityPerLot;
+    uint64 capacityExpiry;
     bytes32 executionModeId;
     address permittedExecutor;
     bytes32 capacityPolicyHash;

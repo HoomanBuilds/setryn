@@ -61,7 +61,9 @@ struct RouteComponent {
     TickSizeMinor tickSizeMinor;
     uint128 feeMinor;
     CollateralLockId capacityLockId;
+    bytes32 capacityLockReference;
     CollateralLockId fundingLockId;
+    bytes32 fundingLockReference;
     uint64 expiry;
     uint64 sourceBlock;
     uint16 dependencyMask;
