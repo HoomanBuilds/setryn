@@ -1,0 +1,60 @@
+[
+  {
+    "chainId": 31337,
+    "number": "1",
+    "hash": "0x0101010101010101010101010101010101010101010101010101010101010101",
+    "parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "timestamp": "1",
+    "events": [
+      {
+        "name": "collateral.account.created",
+        "contractName": "CollateralVault",
+        "log": {
+          "block": {
+            "chainId": 31337,
+            "number": "1",
+            "hash": "0x0101010101010101010101010101010101010101010101010101010101010101",
+            "parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "timestamp": "1"
+          },
+          "transactionHash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+          "transactionIndex": 0,
+          "logIndex": 0,
+          "contractAddress": "0x1111111111111111111111111111111111111111"
+        },
+        "payload": {
+          "accountId": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "controller": "0x2222222222222222222222222222222222222222",
+          "salt": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      },
+      {
+        "name": "collateral.deposited",
+        "contractName": "CollateralVault",
+        "log": {
+          "block": {
+            "chainId": 31337,
+            "number": "1",
+            "hash": "0x0101010101010101010101010101010101010101010101010101010101010101",
+            "parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "timestamp": "1"
+          },
+          "transactionHash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+          "transactionIndex": 0,
+          "logIndex": 1,
+          "contractAddress": "0x1111111111111111111111111111111111111111"
+        },
+        "payload": {
+          "accountId": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "collateralId": "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "token": "0x3333333333333333333333333333333333333333",
+          "assetId": "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "bindingVersion": "1",
+          "payer": "0x2222222222222222222222222222222222222222",
+          "amount": "1000000",
+          "newTotal": "1000000"
+        }
+      }
+    ]
+  }
+]

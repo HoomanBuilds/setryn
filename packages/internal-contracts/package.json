@@ -1,0 +1,18 @@
+{
+  "name": "@setryn/internal-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "generate": "node scripts/generate-bindings.mjs",
+    "generate:partial": "node scripts/generate-bindings.mjs --allow-partial",
+    "check:generated": "node scripts/generate-bindings.mjs --check",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2"
+  }
+}
