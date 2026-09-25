@@ -2,6 +2,8 @@
 pragma solidity 0.8.37;
 
 import {IPositionEngineTerminalState} from "./IPositionEngineTerminalState.sol";
+import {ICollateralVault} from "./ICollateralVault.sol";
+import {ISeriesRegistry} from "./ISeriesRegistry.sol";
 import {PositionId} from "../types/Identifiers.sol";
 import {PositionCreation, PositionEconomics, PositionLifecycle, PositionStatus} from "../types/PositionTypes.sol";
 
@@ -62,6 +64,10 @@ interface IPositionEngine is IPositionEngineTerminalState {
     error UnsupportedTerminalAlternative(PositionStatus status);
 
     function createPosition(PositionCreation calldata creation) external returns (PositionId positionId);
+
+    function seriesRegistry() external view returns (ISeriesRegistry);
+
+    function collateralVault() external view returns (ICollateralVault);
 
     function beginFixing(PositionId positionId) external;
 
