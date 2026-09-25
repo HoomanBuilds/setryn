@@ -269,6 +269,7 @@ contract SealedAuctionHouseTest is Test {
             auctionVersion: version,
             bidder: bidder,
             bidderAccountId: AccountId.wrap(keccak256(abi.encode("account", bidder))),
+            bidderOrderHash: keccak256(abi.encode("bidder order", bidder, nonce)),
             nonce: nonce,
             side: Side.Sell,
             lots: Lots.wrap(lots),
@@ -286,6 +287,10 @@ contract SealedAuctionHouseTest is Test {
         return AuctionDefinition({
             namespaceId: keccak256("namespace"),
             auctionKey: keccak256(abi.encode("auction", priceRule)),
+            initiatorOrderHash: keccak256("initiator order"),
+            initiatorAccountId: AccountId.wrap(keccak256("initiator account")),
+            initiatorMaximumFeeMinor: 10,
+            executionModeId: keccak256("execution mode"),
             kind: AuctionKind.BatchOrder,
             targetKind: AuctionTargetKind.Series,
             seriesId: SeriesId.wrap(keccak256("series")),

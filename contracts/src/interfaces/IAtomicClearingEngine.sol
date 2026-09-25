@@ -8,6 +8,8 @@ import {IPositionEngine} from "./IPositionEngine.sol";
 import {ISeriesRegistry} from "./ISeriesRegistry.sol";
 import {ICollateralVault} from "./ICollateralVault.sol";
 import {IFundedFeeEngine} from "./IFundedFeeEngine.sol";
+import {IClearingChannelHandoffAdapter} from "./IClearingChannelHandoffAdapter.sol";
+import {ClearingHandoffClaim} from "../types/ClearingHandoffTypes.sol";
 import {
     ClearingChannelKind,
     ClearingEntryKind,
@@ -55,6 +57,9 @@ interface IAtomicClearingEngine {
         uint128 cumulativeLots,
         address requester
     );
+    event ClearingChannelActivated(
+        ClearingChannelKind indexed channelKind, address indexed adapter, bytes32 indexed capabilityHash
+    );
 
     error ZeroInitialAdmin();
     error ZeroDependency(address dependency);
@@ -79,9 +84,27 @@ interface IAtomicClearingEngine {
     error InvalidFundingPurpose(bytes32 purpose);
     error InvalidFundingCumulativeLots(uint128 filled, uint128 cumulative, uint128 total);
     error UnsupportedClearingChannel(ClearingChannelKind channelKind);
+    error ClearingChannelAlreadyActivated(ClearingChannelKind channelKind);
+    error ClearingChannelSourceMismatch(address expected, address actual);
+    error ClearingHandoffMismatch();
 
     function clearSeries(SeriesClearingRequest calldata request) external returns (FillId fillId);
     function clearPackage(PackageClearingRequest calldata request) external returns (FillId fillId);
+    function clearSeriesWithHandoff(SeriesClearingRequest calldata request, ClearingHandoffClaim calldata claim)
+        external
+        returns (FillId fillId);
+    function clearPackageWithHandoff(PackageClearingRequest calldata request, ClearingHandoffClaim calldata claim)
+        external
+        returns (FillId fillId);
+    function activateClearingChannel(
+        ClearingChannelKind channelKind,
+        IClearingChannelHandoffAdapter adapter,
+        bytes32 capabilityHash
+    ) external;
+    function clearingChannelAdapter(ClearingChannelKind channelKind)
+        external
+        view
+        returns (IClearingChannelHandoffAdapter);
     function reserveOrderFunding(bytes32 orderHash, uint128 cumulativeLots, bytes32 purpose, uint128 amount)
         external
         returns (CollateralLockId lockId);

@@ -2,17 +2,29 @@
 pragma solidity 0.8.37;
 
 import {
+    CapacityReservationDisposition,
     AccessControlDefaultAdminRules
 } from "@openzeppelin/contracts/access/extensions/AccessControlDefaultAdminRules.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {IFirmCapacityRiskRegistry, IFirmCapacityVault} from "../interfaces/IFirmCapacityVault.sol";
+import {IAtomicClearingEngine} from "../interfaces/IAtomicClearingEngine.sol";
+import {IClearingChannelHandoffAdapter} from "../interfaces/IClearingChannelHandoffAdapter.sol";
+import {IPositionEngine} from "../interfaces/IPositionEngine.sol";
 import {IPrivateRfqBook} from "../interfaces/IPrivateRfqBook.sol";
 import {IPrivateRfqValidationGate} from "../interfaces/IPrivateRfqValidationGate.sol";
 import {RfqHashLib} from "../libraries/RfqHashLib.sol";
+import {PackageDefinitionLib} from "../libraries/PackageDefinitionLib.sol";
 import {CollateralLock} from "../types/CollateralTypes.sol";
-import {LockStatus} from "../types/Enums.sol";
+import {
+    CapacityDispositionKind,
+    ClearingHandoffClaim,
+    ClearingHandoffKind,
+    UnusedCapacityPolicy,
+    VerifiedClearingHandoff
+} from "../types/ClearingHandoffTypes.sol";
+import {LockStatus, Side} from "../types/Enums.sol";
 import {
     AccountId,
     AssetId,
@@ -24,7 +36,7 @@ import {
     SeriesId
 } from "../types/Identifiers.sol";
 import {PackageLeg} from "../types/PackageDefinition.sol";
-import {RemainderPolicy} from "../types/OrderTypes.sol";
+import {OrderTargetKind, RemainderPolicy} from "../types/OrderTypes.sol";
 import {RiskDomainVersion} from "../types/RiskDomainDefinition.sol";
 import {
     CapacityCancelAuthorization,
@@ -41,9 +53,14 @@ import {
     RfqSelectionAuthorization,
     RfqStatus
 } from "../types/RfqTypes.sol";
-import {Lots} from "../types/Units.sol";
+import {Lots, PriceTicks} from "../types/Units.sol";
 
-contract PrivateRfqBook is IPrivateRfqBook, AccessControlDefaultAdminRules, ReentrancyGuard {
+contract PrivateRfqBook is
+    IPrivateRfqBook,
+    IClearingChannelHandoffAdapter,
+    AccessControlDefaultAdminRules,
+    ReentrancyGuard
+{
     bytes32 public constant CLEARING_ENGINE_ROLE = keccak256("SETRYN_RFQ_CLEARING_ENGINE_ROLE");
     bytes32 private constant CAPACITY_LOCK_REFERENCE_TYPEHASH = keccak256("SetrynFirmCapacityLockV1(bytes32 quoteId)");
     bytes32 private constant CAPACITY_COMMITMENT_TYPEHASH = keccak256(
@@ -63,6 +80,7 @@ contract PrivateRfqBook is IPrivateRfqBook, AccessControlDefaultAdminRules, Reen
     mapping(MakerQuoteId quoteId => FirmCapacityRecord record) private _capacities;
     mapping(address signer => mapping(uint256 nonce => bool used)) private _usedNonces;
     mapping(bytes32 executionReference => bool consumed) private _consumedHandoffs;
+    mapping(bytes32 executionReference => RfqId rfqId) private _handoffRfqs;
     mapping(RiskDomainId riskDomainId => mapping(uint32 version => uint256 amount)) private _domainReserved;
     mapping(RiskDomainId riskDomainId => mapping(uint32 version => mapping(AccountId accountId => uint256 amount)))
         private _accountReserved;
@@ -195,14 +213,14 @@ contract PrivateRfqBook is IPrivateRfqBook, AccessControlDefaultAdminRules, Reen
         _increaseCapacityCounters(quote, risk);
 
         bytes32 lockReference = keccak256(abi.encode(CAPACITY_LOCK_REFERENCE_TYPEHASH, MakerQuoteId.unwrap(quoteId)));
-        CollateralLockId lockId = _collateralVault.createLock(
+        IPositionEngine positionEngine = IAtomicClearingEngine(_clearingEngine).positionEngine();
+        CollateralLockId lockId = positionEngine.createPositionFundingLock(
             lockReference,
             quote.makerAccountId,
             quote.collateralAssetId,
             quote.collateralBindingVersion,
             quote.maximumLiability,
-            quote.capacityExpiry,
-            _clearingEngine
+            quote.capacityExpiry
         );
         CollateralId collateralId =
             _collateralVault.deriveCollateralId(quote.collateralAssetId, quote.collateralBindingVersion);
@@ -291,6 +309,13 @@ contract PrivateRfqBook is IPrivateRfqBook, AccessControlDefaultAdminRules, Reen
         nonReentrant
         returns (ClearingHandoff memory handoff)
     {
+        return _consumeClearingHandoff(rfqId, fillLots, liabilityAmount, executionReference);
+    }
+
+    function _consumeClearingHandoff(RfqId rfqId, Lots fillLots, uint128 liabilityAmount, bytes32 executionReference)
+        private
+        returns (ClearingHandoff memory handoff)
+    {
         if (executionReference == bytes32(0)) revert ZeroReference();
         if (_consumedHandoffs[executionReference]) revert HandoffAlreadyConsumed(executionReference);
         uint128 fill = Lots.unwrap(fillLots);
@@ -363,6 +388,136 @@ contract PrivateRfqBook is IPrivateRfqBook, AccessControlDefaultAdminRules, Reen
             liabilityAmount,
             capacity.remainingLiability
         );
+    }
+
+    function consumeTypedHandoff(ClearingHandoffClaim calldata claim)
+        external
+        onlyRole(CLEARING_ENGINE_ROLE)
+        nonReentrant
+        returns (VerifiedClearingHandoff memory handoff)
+    {
+        if (claim.kind != ClearingHandoffKind.PrivateRfq || claim.sourceVersion != 1) {
+            revert HandoffClaimMismatch();
+        }
+        RfqId rfqId = RfqId.wrap(claim.sourceId);
+        RfqRecord storage rfq = _requireRfq(rfqId);
+        MakerQuoteId quoteId = rfq.selectedQuoteId;
+        MakerQuoteRecord storage quote = _requireQuote(quoteId);
+        bytes32 expectedCommitment = keccak256(
+            abi.encode(
+                RfqId.unwrap(rfqId),
+                MakerQuoteId.unwrap(quoteId),
+                RfqHashLib.hashRequest(rfq.request),
+                RfqHashLib.hashQuote(quote.quote)
+            )
+        );
+        uint64 deadline = rfq.request.deadline < quote.quote.deadline ? rfq.request.deadline : quote.quote.deadline;
+        bool packageTarget = rfq.request.targetKind == RfqTargetKind.Package;
+        PriceTicks expectedPrice = claim.takerSide == Side.Buy ? quote.quote.askPriceTicks : quote.quote.bidPriceTicks;
+        if (
+            claim.sourceCommitment != expectedCommitment || claim.selectedQuoteOrRouteId != MakerQuoteId.unwrap(quoteId)
+                || claim.takerOrderHash != rfq.request.takerOrderHash
+                || claim.makerOrderHash != quote.quote.makerOrderHash
+                || AccountId.unwrap(claim.takerAccountId) != AccountId.unwrap(rfq.request.takerAccountId)
+                || AccountId.unwrap(claim.makerAccountId) != AccountId.unwrap(quote.quote.makerAccountId)
+                || claim.targetVersion != rfq.request.targetVersion || claim.deadline != deadline
+                || PriceTicks.unwrap(claim.executionPriceTicks) != PriceTicks.unwrap(expectedPrice)
+                || FeeScheduleId.unwrap(claim.feeScheduleId) != FeeScheduleId.unwrap(rfq.request.feeScheduleId)
+                || claim.feeScheduleVersion != rfq.request.feeScheduleVersion
+                || claim.takerMaximumFeeMinor != rfq.request.maxFeeMinor
+                || claim.makerMaximumFeeMinor != quote.quote.maxFeeMinor
+                || claim.riskDomainId != rfq.request.riskDomainId
+                || claim.riskDomainVersion != rfq.request.riskDomainVersion
+                || claim.executionModeId != rfq.request.executionModeId
+                || !_sideAllowed(rfq.request.sidePolicy, claim.takerSide)
+        ) revert HandoffClaimMismatch();
+        if (packageTarget) {
+            if (
+                claim.targetKind != OrderTargetKind.Package
+                    || PackageId.unwrap(claim.packageId) != PackageId.unwrap(rfq.request.packageId)
+                    || claim.packageWitnessHash != rfq.request.packageLegsHash
+                    || PackageDefinitionLib.hashLegs(claim.packageLegs) != rfq.request.packageLegsHash
+            ) revert HandoffClaimMismatch();
+        } else if (
+            claim.targetKind != OrderTargetKind.Series
+                || SeriesId.unwrap(claim.seriesId) != SeriesId.unwrap(rfq.request.seriesId)
+                || claim.packageLegs.length != 0 || claim.packageWitnessHash != bytes32(0)
+        ) {
+            revert HandoffClaimMismatch();
+        }
+
+        FirmCapacityRecord storage capacity = _requireActiveCapacity(quoteId);
+        uint128 expectedRemaining = capacity.remainingLiability;
+        uint128 remainingLots = Lots.unwrap(quote.quote.lots) - Lots.unwrap(quote.cumulativeFilledLots);
+        bool terminalFill = Lots.unwrap(claim.fillLots) == remainingLots
+            || quote.quote.remainderPolicy == RemainderPolicy.CancelRemainder;
+        uint256 liabilityAmount;
+        for (uint256 i; i < claim.capacityDispositions.length; ++i) {
+            CapacityReservationDisposition calldata disposition = claim.capacityDispositions[i];
+            if (
+                disposition.capacityDisposition != CapacityDispositionKind.ConvertedToTerminalLiability
+                    || CollateralLockId.unwrap(disposition.funding.lockId) != CollateralLockId.unwrap(capacity.lockId)
+                    || AccountId.unwrap(disposition.accountId) != AccountId.unwrap(capacity.makerAccountId)
+                    || disposition.funding.expectedRemainingAmount != expectedRemaining
+                    || disposition.funding.expectedExpiry != capacity.expiry
+                    || disposition.unusedCapacityPolicy
+                        != (terminalFill ? UnusedCapacityPolicy.ReleaseOnTerminalFill : UnusedCapacityPolicy.KeepLocked)
+            ) revert HandoffClaimMismatch();
+            liabilityAmount += disposition.reservationAmount;
+            if (liabilityAmount > type(uint128).max || disposition.reservationAmount > expectedRemaining) {
+                revert HandoffClaimMismatch();
+            }
+            expectedRemaining -= disposition.reservationAmount;
+        }
+        if (liabilityAmount == 0) revert HandoffClaimMismatch();
+        _consumeClearingHandoff(rfqId, claim.fillLots, uint128(liabilityAmount), claim.consumptionId);
+        _handoffRfqs[claim.consumptionId] = rfqId;
+        handoff = VerifiedClearingHandoff({
+            claim: claim,
+            provenanceHash: keccak256(abi.encode(block.chainid, address(this), expectedCommitment, claim.consumptionId))
+        });
+    }
+
+    function finalizeTypedHandoff(bytes32 consumptionId, bytes32 fillId, bytes32 positionsHash)
+        external
+        onlyRole(CLEARING_ENGINE_ROLE)
+        nonReentrant
+    {
+        if (!_consumedHandoffs[consumptionId] || fillId == bytes32(0) || positionsHash == bytes32(0)) {
+            revert HandoffClaimMismatch();
+        }
+        RfqId rfqId = _handoffRfqs[consumptionId];
+        RfqRecord storage rfq = _requireRfq(rfqId);
+        MakerQuoteRecord storage quote = _requireQuote(rfq.selectedQuoteId);
+        if (quote.status == MakerQuoteStatus.Consumed) {
+            FirmCapacityRecord storage capacity = _capacities[rfq.selectedQuoteId];
+            if (capacity.status == FirmCapacityStatus.Active) {
+                uint128 remaining = capacity.remainingLiability;
+                if (remaining != 0) _decreaseCapacityCounters(capacity, remaining);
+                capacity.remainingLiability = 0;
+                capacity.status = FirmCapacityStatus.Released;
+                IAtomicClearingEngine(_clearingEngine).positionEngine().releasePositionFundingLock(capacity.lockId);
+                CollateralLock memory released = _collateralVault.getLock(capacity.lockId);
+                if (released.status != LockStatus.Released || released.remainingAmount != 0) {
+                    revert CapacityLockMismatch(rfq.selectedQuoteId);
+                }
+                emit FirmCapacityChanged(
+                    rfq.selectedQuoteId, FirmCapacityStatus.Active, FirmCapacityStatus.Released, 0, msg.sender
+                );
+            } else {
+                _requireCapacityLockSynchronized(rfq.selectedQuoteId, quote.quote);
+            }
+            _setRfqStatus(rfqId, rfq, RfqStatus.Settled);
+            emit RfqSettled(rfqId, rfq.selectedQuoteId, fillId);
+        }
+    }
+
+    function source() external view returns (address) {
+        return address(this);
+    }
+
+    function handoffConsumed(bytes32 consumptionId) external view returns (bool) {
+        return _consumedHandoffs[consumptionId];
     }
 
     function settleRfq(RfqId rfqId, bytes32 settlementReference) external onlyRole(CLEARING_ENGINE_ROLE) nonReentrant {
@@ -525,7 +680,7 @@ contract PrivateRfqBook is IPrivateRfqBook, AccessControlDefaultAdminRules, Reen
         if (terminalStatus == FirmCapacityStatus.Expired) {
             _collateralVault.releaseExpiredLock(capacity.lockId);
         } else {
-            _collateralVault.releaseLock(capacity.lockId);
+            IAtomicClearingEngine(_clearingEngine).positionEngine().releasePositionFundingLock(capacity.lockId);
         }
         emit FirmCapacityChanged(quoteId, previousStatus, terminalStatus, 0, msg.sender);
     }
@@ -540,8 +695,9 @@ contract PrivateRfqBook is IPrivateRfqBook, AccessControlDefaultAdminRules, Reen
     ) private view {
         CollateralLock memory lock = _collateralVault.getLock(lockId);
         if (
-            lock.status != LockStatus.Active || lock.lockReference != lockReference || lock.operator != address(this)
-                || lock.settlementOperator != _clearingEngine
+            lock.status != LockStatus.Active || lock.lockReference != lockReference
+                || lock.operator != address(IAtomicClearingEngine(_clearingEngine).positionEngine())
+                || lock.settlementOperator != address(IAtomicClearingEngine(_clearingEngine).positionEngine())
                 || AccountId.unwrap(lock.accountId) != AccountId.unwrap(quote.makerAccountId)
                 || CollateralId.unwrap(lock.collateralId) != CollateralId.unwrap(collateralId)
                 || AssetId.unwrap(lock.assetId) != AssetId.unwrap(quote.collateralAssetId)
@@ -677,6 +833,12 @@ contract PrivateRfqBook is IPrivateRfqBook, AccessControlDefaultAdminRules, Reen
 
     function _isTerminal(RfqStatus status) private pure returns (bool) {
         return status == RfqStatus.Cancelled || status == RfqStatus.Expired || status == RfqStatus.Rejected;
+    }
+
+    function _sideAllowed(RfqSidePolicy policy, Side side) private pure returns (bool) {
+        if (side == Side.Buy) return policy == RfqSidePolicy.BuyOnly || policy == RfqSidePolicy.TwoWay;
+        if (side == Side.Sell) return policy == RfqSidePolicy.SellOnly || policy == RfqSidePolicy.TwoWay;
+        return false;
     }
 
     function _requireDependency(address dependency) private view {

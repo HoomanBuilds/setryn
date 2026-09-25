@@ -5,6 +5,7 @@ import {
     AccountId,
     AdapterId,
     AssetId,
+    CollateralLockId,
     FeeScheduleId,
     InstrumentId,
     MarketId,
@@ -35,6 +36,13 @@ enum PositionLiabilitySide {
     Short
 }
 
+struct PositionFunding {
+    CollateralLockId lockId;
+    bytes32 lockReference;
+    uint128 expectedRemainingAmount;
+    uint64 expectedExpiry;
+}
+
 struct PositionCreation {
     bytes32 fillIdentity;
     SeriesId seriesId;
@@ -44,6 +52,8 @@ struct PositionCreation {
     uint32 ordinal;
     Lots lots;
     PriceTicks entryPriceTicks;
+    PositionFunding longFunding;
+    PositionFunding shortFunding;
     bytes payoffTerms;
 }
 

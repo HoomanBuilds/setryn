@@ -15,15 +15,25 @@ import {IPositionPayoffModuleV1} from "../interfaces/IPositionPayoffModuleV1.sol
 import {PositionTerminalState} from "../interfaces/IPositionEngineTerminalState.sol";
 import {ISeriesRegistry} from "../interfaces/ISeriesRegistry.sol";
 import {PositionMathLib} from "../libraries/PositionMathLib.sol";
-import {TerminalLiabilityReservation} from "../types/CollateralTypes.sol";
-import {TerminalLiabilityReservationStatus, TerminalOutcomeKind} from "../types/Enums.sol";
-import {AccountId, AdapterId, PositionId, SeriesId, TerminalLiabilityReservationId} from "../types/Identifiers.sol";
+import {CollateralLock, TerminalLiabilityReservation} from "../types/CollateralTypes.sol";
+import {LockStatus, TerminalLiabilityReservationStatus, TerminalOutcomeKind} from "../types/Enums.sol";
+import {
+    AccountId,
+    AdapterId,
+    AssetId,
+    CollateralId,
+    CollateralLockId,
+    PositionId,
+    SeriesId,
+    TerminalLiabilityReservationId
+} from "../types/Identifiers.sol";
 import {AdapterVersion} from "../types/AdapterDefinition.sol";
 import {InstrumentVersion} from "../types/InstrumentDefinition.sol";
 import {MarketVersion} from "../types/MarketDefinition.sol";
 import {
     PositionCreation,
     PositionEconomics,
+    PositionFunding,
     PositionLiabilitySide,
     PositionLifecycle,
     PositionStatus
@@ -33,6 +43,7 @@ import {Lots, LotsLib} from "../types/Units.sol";
 
 contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, ReentrancyGuard {
     bytes32 public constant CLEARING_ENGINE_ROLE = keccak256("SETRYN_CLEARING_ENGINE_ROLE");
+    bytes32 public constant FUNDING_REQUESTER_ROLE = keccak256("SETRYN_POSITION_FUNDING_REQUESTER_ROLE");
     bytes32 public constant FIXING_ENGINE_ROLE = keccak256("SETRYN_FIXING_ENGINE_ROLE");
     bytes32 public constant LIFECYCLE_ENGINE_ROLE = keccak256("SETRYN_LIFECYCLE_ENGINE_ROLE");
     bytes32 public constant DEFAULT_ENGINE_ROLE = keccak256("SETRYN_DEFAULT_ENGINE_ROLE");
@@ -78,6 +89,7 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
     mapping(PositionId positionId => PositionLifecycle lifecycle) private _lifecycles;
     mapping(PositionId positionId => bytes terms) private _payoffTerms;
     mapping(bytes32 liabilityKey => LiabilityState state) private _liabilityStates;
+    mapping(CollateralLockId lockId => address requester) private _positionFundingRequesters;
     uint256 private _positionCount;
 
     constructor(
@@ -112,6 +124,7 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
         );
 
         _grantRole(CLEARING_ENGINE_ROLE, initialAdmin);
+        _grantRole(FUNDING_REQUESTER_ROLE, initialAdmin);
         _grantRole(FIXING_ENGINE_ROLE, initialAdmin);
         _grantRole(LIFECYCLE_ENGINE_ROLE, initialAdmin);
         _grantRole(DEFAULT_ENGINE_ROLE, initialAdmin);
@@ -176,9 +189,9 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
         );
 
         TerminalLiabilityReservationId longReservationId =
-            _createReservation(longLiabilityKey, creation.longAccountId, market, longMaximum);
+            _createReservation(longLiabilityKey, creation.longAccountId, market, longMaximum, creation.longFunding);
         TerminalLiabilityReservationId shortReservationId =
-            _createReservation(shortLiabilityKey, creation.shortAccountId, market, shortMaximum);
+            _createReservation(shortLiabilityKey, creation.shortAccountId, market, shortMaximum, creation.shortFunding);
 
         PositionEconomics storage economics = _economics[positionId];
         economics.positionId = positionId;
@@ -237,6 +250,54 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
             TerminalLiabilityReservationId.unwrap(shortReservationId),
             msg.sender
         );
+    }
+
+    function createPositionFundingLock(
+        bytes32 lockReference,
+        AccountId accountId,
+        AssetId assetId,
+        uint32 bindingVersion,
+        uint128 amount,
+        uint64 expiry
+    ) external nonReentrant onlyRole(FUNDING_REQUESTER_ROLE) returns (CollateralLockId lockId) {
+        if (lockReference == bytes32(0) || AccountId.unwrap(accountId) == bytes32(0) || amount == 0) {
+            revert PositionFundingMismatch(bytes32(0), CollateralLockId.wrap(bytes32(0)));
+        }
+        lockId = _collateralVault.createLock(
+            lockReference, accountId, assetId, bindingVersion, amount, expiry, address(this)
+        );
+        CollateralLock memory lock = _collateralVault.getLock(lockId);
+        CollateralId expectedCollateral = _collateralVault.deriveCollateralId(assetId, bindingVersion);
+        if (
+            CollateralLockId.unwrap(lockId)
+                    != CollateralLockId.unwrap(_collateralVault.deriveLockId(address(this), lockReference))
+                || lock.status != LockStatus.Active || lock.operator != address(this)
+                || lock.settlementOperator != address(this) || lock.lockReference != lockReference
+                || AccountId.unwrap(lock.accountId) != AccountId.unwrap(accountId)
+                || CollateralId.unwrap(lock.collateralId) != CollateralId.unwrap(expectedCollateral)
+                || AssetId.unwrap(lock.assetId) != AssetId.unwrap(assetId) || lock.bindingVersion != bindingVersion
+                || lock.initialAmount != amount || lock.remainingAmount != amount || lock.expiry != expiry
+        ) revert PositionFundingMismatch(bytes32(0), lockId);
+        _positionFundingRequesters[lockId] = msg.sender;
+        emit PositionFundingLockCreated(
+            lockId, lockReference, accountId, assetId, bindingVersion, amount, expiry, msg.sender
+        );
+    }
+
+    function releasePositionFundingLock(CollateralLockId lockId) external nonReentrant {
+        address requester = _positionFundingRequesters[lockId];
+        if (requester == address(0) || requester != msg.sender) {
+            revert UnauthorizedPositionFundingRequester(lockId, requester, msg.sender);
+        }
+        CollateralLock memory lock = _collateralVault.getLock(lockId);
+        if (lock.operator != address(this)) revert PositionFundingMismatch(bytes32(0), lockId);
+        delete _positionFundingRequesters[lockId];
+        _collateralVault.releaseLock(lockId);
+        emit PositionFundingLockReleased(lockId, lock.lockReference, msg.sender);
+    }
+
+    function positionFundingRequester(CollateralLockId lockId) external view returns (address) {
+        return _positionFundingRequesters[lockId];
     }
 
     function beginFixing(PositionId positionId) external {
@@ -422,19 +483,38 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
         bytes32 liabilityKey,
         AccountId payerAccountId,
         MarketVersion memory market,
-        uint128 amount
+        uint128 amount,
+        PositionFunding calldata funding
     ) private returns (TerminalLiabilityReservationId reservationId) {
-        if (amount == 0) return TerminalLiabilityReservationId.wrap(bytes32(0));
-        reservationId = _collateralVault.createTerminalLiabilityReservation(
-            liabilityKey,
-            payerAccountId,
-            market.definition.settlementAssetId,
-            market.definition.settlementAssetVersion,
-            market.definition.riskDomainId,
-            market.definition.riskDomainVersion,
-            amount,
-            address(this)
-        );
+        if (amount == 0) {
+            if (!_isEmptyFunding(funding)) {
+                revert UnexpectedPositionFunding(liabilityKey, funding.lockId);
+            }
+            return TerminalLiabilityReservationId.wrap(bytes32(0));
+        }
+        if (CollateralLockId.unwrap(funding.lockId) == bytes32(0)) {
+            if (!_isEmptyFunding(funding)) revert PositionFundingMismatch(liabilityKey, funding.lockId);
+            reservationId = _collateralVault.createTerminalLiabilityReservation(
+                liabilityKey,
+                payerAccountId,
+                market.definition.settlementAssetId,
+                market.definition.settlementAssetVersion,
+                market.definition.riskDomainId,
+                market.definition.riskDomainVersion,
+                amount,
+                address(this)
+            );
+        } else {
+            _requireAdoptableFunding(liabilityKey, payerAccountId, market, amount, funding);
+            reservationId = _collateralVault.convertLockToTerminalLiabilityReservation(
+                funding.lockId,
+                liabilityKey,
+                market.definition.riskDomainId,
+                market.definition.riskDomainVersion,
+                amount
+            );
+            if (funding.expectedRemainingAmount == amount) delete _positionFundingRequesters[funding.lockId];
+        }
         TerminalLiabilityReservationId expected =
             _collateralVault.deriveTerminalLiabilityReservationId(address(this), positionEngineId, liabilityKey);
         if (TerminalLiabilityReservationId.unwrap(reservationId) != TerminalLiabilityReservationId.unwrap(expected)) {
@@ -449,9 +529,51 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
             reservation.positionId != liabilityKey
                 || AccountId.unwrap(reservation.payerAccountId) != AccountId.unwrap(payerAccountId)
                 || reservation.positionEngine != address(this) || reservation.positionEngineId != positionEngineId
+                || AssetId.unwrap(reservation.assetId) != AssetId.unwrap(market.definition.settlementAssetId)
+                || reservation.bindingVersion != market.definition.settlementAssetVersion
+                || reservation.riskDomainId != market.definition.riskDomainId
+                || reservation.riskDomainVersion != market.definition.riskDomainVersion
+                || reservation.settlementDeadline != _liabilityDeadline(liabilityKey, true)
+                || reservation.finalResolutionAt != _liabilityDeadline(liabilityKey, false)
                 || reservation.initialAmount != amount || reservation.remainingAmount != amount
                 || reservation.status != TerminalLiabilityReservationStatus.Active
         ) revert ReservationRecordMismatch(TerminalLiabilityReservationId.unwrap(reservationId));
+    }
+
+    function _requireAdoptableFunding(
+        bytes32 liabilityKey,
+        AccountId payerAccountId,
+        MarketVersion memory market,
+        uint128 amount,
+        PositionFunding calldata funding
+    ) private view {
+        CollateralLock memory lock = _collateralVault.getLock(funding.lockId);
+        CollateralId expectedCollateral = _collateralVault.deriveCollateralId(
+            market.definition.settlementAssetId, market.definition.settlementAssetVersion
+        );
+        if (
+            funding.lockReference == bytes32(0) || funding.expectedRemainingAmount < amount
+                || funding.expectedExpiry <= block.timestamp || lock.status != LockStatus.Active
+                || lock.operator != address(this) || lock.settlementOperator != address(this)
+                || lock.lockReference != funding.lockReference
+                || CollateralLockId.unwrap(funding.lockId)
+                    != CollateralLockId.unwrap(_collateralVault.deriveLockId(address(this), funding.lockReference))
+                || AccountId.unwrap(lock.accountId) != AccountId.unwrap(payerAccountId)
+                || CollateralId.unwrap(lock.collateralId) != CollateralId.unwrap(expectedCollateral)
+                || AssetId.unwrap(lock.assetId) != AssetId.unwrap(market.definition.settlementAssetId)
+                || lock.bindingVersion != market.definition.settlementAssetVersion
+                || lock.remainingAmount != funding.expectedRemainingAmount || lock.expiry != funding.expectedExpiry
+        ) revert PositionFundingMismatch(liabilityKey, funding.lockId);
+    }
+
+    function _isEmptyFunding(PositionFunding calldata funding) private pure returns (bool) {
+        return CollateralLockId.unwrap(funding.lockId) == bytes32(0) && funding.lockReference == bytes32(0)
+            && funding.expectedRemainingAmount == 0 && funding.expectedExpiry == 0;
+    }
+
+    function _liabilityDeadline(bytes32 liabilityKey, bool settlement) private view returns (uint64) {
+        LiabilityState storage liability = _liabilityStates[liabilityKey];
+        return settlement ? liability.settlementDeadline : liability.finalResolutionAt;
     }
 
     function _evaluatePayoff(PositionId positionId, PositionEconomics storage economics, bytes calldata finalFixings)

@@ -2,12 +2,14 @@
 pragma solidity 0.8.37;
 
 import {
+    CapacityReservationDisposition,
     AccessControlDefaultAdminRules
 } from "@openzeppelin/contracts/access/extensions/AccessControlDefaultAdminRules.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {IAtomicClearingEngine} from "../interfaces/IAtomicClearingEngine.sol";
 import {IClearingAdmissionGate} from "../interfaces/IClearingAdmissionGate.sol";
+import {IClearingChannelHandoffAdapter} from "../interfaces/IClearingChannelHandoffAdapter.sol";
 import {ICollateralVault} from "../interfaces/ICollateralVault.sol";
 import {IFundedFeeEngine} from "../interfaces/IFundedFeeEngine.sol";
 import {IMarketRegistry} from "../interfaces/IMarketRegistry.sol";
@@ -24,6 +26,13 @@ import {PackageDefinitionLib} from "../libraries/PackageDefinitionLib.sol";
 import {PositionMathLib} from "../libraries/PositionMathLib.sol";
 import {CollateralLock} from "../types/CollateralTypes.sol";
 import {
+    CapacityDispositionKind,
+    ClearingHandoffClaim,
+    ClearingHandoffKind,
+    UnusedCapacityPolicy,
+    VerifiedClearingHandoff
+} from "../types/ClearingHandoffTypes.sol";
+import {
     BilateralMatch,
     ClearingAdmission,
     ClearingChannelKind,
@@ -33,7 +42,7 @@ import {
     PackageClearingRequest,
     SeriesClearingRequest
 } from "../types/ClearingTypes.sol";
-import {LockStatus} from "../types/Enums.sol";
+import {LockStatus, Side} from "../types/Enums.sol";
 import {FeeActionRequest, FeeActionResult} from "../types/FeeEngineTypes.sol";
 import {FeeScheduleVersion} from "../types/FeeScheduleDefinition.sol";
 import {
@@ -52,7 +61,7 @@ import {
 import {MarketVersion} from "../types/MarketDefinition.sol";
 import {OrderRecord, OrderStatus, OrderTargetKind} from "../types/OrderTypes.sol";
 import {PackageDefinition, PackageLeg, PackageVersion} from "../types/PackageDefinition.sol";
-import {PositionCreation, PositionEconomics} from "../types/PositionTypes.sol";
+import {PositionCreation, PositionEconomics, PositionFunding, PositionLiabilitySide} from "../types/PositionTypes.sol";
 import {SeriesVersion} from "../types/SeriesDefinition.sol";
 import {Lots, PriceTicks} from "../types/Units.sol";
 
@@ -77,6 +86,8 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
 
     mapping(FillId fillId => FillRecord record) private _fills;
     mapping(FillId fillId => PositionId[] positionIds) private _fillPositions;
+    mapping(ClearingChannelKind channelKind => IClearingChannelHandoffAdapter adapter) private _channelAdapters;
+    mapping(ClearingChannelKind channelKind => bytes32 capabilityHash) private _channelCapabilities;
 
     struct MatchContext {
         OrderRecord taker;
@@ -86,6 +97,8 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         FillId fillId;
         Lots takerCumulativeLots;
         Lots makerCumulativeLots;
+        Lots fillLots;
+        PriceTicks executionPriceTicks;
         AccountId buyerAccountId;
         AccountId sellerAccountId;
         bool takerIsBuyer;
@@ -158,6 +171,25 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         returns (FillId fillId)
     {
         ClearingChannelLib.requireDirect(request.channelKind);
+        ClearingHandoffClaim memory emptyClaim;
+        return _clearSeries(request, emptyClaim, address(0));
+    }
+
+    function clearSeriesWithHandoff(SeriesClearingRequest calldata request, ClearingHandoffClaim calldata claim)
+        external
+        nonReentrant
+        onlyRole(MATCH_EXECUTOR_ROLE)
+        returns (FillId fillId)
+    {
+        (ClearingHandoffClaim memory verifiedClaim, address source) = _consumeChannelHandoff(request.channelKind, claim);
+        return _clearSeries(request, verifiedClaim, source);
+    }
+
+    function _clearSeries(
+        SeriesClearingRequest calldata request,
+        ClearingHandoffClaim memory channelClaim,
+        address channelSource
+    ) private returns (FillId fillId) {
         BilateralMatch calldata matchData = request.matchData;
         OrderRecord memory taker = _orderState.getOrder(matchData.takerOrderHash);
         OrderRecord memory maker = _orderState.getOrder(matchData.makerOrderHash);
@@ -194,7 +226,8 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         });
 
         _consumeOrders(context, matchData.fillLots);
-        _applyFunding(context, matchData, settlement);
+        _validateChannelMatch(context, request.channelKind, channelClaim, bytes32(0));
+        _applyFunding(context, matchData, settlement, request.channelKind, channelClaim);
         FeeContext memory fees = _consumeFees(context, matchData, settlement);
 
         PositionId positionId = _positionEngine.createPosition(
@@ -207,10 +240,18 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
                 ordinal: 0,
                 lots: matchData.fillLots,
                 entryPriceTicks: matchData.executionPriceTicks,
+                longFunding: _positionFunding(
+                    channelClaim, 0, true, context.buyerAccountId, settlement.longLiabilityMinor
+                ),
+                shortFunding: _positionFunding(
+                    channelClaim, 0, false, context.sellerAccountId, settlement.shortLiabilityMinor
+                ),
                 payoffTerms: request.payoffTerms
             })
         );
         PositionEconomics memory created = _verifyPosition(positionId, context.fillId, 0);
+        _verifyAdoptedReservation(channelClaim, 0, true, created.longReservationId);
+        _verifyAdoptedReservation(channelClaim, 0, false, created.shortReservationId);
         if (
             created.maxLongDebitMinor != settlement.longLiabilityMinor
                 || created.maxShortDebitMinor != settlement.shortLiabilityMinor
@@ -226,7 +267,18 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
             matchData.executionPriceTicks,
             created
         );
-        _recordFill(context, matchData, witnessHash, settlement, fees, 1, false);
+        _recordFill(
+            context,
+            matchData,
+            witnessHash,
+            settlement,
+            fees,
+            1,
+            false,
+            request.channelKind,
+            channelClaim,
+            channelSource
+        );
         return context.fillId;
     }
 
@@ -237,6 +289,25 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         returns (FillId fillId)
     {
         ClearingChannelLib.requireDirect(request.channelKind);
+        ClearingHandoffClaim memory emptyClaim;
+        return _clearPackage(request, emptyClaim, address(0));
+    }
+
+    function clearPackageWithHandoff(PackageClearingRequest calldata request, ClearingHandoffClaim calldata claim)
+        external
+        nonReentrant
+        onlyRole(MATCH_EXECUTOR_ROLE)
+        returns (FillId fillId)
+    {
+        (ClearingHandoffClaim memory verifiedClaim, address source) = _consumeChannelHandoff(request.channelKind, claim);
+        return _clearPackage(request, verifiedClaim, source);
+    }
+
+    function _clearPackage(
+        PackageClearingRequest calldata request,
+        ClearingHandoffClaim memory channelClaim,
+        address channelSource
+    ) private returns (FillId fillId) {
         BilateralMatch calldata matchData = request.matchData;
         OrderRecord memory taker = _orderState.getOrder(matchData.takerOrderHash);
         OrderRecord memory maker = _orderState.getOrder(matchData.makerOrderHash);
@@ -276,7 +347,8 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
             )
         });
         _consumeOrders(context, matchData.fillLots);
-        _applyFunding(context, matchData, settlement);
+        _validateChannelMatch(context, request.channelKind, channelClaim, legsHash);
+        _applyFunding(context, matchData, settlement, request.channelKind, channelClaim);
         FeeContext memory fees = _consumeFees(context, matchData, settlement);
 
         uint256 legCount = request.legs.length;
@@ -288,6 +360,11 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
             bool packageBuyerIsLong = leg.ratio > 0;
             AccountId longAccountId = packageBuyerIsLong ? context.buyerAccountId : context.sellerAccountId;
             AccountId shortAccountId = packageBuyerIsLong ? context.sellerAccountId : context.buyerAccountId;
+            SeriesVersion memory legSeries = _seriesRegistry.getSeries(leg.seriesId, leg.seriesVersion);
+            uint128 createdLongAmount =
+                PositionMathLib.checkedAmount(legSeries.definition.maxLongDebitMinorPerLot, legLots);
+            uint128 createdShortAmount =
+                PositionMathLib.checkedAmount(legSeries.definition.maxShortDebitMinorPerLot, legLots);
             PositionId positionId = _positionEngine.createPosition(
                 PositionCreation({
                     fillIdentity: FillId.unwrap(context.fillId),
@@ -298,10 +375,14 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
                     ordinal: uint32(i),
                     lots: legLots,
                     entryPriceTicks: request.legEntryPriceTicks[i],
+                    longFunding: _positionFunding(channelClaim, uint32(i), true, longAccountId, createdLongAmount),
+                    shortFunding: _positionFunding(channelClaim, uint32(i), false, shortAccountId, createdShortAmount),
                     payoffTerms: request.legPayoffTerms[i]
                 })
             );
             PositionEconomics memory created = _verifyPosition(positionId, context.fillId, uint32(i));
+            _verifyAdoptedReservation(channelClaim, uint32(i), true, created.longReservationId);
+            _verifyAdoptedReservation(channelClaim, uint32(i), false, created.shortReservationId);
             _recordPosition(
                 context.fillId,
                 positionId,
@@ -325,7 +406,18 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
             buyerLiabilityCreated != settlement.longLiabilityMinor
                 || sellerLiabilityCreated != settlement.shortLiabilityMinor
         ) revert PositionCreationMismatch(settlement.longLiabilityMinor, buyerLiabilityCreated);
-        _recordFill(context, matchData, witnessHash, settlement, fees, uint16(legCount), true);
+        _recordFill(
+            context,
+            matchData,
+            witnessHash,
+            settlement,
+            fees,
+            uint16(legCount),
+            true,
+            request.channelKind,
+            channelClaim,
+            channelSource
+        );
         return context.fillId;
     }
 
@@ -418,6 +510,123 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         return _fundedFeeEngine;
     }
 
+    function activateClearingChannel(
+        ClearingChannelKind channelKind,
+        IClearingChannelHandoffAdapter adapter,
+        bytes32 capabilityHash
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (channelKind != ClearingChannelKind.PrivateRfq && channelKind != ClearingChannelKind.SealedAuction) {
+            revert UnsupportedClearingChannel(channelKind);
+        }
+        if (address(_channelAdapters[channelKind]) != address(0)) revert ClearingChannelAlreadyActivated(channelKind);
+        _requireDependency(address(adapter));
+        if (adapter.source() != address(adapter)) {
+            revert ClearingChannelSourceMismatch(address(adapter), adapter.source());
+        }
+        if (capabilityHash == bytes32(0)) revert ClearingHandoffMismatch();
+        _channelAdapters[channelKind] = adapter;
+        _channelCapabilities[channelKind] = capabilityHash;
+        emit ClearingChannelActivated(channelKind, address(adapter), capabilityHash);
+    }
+
+    function clearingChannelAdapter(ClearingChannelKind channelKind)
+        external
+        view
+        returns (IClearingChannelHandoffAdapter)
+    {
+        return _channelAdapters[channelKind];
+    }
+
+    function _consumeChannelHandoff(ClearingChannelKind channelKind, ClearingHandoffClaim calldata claim)
+        private
+        returns (ClearingHandoffClaim memory verifiedClaim, address source)
+    {
+        ClearingHandoffKind expectedKind;
+        if (channelKind == ClearingChannelKind.PrivateRfq) expectedKind = ClearingHandoffKind.PrivateRfq;
+        else if (channelKind == ClearingChannelKind.SealedAuction) expectedKind = ClearingHandoffKind.SealedAuction;
+        else revert UnsupportedClearingChannel(channelKind);
+        if (claim.kind != expectedKind || claim.consumptionId == bytes32(0) || claim.sourceCommitment == bytes32(0)) {
+            revert ClearingHandoffMismatch();
+        }
+        if (claim.deadline < block.timestamp) revert ClearingHandoffMismatch();
+        IClearingChannelHandoffAdapter adapter = _channelAdapters[channelKind];
+        if (address(adapter) == address(0) || _channelCapabilities[channelKind] == bytes32(0)) {
+            revert UnsupportedClearingChannel(channelKind);
+        }
+        source = adapter.source();
+        if (source != address(adapter)) revert ClearingChannelSourceMismatch(address(adapter), source);
+        VerifiedClearingHandoff memory handoff = adapter.consumeTypedHandoff(claim);
+        if (
+            handoff.provenanceHash == bytes32(0) || keccak256(abi.encode(handoff.claim)) != keccak256(abi.encode(claim))
+        ) {
+            revert ClearingHandoffMismatch();
+        }
+        verifiedClaim = handoff.claim;
+    }
+
+    function _validateChannelMatch(
+        MatchContext memory context,
+        ClearingChannelKind channelKind,
+        ClearingHandoffClaim memory claim,
+        bytes32 packageLegsHash
+    ) private view {
+        if (channelKind == ClearingChannelKind.Direct) {
+            if (claim.consumptionId != bytes32(0)) revert ClearingHandoffMismatch();
+            return;
+        }
+        bool packageTarget = context.taker.order.targetKind == OrderTargetKind.Package;
+        if (
+            claim.takerOrderHash != context.takerOrderHash || claim.makerOrderHash != context.makerOrderHash
+                || AccountId.unwrap(claim.takerAccountId) != AccountId.unwrap(context.taker.order.accountId)
+                || AccountId.unwrap(claim.makerAccountId) != AccountId.unwrap(context.maker.order.accountId)
+                || claim.takerSide != context.taker.order.side || claim.targetKind != context.taker.order.targetKind
+                || claim.targetVersion != context.taker.order.targetVersion || Lots.unwrap(claim.fillLots) == 0
+                || FeeScheduleId.unwrap(claim.feeScheduleId) != FeeScheduleId.unwrap(context.taker.order.feeScheduleId)
+                || claim.feeScheduleVersion != context.taker.order.feeScheduleVersion
+                || claim.takerMaximumFeeMinor != context.taker.order.maxFeeMinor
+                || claim.makerMaximumFeeMinor != context.maker.order.maxFeeMinor
+                || claim.executionModeId != context.taker.order.executionModeId
+                || claim.deadline > context.taker.order.deadline || claim.deadline > context.maker.order.deadline
+        ) revert ClearingHandoffMismatch();
+        if (
+            Lots.unwrap(claim.fillLots) != Lots.unwrap(context.fillLots)
+                || PriceTicks.unwrap(claim.executionPriceTicks) != PriceTicks.unwrap(context.executionPriceTicks)
+        ) revert ClearingHandoffMismatch();
+        if (packageTarget) {
+            if (
+                PackageId.unwrap(claim.packageId) != PackageId.unwrap(context.taker.order.packageId)
+                    || SeriesId.unwrap(claim.seriesId) != bytes32(0) || claim.packageWitnessHash != packageLegsHash
+                    || _packageRegistry.hashLegs(claim.packageLegs) != packageLegsHash
+            ) revert ClearingHandoffMismatch();
+        } else if (
+            SeriesId.unwrap(claim.seriesId) != SeriesId.unwrap(context.taker.order.seriesId)
+                || PackageId.unwrap(claim.packageId) != bytes32(0) || claim.packageWitnessHash != bytes32(0)
+                || claim.packageLegs.length != 0
+        ) {
+            revert ClearingHandoffMismatch();
+        }
+
+        uint256 previousKey;
+        uint256 positionCount = packageTarget ? claim.packageLegs.length : 1;
+        for (uint256 i; i < claim.capacityDispositions.length; ++i) {
+            CapacityReservationDisposition memory disposition = claim.capacityDispositions[i];
+            uint256 key = uint256(disposition.positionOrdinal) * 3 + uint8(disposition.side);
+            if (
+                disposition.capacityDisposition != CapacityDispositionKind.ConvertedToTerminalLiability
+                    || disposition.side == PositionLiabilitySide.Unspecified
+                    || disposition.positionOrdinal >= positionCount
+                    || AccountId.unwrap(disposition.accountId) == bytes32(0) || disposition.reservationAmount == 0
+                    || TerminalLiabilityReservationId.unwrap(disposition.reservationId) == bytes32(0)
+                    || disposition.unusedCapacityPolicy == UnusedCapacityPolicy.Unspecified
+                    || CollateralLockId.unwrap(disposition.funding.lockId) == bytes32(0)
+                    || disposition.funding.lockReference == bytes32(0)
+                    || disposition.funding.expectedRemainingAmount < disposition.reservationAmount
+                    || disposition.funding.expectedExpiry <= block.timestamp || (i != 0 && key <= previousKey)
+            ) revert ClearingHandoffMismatch();
+            previousKey = key;
+        }
+    }
+
     function _prepareMatch(
         BilateralMatch calldata matchData,
         OrderRecord memory taker,
@@ -473,6 +682,8 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
             fillId: fillId,
             takerCumulativeLots: takerCumulative,
             makerCumulativeLots: makerCumulative,
+            fillLots: matchData.fillLots,
+            executionPriceTicks: matchData.executionPriceTicks,
             buyerAccountId: takerIsBuyer ? taker.order.accountId : maker.order.accountId,
             sellerAccountId: takerIsBuyer ? maker.order.accountId : taker.order.accountId,
             takerIsBuyer: takerIsBuyer
@@ -488,7 +699,9 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
     function _applyFunding(
         MatchContext memory context,
         BilateralMatch calldata matchData,
-        SettlementContext memory settlement
+        SettlementContext memory settlement,
+        ClearingChannelKind channelKind,
+        ClearingHandoffClaim memory channelClaim
     ) private {
         _applyLiabilityFunding(
             context,
@@ -496,7 +709,9 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
             settlement.assetId,
             settlement.bindingVersion,
             settlement.longLiabilityMinor,
-            settlement.shortLiabilityMinor
+            settlement.shortLiabilityMinor,
+            channelKind,
+            channelClaim
         );
         _applyConsiderationFunding(context, matchData, settlement, context.fillId);
     }
@@ -568,27 +783,55 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         AssetId assetId,
         uint32 bindingVersion,
         uint128 longAmount,
-        uint128 shortAmount
+        uint128 shortAmount,
+        ClearingChannelKind channelKind,
+        ClearingHandoffClaim memory channelClaim
     ) private {
         bool takerLong = context.takerIsBuyer;
-        _releaseLiabilityLock(
+        _applyPartyLiabilityFunding(
             matchData.takerOrderHash,
             context.takerCumulativeLots,
             context.taker.order.accountId,
             assetId,
             bindingVersion,
             takerLong ? longAmount : shortAmount,
-            matchData.takerFunding.terminalLiabilityLockId
+            matchData.takerFunding.terminalLiabilityLockId,
+            channelKind,
+            channelClaim
         );
-        _releaseLiabilityLock(
+        _applyPartyLiabilityFunding(
             matchData.makerOrderHash,
             context.makerCumulativeLots,
             context.maker.order.accountId,
             assetId,
             bindingVersion,
             takerLong ? shortAmount : longAmount,
-            matchData.makerFunding.terminalLiabilityLockId
+            matchData.makerFunding.terminalLiabilityLockId,
+            channelKind,
+            channelClaim
         );
+    }
+
+    function _applyPartyLiabilityFunding(
+        bytes32 orderHash,
+        Lots cumulativeLots,
+        AccountId accountId,
+        AssetId assetId,
+        uint32 bindingVersion,
+        uint128 amount,
+        CollateralLockId directLockId,
+        ClearingChannelKind channelKind,
+        ClearingHandoffClaim memory channelClaim
+    ) private {
+        uint128 adopted = channelKind == ClearingChannelKind.Direct
+            ? 0
+            : _adoptedAmountForAccount(channelClaim, accountId);
+        if (adopted != 0) {
+            if (adopted != amount) revert ClearingHandoffMismatch();
+            _requireNoFundingLock(orderHash, TERMINAL_LIABILITY_PURPOSE, directLockId);
+            return;
+        }
+        _releaseLiabilityLock(orderHash, cumulativeLots, accountId, assetId, bindingVersion, amount, directLockId);
     }
 
     function _applyConsiderationFunding(
@@ -811,7 +1054,10 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         SettlementContext memory settlement,
         FeeContext memory fees,
         uint16 positionCount,
-        bool isPackage
+        bool isPackage,
+        ClearingChannelKind channelKind,
+        ClearingHandoffClaim memory channelClaim,
+        address channelSource
     ) private {
         bytes32 targetId = isPackage
             ? PackageId.unwrap(context.taker.order.packageId)
@@ -823,21 +1069,23 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
             targetId: targetId,
             witnessHash: witnessHash,
             executionModeId: context.taker.order.executionModeId,
-            channelConsumptionId: keccak256(
-                abi.encode(DIRECT_CHANNEL_TYPEHASH, FillId.unwrap(context.fillId), msg.sender, witnessHash)
-            ),
-            routeCommitment: keccak256(
-                abi.encode(
-                    ROUTE_COMMITMENT_TYPEHASH,
-                    FillId.unwrap(context.fillId),
-                    matchData.takerOrderHash,
-                    matchData.makerOrderHash,
-                    context.taker.order.executionModeId,
-                    witnessHash
+            channelConsumptionId: channelKind == ClearingChannelKind.Direct
+                ? keccak256(abi.encode(DIRECT_CHANNEL_TYPEHASH, FillId.unwrap(context.fillId), msg.sender, witnessHash))
+                : channelClaim.consumptionId,
+            routeCommitment: channelKind == ClearingChannelKind.Direct
+                ? keccak256(
+                    abi.encode(
+                        ROUTE_COMMITMENT_TYPEHASH,
+                        FillId.unwrap(context.fillId),
+                        matchData.takerOrderHash,
+                        matchData.makerOrderHash,
+                        context.taker.order.executionModeId,
+                        witnessHash
+                    )
                 )
-            ),
-            channelSource: msg.sender,
-            channelKind: ClearingChannelKind.Direct,
+                : channelClaim.sourceCommitment,
+            channelSource: channelKind == ClearingChannelKind.Direct ? msg.sender : channelSource,
+            channelKind: channelKind,
             settlementAssetId: settlement.assetId,
             buyerAccountId: context.buyerAccountId,
             sellerAccountId: context.sellerAccountId,
@@ -860,6 +1108,12 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         });
         _fills[context.fillId] = record;
         emit FillCleared(context.fillId, record, msg.sender);
+        if (channelKind != ClearingChannelKind.Direct) {
+            PositionId[] memory positions = _fillPositions[context.fillId];
+            _channelAdapters[channelKind].finalizeTypedHandoff(
+                channelClaim.consumptionId, FillId.unwrap(context.fillId), keccak256(abi.encode(positions))
+            );
+        }
     }
 
     function _currentDay() private view returns (uint32) {
@@ -876,6 +1130,61 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         uint256 magnitude = signedAmount < 0 ? uint256(-(signedAmount + 1)) + 1 : uint256(signedAmount);
         if (magnitude > type(uint128).max) revert ConsiderationOverflow(magnitude);
         return uint128(magnitude);
+    }
+
+    function _adoptedAmountForAccount(ClearingHandoffClaim memory claim, AccountId accountId)
+        private
+        pure
+        returns (uint128 total)
+    {
+        uint256 sum;
+        for (uint256 i; i < claim.capacityDispositions.length; ++i) {
+            CapacityReservationDisposition memory disposition = claim.capacityDispositions[i];
+            if (AccountId.unwrap(disposition.accountId) == AccountId.unwrap(accountId)) {
+                sum += disposition.reservationAmount;
+            }
+        }
+        if (sum > type(uint128).max) revert ClearingHandoffMismatch();
+        return uint128(sum);
+    }
+
+    function _positionFunding(
+        ClearingHandoffClaim memory claim,
+        uint32 ordinal,
+        bool longSide,
+        AccountId accountId,
+        uint128 reservationAmount
+    ) private pure returns (PositionFunding memory funding) {
+        PositionLiabilitySide side = longSide ? PositionLiabilitySide.Long : PositionLiabilitySide.Short;
+        bool found;
+        for (uint256 i; i < claim.capacityDispositions.length; ++i) {
+            CapacityReservationDisposition memory disposition = claim.capacityDispositions[i];
+            if (disposition.positionOrdinal != ordinal || disposition.side != side) continue;
+            if (
+                found || AccountId.unwrap(disposition.accountId) != AccountId.unwrap(accountId)
+                    || disposition.reservationAmount != reservationAmount
+            ) revert ClearingHandoffMismatch();
+            found = true;
+            funding = disposition.funding;
+        }
+    }
+
+    function _verifyAdoptedReservation(
+        ClearingHandoffClaim memory claim,
+        uint32 ordinal,
+        bool longSide,
+        TerminalLiabilityReservationId actualReservationId
+    ) private pure {
+        PositionLiabilitySide side = longSide ? PositionLiabilitySide.Long : PositionLiabilitySide.Short;
+        for (uint256 i; i < claim.capacityDispositions.length; ++i) {
+            CapacityReservationDisposition memory disposition = claim.capacityDispositions[i];
+            if (disposition.positionOrdinal != ordinal || disposition.side != side) continue;
+            if (
+                TerminalLiabilityReservationId.unwrap(disposition.reservationId)
+                    != TerminalLiabilityReservationId.unwrap(actualReservationId)
+            ) revert ClearingHandoffMismatch();
+            return;
+        }
     }
 
     function _requireInitialAdmin(address initialAdmin) private pure returns (address) {

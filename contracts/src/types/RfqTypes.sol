@@ -67,6 +67,7 @@ enum FirmCapacityStatus {
 struct PrivateRfqRequest {
     address taker;
     AccountId takerAccountId;
+    bytes32 takerOrderHash;
     RfqTargetKind targetKind;
     SeriesId seriesId;
     PackageId packageId;
@@ -98,6 +99,7 @@ struct MakerQuote {
     address maker;
     AccountId makerAccountId;
     AccountId takerAccountId;
+    bytes32 makerOrderHash;
     RfqTargetKind targetKind;
     SeriesId seriesId;
     PackageId packageId;

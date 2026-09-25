@@ -231,6 +231,7 @@ contract PrivateRfqBookTest is Test {
         return PrivateRfqRequest({
             taker: taker,
             takerAccountId: AccountId.wrap(keccak256("taker account")),
+            takerOrderHash: keccak256(abi.encode("taker order", nonce)),
             targetKind: RfqTargetKind.Series,
             seriesId: SeriesId.wrap(keccak256("series")),
             packageId: PackageId.wrap(bytes32(0)),
@@ -265,6 +266,7 @@ contract PrivateRfqBookTest is Test {
             maker: maker,
             makerAccountId: AccountId.wrap(keccak256("maker account")),
             takerAccountId: request.takerAccountId,
+            makerOrderHash: keccak256(abi.encode("maker order", nonce)),
             targetKind: request.targetKind,
             seriesId: request.seriesId,
             packageId: request.packageId,

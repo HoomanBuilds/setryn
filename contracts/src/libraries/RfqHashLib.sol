@@ -20,10 +20,10 @@ import {Lots, PriceTicks} from "../types/Units.sol";
 
 library RfqHashLib {
     bytes32 internal constant REQUEST_TYPEHASH = keccak256(
-        "PrivateRfqRequest(address taker,bytes32 takerAccountId,uint8 targetKind,bytes32 seriesId,bytes32 packageId,uint32 targetVersion,bool hasPackageLegCommitment,bytes32 packageLegsHash,uint8 sidePolicy,uint128 lots,bool allowPartialFills,uint128 minimumFillLots,uint8 remainderPolicy,bytes32 feeScheduleId,uint32 feeScheduleVersion,uint128 maxFeeMinor,bytes32 riskDomainId,uint32 riskDomainVersion,bytes32 privacyModeId,bytes32 executionModeId,bytes32 disclosurePolicyHash,bytes32 eligibleMakerSetHash,uint64 deadline,address permittedExecutor,uint256 nonce,bytes32 salt)"
+        "PrivateRfqRequest(address taker,bytes32 takerAccountId,bytes32 takerOrderHash,uint8 targetKind,bytes32 seriesId,bytes32 packageId,uint32 targetVersion,bool hasPackageLegCommitment,bytes32 packageLegsHash,uint8 sidePolicy,uint128 lots,bool allowPartialFills,uint128 minimumFillLots,uint8 remainderPolicy,bytes32 feeScheduleId,uint32 feeScheduleVersion,uint128 maxFeeMinor,bytes32 riskDomainId,uint32 riskDomainVersion,bytes32 privacyModeId,bytes32 executionModeId,bytes32 disclosurePolicyHash,bytes32 eligibleMakerSetHash,uint64 deadline,address permittedExecutor,uint256 nonce,bytes32 salt)"
     );
     bytes32 internal constant QUOTE_TYPEHASH = keccak256(
-        "MakerQuote(bytes32 rfqId,address maker,bytes32 makerAccountId,bytes32 takerAccountId,uint8 targetKind,bytes32 seriesId,bytes32 packageId,uint32 targetVersion,bool hasPackageLegCommitment,bytes32 packageLegsHash,uint8 sidePolicy,uint128 lots,bool allowPartialFills,uint128 minimumFillLots,uint8 remainderPolicy,int128 bidPriceTicks,int128 askPriceTicks,bytes32 feeScheduleId,uint32 feeScheduleVersion,uint128 maxFeeMinor,bytes32 riskDomainId,uint32 riskDomainVersion,bytes32 collateralAssetId,uint32 collateralBindingVersion,uint128 maximumLiability,bytes32 privacyModeId,bytes32 executionModeId,bytes32 disclosurePolicyHash,bytes32 eligibleMakerSetHash,uint64 deadline,uint64 capacityExpiry,address permittedExecutor,uint256 nonce,bytes32 salt)"
+        "MakerQuote(bytes32 rfqId,address maker,bytes32 makerAccountId,bytes32 takerAccountId,bytes32 makerOrderHash,uint8 targetKind,bytes32 seriesId,bytes32 packageId,uint32 targetVersion,bool hasPackageLegCommitment,bytes32 packageLegsHash,uint8 sidePolicy,uint128 lots,bool allowPartialFills,uint128 minimumFillLots,uint8 remainderPolicy,int128 bidPriceTicks,int128 askPriceTicks,bytes32 feeScheduleId,uint32 feeScheduleVersion,uint128 maxFeeMinor,bytes32 riskDomainId,uint32 riskDomainVersion,bytes32 collateralAssetId,uint32 collateralBindingVersion,uint128 maximumLiability,bytes32 privacyModeId,bytes32 executionModeId,bytes32 disclosurePolicyHash,bytes32 eligibleMakerSetHash,uint64 deadline,uint64 capacityExpiry,address permittedExecutor,uint256 nonce,bytes32 salt)"
     );
     bytes32 internal constant SELECTION_TYPEHASH = keccak256(
         "RfqSelectionAuthorization(bytes32 rfqId,bytes32 quoteId,address taker,address executor,uint256 nonce,uint64 deadline,bytes32 salt)"
@@ -48,6 +48,7 @@ library RfqHashLib {
                     REQUEST_TYPEHASH,
                     request.taker,
                     AccountId.unwrap(request.takerAccountId),
+                    request.takerOrderHash,
                     request.targetKind,
                     SeriesId.unwrap(request.seriesId),
                     PackageId.unwrap(request.packageId),
@@ -88,6 +89,7 @@ library RfqHashLib {
                     quote.maker,
                     AccountId.unwrap(quote.makerAccountId),
                     AccountId.unwrap(quote.takerAccountId),
+                    quote.makerOrderHash,
                     quote.targetKind,
                     SeriesId.unwrap(quote.seriesId),
                     PackageId.unwrap(quote.packageId),
@@ -195,7 +197,7 @@ library RfqHashLib {
     ) internal pure {
         if (
             request.taker == address(0) || AccountId.unwrap(request.takerAccountId) == bytes32(0)
-                || request.targetVersion == 0 || Lots.unwrap(request.lots) == 0
+                || request.takerOrderHash == bytes32(0) || request.targetVersion == 0 || Lots.unwrap(request.lots) == 0
                 || FeeScheduleId.unwrap(request.feeScheduleId) == bytes32(0) || request.feeScheduleVersion == 0
                 || RiskDomainId.unwrap(request.riskDomainId) == bytes32(0) || request.riskDomainVersion == 0
                 || request.privacyModeId == bytes32(0) || request.executionModeId == bytes32(0)
@@ -219,14 +221,14 @@ library RfqHashLib {
         if (
             RfqId.unwrap(quote.rfqId) == bytes32(0) || quote.maker == address(0)
                 || AccountId.unwrap(quote.makerAccountId) == bytes32(0)
-                || AccountId.unwrap(quote.takerAccountId) == bytes32(0) || quote.targetVersion == 0
-                || Lots.unwrap(quote.lots) == 0 || FeeScheduleId.unwrap(quote.feeScheduleId) == bytes32(0)
-                || quote.feeScheduleVersion == 0 || RiskDomainId.unwrap(quote.riskDomainId) == bytes32(0)
-                || quote.riskDomainVersion == 0 || AssetId.unwrap(quote.collateralAssetId) == bytes32(0)
-                || quote.collateralBindingVersion == 0 || quote.maximumLiability == 0
-                || quote.privacyModeId == bytes32(0) || quote.executionModeId == bytes32(0)
-                || quote.disclosurePolicyHash == bytes32(0) || quote.eligibleMakerSetHash == bytes32(0)
-                || quote.salt == bytes32(0)
+                || AccountId.unwrap(quote.takerAccountId) == bytes32(0) || quote.makerOrderHash == bytes32(0)
+                || quote.targetVersion == 0 || Lots.unwrap(quote.lots) == 0
+                || FeeScheduleId.unwrap(quote.feeScheduleId) == bytes32(0) || quote.feeScheduleVersion == 0
+                || RiskDomainId.unwrap(quote.riskDomainId) == bytes32(0) || quote.riskDomainVersion == 0
+                || AssetId.unwrap(quote.collateralAssetId) == bytes32(0) || quote.collateralBindingVersion == 0
+                || quote.maximumLiability == 0 || quote.privacyModeId == bytes32(0)
+                || quote.executionModeId == bytes32(0) || quote.disclosurePolicyHash == bytes32(0)
+                || quote.eligibleMakerSetHash == bytes32(0) || quote.salt == bytes32(0)
         ) revert ZeroRfqField();
         _validateTargetCommitment(
             quote.targetKind, quote.seriesId, quote.packageId, quote.hasPackageLegCommitment, quote.packageLegsHash

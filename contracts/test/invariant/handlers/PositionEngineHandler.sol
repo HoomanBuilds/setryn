@@ -2,8 +2,8 @@
 pragma solidity 0.8.37;
 
 import {PositionEngine} from "../../../src/position/PositionEngine.sol";
-import {AccountId, PositionId, SeriesId} from "../../../src/types/Identifiers.sol";
-import {PositionCreation, PositionStatus} from "../../../src/types/PositionTypes.sol";
+import {AccountId, CollateralLockId, PositionId, SeriesId} from "../../../src/types/Identifiers.sol";
+import {PositionCreation, PositionFunding, PositionStatus} from "../../../src/types/PositionTypes.sol";
 import {Lots, PriceTicks} from "../../../src/types/Units.sol";
 
 contract PositionEngineHandler {
@@ -43,6 +43,18 @@ contract PositionEngineHandler {
             ordinal: ordinal,
             lots: Lots.wrap(lots),
             entryPriceTicks: PriceTicks.wrap(int128(uint128(lots))),
+            longFunding: PositionFunding({
+                lockId: CollateralLockId.wrap(bytes32(0)),
+                lockReference: bytes32(0),
+                expectedRemainingAmount: 0,
+                expectedExpiry: 0
+            }),
+            shortFunding: PositionFunding({
+                lockId: CollateralLockId.wrap(bytes32(0)),
+                lockReference: bytes32(0),
+                expectedRemainingAmount: 0,
+                expectedExpiry: 0
+            }),
             payoffTerms: _terms
         });
         _positions.push(_engine.createPosition(creation));

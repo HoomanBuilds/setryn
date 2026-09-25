@@ -82,6 +82,10 @@ enum BidStatus {
 struct AuctionDefinition {
     bytes32 namespaceId;
     bytes32 auctionKey;
+    bytes32 initiatorOrderHash;
+    AccountId initiatorAccountId;
+    uint128 initiatorMaximumFeeMinor;
+    bytes32 executionModeId;
     AuctionKind kind;
     AuctionTargetKind targetKind;
     SeriesId seriesId;
@@ -152,6 +156,7 @@ struct SealedBid {
     uint32 auctionVersion;
     address bidder;
     AccountId bidderAccountId;
+    bytes32 bidderOrderHash;
     uint256 nonce;
     Side side;
     Lots lots;

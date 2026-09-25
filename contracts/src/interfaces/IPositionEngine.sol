@@ -4,7 +4,7 @@ pragma solidity 0.8.37;
 import {IPositionEngineTerminalState} from "./IPositionEngineTerminalState.sol";
 import {ICollateralVault} from "./ICollateralVault.sol";
 import {ISeriesRegistry} from "./ISeriesRegistry.sol";
-import {PositionId} from "../types/Identifiers.sol";
+import {AccountId, AssetId, CollateralLockId, PositionId} from "../types/Identifiers.sol";
 import {PositionCreation, PositionEconomics, PositionLifecycle, PositionStatus} from "../types/PositionTypes.sol";
 
 interface IPositionEngine is IPositionEngineTerminalState {
@@ -37,6 +37,21 @@ interface IPositionEngine is IPositionEngineTerminalState {
         int256 terminalTransferMinor
     );
 
+    event PositionFundingLockCreated(
+        CollateralLockId indexed lockId,
+        bytes32 indexed lockReference,
+        AccountId indexed accountId,
+        AssetId assetId,
+        uint32 bindingVersion,
+        uint128 amount,
+        uint64 expiry,
+        address requester
+    );
+
+    event PositionFundingLockReleased(
+        CollateralLockId indexed lockId, bytes32 indexed lockReference, address indexed requester
+    );
+
     error ZeroInitialAdmin();
     error ZeroDependency(address dependency);
     error DependencyHasNoCode(address dependency);
@@ -61,9 +76,25 @@ interface IPositionEngine is IPositionEngineTerminalState {
     error TerminalAmountOverflow(uint256 amount);
     error ReservationMismatch(bytes32 liabilityKey, bytes32 expectedReservationId, bytes32 actualReservationId);
     error ReservationRecordMismatch(bytes32 reservationId);
+    error PositionFundingMismatch(bytes32 liabilityKey, CollateralLockId lockId);
+    error UnexpectedPositionFunding(bytes32 liabilityKey, CollateralLockId lockId);
+    error UnauthorizedPositionFundingRequester(CollateralLockId lockId, address expected, address actual);
     error UnsupportedTerminalAlternative(PositionStatus status);
 
     function createPosition(PositionCreation calldata creation) external returns (PositionId positionId);
+
+    function createPositionFundingLock(
+        bytes32 lockReference,
+        AccountId accountId,
+        AssetId assetId,
+        uint32 bindingVersion,
+        uint128 amount,
+        uint64 expiry
+    ) external returns (CollateralLockId lockId);
+
+    function releasePositionFundingLock(CollateralLockId lockId) external;
+
+    function positionFundingRequester(CollateralLockId lockId) external view returns (address);
 
     function seriesRegistry() external view returns (ISeriesRegistry);
 

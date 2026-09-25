@@ -47,6 +47,7 @@ contract AuctionRankingLibTest is Test {
             auctionVersion: 1,
             bidder: address(1),
             bidderAccountId: AccountId.wrap(bytes32(uint256(2))),
+            bidderOrderHash: keccak256("bidder order"),
             nonce: 1,
             side: Side.Buy,
             lots: Lots.wrap(1),

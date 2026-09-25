@@ -9,13 +9,33 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 
 import {IAuctionValidationGate} from "../interfaces/IAuctionValidationGate.sol";
 import {IAuctionVault} from "../interfaces/IAuctionVault.sol";
+import {IAtomicClearingEngine} from "../interfaces/IAtomicClearingEngine.sol";
+import {IClearingChannelHandoffAdapter} from "../interfaces/IClearingChannelHandoffAdapter.sol";
 import {ISealedAuctionHouse} from "../interfaces/ISealedAuctionHouse.sol";
 import {AuctionHashLib} from "../libraries/AuctionHashLib.sol";
 import {AuctionRankingLib} from "../libraries/AuctionRankingLib.sol";
+import {PackageDefinitionLib} from "../libraries/PackageDefinitionLib.sol";
 import {CollateralLock} from "../types/CollateralTypes.sol";
+import {
+    CapacityDispositionKind,
+    CapacityReservationDisposition,
+    ClearingHandoffClaim,
+    ClearingHandoffKind,
+    UnusedCapacityPolicy,
+    VerifiedClearingHandoff
+} from "../types/ClearingHandoffTypes.sol";
 import {LockStatus, Side} from "../types/Enums.sol";
-import {AccountId, AssetId, CollateralId, CollateralLockId} from "../types/Identifiers.sol";
+import {
+    AccountId,
+    AssetId,
+    CollateralId,
+    CollateralLockId,
+    FeeScheduleId,
+    PackageId,
+    SeriesId
+} from "../types/Identifiers.sol";
 import {PackageLeg} from "../types/PackageDefinition.sol";
+import {OrderTargetKind} from "../types/OrderTypes.sol";
 import {
     AuctionClearingHandoff,
     AuctionClearingResult,
@@ -39,12 +59,19 @@ import {
 } from "../types/AuctionTypes.sol";
 import {Lots, PriceTicks} from "../types/Units.sol";
 
-contract SealedAuctionHouse is ISealedAuctionHouse, AccessControlDefaultAdminRules, ReentrancyGuard {
+contract SealedAuctionHouse is
+    ISealedAuctionHouse,
+    IClearingChannelHandoffAdapter,
+    AccessControlDefaultAdminRules,
+    ReentrancyGuard
+{
     bytes32 public constant AUCTION_SCHEDULER_ROLE = keccak256("SETRYN_AUCTION_SCHEDULER_ROLE");
     bytes32 public constant AUCTION_GUARDIAN_ROLE = keccak256("SETRYN_AUCTION_GUARDIAN_ROLE");
     bytes32 public constant CLEARING_ENGINE_ROLE = keccak256("SETRYN_AUCTION_CLEARING_ENGINE_ROLE");
     bytes32 private constant BOND_LOCK_REFERENCE_TYPEHASH =
         keccak256("SetrynAuctionBondLockV1(bytes32 bidCommitmentId)");
+    bytes32 private constant CAPACITY_LOCK_REFERENCE_TYPEHASH =
+        keccak256("SetrynAuctionCapacityLockV1(bytes32 routeId)");
     bytes32 private constant ALLOCATION_TYPEHASH =
         keccak256("SetrynAuctionAllocationV1(bytes32 bidId,uint128 allocatedLots,int128 allocationPriceTicks)");
 
@@ -62,6 +89,8 @@ contract SealedAuctionHouse is ISealedAuctionHouse, AccessControlDefaultAdminRul
     mapping(AuctionId auctionId => mapping(uint32 version => AuctionClearingResult result)) private _results;
     mapping(AuctionId auctionId => mapping(uint32 version => bool consumed)) private _handoffConsumed;
     mapping(bytes32 executionReference => bool used) private _executionReferences;
+    mapping(bytes32 executionReference => AuctionId auctionId) private _handoffAuctions;
+    mapping(bytes32 executionReference => uint32 version) private _handoffVersions;
 
     constructor(
         uint48 defaultAdminDelay,
@@ -264,7 +293,21 @@ contract SealedAuctionHouse is ISealedAuctionHouse, AccessControlDefaultAdminRul
         if (SolverRouteId.unwrap(claimedRouteId) != bytes32(0)) {
             revert CapacityLockAlreadyClaimed(capacityLockKey, claimedRouteId);
         }
-        _requireProposedCapacityLock(route, auction.definition);
+        bytes32 capacityLockReference =
+            keccak256(abi.encode(CAPACITY_LOCK_REFERENCE_TYPEHASH, SolverRouteId.unwrap(route.routeId)));
+        CollateralLockId capacityLockId = IAtomicClearingEngine(_clearingEngine).positionEngine()
+            .createPositionFundingLock(
+                capacityLockReference,
+                route.solverAccountId,
+                auction.definition.settlementAssetId,
+                auction.definition.settlementAssetVersion,
+                route.capacityAmount,
+                route.expiry
+            );
+        if (CollateralLockId.unwrap(capacityLockId) != CollateralLockId.unwrap(route.capacityLockId)) {
+            revert CapacityLockMismatch(route.routeId);
+        }
+        _requireCapacityLock(route, auction.definition);
         bytes32 routeHash = AuctionHashLib.hashRoute(route);
         _routes[route.routeId] = SolverRouteRecord({route: route, routeHash: routeHash, revealed: true});
         _capacityLockClaims[capacityLockKey] = route.routeId;
@@ -318,6 +361,13 @@ contract SealedAuctionHouse is ISealedAuctionHouse, AccessControlDefaultAdminRul
         nonReentrant
         returns (AuctionClearingHandoff memory handoff)
     {
+        return _consumeClearingHandoff(auctionId, version, executionReference);
+    }
+
+    function _consumeClearingHandoff(AuctionId auctionId, uint32 version, bytes32 executionReference)
+        private
+        returns (AuctionClearingHandoff memory handoff)
+    {
         if (executionReference == bytes32(0)) revert ZeroReference();
         if (_executionReferences[executionReference]) revert ExecutionReferenceUsed(executionReference);
         if (_handoffConsumed[auctionId][version]) revert ClearingHandoffAlreadyConsumed(auctionId, version);
@@ -354,11 +404,125 @@ contract SealedAuctionHouse is ISealedAuctionHouse, AccessControlDefaultAdminRul
         );
     }
 
+    function consumeTypedHandoff(ClearingHandoffClaim calldata claim)
+        external
+        onlyRole(CLEARING_ENGINE_ROLE)
+        nonReentrant
+        returns (VerifiedClearingHandoff memory handoff)
+    {
+        if (claim.kind != ClearingHandoffKind.SealedAuction) {
+            revert HandoffClaimMismatch();
+        }
+        AuctionId auctionId = AuctionId.wrap(claim.sourceId);
+        AuctionVersion storage auction = _requireAuction(auctionId, claim.sourceVersion);
+        AuctionClearingResult storage result = _results[auctionId][claim.sourceVersion];
+        if (auction.definition.kind != AuctionKind.SolverRoute || result.winnerCount != 1) {
+            revert HandoffClaimMismatch();
+        }
+        BidRecord storage winner = _requireBid(result.winningRouteBidId);
+        SolverRouteRecord storage routeRecord = _routes[winner.routeId];
+        SolverRoute storage route = routeRecord.route;
+        bytes32 expectedCommitment = keccak256(
+            abi.encode(
+                auction.versionHash,
+                result.resultHash,
+                BidCommitmentId.unwrap(result.winningRouteBidId),
+                routeRecord.routeHash,
+                AuctionHashLib.hashBid(winner.bid)
+            )
+        );
+        Side expectedTakerSide = winner.bid.side == Side.Buy ? Side.Sell : Side.Buy;
+        bool packageTarget = auction.definition.targetKind == AuctionTargetKind.Package;
+        if (
+            claim.sourceCommitment != expectedCommitment
+                || claim.selectedQuoteOrRouteId != SolverRouteId.unwrap(winner.routeId)
+                || claim.takerOrderHash != auction.definition.initiatorOrderHash
+                || claim.makerOrderHash != winner.bid.bidderOrderHash
+                || AccountId.unwrap(claim.takerAccountId) != AccountId.unwrap(auction.definition.initiatorAccountId)
+                || AccountId.unwrap(claim.makerAccountId) != AccountId.unwrap(winner.bid.bidderAccountId)
+                || claim.takerSide != expectedTakerSide || claim.targetVersion != auction.definition.targetVersion
+                || Lots.unwrap(claim.fillLots) != Lots.unwrap(winner.allocatedLots)
+                || PriceTicks.unwrap(claim.executionPriceTicks) != PriceTicks.unwrap(winner.allocationPriceTicks)
+                || FeeScheduleId.unwrap(claim.feeScheduleId) != FeeScheduleId.unwrap(auction.definition.feeScheduleId)
+                || claim.feeScheduleVersion != auction.definition.feeScheduleVersion
+                || claim.takerMaximumFeeMinor != auction.definition.initiatorMaximumFeeMinor
+                || claim.makerMaximumFeeMinor != winner.bid.maximumFeeMinor
+                || claim.riskDomainId != auction.definition.riskDomainId
+                || claim.riskDomainVersion != auction.definition.riskDomainVersion
+                || claim.executionModeId != auction.definition.executionModeId
+                || claim.deadline != auction.definition.settlementDeadline
+        ) revert HandoffClaimMismatch();
+        if (packageTarget) {
+            if (
+                claim.targetKind != OrderTargetKind.Package
+                    || PackageId.unwrap(claim.packageId) != PackageId.unwrap(auction.definition.packageId)
+                    || claim.packageWitnessHash != auction.definition.packageLegsHash
+                    || PackageDefinitionLib.hashLegs(claim.packageLegs) != auction.definition.packageLegsHash
+            ) revert HandoffClaimMismatch();
+        } else if (
+            claim.targetKind != OrderTargetKind.Series
+                || SeriesId.unwrap(claim.seriesId) != SeriesId.unwrap(auction.definition.seriesId)
+                || claim.packageLegs.length != 0 || claim.packageWitnessHash != bytes32(0)
+        ) {
+            revert HandoffClaimMismatch();
+        }
+
+        uint128 expectedRemaining = route.capacityAmount;
+        uint256 reserved;
+        for (uint256 i; i < claim.capacityDispositions.length; ++i) {
+            CapacityReservationDisposition calldata disposition = claim.capacityDispositions[i];
+            if (
+                disposition.capacityDisposition != CapacityDispositionKind.ConvertedToTerminalLiability
+                    || CollateralLockId.unwrap(disposition.funding.lockId)
+                        != CollateralLockId.unwrap(route.capacityLockId)
+                    || AccountId.unwrap(disposition.accountId) != AccountId.unwrap(route.solverAccountId)
+                    || disposition.funding.expectedRemainingAmount != expectedRemaining
+                    || disposition.funding.expectedExpiry != route.expiry
+                    || disposition.unusedCapacityPolicy != UnusedCapacityPolicy.ReleaseOnTerminalFill
+                    || disposition.reservationAmount > expectedRemaining
+            ) revert HandoffClaimMismatch();
+            reserved += disposition.reservationAmount;
+            if (reserved > route.capacityAmount) revert HandoffClaimMismatch();
+            expectedRemaining -= disposition.reservationAmount;
+        }
+        if (reserved == 0) revert HandoffClaimMismatch();
+        _consumeClearingHandoff(auctionId, claim.sourceVersion, claim.consumptionId);
+        _handoffAuctions[claim.consumptionId] = auctionId;
+        _handoffVersions[claim.consumptionId] = claim.sourceVersion;
+        handoff = VerifiedClearingHandoff({
+            claim: claim,
+            provenanceHash: keccak256(abi.encode(block.chainid, address(this), expectedCommitment, claim.consumptionId))
+        });
+    }
+
+    function finalizeTypedHandoff(bytes32 consumptionId, bytes32 fillId, bytes32 positionsHash)
+        external
+        onlyRole(CLEARING_ENGINE_ROLE)
+        nonReentrant
+    {
+        if (!_executionReferences[consumptionId] || fillId == bytes32(0) || positionsHash == bytes32(0)) {
+            revert HandoffClaimMismatch();
+        }
+        _settleAuction(_handoffAuctions[consumptionId], _handoffVersions[consumptionId], fillId);
+    }
+
+    function source() external view returns (address) {
+        return address(this);
+    }
+
+    function handoffConsumed(bytes32 consumptionId) external view returns (bool) {
+        return _executionReferences[consumptionId];
+    }
+
     function settleAuction(AuctionId auctionId, uint32 version, bytes32 settlementReference)
         external
         onlyRole(CLEARING_ENGINE_ROLE)
         nonReentrant
     {
+        _settleAuction(auctionId, version, settlementReference);
+    }
+
+    function _settleAuction(AuctionId auctionId, uint32 version, bytes32 settlementReference) private {
         if (settlementReference == bytes32(0)) revert ZeroReference();
         AuctionVersion storage auction = _requireAuction(auctionId, version);
         if (auction.status != AuctionStatus.Cleared || !_handoffConsumed[auctionId][version]) {
@@ -368,6 +532,14 @@ contract SealedAuctionHouse is ISealedAuctionHouse, AccessControlDefaultAdminRul
             revert SettlementDeadlinePassed(auction.definition.settlementDeadline, block.timestamp);
         }
         _resolveWinningBonds(auctionId, version, BondOutcome.Release, auction.definition);
+        if (auction.definition.kind == AuctionKind.SolverRoute) {
+            BidRecord storage winner = _bids[_results[auctionId][version].winningRouteBidId];
+            CollateralLockId capacityLockId = _routes[winner.routeId].route.capacityLockId;
+            CollateralLock memory capacityLock = _auctionVault.getLock(capacityLockId);
+            if (capacityLock.status == LockStatus.Active) {
+                IAtomicClearingEngine(_clearingEngine).positionEngine().releasePositionFundingLock(capacityLockId);
+            }
+        }
         _setAuctionStatus(auctionId, version, auction, AuctionStatus.Settled);
         emit AuctionSettled(auctionId, version, settlementReference);
     }
@@ -656,7 +828,12 @@ contract SealedAuctionHouse is ISealedAuctionHouse, AccessControlDefaultAdminRul
             if (bid.status != BidStatus.Revealed) continue;
             _setBidStatus(bidIds[i], bid, BidStatus.Loser);
             if (SolverRouteId.unwrap(bid.routeId) != bytes32(0)) {
-                delete _capacityLockClaims[CollateralLockId.unwrap(_routes[bid.routeId].route.capacityLockId)];
+                CollateralLockId capacityLockId = _routes[bid.routeId].route.capacityLockId;
+                delete _capacityLockClaims[CollateralLockId.unwrap(capacityLockId)];
+                CollateralLock memory capacityLock = _auctionVault.getLock(capacityLockId);
+                if (capacityLock.status == LockStatus.Active) {
+                    IAtomicClearingEngine(_clearingEngine).positionEngine().releasePositionFundingLock(capacityLockId);
+                }
             }
             _applyBondOutcome(bidIds[i], bid, definition.losingBondOutcome, definition);
         }
@@ -729,11 +906,15 @@ contract SealedAuctionHouse is ISealedAuctionHouse, AccessControlDefaultAdminRul
 
     function _requireCapacityLock(SolverRoute storage route, AuctionDefinition storage definition) private view {
         CollateralLock memory lock = _auctionVault.getLock(route.capacityLockId);
+        bytes32 expectedReference =
+            keccak256(abi.encode(CAPACITY_LOCK_REFERENCE_TYPEHASH, SolverRouteId.unwrap(route.routeId)));
         CollateralId expectedCollateral =
             _auctionVault.deriveCollateralId(definition.settlementAssetId, definition.settlementAssetVersion);
         if (
-            lock.status != LockStatus.Active || lock.operator != route.solver
-                || lock.settlementOperator != _clearingEngine
+            lock.status != LockStatus.Active
+                || lock.operator != address(IAtomicClearingEngine(_clearingEngine).positionEngine())
+                || lock.settlementOperator != address(IAtomicClearingEngine(_clearingEngine).positionEngine())
+                || lock.lockReference != expectedReference
                 || AccountId.unwrap(lock.accountId) != AccountId.unwrap(route.solverAccountId)
                 || CollateralId.unwrap(lock.collateralId) != CollateralId.unwrap(expectedCollateral)
                 || CollateralId.unwrap(route.capacityCollateralId) != CollateralId.unwrap(expectedCollateral)
@@ -753,11 +934,15 @@ contract SealedAuctionHouse is ISealedAuctionHouse, AccessControlDefaultAdminRul
             return;
         }
         CollateralLock memory lock = _auctionVault.getLock(route.capacityLockId);
+        bytes32 expectedReference =
+            keccak256(abi.encode(CAPACITY_LOCK_REFERENCE_TYPEHASH, SolverRouteId.unwrap(route.routeId)));
         CollateralId expectedCollateral =
             _auctionVault.deriveCollateralId(definition.settlementAssetId, definition.settlementAssetVersion);
         if (
-            lock.status != LockStatus.Active || lock.operator != route.solver
-                || lock.settlementOperator != _clearingEngine
+            lock.status != LockStatus.Active
+                || lock.operator != address(IAtomicClearingEngine(_clearingEngine).positionEngine())
+                || lock.settlementOperator != address(IAtomicClearingEngine(_clearingEngine).positionEngine())
+                || lock.lockReference != expectedReference
                 || AccountId.unwrap(lock.accountId) != AccountId.unwrap(route.solverAccountId)
                 || CollateralId.unwrap(lock.collateralId) != CollateralId.unwrap(expectedCollateral)
                 || CollateralId.unwrap(route.capacityCollateralId) != CollateralId.unwrap(expectedCollateral)

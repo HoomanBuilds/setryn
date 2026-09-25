@@ -6,12 +6,19 @@ import {Test} from "forge-std/Test.sol";
 import {IPositionEngine} from "../../src/interfaces/IPositionEngine.sol";
 import {IPositionPayoffModuleV1} from "../../src/interfaces/IPositionPayoffModuleV1.sol";
 import {PositionEngine} from "../../src/position/PositionEngine.sol";
-import {TerminalLiabilityReservation} from "../../src/types/CollateralTypes.sol";
-import {TerminalLiabilityReservationStatus, TerminalOutcomeKind} from "../../src/types/Enums.sol";
-import {AccountId, CollateralId, PositionId, TerminalLiabilityReservationId} from "../../src/types/Identifiers.sol";
+import {CollateralLock, TerminalLiabilityReservation} from "../../src/types/CollateralTypes.sol";
+import {LockStatus, TerminalLiabilityReservationStatus, TerminalOutcomeKind} from "../../src/types/Enums.sol";
+import {
+    AccountId,
+    CollateralId,
+    CollateralLockId,
+    PositionId,
+    TerminalLiabilityReservationId
+} from "../../src/types/Identifiers.sol";
 import {
     PositionCreation,
     PositionEconomics,
+    PositionFunding,
     PositionLifecycle,
     PositionStatus
 } from "../../src/types/PositionTypes.sol";
@@ -44,6 +51,7 @@ contract PositionEngineTest is SetrynLocalFixture {
         engine = new PositionEngine(2 days, address(this), fixture.seriesRegistry, fixture.collateralVault);
         fixture.collateralVault.grantRole(fixture.collateralVault.TERMINAL_RESERVATION_CREATOR_ROLE(), address(engine));
         fixture.collateralVault.grantRole(fixture.collateralVault.TERMINAL_RESERVATION_RESOLVER_ROLE(), address(engine));
+        fixture.collateralVault.grantRole(fixture.collateralVault.COLLATERAL_LOCKER_ROLE(), address(engine));
 
         vm.prank(fixture.trader);
         fixture.collateralVault.setLockOperator(fixture.traderAccountId, address(engine), true);
@@ -63,6 +71,41 @@ contract PositionEngineTest is SetrynLocalFixture {
         assertEq(keccak256(engine.payoffTerms(positionId)), keccak256(fixture.seriesQualification.payoffTerms));
         _assertReservation(economics.longReservationId, economics.longLiabilityKey, fixture.traderAccountId, 200_000);
         _assertReservation(economics.shortReservationId, economics.shortLiabilityKey, shortAccount, 200_000);
+    }
+
+    function test_CreateAdoptsExactPretradeLockWithoutReleaseGap() public {
+        bytes32 lockReference = keccak256("position.pretrade.long");
+        uint64 expiry = uint64(block.timestamp + 1 days);
+        CollateralLockId lockId = engine.createPositionFundingLock(
+            lockReference, fixture.traderAccountId, fixture.settlementAssetId, 1, 100_000, expiry
+        );
+        PositionCreation memory creation = _creation(FILL, 0, 1);
+        creation.longFunding = PositionFunding({
+            lockId: lockId, lockReference: lockReference, expectedRemainingAmount: 100_000, expectedExpiry: expiry
+        });
+
+        PositionId positionId = engine.createPosition(creation);
+        (PositionEconomics memory economics,) = engine.getPosition(positionId);
+        CollateralLock memory converted = fixture.collateralVault.getLock(lockId);
+
+        assertEq(uint8(converted.status), uint8(LockStatus.Consumed));
+        assertEq(converted.remainingAmount, 0);
+        _assertReservation(economics.longReservationId, economics.longLiabilityKey, fixture.traderAccountId, 100_000);
+    }
+
+    function test_CreateRejectsAdoptionWhenExpectedRemainingIsStale() public {
+        bytes32 lockReference = keccak256("position.pretrade.stale");
+        uint64 expiry = uint64(block.timestamp + 1 days);
+        CollateralLockId lockId = engine.createPositionFundingLock(
+            lockReference, fixture.traderAccountId, fixture.settlementAssetId, 1, 100_000, expiry
+        );
+        PositionCreation memory creation = _creation(FILL, 0, 1);
+        creation.longFunding = PositionFunding({
+            lockId: lockId, lockReference: lockReference, expectedRemainingAmount: 99_999, expectedExpiry: expiry
+        });
+
+        vm.expectRevert(IPositionEngine.PositionFundingMismatch.selector);
+        engine.createPosition(creation);
     }
 
     function test_ReplayAndUnauthorizedCreationAreRejected() public {
@@ -169,6 +212,18 @@ contract PositionEngineTest is SetrynLocalFixture {
             ordinal: ordinal,
             lots: Lots.wrap(lots),
             entryPriceTicks: PriceTicks.wrap(100),
+            longFunding: PositionFunding({
+                lockId: CollateralLockId.wrap(bytes32(0)),
+                lockReference: bytes32(0),
+                expectedRemainingAmount: 0,
+                expectedExpiry: 0
+            }),
+            shortFunding: PositionFunding({
+                lockId: CollateralLockId.wrap(bytes32(0)),
+                lockReference: bytes32(0),
+                expectedRemainingAmount: 0,
+                expectedExpiry: 0
+            }),
             payoffTerms: fixture.seriesQualification.payoffTerms
         });
     }

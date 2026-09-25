@@ -49,7 +49,7 @@ library AuctionHashLib {
         "BidCommitAuthorization(bytes32 auctionId,uint32 auctionVersion,address bidder,bytes32 bidderAccountId,uint256 nonce,bytes32 sealedBidHash,bytes32 eligibilityProofHash,uint64 deadline,bytes32 salt)"
     );
     bytes32 internal constant SEALED_BID_TYPEHASH = keccak256(
-        "SealedBid(bytes32 auctionId,uint32 auctionVersion,address bidder,bytes32 bidderAccountId,uint256 nonce,uint8 side,uint128 lots,bool allowPartialAllocation,uint128 minimumFillLots,int128 priceTicks,uint128 maximumFeeMinor,bytes32 solverRouteId,bytes32 capacityEvidenceHash,bytes32 revealSalt)"
+        "SealedBid(bytes32 auctionId,uint32 auctionVersion,address bidder,bytes32 bidderAccountId,bytes32 bidderOrderHash,uint256 nonce,uint8 side,uint128 lots,bool allowPartialAllocation,uint128 minimumFillLots,int128 priceTicks,uint128 maximumFeeMinor,bytes32 solverRouteId,bytes32 capacityEvidenceHash,bytes32 revealSalt)"
     );
     bytes32 internal constant SOLVER_ACTION_TYPEHASH = keccak256(
         "SolverAction(bytes32 actionTypeId,bytes32 adapterId,uint32 adapterVersion,bytes32 adapterCapabilityHash,bytes32 inputAssetId,bytes32 outputAssetId,uint128 maximumInput,uint128 minimumOutput,uint32 dependencyMask)"
@@ -153,6 +153,7 @@ library AuctionHashLib {
                 bid.auctionVersion,
                 bid.bidder,
                 AccountId.unwrap(bid.bidderAccountId),
+                bid.bidderOrderHash,
                 bid.nonce,
                 bid.side,
                 Lots.unwrap(bid.lots),
@@ -263,7 +264,10 @@ library AuctionHashLib {
 
     function validateDefinition(AuctionDefinition memory definition, PackageLeg[] memory packageLegs) internal pure {
         if (
-            definition.namespaceId == bytes32(0) || definition.auctionKey == bytes32(0) || definition.targetVersion == 0
+            definition.namespaceId == bytes32(0) || definition.auctionKey == bytes32(0)
+                || definition.initiatorOrderHash == bytes32(0)
+                || AccountId.unwrap(definition.initiatorAccountId) == bytes32(0)
+                || definition.executionModeId == bytes32(0) || definition.targetVersion == 0
                 || AssetId.unwrap(definition.settlementAssetId) == bytes32(0) || definition.settlementAssetVersion == 0
                 || RiskDomainId.unwrap(definition.riskDomainId) == bytes32(0) || definition.riskDomainVersion == 0
                 || FeeScheduleId.unwrap(definition.feeScheduleId) == bytes32(0) || definition.feeScheduleVersion == 0
@@ -308,8 +312,9 @@ library AuctionHashLib {
     function validateBid(SealedBid memory bid, AuctionDefinition memory definition) internal pure {
         if (
             AuctionId.unwrap(bid.auctionId) == bytes32(0) || bid.auctionVersion == 0 || bid.bidder == address(0)
-                || AccountId.unwrap(bid.bidderAccountId) == bytes32(0) || bid.side != definition.auctionSide
-                || bid.revealSalt == bytes32(0) || bid.capacityEvidenceHash == bytes32(0)
+                || AccountId.unwrap(bid.bidderAccountId) == bytes32(0) || bid.bidderOrderHash == bytes32(0)
+                || bid.side != definition.auctionSide || bid.revealSalt == bytes32(0)
+                || bid.capacityEvidenceHash == bytes32(0)
         ) revert InvalidBidField();
         uint128 lots = Lots.unwrap(bid.lots);
         uint128 minimum = Lots.unwrap(bid.minimumFillLots);

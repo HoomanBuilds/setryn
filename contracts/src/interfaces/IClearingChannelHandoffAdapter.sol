@@ -12,6 +12,7 @@ interface IClearingChannelHandoffAdapter {
     function consumeTypedHandoff(ClearingHandoffClaim calldata claim)
         external
         returns (VerifiedClearingHandoff memory handoff);
+    function finalizeTypedHandoff(bytes32 consumptionId, bytes32 fillId, bytes32 positionsHash) external;
     function source() external view returns (address);
     function handoffConsumed(bytes32 consumptionId) external view returns (bool);
 }
