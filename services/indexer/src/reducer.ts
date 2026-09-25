@@ -107,10 +107,113 @@ export function applyEvent(state: ProjectionState, event: CanonicalEvent): void 
       transitionCount: (current?.transitionCount ?? 0) + 1,
       updatedAtBlock: event.log.block.number,
     });
+    applyEconomicTransition(
+      state,
+      event.log.block.chainId,
+      payload.domain,
+      payload.subjectId,
+      payload.eventName,
+      payload.payload,
+      event.log.block.number,
+    );
     return;
   }
 
   applyCollateralEvent(state, event.name, event.payload, event.log.block.chainId, event.log.block.number);
+}
+
+function applyEconomicTransition(
+  state: ProjectionState,
+  chainId: number,
+  domain: "fills" | "fees" | "positions" | "settlement" | "risk" | "default" | "receipts" | string,
+  subjectId: `0x${string}`,
+  eventName: string,
+  payload: JsonObject,
+  blockNumber: bigint,
+): void {
+  if (!["fills", "fees", "positions", "settlement", "risk", "default", "receipts"].includes(domain)) return;
+  const key = `${chainId}:${domain}:${subjectId}`;
+  const current = state.economicSubjects.get(key);
+  const previousStatus = optionalString(payload.previousStatus);
+  if (previousStatus && current?.status && current.status !== previousStatus) {
+    throw new Error(`Economic status precondition failed for ${key}`);
+  }
+  const status = optionalString(payload.newStatus) ?? optionalString(payload.status) ?? current?.status ?? null;
+  const originalQuantity = current?.originalQuantity ?? optionalAmount(payload.lots) ?? optionalAmount(payload.openInterestBaseUnits);
+  const remainingQuantity = optionalAmount(payload.remainingLots) ?? optionalAmount(payload.remainingOpenInterestBaseUnits) ?? current?.remainingQuantity ?? originalQuantity;
+  if (originalQuantity !== null && remainingQuantity !== null && BigInt(remainingQuantity) > BigInt(originalQuantity)) {
+    throw new Error(`Economic quantity conservation failed for ${key}`);
+  }
+  if (eventName === "PositionQuantityChanged") {
+    const remaining = requiredBigInt(payload, "remainingLots");
+    const exercised = requiredBigInt(payload, "exercisedLots");
+    const closed = requiredBigInt(payload, "closedLots");
+    if (originalQuantity !== null && remaining + exercised + closed !== BigInt(originalQuantity)) {
+      throw new Error(`Position lot conservation failed for ${key}`);
+    }
+  }
+  if (eventName === "LiquidationAuctionCleared") {
+    const process = state.economicSubjects.get(`${chainId}:default:${subjectId}`);
+    const deficiency = process?.originalQuantity;
+    const allocated = requiredBigInt(payload, "defaulterCollateralMinor")
+      + requiredBigInt(payload, "takeoverContributionMinor")
+      + requiredBigInt(payload, "insuranceDrawMinor")
+      + requiredBigInt(payload, "terminalResidualMinor");
+    if (deficiency !== null && deficiency !== undefined && allocated !== BigInt(deficiency)) {
+      throw new Error(`Default allocation conservation failed for ${key}`);
+    }
+  }
+  const sequence = optionalSafeInteger(payload.sequence) ?? current?.sequence ?? 0;
+  if (eventName === "EvidenceReceiptAppended" && current && sequence !== current.sequence + 1) {
+    throw new Error(`Receipt sequence progression failed for ${key}`);
+  }
+  const signedAmount = optionalSignedAmount(payload.amountMinor) ?? optionalSignedAmount(payload.amount) ?? 0n;
+  state.economicSubjects.set(key, {
+    chainId,
+    domain: domain as "fills" | "fees" | "positions" | "settlement" | "risk" | "default" | "receipts",
+    subjectId: parseBytes32(subjectId, "economic subject ID"),
+    status,
+    originalQuantity: eventName === "DefaultOpened" ? optionalAmount(payload.deficiencyMinor) : originalQuantity,
+    remainingQuantity,
+    cumulativeAmount: ((current ? BigInt(current.cumulativeAmount) : 0n) + signedAmount).toString(),
+    sequence,
+    lastReference: optionalBytes32(payload.executionReference) ?? optionalBytes32(payload.outcomeHash) ?? current?.lastReference ?? null,
+    updatedAtBlock: blockNumber,
+  });
+}
+
+function optionalString(value: unknown): string | null {
+  return typeof value === "string" && value.length !== 0 ? value : null;
+}
+
+function optionalAmount(value: unknown): string | null {
+  if (typeof value !== "string" || !/^\d+$/.test(value)) return null;
+  return value;
+}
+
+function optionalSignedAmount(value: unknown): bigint | null {
+  if (typeof value !== "string" || !/^-?\d+$/.test(value)) return null;
+  return BigInt(value);
+}
+
+function optionalSafeInteger(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) return null;
+  return value;
+}
+
+function optionalBytes32(value: unknown): `0x${string}` | null {
+  if (typeof value !== "string") return null;
+  try {
+    return parseBytes32(value, "reference");
+  } catch {
+    return null;
+  }
+}
+
+function requiredBigInt(payload: JsonObject, field: string): bigint {
+  const value = optionalSignedAmount(payload[field]);
+  if (value === null || value < 0n) throw new Error(`${field} must be a non-negative integer`);
+  return value;
 }
 
 function applyCollateralEvent(

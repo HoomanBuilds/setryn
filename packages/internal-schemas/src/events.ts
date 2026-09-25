@@ -81,6 +81,7 @@ export type CollateralEventName =
   | "collateral.lock.converted"
   | "collateral.terminal-reservation.created"
   | "collateral.terminal-reservation.resolved"
+  | "collateral.terminal-reservations.replaced"
   | "collateral.terminal-claim.created"
   | "collateral.terminal-claim.fulfilled"
   | "collateral.excess-recovered";
@@ -157,6 +158,7 @@ const collateralEventNames = new Set<CollateralEventName>([
   "collateral.lock.converted",
   "collateral.terminal-reservation.created",
   "collateral.terminal-reservation.resolved",
+  "collateral.terminal-reservations.replaced",
   "collateral.terminal-claim.created",
   "collateral.terminal-claim.fulfilled",
   "collateral.excess-recovered",

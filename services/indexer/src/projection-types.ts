@@ -151,6 +151,19 @@ export interface ProtocolSubjectProjection {
   readonly updatedAtBlock: bigint;
 }
 
+export interface EconomicSubjectProjection {
+  readonly chainId: number;
+  readonly domain: ProtocolEventDomain;
+  readonly subjectId: Bytes32;
+  readonly status: string | null;
+  readonly originalQuantity: string | null;
+  readonly remainingQuantity: string | null;
+  readonly cumulativeAmount: string;
+  readonly sequence: number;
+  readonly lastReference: Bytes32 | null;
+  readonly updatedAtBlock: bigint;
+}
+
 export interface ProjectionState {
   readonly processedLogIds: Set<string>;
   readonly registryVersions: Map<string, RegistryVersionProjection>;
@@ -165,6 +178,7 @@ export interface ProjectionState {
   readonly deployments: Map<string, DeploymentProjection>;
   readonly protocolTransitions: Map<string, ProtocolTransitionProjection>;
   readonly protocolSubjects: Map<string, ProtocolSubjectProjection>;
+  readonly economicSubjects: Map<string, EconomicSubjectProjection>;
 }
 
 export function emptyProjectionState(): ProjectionState {
@@ -182,5 +196,6 @@ export function emptyProjectionState(): ProjectionState {
     deployments: new Map(),
     protocolTransitions: new Map(),
     protocolSubjects: new Map(),
+    economicSubjects: new Map(),
   };
 }

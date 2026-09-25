@@ -1,4 +1,5 @@
 export * from "./deployment-events.ts";
+export * from "./event-descriptors.ts";
 export * from "./normalizer.ts";
 export * from "./projection-types.ts";
 export * from "./projector.ts";

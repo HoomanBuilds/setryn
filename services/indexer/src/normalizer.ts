@@ -5,8 +5,8 @@ import {
   type JsonValue,
   type LogIdentity,
   type RegistryKind,
-  type ProtocolEventDomain,
 } from "@setryn/internal-schemas";
+import { phase2EventDescriptors, type EventDescriptor } from "./event-descriptors.ts";
 
 export interface DecodedContractLog {
   readonly contractName: string;
@@ -104,77 +104,6 @@ const registryDescriptors: readonly RegistryDescriptor[] = [
   },
 ];
 
-interface ProtocolDescriptor {
-  readonly domain: ProtocolEventDomain;
-  readonly subjectFields: readonly string[];
-}
-
-const protocolDescriptors: Readonly<Record<string, ProtocolDescriptor>> = {
-  OrderState: { domain: "orders", subjectFields: ["orderHash"] },
-  PublicOrderBook: { domain: "books", subjectFields: ["bookId", "orderHash"] },
-  PrivateRfqBook: { domain: "rfqs", subjectFields: ["rfqId", "quoteId"] },
-  SealedAuctionHouse: { domain: "auctions", subjectFields: ["auctionId", "bidId"] },
-  StreamingQuoteEngine: { domain: "streams", subjectFields: ["streamId"] },
-  CollateralAwareRouteEngine: { domain: "routes", subjectFields: ["routeId", "planHash"] },
-  BatchClearingEngine: { domain: "fills", subjectFields: ["batchExecutionId", "allocationId", "fillId"] },
-  AtomicClearingEngine: { domain: "fills", subjectFields: ["fillId", "orderHash"] },
-  PositionEngine: { domain: "positions", subjectFields: ["positionId"] },
-  FixingEngine: { domain: "fixing", subjectFields: ["fixingKey", "proposalHash"] },
-  CashSettlementCoordinator: { domain: "settlement", subjectFields: ["settlementId", "claimId"] },
-  FundedFeeEngine: { domain: "fees", subjectFields: ["consumptionId", "feeScheduleId"] },
-  PortfolioRiskEngine: { domain: "risk", subjectFields: ["admissionId", "positionId", "accountId"] },
-  SignedLifecycleEngine: { domain: "lifecycle", subjectFields: ["actionId"] },
-  CompressionCoordinator: { domain: "lifecycle", subjectFields: ["planId"] },
-  PositionLifecycleExecutor: { domain: "lifecycle", subjectFields: ["actionId", "planId", "processId"] },
-  DefaultProcessEngine: { domain: "default", subjectFields: ["processId", "bidId", "depositId"] },
-  PrivacyCommitmentRegistry: { domain: "privacy", subjectFields: ["envelopeId", "grantId", "policyId"] },
-  VerifiableReceiptLedger: { domain: "receipts", subjectFields: ["receiptId", "subjectId"] },
-  OperationalAdapterExecutor: { domain: "asyncAdapters", subjectFields: ["actionId"] },
-};
-
-const enumSchemas: Partial<Record<ProtocolEventDomain, Readonly<Record<string, readonly string[]>>>> = {
-  orders: {
-    status: ["unspecified", "open", "partiallyFilled", "filled", "cancelled", "expired", "rejected"],
-    previousStatus: ["unspecified", "open", "partiallyFilled", "filled", "cancelled", "expired", "rejected"],
-    newStatus: ["unspecified", "open", "partiallyFilled", "filled", "cancelled", "expired", "rejected"],
-    initialStatus: ["unspecified", "open", "partiallyFilled", "filled", "cancelled", "expired", "rejected"],
-    targetKind: ["unspecified", "series", "package"],
-    timeInForce: ["unspecified", "gtc", "gtd", "ioc", "fok"],
-    remainderPolicy: ["unspecified", "keepOpen", "cancelRemainder"],
-  },
-  books: {
-    side: ["unspecified", "buy", "sell"],
-    status: ["unspecified", "resting", "removed"],
-    removalReason: ["unspecified", "filled", "cancelled", "expired", "rejected", "ineligible"],
-    liquidityKind: ["unspecified", "direct"],
-    targetKind: ["unspecified", "series", "package"],
-  },
-  rfqs: {
-    previousStatus: ["unspecified", "inviting", "collecting", "selectionLocked", "capacityReserved", "authorized", "submitted", "clearing", "settled", "cancelled", "expired", "rejected"],
-    newStatus: ["unspecified", "inviting", "collecting", "selectionLocked", "capacityReserved", "authorized", "submitted", "clearing", "settled", "cancelled", "expired", "rejected"],
-    quoteStatus: ["unspecified", "offered", "reserved", "selected", "consumed", "cancelled", "expired", "rejected"],
-    capacityStatus: ["unspecified", "active", "released", "expired", "consumed"],
-    targetKind: ["unspecified", "series", "package"],
-    sidePolicy: ["unspecified", "buyOnly", "sellOnly", "twoWay"],
-  },
-  auctions: {
-    previousStatus: ["unspecified", "scheduled", "commitOpen", "revealOpen", "readyToClear", "cleared", "settled", "cancelled", "failed"],
-    newStatus: ["unspecified", "scheduled", "commitOpen", "revealOpen", "readyToClear", "cleared", "settled", "cancelled", "failed"],
-    status: ["unspecified", "committed", "revealed", "winner", "loser", "unrevealed", "bondReleased", "bondSlashed"],
-  },
-  routes: { previousStatus: ["unspecified", "reserved", "handoffConsumed", "settled", "invalidated", "expired"], newStatus: ["unspecified", "reserved", "handoffConsumed", "settled", "invalidated", "expired"] },
-  fills: { channelKind: ["unspecified", "direct", "privateRfq", "sealedAuction"], entryKind: ["unspecified", "consideration", "makerFee", "takerFee"] },
-  positions: { previousStatus: ["unspecified", "live", "fixing", "settlementReady", "settled", "closedByUnwind", "replaced", "lapsed", "cancelledByDisruption", "defaulted", "terminalClaim"], newStatus: ["unspecified", "live", "fixing", "settlementReady", "settled", "closedByUnwind", "replaced", "lapsed", "cancelledByDisruption", "defaulted", "terminalClaim"] },
-  fixing: { resolutionKind: ["unspecified", "primaryFinal", "fallbackFinal", "terminalDisruption"] },
-  settlement: { mode: ["unspecified", "normal", "terminalDisruption", "lapsed"] },
-  fees: { kind: ["unspecified", "chargeDebit", "chargeCredit", "budgetDebit", "rebateCredit"] },
-  risk: { status: ["unspecified", "reserved", "consumed", "released"] },
-  lifecycle: { previousStatus: ["unspecified", "authorized", "executing", "executed", "cancelled", "expired"], newStatus: ["unspecified", "authorized", "executing", "executed", "cancelled", "expired"] },
-  default: { previousStatus: ["unspecified", "cureOpen", "cured", "commitOpen", "revealOpen", "readyToClear", "auctionCleared", "resolved", "terminalResolved", "recoveryRequired"], newStatus: ["unspecified", "cureOpen", "cured", "commitOpen", "revealOpen", "readyToClear", "auctionCleared", "resolved", "terminalResolved", "recoveryRequired"] },
-  privacy: { previousStatus: ["unspecified", "active", "paused", "deprecated"], newStatus: ["unspecified", "active", "paused", "deprecated"], initialStatus: ["unspecified", "active", "paused", "deprecated"], envelopeStatus: ["unspecified", "active", "revealed", "expired"], grantStatus: ["unspecified", "active", "consumed", "revoked", "expired"] },
-  asyncAdapters: { previousState: ["unspecified", "submitted", "included", "unknown", "reconciling", "complete", "recovering", "recovered", "noEffect"], newState: ["unspecified", "submitted", "included", "unknown", "reconciling", "complete", "recovering", "recovered", "noEffect"] },
-};
-
 const collateralNames: Readonly<Record<string, string>> = {
   AccountCreated: "collateral.account.created",
   AccountControlProposed: "collateral.account.control-proposed",
@@ -190,6 +119,7 @@ const collateralNames: Readonly<Record<string, string>> = {
   CollateralLockConverted: "collateral.lock.converted",
   TerminalLiabilityReservationCreated: "collateral.terminal-reservation.created",
   TerminalLiabilityReservationResolved: "collateral.terminal-reservation.resolved",
+  TerminalLiabilityReservationsReplaced: "collateral.terminal-reservations.replaced",
   TerminalClaimCreated: "collateral.terminal-claim.created",
   TerminalClaimFulfilled: "collateral.terminal-claim.fulfilled",
   ExcessRecovered: "collateral.excess-recovered",
@@ -202,6 +132,7 @@ const terminalReservationStatuses = [
   "settled",
   "releasedAtTerminal",
   "convertedToClaim",
+  "replaced",
 ] as const;
 const terminalOutcomes = ["unspecified", "payout", "noEffect", "flat", "claim"] as const;
 
@@ -224,7 +155,7 @@ export function normalizeDecodedLog(decoded: DecodedContractLog): CanonicalEvent
       payload: normalizeCollateralPayload(decoded.eventName, decoded.args),
     });
   }
-  const protocol = protocolDescriptors[decoded.contractName];
+  const protocol = phase2EventDescriptors.get(`${decoded.contractName}.${decoded.eventName}`);
   if (!protocol) return null;
   const subjectId = protocol.subjectFields.map((field) => decoded.args[field]).find((value) => value !== undefined);
   if (typeof subjectId !== "string") {
@@ -238,34 +169,33 @@ export function normalizeDecodedLog(decoded: DecodedContractLog): CanonicalEvent
       domain: protocol.domain,
       eventName: decoded.eventName,
       subjectId,
-      payload: normalizeProtocolPayload(protocol.domain, decoded.args),
+      payload: normalizeProtocolPayload(protocol, decoded.args),
     },
   });
 }
 
 function normalizeProtocolPayload(
-  domain: ProtocolEventDomain,
+  descriptor: EventDescriptor,
   args: Readonly<Record<string, unknown>>,
 ): JsonObject {
-  return normalizeProtocolObject(domain, args);
+  return normalizeProtocolObject(descriptor, args);
 }
 
 function normalizeProtocolObject(
-  domain: ProtocolEventDomain,
+  descriptor: EventDescriptor,
   value: Readonly<Record<string, unknown>>,
 ): JsonObject {
-  const schema = enumSchemas[domain] ?? {};
   return Object.fromEntries(
     Object.entries(value)
       .filter(([, item]) => item !== undefined)
       .map(([key, item]) => {
-        const enumValues = schema[key];
-        if (enumValues) return [key, enumValue(item, enumValues, `${domain}.${key}`)];
+        const enumValues = descriptor.enumFields[key];
+        if (enumValues) return [key, enumValue(item, enumValues, `${descriptor.contractName}.${descriptor.eventName}.${key}`)];
         if (Array.isArray(item)) {
-          return [key, item.map((entry) => typeof entry === "object" && entry !== null ? normalizeProtocolObject(domain, entry as Record<string, unknown>) : toJsonValue(entry))];
+          return [key, item.map((entry) => typeof entry === "object" && entry !== null ? normalizeProtocolObject(descriptor, entry as Record<string, unknown>) : toJsonValue(entry))];
         }
         if (typeof item === "object" && item !== null) {
-          return [key, normalizeProtocolObject(domain, item as Record<string, unknown>)];
+          return [key, normalizeProtocolObject(descriptor, item as Record<string, unknown>)];
         }
         return [key, toJsonValue(item)];
       }),
