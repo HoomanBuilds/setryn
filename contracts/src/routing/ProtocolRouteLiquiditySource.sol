@@ -39,7 +39,16 @@ import {
     MakerQuoteStatus,
     RfqTargetKind
 } from "../types/RfqTypes.sol";
-import {ExecutableRoute, RouteComponent, RouteId, RouteSourceKind} from "../types/RoutingTypes.sol";
+import {
+    CoincidencePlan,
+    ExecutableRoute,
+    LiquidityFirmness,
+    RouteComponent,
+    RouteId,
+    RouteSourceKind,
+    SourceReservationStatus,
+    SourceRouteReservation
+} from "../types/RoutingTypes.sol";
 import {StreamId, StreamPolicy} from "../types/StreamTypes.sol";
 import {Lots, PriceTicks} from "../types/Units.sol";
 
@@ -60,6 +69,9 @@ contract ProtocolRouteLiquiditySource is IRouteLiquiditySource, AccessControlDef
     mapping(CollateralLockId lockId => RouteId routeId) private _lockRoutes;
     mapping(RouteId routeId => bytes32[] reservationKeys) private _reservationKeys;
     mapping(RouteId routeId => CollateralLockId[] lockIds) private _reservationLocks;
+    mapping(RouteId routeId => RouteSourceKind[] sourceKinds) private _sourceKinds;
+    mapping(RouteId routeId => bytes32[] sourceIds) private _sourceIds;
+    mapping(RouteId routeId => bytes32[] reservationKeys) private _sourceReservationKeys;
 
     error ZeroInitialAdmin();
     error ZeroDependency(address dependency);
@@ -103,14 +115,14 @@ contract ProtocolRouteLiquiditySource is IRouteLiquiditySource, AccessControlDef
     }
 
     function validateComponents(
-        RouteId,
+        RouteId routeId,
         ExecutableRoute calldata route,
         PackageLeg[] calldata packageLegs,
         RouteComponent[] calldata components
     ) external view returns (bytes32 currentSnapshotHash) {
         _validatePackage(route, packageLegs);
         for (uint256 i; i < components.length; ++i) {
-            bytes32 snapshot = _validateComponent(route, components[i], i);
+            bytes32 snapshot = _validateComponent(routeId, route, components[i], i);
             if (snapshot != components[i].sourceSnapshotHash) revert InvalidRouteSource(i);
         }
         return RouteLib.sourceSnapshotHash(components);
@@ -126,9 +138,10 @@ contract ProtocolRouteLiquiditySource is IRouteLiquiditySource, AccessControlDef
         _validatePackage(route, packageLegs);
         bytes32 snapshots;
         for (uint256 i; i < components.length; ++i) {
-            bytes32 snapshot = _validateComponent(route, components[i], i);
+            bytes32 snapshot = _validateComponent(routeId, route, components[i], i);
             if (snapshot != components[i].sourceSnapshotHash) revert InvalidRouteSource(i);
             snapshots = keccak256(abi.encode(snapshots, snapshot));
+            _reserveSource(routeId, components[i]);
             _reserveComponentLocks(routeId, components[i]);
         }
         reservationHash = keccak256(
@@ -160,7 +173,7 @@ contract ProtocolRouteLiquiditySource is IRouteLiquiditySource, AccessControlDef
         onlyRole(ROUTE_ENGINE_ROLE)
         nonReentrant
     {
-        _close(routeId, reservationHash, settlementReference);
+        _close(routeId, reservationHash, settlementReference, true);
     }
 
     function releaseComponents(RouteId routeId, bytes32 reservationHash, bytes32 releaseReference)
@@ -168,7 +181,45 @@ contract ProtocolRouteLiquiditySource is IRouteLiquiditySource, AccessControlDef
         onlyRole(ROUTE_ENGINE_ROLE)
         nonReentrant
     {
-        _close(routeId, reservationHash, releaseReference);
+        _close(routeId, reservationHash, releaseReference, false);
+    }
+
+    function reserveCoincidence(RouteId routeId, CoincidencePlan calldata plan)
+        external
+        onlyRole(ROUTE_ENGINE_ROLE)
+        nonReentrant
+        returns (bytes32 reservationHash)
+    {
+        if (
+            _reservations[routeId] != bytes32(0) || plan.leftReservationKey == bytes32(0)
+                || plan.rightReservationKey == bytes32(0) || plan.leftReservationKey == plan.rightReservationKey
+                || plan.intendedClearingConsumer == address(0) || plan.reservationExpiry <= block.timestamp
+        ) revert RouteAlreadyReserved(routeId);
+        publicOrderBook.reserveForRoute(
+            routeId,
+            plan.leftOrderHash,
+            plan.matchedLots,
+            plan.reservationExpiry,
+            plan.leftReservationKey,
+            plan.intendedClearingConsumer
+        );
+        publicOrderBook.reserveForRoute(
+            routeId,
+            plan.rightOrderHash,
+            plan.matchedLots,
+            plan.reservationExpiry,
+            plan.rightReservationKey,
+            plan.intendedClearingConsumer
+        );
+        _sourceKinds[routeId].push(RouteSourceKind.DirectPackageOrder);
+        _sourceIds[routeId].push(plan.leftOrderHash);
+        _sourceReservationKeys[routeId].push(plan.leftReservationKey);
+        _sourceKinds[routeId].push(RouteSourceKind.DirectPackageOrder);
+        _sourceIds[routeId].push(plan.rightOrderHash);
+        _sourceReservationKeys[routeId].push(plan.rightReservationKey);
+        reservationHash = keccak256(abi.encode(block.chainid, address(this), plan));
+        _reservations[routeId] = reservationHash;
+        emit RouteSourcesReserved(routeId, reservationHash, 0);
     }
 
     function _validatePackage(ExecutableRoute calldata route, PackageLeg[] calldata packageLegs) private view {
@@ -183,22 +234,25 @@ contract ProtocolRouteLiquiditySource is IRouteLiquiditySource, AccessControlDef
         ) revert InvalidRouteSource(type(uint256).max);
     }
 
-    function _validateComponent(ExecutableRoute calldata route, RouteComponent calldata component, uint256 index)
-        private
-        view
-        returns (bytes32 snapshot)
-    {
+    function _validateComponent(
+        RouteId routeId,
+        ExecutableRoute calldata route,
+        RouteComponent calldata component,
+        uint256 index
+    ) private view returns (bytes32 snapshot) {
         if (
-            component.sourceBlock == 0 || component.sourceBlock > block.number || component.expiry < block.timestamp
+            component.firmness != LiquidityFirmness.Firm || component.intendedClearingConsumer == address(0)
+                || component.sourceBlock == 0 || component.sourceBlock > block.number
+                || component.expiry < block.timestamp
                 || !sessionRegistry.isOpenForNewRisk(
                     component.sessionId, component.sessionVersion, uint32(block.timestamp / 1 days)
                 )
         ) revert InvalidRouteSource(index);
         if (component.sourceKind == RouteSourceKind.DirectPackageOrder) {
-            return _validateBook(route, component, true, index);
+            return _validateBook(routeId, route, component, true, index);
         }
         if (component.sourceKind == RouteSourceKind.SeriesBookHead) {
-            return _validateBook(route, component, false, index);
+            return _validateBook(routeId, route, component, false, index);
         }
         if (component.sourceKind == RouteSourceKind.RfqQuote) return _validateRfq(route, component, index);
         if (component.sourceKind == RouteSourceKind.StreamQuote) return _validateStream(component, index);
@@ -207,6 +261,7 @@ contract ProtocolRouteLiquiditySource is IRouteLiquiditySource, AccessControlDef
     }
 
     function _validateBook(
+        RouteId routeId,
         ExecutableRoute calldata route,
         RouteComponent calldata component,
         bool packageTarget,
@@ -221,6 +276,16 @@ contract ProtocolRouteLiquiditySource is IRouteLiquiditySource, AccessControlDef
         OrderRecord memory authorization = publicOrderBook.orderState().getOrder(component.orderHash);
         uint128 authorizedLots = Lots.unwrap(authorization.order.lots);
         uint128 filledLots = Lots.unwrap(authorization.filledLots);
+        uint128 available = Lots.unwrap(publicOrderBook.availableLots(component.orderHash));
+        SourceRouteReservation memory sourceReservation;
+        try publicOrderBook.getRouteReservation(component.reservationKey) returns (
+            SourceRouteReservation memory value
+        ) {
+            sourceReservation = value;
+        } catch {}
+        bool reservedForRoute = sourceReservation.status == SourceReservationStatus.Active
+            && sourceReservation.routeId == routeId
+            && Lots.unwrap(sourceReservation.quantity) == Lots.unwrap(component.componentLots);
         bool targetMatches = packageTarget
             ? book.targetKind == OrderTargetKind.Package && book.targetId == PackageId.unwrap(route.packageId)
                 && book.targetVersion == route.packageVersion && book.packageLegsHash == route.packageWitnessHash
@@ -229,7 +294,7 @@ contract ProtocolRouteLiquiditySource is IRouteLiquiditySource, AccessControlDef
         if (
             !targetMatches || book.liquidityKind != BookLiquidityKind.Direct || order.bookId != bookId
                 || order.status != BookOrderStatus.Resting
-                || Lots.unwrap(order.remainingLots) < Lots.unwrap(component.componentLots)
+                || (!reservedForRoute && available < Lots.unwrap(component.componentLots))
                 || PriceTicks.unwrap(order.priceTicks) != PriceTicks.unwrap(component.priceTicks)
                 || order.side != makerSide || level.headOrderHash != component.orderHash
                 || authorization.order.targetKind != book.targetKind
@@ -249,7 +314,17 @@ contract ProtocolRouteLiquiditySource is IRouteLiquiditySource, AccessControlDef
             component.expiry,
             index
         );
-        snapshot = keccak256(abi.encode(book, order, level, authorization.status, authorization.filledLots));
+        snapshot = keccak256(
+            abi.encode(
+                book,
+                order,
+                level.levelId,
+                level.headOrderHash,
+                level.priceTicks,
+                authorization.status,
+                authorization.filledLots
+            )
+        );
     }
 
     function _validateRfq(ExecutableRoute calldata route, RouteComponent calldata component, uint256 index)
@@ -392,6 +467,59 @@ contract ProtocolRouteLiquiditySource is IRouteLiquiditySource, AccessControlDef
         if (!hasLock) revert InvalidRouteSource(type(uint256).max);
     }
 
+    function _reserveSource(RouteId routeId, RouteComponent calldata component) private {
+        if (
+            component.sourceKind == RouteSourceKind.DirectPackageOrder
+                || component.sourceKind == RouteSourceKind.SeriesBookHead
+        ) {
+            publicOrderBook.reserveForRoute(
+                routeId,
+                component.orderHash,
+                component.componentLots,
+                component.expiry,
+                component.reservationKey,
+                component.intendedClearingConsumer
+            );
+        } else if (component.sourceKind == RouteSourceKind.RfqQuote) {
+            privateRfqBook.reserveForRoute(
+                routeId,
+                MakerQuoteId.wrap(component.sourceId),
+                component.componentLots,
+                component.expiry,
+                component.reservationKey,
+                component.intendedClearingConsumer
+            );
+        } else if (component.sourceKind == RouteSourceKind.StreamQuote) {
+            streamingQuoteEngine.reserveForRoute(
+                routeId,
+                StreamId.wrap(component.sourceId),
+                component.componentLots,
+                component.expiry,
+                component.reservationKey,
+                component.intendedClearingConsumer
+            );
+        } else if (component.sourceKind == RouteSourceKind.SolverRoute) {
+            sealedAuctionHouse.reserveForRoute(
+                routeId,
+                SolverRouteId.wrap(component.sourceId),
+                component.componentLots,
+                component.expiry,
+                component.reservationKey,
+                component.intendedClearingConsumer
+            );
+        } else {
+            revert InvalidRouteSource(type(uint256).max);
+        }
+        _sourceKinds[routeId].push(component.sourceKind);
+        _sourceIds[routeId].push(
+            component.sourceKind == RouteSourceKind.DirectPackageOrder
+                || component.sourceKind == RouteSourceKind.SeriesBookHead
+                ? component.orderHash
+                : component.sourceId
+        );
+        _sourceReservationKeys[routeId].push(component.reservationKey);
+    }
+
     function _reserveLock(RouteId routeId, CollateralLockId lockId, bytes32 reservationKey) private {
         RouteId existing = _lockRoutes[lockId];
         if (RouteId.unwrap(existing) != bytes32(0)) revert CapacityLockAlreadyReserved(lockId, existing);
@@ -401,11 +529,32 @@ contract ProtocolRouteLiquiditySource is IRouteLiquiditySource, AccessControlDef
         reservationRegistry.claimCapacityReference(reservationKey, RouteId.unwrap(routeId), lockId);
     }
 
-    function _close(RouteId routeId, bytes32 reservationHash, bytes32 closeReference) private {
+    function _close(RouteId routeId, bytes32 reservationHash, bytes32 closeReference, bool settled) private {
         if (
             reservationHash == bytes32(0) || closeReference == bytes32(0) || _closed[routeId]
                 || _reservations[routeId] != reservationHash
         ) revert RouteReservationMismatch(routeId);
+        RouteSourceKind[] storage kinds = _sourceKinds[routeId];
+        bytes32[] storage sourceIds = _sourceIds[routeId];
+        bytes32[] storage sourceKeys = _sourceReservationKeys[routeId];
+        for (uint256 i; i < kinds.length; ++i) {
+            SourceRouteReservation memory sourceReservation = _sourceReservation(kinds[i], sourceKeys[i]);
+            if (sourceReservation.routeId != routeId || sourceReservation.sourceId != sourceIds[i]) {
+                revert RouteReservationMismatch(routeId);
+            }
+            if (settled) {
+                if (sourceReservation.status != SourceReservationStatus.Consumed) {
+                    revert RouteReservationMismatch(routeId);
+                }
+            } else if (sourceReservation.status == SourceReservationStatus.Active) {
+                _releaseSource(kinds[i], sourceKeys[i], closeReference);
+            } else if (
+                sourceReservation.status != SourceReservationStatus.Released
+                    && sourceReservation.status != SourceReservationStatus.Expired
+            ) {
+                revert RouteReservationMismatch(routeId);
+            }
+        }
         _closed[routeId] = true;
         bytes32[] storage keys = _reservationKeys[routeId];
         CollateralLockId[] storage locks = _reservationLocks[routeId];
@@ -414,6 +563,34 @@ contract ProtocolRouteLiquiditySource is IRouteLiquiditySource, AccessControlDef
             delete _lockRoutes[locks[i]];
         }
         emit RouteSourcesClosed(routeId, reservationHash, closeReference);
+    }
+
+    function _sourceReservation(RouteSourceKind kind, bytes32 reservationKey)
+        private
+        view
+        returns (SourceRouteReservation memory)
+    {
+        if (kind == RouteSourceKind.DirectPackageOrder || kind == RouteSourceKind.SeriesBookHead) {
+            return publicOrderBook.getRouteReservation(reservationKey);
+        }
+        if (kind == RouteSourceKind.RfqQuote) return privateRfqBook.getRouteReservation(reservationKey);
+        if (kind == RouteSourceKind.StreamQuote) return streamingQuoteEngine.getRouteReservation(reservationKey);
+        if (kind == RouteSourceKind.SolverRoute) return sealedAuctionHouse.getRouteReservation(reservationKey);
+        revert InvalidRouteSource(type(uint256).max);
+    }
+
+    function _releaseSource(RouteSourceKind kind, bytes32 reservationKey, bytes32 releaseReference) private {
+        if (kind == RouteSourceKind.DirectPackageOrder || kind == RouteSourceKind.SeriesBookHead) {
+            publicOrderBook.releaseRouteReservation(reservationKey, releaseReference);
+        } else if (kind == RouteSourceKind.RfqQuote) {
+            privateRfqBook.releaseRouteReservation(reservationKey, releaseReference);
+        } else if (kind == RouteSourceKind.StreamQuote) {
+            streamingQuoteEngine.releaseRouteReservation(reservationKey, releaseReference);
+        } else if (kind == RouteSourceKind.SolverRoute) {
+            sealedAuctionHouse.releaseRouteReservation(reservationKey, releaseReference);
+        } else {
+            revert InvalidRouteSource(type(uint256).max);
+        }
     }
 
     function _oppositeSides(Side left, Side right) private pure returns (bool) {

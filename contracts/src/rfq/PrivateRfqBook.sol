@@ -2,7 +2,6 @@
 pragma solidity 0.8.37;
 
 import {
-    CapacityReservationDisposition,
     AccessControlDefaultAdminRules
 } from "@openzeppelin/contracts/access/extensions/AccessControlDefaultAdminRules.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
@@ -19,6 +18,7 @@ import {PackageDefinitionLib} from "../libraries/PackageDefinitionLib.sol";
 import {CollateralLock} from "../types/CollateralTypes.sol";
 import {
     CapacityDispositionKind,
+    CapacityReservationDisposition,
     ClearingHandoffClaim,
     ClearingHandoffKind,
     UnusedCapacityPolicy,
@@ -54,6 +54,7 @@ import {
     RfqStatus
 } from "../types/RfqTypes.sol";
 import {Lots, PriceTicks} from "../types/Units.sol";
+import {RouteId, SourceReservationStatus, SourceRouteReservation} from "../types/RoutingTypes.sol";
 
 contract PrivateRfqBook is
     IPrivateRfqBook,
@@ -62,6 +63,7 @@ contract PrivateRfqBook is
     ReentrancyGuard
 {
     bytes32 public constant CLEARING_ENGINE_ROLE = keccak256("SETRYN_RFQ_CLEARING_ENGINE_ROLE");
+    bytes32 public constant ROUTE_RESERVER_ROLE = keccak256("SETRYN_RFQ_ROUTE_RESERVER_ROLE");
     bytes32 private constant CAPACITY_LOCK_REFERENCE_TYPEHASH = keccak256("SetrynFirmCapacityLockV1(bytes32 quoteId)");
     bytes32 private constant CAPACITY_COMMITMENT_TYPEHASH = keccak256(
         "SetrynFirmCapacityV1(bytes32 quoteId,address maker,bytes32 makerAccountId,bytes32 collateralId,bytes32 riskDomainId,uint32 riskDomainVersion,uint128 maximumLiability,uint64 expiry)"
@@ -81,6 +83,8 @@ contract PrivateRfqBook is
     mapping(address signer => mapping(uint256 nonce => bool used)) private _usedNonces;
     mapping(bytes32 executionReference => bool consumed) private _consumedHandoffs;
     mapping(bytes32 executionReference => RfqId rfqId) private _handoffRfqs;
+    mapping(bytes32 reservationKey => SourceRouteReservation reservation) private _routeReservations;
+    mapping(MakerQuoteId quoteId => bytes32 reservationKey) private _quoteReservationKeys;
     mapping(RiskDomainId riskDomainId => mapping(uint32 version => uint256 amount)) private _domainReserved;
     mapping(RiskDomainId riskDomainId => mapping(uint32 version => mapping(AccountId accountId => uint256 amount)))
         private _accountReserved;
@@ -102,6 +106,7 @@ contract PrivateRfqBook is
         _clearingEngine = clearingEngine_;
         maximumCapacityTail = maximumCapacityTail_;
         _grantRole(CLEARING_ENGINE_ROLE, clearingEngine_);
+        _grantRole(ROUTE_RESERVER_ROLE, initialAdmin);
     }
 
     function collateralVault() external view returns (IFirmCapacityVault) {
@@ -347,8 +352,24 @@ contract PrivateRfqBook is
         if (liabilityAmount == capacity.remainingLiability && !terminalFill) {
             revert CapacityExhaustedBeforeTerminalFill(quoteId);
         }
+        bytes32 reservationKey = _quoteReservationKeys[quoteId];
+        if (reservationKey != bytes32(0)) {
+            SourceRouteReservation storage routeReservation = _routeReservations[reservationKey];
+            if (
+                routeReservation.status != SourceReservationStatus.Active
+                    || routeReservation.clearingConsumer != msg.sender || block.timestamp > routeReservation.expiry
+                    || Lots.unwrap(routeReservation.quantity) != fill
+            ) revert InvalidRouteReservation();
+        }
         _validationGate.validateHandoff(rfq.request, quote.quote, msg.sender, fillLots, liabilityAmount);
 
+        if (reservationKey != bytes32(0)) {
+            _closeRouteReservation(
+                reservationKey,
+                SourceReservationStatus.Consumed,
+                keccak256(abi.encode("RFQ_ROUTE_CONSUMED", executionReference))
+            );
+        }
         _consumedHandoffs[executionReference] = true;
         uint128 cumulative = alreadyFilled + fill;
         quote.cumulativeFilledLots = Lots.wrap(cumulative);
@@ -535,6 +556,10 @@ contract PrivateRfqBook is
         if (reason == bytes32(0)) revert ZeroReference();
         RfqRecord storage rfq = _requireRfq(rfqId);
         if (rfq.status == RfqStatus.Settled || _isTerminal(rfq.status)) revert InvalidRfqState(rfqId, rfq.status);
+        bytes32 reservationKey = _quoteReservationKeys[rfq.selectedQuoteId];
+        if (reservationKey != bytes32(0)) {
+            _closeRouteReservation(reservationKey, SourceReservationStatus.Released, reason);
+        }
         _setRfqStatus(rfqId, rfq, RfqStatus.Rejected);
         emit RfqRejected(rfqId, reason);
     }
@@ -582,6 +607,14 @@ contract PrivateRfqBook is
             if (block.timestamp <= quote.quote.deadline) revert QuoteStillLive(quoteId, quote.quote.deadline);
         } else {
             if (block.timestamp < capacity.expiry) revert CapacityNotExpired(quoteId, capacity.expiry);
+            bytes32 reservationKey = _quoteReservationKeys[quoteId];
+            if (reservationKey != bytes32(0)) {
+                _closeRouteReservation(
+                    reservationKey,
+                    SourceReservationStatus.Expired,
+                    keccak256(abi.encode("RFQ_CAPACITY_EXPIRED", MakerQuoteId.unwrap(quoteId)))
+                );
+            }
             _releaseCapacity(quoteId, FirmCapacityStatus.Expired);
         }
         if (quote.status != MakerQuoteStatus.Consumed) {
@@ -592,6 +625,82 @@ contract PrivateRfqBook is
             MakerQuoteId.unwrap(rfq.selectedQuoteId) == MakerQuoteId.unwrap(quoteId) && !_isTerminal(rfq.status)
                 && rfq.status != RfqStatus.Settled
         ) _setRfqStatus(quote.quote.rfqId, rfq, RfqStatus.Expired);
+    }
+
+    function reserveForRoute(
+        RouteId routeId,
+        MakerQuoteId quoteId,
+        Lots quantity,
+        uint64 expiry,
+        bytes32 reservationKey,
+        address clearingConsumer
+    ) external onlyRole(ROUTE_RESERVER_ROLE) nonReentrant {
+        uint128 requested = Lots.unwrap(quantity);
+        if (
+            RouteId.unwrap(routeId) == bytes32(0) || reservationKey == bytes32(0) || clearingConsumer != _clearingEngine
+                || requested == 0 || expiry <= block.timestamp
+        ) revert InvalidRouteReservation();
+        if (
+            _routeReservations[reservationKey].status != SourceReservationStatus.Unspecified
+                || _quoteReservationKeys[quoteId] != bytes32(0)
+        ) revert RouteReservationAlreadyExists(quoteId, reservationKey);
+        MakerQuoteRecord storage quote = _requireQuote(quoteId);
+        RfqRecord storage rfq = _requireRfq(quote.quote.rfqId);
+        if (
+            quote.status != MakerQuoteStatus.Selected
+                || (rfq.status != RfqStatus.CapacityReserved
+                    && rfq.status != RfqStatus.Authorized
+                    && rfq.status != RfqStatus.Submitted
+                    && rfq.status != RfqStatus.Clearing)
+                || MakerQuoteId.unwrap(rfq.selectedQuoteId) != MakerQuoteId.unwrap(quoteId)
+                || expiry > quote.quote.deadline || expiry > rfq.request.deadline
+        ) revert InvalidRouteReservation();
+        uint128 remaining = Lots.unwrap(quote.quote.lots) - Lots.unwrap(quote.cumulativeFilledLots);
+        uint128 minimum = Lots.unwrap(quote.quote.minimumFillLots);
+        if (
+            requested > remaining || (!quote.quote.allowPartialFills && requested != remaining)
+                || (requested < minimum && requested != remaining)
+        ) revert InvalidFillLots(requested, remaining, minimum);
+        _requireCapacityLockLive(quoteId, _requireActiveCapacity(quoteId), quote.quote);
+        _quoteReservationKeys[quoteId] = reservationKey;
+        _routeReservations[reservationKey] = SourceRouteReservation({
+            routeId: routeId,
+            sourceId: MakerQuoteId.unwrap(quoteId),
+            reservationKey: reservationKey,
+            clearingConsumer: clearingConsumer,
+            quantity: quantity,
+            expiry: expiry,
+            status: SourceReservationStatus.Active
+        });
+        emit RfqRouteReserved(quoteId, routeId, reservationKey, quantity, expiry, clearingConsumer);
+    }
+
+    function releaseRouteReservation(bytes32 reservationKey, bytes32 releaseReference)
+        external
+        onlyRole(ROUTE_RESERVER_ROLE)
+        nonReentrant
+    {
+        if (releaseReference == bytes32(0)) revert InvalidRouteReservation();
+        _closeRouteReservation(reservationKey, SourceReservationStatus.Released, releaseReference);
+    }
+
+    function expireRouteReservation(bytes32 reservationKey) external nonReentrant {
+        SourceRouteReservation storage reservation = _routeReservations[reservationKey];
+        if (reservation.status != SourceReservationStatus.Active || block.timestamp <= reservation.expiry) {
+            revert InvalidRouteReservation();
+        }
+        _closeRouteReservation(
+            reservationKey, SourceReservationStatus.Expired, keccak256(abi.encode("RFQ_ROUTE_EXPIRED", reservationKey))
+        );
+    }
+
+    function getRouteReservation(bytes32 reservationKey)
+        external
+        view
+        returns (SourceRouteReservation memory reservation)
+    {
+        reservation = _routeReservations[reservationKey];
+        if (reservation.status == SourceReservationStatus.Unspecified) revert InvalidRouteReservation();
     }
 
     function getRfq(RfqId rfqId) external view returns (RfqRecord memory) {
@@ -683,6 +792,19 @@ contract PrivateRfqBook is
             IAtomicClearingEngine(_clearingEngine).positionEngine().releasePositionFundingLock(capacity.lockId);
         }
         emit FirmCapacityChanged(quoteId, previousStatus, terminalStatus, 0, msg.sender);
+    }
+
+    function _closeRouteReservation(bytes32 reservationKey, SourceReservationStatus status, bytes32 closeReference)
+        private
+    {
+        SourceRouteReservation storage reservation = _routeReservations[reservationKey];
+        if (reservation.status != SourceReservationStatus.Active || closeReference == bytes32(0)) {
+            revert InvalidRouteReservation();
+        }
+        MakerQuoteId quoteId = MakerQuoteId.wrap(reservation.sourceId);
+        _quoteReservationKeys[quoteId] = bytes32(0);
+        reservation.status = status;
+        emit RfqRouteReservationClosed(quoteId, reservation.routeId, reservationKey, uint8(status), closeReference);
     }
 
     function _requireLockMatches(

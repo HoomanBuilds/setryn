@@ -20,8 +20,24 @@ import {
     RfqStatus
 } from "../types/RfqTypes.sol";
 import {Lots} from "../types/Units.sol";
+import {RouteId, SourceRouteReservation} from "../types/RoutingTypes.sol";
 
 interface IPrivateRfqBook {
+    event RfqRouteReserved(
+        MakerQuoteId indexed quoteId,
+        RouteId indexed routeId,
+        bytes32 indexed reservationKey,
+        Lots quantity,
+        uint64 expiry,
+        address clearingConsumer
+    );
+    event RfqRouteReservationClosed(
+        MakerQuoteId indexed quoteId,
+        RouteId indexed routeId,
+        bytes32 indexed reservationKey,
+        uint8 status,
+        bytes32 closeReference
+    );
     event PrivateRfqCommitted(
         RfqId indexed rfqId,
         bytes32 indexed requestCommitment,
@@ -105,8 +121,12 @@ interface IPrivateRfqBook {
     error HandoffAlreadyConsumed(bytes32 executionReference);
     error ZeroReference();
     error SelectionAlreadyExists(RfqId rfqId);
+    error InvalidRouteReservation();
+    error RouteReservationAlreadyExists(MakerQuoteId quoteId, bytes32 reservationKey);
+    error UnauthorizedRouteReserver(address caller);
 
     function CLEARING_ENGINE_ROLE() external view returns (bytes32);
+    function ROUTE_RESERVER_ROLE() external view returns (bytes32);
     function collateralVault() external view returns (IFirmCapacityVault);
     function validationGate() external view returns (IPrivateRfqValidationGate);
     function clearingEngine() external view returns (address);
@@ -135,6 +155,17 @@ interface IPrivateRfqBook {
     function expireRfq(RfqId rfqId) external;
     function cancelQuoteCapacity(CapacityCancelAuthorization calldata cancellation, bytes calldata signature) external;
     function expireQuoteCapacity(MakerQuoteId quoteId) external;
+    function reserveForRoute(
+        RouteId routeId,
+        MakerQuoteId quoteId,
+        Lots quantity,
+        uint64 expiry,
+        bytes32 reservationKey,
+        address clearingConsumer
+    ) external;
+    function releaseRouteReservation(bytes32 reservationKey, bytes32 releaseReference) external;
+    function expireRouteReservation(bytes32 reservationKey) external;
+    function getRouteReservation(bytes32 reservationKey) external view returns (SourceRouteReservation memory);
     function getRfq(RfqId rfqId) external view returns (RfqRecord memory);
     function getQuote(MakerQuoteId quoteId) external view returns (MakerQuoteRecord memory);
     function getCapacity(MakerQuoteId quoteId) external view returns (FirmCapacityRecord memory);

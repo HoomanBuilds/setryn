@@ -25,7 +25,14 @@ enum LiquidityProvenance {
     ImpliedOut,
     SolverFirm,
     RfqFirm,
-    StreamFirm
+    StreamFirm,
+    Indicative
+}
+
+enum LiquidityFirmness {
+    Unspecified,
+    Indicative,
+    Firm
 }
 
 enum RouteSourceKind {
@@ -46,8 +53,27 @@ enum RouteStatus {
     Expired
 }
 
+enum SourceReservationStatus {
+    Unspecified,
+    Active,
+    Consumed,
+    Released,
+    Expired
+}
+
+struct SourceRouteReservation {
+    RouteId routeId;
+    bytes32 sourceId;
+    bytes32 reservationKey;
+    address clearingConsumer;
+    Lots quantity;
+    uint64 expiry;
+    SourceReservationStatus status;
+}
+
 struct RouteComponent {
     RouteSourceKind sourceKind;
+    LiquidityFirmness firmness;
     bytes32 sourceId;
     bytes32 sourceSnapshotHash;
     bytes32 reservationKey;
@@ -70,6 +96,7 @@ struct RouteComponent {
     SessionId sessionId;
     uint32 sessionVersion;
     bytes32 guaranteeClassId;
+    address intendedClearingConsumer;
     bool executable;
 }
 
@@ -164,6 +191,10 @@ struct CoincidencePlan {
     PriceTicks leftPriceTicks;
     PriceTicks rightPriceTicks;
     bytes32 economicsHash;
+    bytes32 leftReservationKey;
+    bytes32 rightReservationKey;
+    address intendedClearingConsumer;
+    uint64 reservationExpiry;
 }
 
 struct RouteSettlement {

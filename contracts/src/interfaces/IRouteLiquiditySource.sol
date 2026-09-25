@@ -2,7 +2,7 @@
 pragma solidity 0.8.37;
 
 import {PackageLeg} from "../types/PackageDefinition.sol";
-import {ExecutableRoute, RouteComponent, RouteId} from "../types/RoutingTypes.sol";
+import {CoincidencePlan, ExecutableRoute, RouteComponent, RouteId} from "../types/RoutingTypes.sol";
 
 interface IRouteLiquiditySource {
     function validateComponents(
@@ -30,4 +30,8 @@ interface IRouteLiquiditySource {
     function settleComponents(RouteId routeId, bytes32 reservationHash, bytes32 settlementReference) external;
 
     function releaseComponents(RouteId routeId, bytes32 reservationHash, bytes32 releaseReference) external;
+
+    function reserveCoincidence(RouteId routeId, CoincidencePlan calldata plan)
+        external
+        returns (bytes32 reservationHash);
 }

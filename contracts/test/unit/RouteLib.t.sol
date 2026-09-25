@@ -31,6 +31,7 @@ import {
 import {
     CoincidencePlan,
     ExecutableRoute,
+    LiquidityFirmness,
     LiquidityProvenance,
     RouteCandidate,
     RouteComponent,
@@ -68,6 +69,14 @@ contract RouteLibTest is Test {
         RouteCandidate memory candidate = _candidate();
         candidate.route.packageTickSizeMinor = TickSizeMinor.wrap(3);
         vm.expectRevert(RouteLib.InvalidRouteMath.selector);
+        harness.validate(candidate, block.timestamp);
+    }
+
+    function test_IndicativeSnapshotCannotBecomeExecutableRoute() public {
+        RouteCandidate memory candidate = _candidate();
+        candidate.components[0].firmness = LiquidityFirmness.Indicative;
+        candidate.route.componentsHash = harness.hashComponents(candidate.components);
+        vm.expectRevert(RouteLib.InvalidRouteGraph.selector);
         harness.validate(candidate, block.timestamp);
     }
 
@@ -114,7 +123,11 @@ contract RouteLibTest is Test {
             rightResidualLots: Lots.wrap(right - matched),
             leftPriceTicks: PriceTicks.wrap(50),
             rightPriceTicks: PriceTicks.wrap(50),
-            economicsHash: keccak256("economics")
+            economicsHash: keccak256("economics"),
+            leftReservationKey: keccak256("left reservation"),
+            rightReservationKey: keccak256("right reservation"),
+            intendedClearingConsumer: address(this),
+            reservationExpiry: uint64(block.timestamp + 1 hours)
         });
         assertTrue(harness.validateCoincidence(plan, legs) != bytes32(0));
         assertEq(uint256(Lots.unwrap(plan.matchedLots)) + Lots.unwrap(plan.leftResidualLots), left);
@@ -194,6 +207,7 @@ contract RouteLibTest is Test {
     {
         return RouteComponent({
             sourceKind: RouteSourceKind.SeriesBookHead,
+            firmness: LiquidityFirmness.Firm,
             sourceId: keccak256(abi.encode("source", leg.seriesId)),
             sourceSnapshotHash: keccak256(abi.encode("snapshot", leg.seriesId)),
             reservationKey: keccak256(abi.encode("reservation", leg.seriesId)),
@@ -216,6 +230,7 @@ contract RouteLibTest is Test {
             sessionId: SessionId.wrap(keccak256("session")),
             sessionVersion: 1,
             guaranteeClassId: keccak256("atomic"),
+            intendedClearingConsumer: address(this),
             executable: true
         });
     }

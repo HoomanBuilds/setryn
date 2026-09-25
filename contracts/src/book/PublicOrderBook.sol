@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.37;
 
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {IAtomicClearingEngine} from "../interfaces/IAtomicClearingEngine.sol";
@@ -36,8 +37,10 @@ import {
 import {PackageDefinition, PackageLeg, PackageVersion} from "../types/PackageDefinition.sol";
 import {SeriesVersion} from "../types/SeriesDefinition.sol";
 import {Lots, PriceTicks} from "../types/Units.sol";
+import {RouteId, SourceReservationStatus, SourceRouteReservation} from "../types/RoutingTypes.sol";
 
-contract PublicOrderBook is IPublicOrderBook, ReentrancyGuard {
+contract PublicOrderBook is IPublicOrderBook, AccessControl, ReentrancyGuard {
+    bytes32 public constant ROUTE_RESERVER_ROLE = keccak256("SETRYN_BOOK_ROUTE_RESERVER_ROLE");
     uint256 public constant MAX_MATCH_CANDIDATES = 16;
     uint256 public constant MAX_PACKAGE_MATCH_CANDIDATES = 4;
     uint256 public constant MAX_AUTO_PRUNE = 4;
@@ -54,6 +57,9 @@ contract PublicOrderBook is IPublicOrderBook, ReentrancyGuard {
     mapping(bytes32 levelId => PriceLevel level) private _levels;
     mapping(BookId bookId => mapping(Side side => bytes32 levelId)) private _bestLevels;
     mapping(BookId bookId => mapping(Side side => bytes32 levelId)) private _worstLevels;
+    mapping(bytes32 reservationKey => SourceRouteReservation reservation) private _routeReservations;
+    mapping(bytes32 orderHash => bytes32 reservationKey) private _orderReservationKeys;
+    mapping(bytes32 orderHash => uint128 quantity) private _reservedLots;
     uint64 private _nextSequence;
 
     constructor(
@@ -84,6 +90,8 @@ contract PublicOrderBook is IPublicOrderBook, ReentrancyGuard {
         _packageRegistry = packageRegistry_;
         _marketRegistry = marketRegistry_;
         _eligibilityGate = eligibilityGate_;
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(ROUTE_RESERVER_ROLE, msg.sender);
     }
 
     function placeSeriesOrder(bytes32 orderHash, LevelHint calldata hint)
@@ -134,7 +142,13 @@ contract PublicOrderBook is IPublicOrderBook, ReentrancyGuard {
             if (proposal.matchData.takerOrderHash != takerHash) revert MatchTargetMismatch();
             if (!_prepareMakerCandidate(bookId, taker.order.side, makerHash)) continue;
             BookOrder memory maker = _orders[makerHash];
-            _validateExecution(proposal.matchData.executionPriceTicks, proposal.matchData.fillLots, maker, taker.order);
+            _validateExecution(
+                proposal.matchData.executionPriceTicks,
+                proposal.matchData.fillLots,
+                maker,
+                taker.order,
+                Lots.wrap(Lots.unwrap(maker.remainingLots) - _reservedLots[makerHash])
+            );
             FillId fillId = _clearingEngine.clearSeries(proposal);
             _afterMatch(bookId, takerHash, makerHash, proposal.matchData.fillLots, maker, fillId);
             fillIds[accepted++] = fillId;
@@ -166,7 +180,13 @@ contract PublicOrderBook is IPublicOrderBook, ReentrancyGuard {
             if (proposal.matchData.takerOrderHash != takerHash || _packageRegistry.hashLegs(proposal.legs) != legsHash) revert InvalidPackageWitness();
             if (!_prepareMakerCandidate(bookId, taker.order.side, makerHash)) continue;
             BookOrder memory maker = _orders[makerHash];
-            _validateExecution(proposal.matchData.executionPriceTicks, proposal.matchData.fillLots, maker, taker.order);
+            _validateExecution(
+                proposal.matchData.executionPriceTicks,
+                proposal.matchData.fillLots,
+                maker,
+                taker.order,
+                Lots.wrap(Lots.unwrap(maker.remainingLots) - _reservedLots[makerHash])
+            );
             FillId fillId = _clearingEngine.clearPackage(proposal);
             _afterMatch(bookId, takerHash, makerHash, proposal.matchData.fillLots, maker, fillId);
             fillIds[accepted++] = fillId;
@@ -175,6 +195,148 @@ contract PublicOrderBook is IPublicOrderBook, ReentrancyGuard {
         assembly ("memory-safe") {
             mstore(fillIds, accepted)
         }
+    }
+
+    function reserveForRoute(
+        RouteId routeId,
+        bytes32 orderHash,
+        Lots quantity,
+        uint64 expiry,
+        bytes32 reservationKey,
+        address clearingConsumer
+    ) external onlyRole(ROUTE_RESERVER_ROLE) nonReentrant {
+        uint128 requested = Lots.unwrap(quantity);
+        if (
+            RouteId.unwrap(routeId) == bytes32(0) || reservationKey == bytes32(0) || clearingConsumer == address(0)
+                || requested == 0 || expiry <= block.timestamp
+        ) revert InvalidRouteReservation();
+        if (_routeReservations[reservationKey].status != SourceReservationStatus.Unspecified) {
+            revert RouteReservationAlreadyExists(orderHash, reservationKey);
+        }
+        if (_orderReservationKeys[orderHash] != bytes32(0)) {
+            revert RouteReservationAlreadyExists(orderHash, _orderReservationKeys[orderHash]);
+        }
+        if (!_refreshOrder(orderHash)) revert OrderNotExecutable(orderHash);
+        BookOrder storage order = _orders[orderHash];
+        OrderRecord memory authorization = _orderState.getOrder(orderHash);
+        uint128 available = Lots.unwrap(order.remainingLots);
+        if (requested > available || expiry > authorization.order.deadline) {
+            revert RouteReservationUnavailable(orderHash, available, requested);
+        }
+        _reservedLots[orderHash] = requested;
+        _orderReservationKeys[orderHash] = reservationKey;
+        _levels[order.levelId].totalLots -= requested;
+        _routeReservations[reservationKey] = SourceRouteReservation({
+            routeId: routeId,
+            sourceId: orderHash,
+            reservationKey: reservationKey,
+            clearingConsumer: clearingConsumer,
+            quantity: quantity,
+            expiry: expiry,
+            status: SourceReservationStatus.Active
+        });
+        emit RouteOrderReserved(orderHash, routeId, reservationKey, quantity, expiry, clearingConsumer);
+    }
+
+    function releaseRouteReservation(bytes32 reservationKey, bytes32 releaseReference)
+        external
+        onlyRole(ROUTE_RESERVER_ROLE)
+        nonReentrant
+    {
+        if (releaseReference == bytes32(0)) revert InvalidRouteReservation();
+        _closeRouteReservation(reservationKey, SourceReservationStatus.Released, releaseReference, true);
+    }
+
+    function expireRouteReservation(bytes32 reservationKey) external nonReentrant {
+        SourceRouteReservation storage reservation = _routeReservations[reservationKey];
+        if (reservation.status != SourceReservationStatus.Active || block.timestamp <= reservation.expiry) {
+            revert InvalidRouteReservation();
+        }
+        _closeRouteReservation(
+            reservationKey,
+            SourceReservationStatus.Expired,
+            keccak256(abi.encode("ROUTE_ORDER_EXPIRED", reservationKey)),
+            true
+        );
+    }
+
+    function matchReservedSeries(bytes32 reservationKey, SeriesClearingRequest calldata proposal)
+        external
+        nonReentrant
+        returns (FillId fillId)
+    {
+        SourceRouteReservation storage reservation = _requireReservationConsumer(reservationKey);
+        bytes32 makerHash = reservation.sourceId;
+        BookOrder memory maker = _orders[makerHash];
+        OrderRecord memory taker = _orderState.getOrder(proposal.matchData.takerOrderHash);
+        if (proposal.matchData.makerOrderHash != makerHash || taker.order.targetKind != OrderTargetKind.Series) {
+            revert MatchTargetMismatch();
+        }
+        _prepareTaker(proposal.matchData.takerOrderHash, taker, _seriesIdentity(taker.order), maker.bookId, 1);
+        _requireReservedHead(
+            maker,
+            taker.order,
+            reservation.quantity,
+            proposal.matchData.fillLots,
+            proposal.matchData.executionPriceTicks
+        );
+        _consumeRouteReservation(reservationKey);
+        fillId = _clearingEngine.clearSeries(proposal);
+        _afterMatch(
+            maker.bookId, proposal.matchData.takerOrderHash, makerHash, proposal.matchData.fillLots, maker, fillId
+        );
+    }
+
+    function matchReservedPackage(bytes32 reservationKey, PackageClearingRequest calldata proposal)
+        external
+        nonReentrant
+        returns (FillId fillId)
+    {
+        SourceRouteReservation storage reservation = _requireReservationConsumer(reservationKey);
+        bytes32 makerHash = reservation.sourceId;
+        BookOrder memory maker = _orders[makerHash];
+        OrderRecord memory taker = _orderState.getOrder(proposal.matchData.takerOrderHash);
+        if (proposal.matchData.makerOrderHash != makerHash || taker.order.targetKind != OrderTargetKind.Package) {
+            revert MatchTargetMismatch();
+        }
+        bytes32 legsHash = _packageRegistry.hashLegs(proposal.legs);
+        _prepareTaker(
+            proposal.matchData.takerOrderHash,
+            taker,
+            _packageIdentity(taker.order, proposal.legs, legsHash),
+            maker.bookId,
+            1
+        );
+        _requireReservedHead(
+            maker,
+            taker.order,
+            reservation.quantity,
+            proposal.matchData.fillLots,
+            proposal.matchData.executionPriceTicks
+        );
+        _consumeRouteReservation(reservationKey);
+        fillId = _clearingEngine.clearPackage(proposal);
+        _afterMatch(
+            maker.bookId, proposal.matchData.takerOrderHash, makerHash, proposal.matchData.fillLots, maker, fillId
+        );
+    }
+
+    function getRouteReservation(bytes32 reservationKey)
+        external
+        view
+        returns (SourceRouteReservation memory reservation)
+    {
+        reservation = _routeReservations[reservationKey];
+        if (reservation.status == SourceReservationStatus.Unspecified) revert InvalidRouteReservation();
+    }
+
+    function availableLots(bytes32 orderHash) external view returns (Lots) {
+        BookOrder storage order = _orders[orderHash];
+        if (order.status == BookOrderStatus.Unspecified) revert UnknownBookOrder(orderHash);
+        uint128 remaining = Lots.unwrap(order.remainingLots);
+        uint128 reserved = _reservedLots[orderHash];
+        if (reserved > remaining) revert InvalidRouteReservation();
+        return Lots.wrap(remaining - reserved);
     }
 
     function syncOrder(bytes32 orderHash) external nonReentrant {
@@ -369,7 +531,8 @@ contract PublicOrderBook is IPublicOrderBook, ReentrancyGuard {
         PriceTicks executionPrice,
         Lots fillLots,
         BookOrder memory maker,
-        PublicOrder memory taker
+        PublicOrder memory taker,
+        Lots maximumFillLots
     ) private pure {
         if (PriceTicks.unwrap(executionPrice) != PriceTicks.unwrap(maker.priceTicks)) {
             revert MakerPriceMismatch(PriceTicks.unwrap(maker.priceTicks), PriceTicks.unwrap(executionPrice));
@@ -377,9 +540,79 @@ contract PublicOrderBook is IPublicOrderBook, ReentrancyGuard {
         if (!PublicBookLib.crosses(taker.side, taker.priceTicks, maker.priceTicks)) {
             revert TakerPriceDoesNotCross(PriceTicks.unwrap(taker.priceTicks), PriceTicks.unwrap(maker.priceTicks));
         }
-        if (Lots.unwrap(fillLots) == 0 || Lots.unwrap(fillLots) > Lots.unwrap(maker.remainingLots)) {
+        if (Lots.unwrap(fillLots) == 0 || Lots.unwrap(fillLots) > Lots.unwrap(maximumFillLots)) {
             revert MatchTargetMismatch();
         }
+    }
+
+    function _requireReservedHead(
+        BookOrder memory maker,
+        PublicOrder memory taker,
+        Lots reserved,
+        Lots fillLots,
+        PriceTicks executionPrice
+    ) private view {
+        bytes32 expected = _bestOrder(maker.bookId, PublicBookLib.opposite(taker.side));
+        if (expected != maker.orderHash) revert BestCandidateMismatch(expected, maker.orderHash);
+        if (
+            maker.status != BookOrderStatus.Resting || Lots.unwrap(fillLots) != Lots.unwrap(reserved)
+                || _reservedLots[maker.orderHash] != Lots.unwrap(reserved)
+        ) revert InvalidRouteReservation();
+        OrderRecord memory authorization = _orderState.getOrder(maker.orderHash);
+        _requireExecutableRecord(maker.orderHash, authorization);
+        _validateExecution(executionPrice, fillLots, maker, taker, reserved);
+    }
+
+    function _requireReservationConsumer(bytes32 reservationKey)
+        private
+        view
+        returns (SourceRouteReservation storage reservation)
+    {
+        reservation = _routeReservations[reservationKey];
+        if (reservation.status != SourceReservationStatus.Active || block.timestamp > reservation.expiry) {
+            revert InvalidRouteReservation();
+        }
+        if (msg.sender != reservation.clearingConsumer) {
+            revert UnauthorizedClearingConsumer(reservation.clearingConsumer, msg.sender);
+        }
+    }
+
+    function _consumeRouteReservation(bytes32 reservationKey) private {
+        SourceRouteReservation storage reservation = _routeReservations[reservationKey];
+        BookOrder storage order = _orders[reservation.sourceId];
+        uint128 quantity = Lots.unwrap(reservation.quantity);
+        _levels[order.levelId].totalLots += quantity;
+        _reservedLots[reservation.sourceId] = 0;
+        _orderReservationKeys[reservation.sourceId] = bytes32(0);
+        reservation.status = SourceReservationStatus.Consumed;
+        emit RouteOrderReservationClosed(
+            reservation.sourceId,
+            reservation.routeId,
+            reservationKey,
+            uint8(SourceReservationStatus.Consumed),
+            keccak256(abi.encode("ROUTE_ORDER_CONSUMED", reservationKey))
+        );
+    }
+
+    function _closeRouteReservation(
+        bytes32 reservationKey,
+        SourceReservationStatus status,
+        bytes32 closeReference,
+        bool restoreAvailable
+    ) private {
+        SourceRouteReservation storage reservation = _routeReservations[reservationKey];
+        if (reservation.status != SourceReservationStatus.Active) revert InvalidRouteReservation();
+        BookOrder storage order = _orders[reservation.sourceId];
+        uint128 quantity = Lots.unwrap(reservation.quantity);
+        if (restoreAvailable && order.status == BookOrderStatus.Resting) {
+            _levels[order.levelId].totalLots += quantity;
+        }
+        _reservedLots[reservation.sourceId] = 0;
+        _orderReservationKeys[reservation.sourceId] = bytes32(0);
+        reservation.status = status;
+        emit RouteOrderReservationClosed(
+            reservation.sourceId, reservation.routeId, reservationKey, uint8(status), closeReference
+        );
     }
 
     function _afterMatch(
@@ -431,12 +664,23 @@ contract PublicOrderBook is IPublicOrderBook, ReentrancyGuard {
         }
         BookRemovalReason reason = _terminalReason(record.status);
         if (reason != BookRemovalReason.Unspecified) {
+            bytes32 reservationKey = _orderReservationKeys[orderHash];
+            if (reservationKey != bytes32(0)) {
+                if (reason == BookRemovalReason.Filled) revert InvalidRouteReservation();
+                SourceReservationStatus terminalStatus = reason == BookRemovalReason.Expired
+                    ? SourceReservationStatus.Expired
+                    : SourceReservationStatus.Released;
+                _closeRouteReservation(
+                    reservationKey, terminalStatus, keccak256(abi.encode("ORDER_TERMINAL", orderHash, reason)), false
+                );
+            }
             _removeOrder(orderHash, reason);
             return false;
         }
 
         uint128 authoritative = Lots.unwrap(record.order.lots) - Lots.unwrap(record.filledLots);
         uint128 previous = Lots.unwrap(cached.remainingLots);
+        if (authoritative < _reservedLots[orderHash]) revert InvalidRouteReservation();
         if (authoritative > previous) revert CachedQuantityIncrease(orderHash, previous, authoritative);
         if (authoritative != previous) {
             PriceLevel storage level = _levels[cached.levelId];

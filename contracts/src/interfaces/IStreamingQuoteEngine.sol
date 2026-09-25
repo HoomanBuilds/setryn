@@ -8,8 +8,24 @@ import {CollateralLockId, FillId} from "../types/Identifiers.sol";
 import {Lots, PriceTicks} from "../types/Units.sol";
 import {PackageLeg} from "../types/PackageDefinition.sol";
 import {StreamFill, StreamId, StreamLadderLevel, StreamPolicy, StreamSizeBand} from "../types/StreamTypes.sol";
+import {RouteId, SourceRouteReservation} from "../types/RoutingTypes.sol";
 
 interface IStreamingQuoteEngine {
+    event StreamRouteReserved(
+        StreamId indexed streamId,
+        RouteId indexed routeId,
+        bytes32 indexed reservationKey,
+        Lots quantity,
+        uint64 expiry,
+        address clearingConsumer
+    );
+    event StreamRouteReservationClosed(
+        StreamId indexed streamId,
+        RouteId indexed routeId,
+        bytes32 indexed reservationKey,
+        uint8 status,
+        bytes32 closeReference
+    );
     event StreamRegistered(
         StreamId indexed streamId,
         address indexed maker,
@@ -40,6 +56,9 @@ interface IStreamingQuoteEngine {
     error ClearingRequestMismatch();
     error FundingHashMismatch(bytes32 expected, bytes32 actual);
     error EphemeralQuoteAlreadyUsed(bytes32 quoteHash);
+    error InvalidRouteReservation();
+    error RouteReservationAlreadyExists(StreamId streamId, bytes32 reservationKey);
+    error UnauthorizedRouteReserver(address caller);
 
     function registerStream(
         StreamPolicy calldata policy,
@@ -47,6 +66,18 @@ interface IStreamingQuoteEngine {
         StreamLadderLevel[] calldata ladder,
         bytes calldata signature
     ) external returns (StreamId streamId);
+    function ROUTE_RESERVER_ROLE() external view returns (bytes32);
+    function reserveForRoute(
+        RouteId routeId,
+        StreamId streamId,
+        Lots quantity,
+        uint64 expiry,
+        bytes32 reservationKey,
+        address clearingConsumer
+    ) external;
+    function releaseRouteReservation(bytes32 reservationKey, bytes32 releaseReference) external;
+    function expireRouteReservation(bytes32 reservationKey) external;
+    function getRouteReservation(bytes32 reservationKey) external view returns (SourceRouteReservation memory);
     function cancelStream(StreamId streamId) external;
     function expireStream(StreamId streamId) external;
     function fillSeries(StreamFill calldata fill, SeriesClearingRequest calldata request)

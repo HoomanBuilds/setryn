@@ -58,6 +58,7 @@ import {
     SolverRouteRecord
 } from "../types/AuctionTypes.sol";
 import {Lots, PriceTicks} from "../types/Units.sol";
+import {RouteId, SourceReservationStatus, SourceRouteReservation} from "../types/RoutingTypes.sol";
 
 contract SealedAuctionHouse is
     ISealedAuctionHouse,
@@ -68,6 +69,7 @@ contract SealedAuctionHouse is
     bytes32 public constant AUCTION_SCHEDULER_ROLE = keccak256("SETRYN_AUCTION_SCHEDULER_ROLE");
     bytes32 public constant AUCTION_GUARDIAN_ROLE = keccak256("SETRYN_AUCTION_GUARDIAN_ROLE");
     bytes32 public constant CLEARING_ENGINE_ROLE = keccak256("SETRYN_AUCTION_CLEARING_ENGINE_ROLE");
+    bytes32 public constant ROUTE_RESERVER_ROLE = keccak256("SETRYN_AUCTION_ROUTE_RESERVER_ROLE");
     bytes32 private constant BOND_LOCK_REFERENCE_TYPEHASH =
         keccak256("SetrynAuctionBondLockV1(bytes32 bidCommitmentId)");
     bytes32 private constant CAPACITY_LOCK_REFERENCE_TYPEHASH =
@@ -91,6 +93,8 @@ contract SealedAuctionHouse is
     mapping(bytes32 executionReference => bool used) private _executionReferences;
     mapping(bytes32 executionReference => AuctionId auctionId) private _handoffAuctions;
     mapping(bytes32 executionReference => uint32 version) private _handoffVersions;
+    mapping(bytes32 reservationKey => SourceRouteReservation reservation) private _routeReservations;
+    mapping(SolverRouteId solverRouteId => bytes32 reservationKey) private _solverRouteReservationKeys;
 
     constructor(
         uint48 defaultAdminDelay,
@@ -108,6 +112,7 @@ contract SealedAuctionHouse is
         _grantRole(AUCTION_SCHEDULER_ROLE, initialAdmin);
         _grantRole(AUCTION_GUARDIAN_ROLE, initialAdmin);
         _grantRole(CLEARING_ENGINE_ROLE, clearingEngine_);
+        _grantRole(ROUTE_RESERVER_ROLE, initialAdmin);
     }
 
     function auctionVault() external view returns (IAuctionVault) {
@@ -355,6 +360,77 @@ contract SealedAuctionHouse is
         return expected.resultHash == auction.clearingResultHash;
     }
 
+    function reserveForRoute(
+        RouteId routeId,
+        SolverRouteId solverRouteId,
+        Lots quantity,
+        uint64 expiry,
+        bytes32 reservationKey,
+        address clearingConsumer
+    ) external onlyRole(ROUTE_RESERVER_ROLE) nonReentrant {
+        uint128 requested = Lots.unwrap(quantity);
+        if (
+            RouteId.unwrap(routeId) == bytes32(0) || reservationKey == bytes32(0) || clearingConsumer != _clearingEngine
+                || requested == 0 || expiry <= block.timestamp
+                || _routeReservations[reservationKey].status != SourceReservationStatus.Unspecified
+                || _solverRouteReservationKeys[solverRouteId] != bytes32(0)
+        ) revert InvalidRouteReservation();
+        SolverRouteRecord storage routeRecord = _routes[solverRouteId];
+        if (!routeRecord.revealed) revert InvalidRouteReservation();
+        SolverRoute storage route = routeRecord.route;
+        AuctionVersion storage auction = _requireAuction(route.auctionId, route.auctionVersion);
+        AuctionClearingResult storage result = _results[route.auctionId][route.auctionVersion];
+        BidRecord storage winner = _requireBid(result.winningRouteBidId);
+        if (
+            auction.status != AuctionStatus.Cleared || winner.status != BidStatus.Winner
+                || SolverRouteId.unwrap(winner.routeId) != SolverRouteId.unwrap(solverRouteId)
+                || requested != Lots.unwrap(winner.allocatedLots) || expiry > auction.definition.settlementDeadline
+                || expiry > route.expiry || _handoffConsumed[route.auctionId][route.auctionVersion]
+        ) revert InvalidRouteReservation();
+        _requireCapacityLock(route, auction.definition);
+        _solverRouteReservationKeys[solverRouteId] = reservationKey;
+        _routeReservations[reservationKey] = SourceRouteReservation({
+            routeId: routeId,
+            sourceId: SolverRouteId.unwrap(solverRouteId),
+            reservationKey: reservationKey,
+            clearingConsumer: clearingConsumer,
+            quantity: quantity,
+            expiry: expiry,
+            status: SourceReservationStatus.Active
+        });
+        emit AuctionRouteReserved(solverRouteId, routeId, reservationKey, quantity, expiry, clearingConsumer);
+    }
+
+    function releaseRouteReservation(bytes32 reservationKey, bytes32 releaseReference)
+        external
+        onlyRole(ROUTE_RESERVER_ROLE)
+        nonReentrant
+    {
+        if (releaseReference == bytes32(0)) revert InvalidRouteReservation();
+        _closeRouteReservation(reservationKey, SourceReservationStatus.Released, releaseReference);
+    }
+
+    function expireRouteReservation(bytes32 reservationKey) external nonReentrant {
+        SourceRouteReservation storage reservation = _routeReservations[reservationKey];
+        if (reservation.status != SourceReservationStatus.Active || block.timestamp <= reservation.expiry) {
+            revert InvalidRouteReservation();
+        }
+        _closeRouteReservation(
+            reservationKey,
+            SourceReservationStatus.Expired,
+            keccak256(abi.encode("AUCTION_ROUTE_EXPIRED", reservationKey))
+        );
+    }
+
+    function getRouteReservation(bytes32 reservationKey)
+        external
+        view
+        returns (SourceRouteReservation memory reservation)
+    {
+        reservation = _routeReservations[reservationKey];
+        if (reservation.status == SourceReservationStatus.Unspecified) revert InvalidRouteReservation();
+    }
+
     function consumeClearingHandoff(AuctionId auctionId, uint32 version, bytes32 executionReference)
         external
         onlyRole(CLEARING_ENGINE_ROLE)
@@ -384,6 +460,20 @@ contract SealedAuctionHouse is
             BidRecord storage winner = _bids[result.winningRouteBidId];
             SolverRoute storage route = _routes[winner.routeId].route;
             _requireCapacityLock(route, auction.definition);
+            bytes32 reservationKey = _solverRouteReservationKeys[winner.routeId];
+            if (reservationKey != bytes32(0)) {
+                SourceRouteReservation storage routeReservation = _routeReservations[reservationKey];
+                if (
+                    routeReservation.status != SourceReservationStatus.Active
+                        || routeReservation.clearingConsumer != msg.sender || block.timestamp > routeReservation.expiry
+                        || Lots.unwrap(routeReservation.quantity) != Lots.unwrap(winner.allocatedLots)
+                ) revert InvalidRouteReservation();
+                _closeRouteReservation(
+                    reservationKey,
+                    SourceReservationStatus.Consumed,
+                    keccak256(abi.encode("AUCTION_ROUTE_CONSUMED", executionReference))
+                );
+            }
             capacityLockId = route.capacityLockId;
             capacityAmount = route.capacityAmount;
         }
@@ -550,6 +640,17 @@ contract SealedAuctionHouse is
         if (block.timestamp <= auction.definition.settlementDeadline) {
             revert SettlementDeadlineNotReached(auction.definition.settlementDeadline, block.timestamp);
         }
+        AuctionClearingResult storage result = _results[auctionId][version];
+        if (BidCommitmentId.unwrap(result.winningRouteBidId) != bytes32(0)) {
+            bytes32 reservationKey = _solverRouteReservationKeys[_bids[result.winningRouteBidId].routeId];
+            if (reservationKey != bytes32(0)) {
+                _closeRouteReservation(
+                    reservationKey,
+                    SourceReservationStatus.Expired,
+                    keccak256(abi.encode("AUCTION_SETTLEMENT_EXPIRED", AuctionId.unwrap(auctionId), version))
+                );
+            }
+        }
         _resolveWinningBonds(auctionId, version, auction.definition.settlementFailureBondOutcome, auction.definition);
         _setAuctionStatus(auctionId, version, auction, AuctionStatus.Failed);
     }
@@ -594,6 +695,21 @@ contract SealedAuctionHouse is
         AuctionClearingResult storage result = _results[auctionId][version];
         if (result.resultHash == bytes32(0)) revert NoClearingResult();
         return result;
+    }
+
+    function _closeRouteReservation(bytes32 reservationKey, SourceReservationStatus status, bytes32 closeReference)
+        private
+    {
+        SourceRouteReservation storage reservation = _routeReservations[reservationKey];
+        if (reservation.status != SourceReservationStatus.Active || closeReference == bytes32(0)) {
+            revert InvalidRouteReservation();
+        }
+        SolverRouteId solverRouteId = SolverRouteId.wrap(reservation.sourceId);
+        _solverRouteReservationKeys[solverRouteId] = bytes32(0);
+        reservation.status = status;
+        emit AuctionRouteReservationClosed(
+            solverRouteId, reservation.routeId, reservationKey, uint8(status), closeReference
+        );
     }
 
     function _prepareReveal(BidCommitmentId bidId, SealedBid calldata bid)

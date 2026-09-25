@@ -21,8 +21,25 @@ import {
     SolverRouteId,
     SolverRouteRecord
 } from "../types/AuctionTypes.sol";
+import {RouteId, SourceRouteReservation} from "../types/RoutingTypes.sol";
+import {Lots} from "../types/Units.sol";
 
 interface ISealedAuctionHouse {
+    event AuctionRouteReserved(
+        SolverRouteId indexed solverRouteId,
+        RouteId indexed routeId,
+        bytes32 indexed reservationKey,
+        Lots quantity,
+        uint64 expiry,
+        address clearingConsumer
+    );
+    event AuctionRouteReservationClosed(
+        SolverRouteId indexed solverRouteId,
+        RouteId indexed routeId,
+        bytes32 indexed reservationKey,
+        uint8 status,
+        bytes32 closeReference
+    );
     event AuctionScheduled(
         AuctionId indexed auctionId,
         uint32 indexed version,
@@ -102,10 +119,14 @@ interface ISealedAuctionHouse {
     error SettlementDeadlineNotReached(uint64 deadline, uint256 currentTimestamp);
     error SettlementDeadlinePassed(uint64 deadline, uint256 currentTimestamp);
     error UnauthorizedCancellation();
+    error InvalidRouteReservation();
+    error RouteReservationAlreadyExists(SolverRouteId solverRouteId, bytes32 reservationKey);
+    error UnauthorizedRouteReserver(address caller);
 
     function AUCTION_SCHEDULER_ROLE() external view returns (bytes32);
     function AUCTION_GUARDIAN_ROLE() external view returns (bytes32);
     function CLEARING_ENGINE_ROLE() external view returns (bytes32);
+    function ROUTE_RESERVER_ROLE() external view returns (bytes32);
     function auctionVault() external view returns (IAuctionVault);
     function validationGate() external view returns (IAuctionValidationGate);
     function clearingEngine() external view returns (address);
@@ -135,6 +156,17 @@ interface ISealedAuctionHouse {
     function settleAuction(AuctionId auctionId, uint32 version, bytes32 settlementReference) external;
     function failExpiredSettlement(AuctionId auctionId, uint32 version) external;
     function releaseExpiredBond(BidCommitmentId bidId) external;
+    function reserveForRoute(
+        RouteId routeId,
+        SolverRouteId solverRouteId,
+        Lots quantity,
+        uint64 expiry,
+        bytes32 reservationKey,
+        address clearingConsumer
+    ) external;
+    function releaseRouteReservation(bytes32 reservationKey, bytes32 releaseReference) external;
+    function expireRouteReservation(bytes32 reservationKey) external;
+    function getRouteReservation(bytes32 reservationKey) external view returns (SourceRouteReservation memory);
     function getAuction(AuctionId auctionId, uint32 version) external view returns (AuctionVersion memory);
     function getBid(BidCommitmentId bidId) external view returns (BidRecord memory);
     function getRoute(SolverRouteId routeId) external view returns (SolverRouteRecord memory);

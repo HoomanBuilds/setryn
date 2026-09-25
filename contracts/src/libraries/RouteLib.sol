@@ -9,6 +9,7 @@ import {PackageLeg} from "../types/PackageDefinition.sol";
 import {
     CoincidencePlan,
     ExecutableRoute,
+    LiquidityFirmness,
     LiquidityProvenance,
     RouteCandidate,
     RouteComponent,
@@ -77,6 +78,7 @@ library RouteLib {
                 || route.riskDomainVersion == 0 || route.guaranteeClassId == bytes32(0) || route.salt == bytes32(0)
                 || route.expiry < currentTimestamp || (route.userSide != Side.Buy && route.userSide != Side.Sell)
                 || route.provenance == LiquidityProvenance.Unspecified
+                || route.provenance == LiquidityProvenance.Indicative
         ) revert InvalidRoute();
         if (PackageDefinitionLib.hashLegs(candidate.packageLegs) != route.packageWitnessHash) revert InvalidRoute();
         if (
@@ -155,7 +157,9 @@ library RouteLib {
                 || Lots.unwrap(plan.matchedLots) != matched || Lots.unwrap(plan.leftResidualLots) != left - matched
                 || Lots.unwrap(plan.rightResidualLots) != right - matched
                 || PriceTicks.unwrap(plan.leftPriceTicks) != PriceTicks.unwrap(plan.rightPriceTicks)
-                || plan.economicsHash == bytes32(0)
+                || plan.economicsHash == bytes32(0) || plan.leftReservationKey == bytes32(0)
+                || plan.rightReservationKey == bytes32(0) || plan.leftReservationKey == plan.rightReservationKey
+                || plan.intendedClearingConsumer == address(0) || plan.reservationExpiry == 0
         ) revert InvalidCoincidence();
         planHash = keccak256(abi.encode(plan));
     }
@@ -179,9 +183,10 @@ library RouteLib {
             RouteComponent memory component = components[i];
             if (
                 component.sourceKind == RouteSourceKind.Unspecified || component.sourceId == bytes32(0)
-                    || component.sourceSnapshotHash == bytes32(0) || component.reservationKey == bytes32(0)
-                    || component.orderHash == bytes32(0) || !component.executable || component.expiry < route.expiry
-                    || component.sourceBlock != route.sourceBlock
+                    || component.firmness != LiquidityFirmness.Firm || component.sourceSnapshotHash == bytes32(0)
+                    || component.reservationKey == bytes32(0) || component.orderHash == bytes32(0)
+                    || component.intendedClearingConsumer == address(0) || !component.executable
+                    || component.expiry < route.expiry || component.sourceBlock != route.sourceBlock
                     || component.guaranteeClassId != route.guaranteeClassId || (component.dependencyMask >> i) != 0
                     || (CollateralLockId.unwrap(component.capacityLockId) == bytes32(0))
                         != (component.capacityLockReference == bytes32(0))

@@ -17,8 +17,24 @@ import {Side} from "../types/Enums.sol";
 import {BookId, FillId} from "../types/Identifiers.sol";
 import {PackageLeg} from "../types/PackageDefinition.sol";
 import {Lots, PriceTicks} from "../types/Units.sol";
+import {RouteId, SourceRouteReservation} from "../types/RoutingTypes.sol";
 
 interface IPublicOrderBook {
+    event RouteOrderReserved(
+        bytes32 indexed orderHash,
+        RouteId indexed routeId,
+        bytes32 indexed reservationKey,
+        Lots quantity,
+        uint64 expiry,
+        address clearingConsumer
+    );
+    event RouteOrderReservationClosed(
+        bytes32 indexed orderHash,
+        RouteId indexed routeId,
+        bytes32 indexed reservationKey,
+        uint8 status,
+        bytes32 closeReference
+    );
     event BookOpened(BookId indexed bookId, BookIdentity identity);
     event PriceLevelOpened(
         BookId indexed bookId,
@@ -92,11 +108,30 @@ interface IPublicOrderBook {
     error InvalidPackageWitness();
     error CachedQuantityIncrease(bytes32 orderHash, uint128 cached, uint128 authoritative);
     error EligibleOrderCannotBePruned(bytes32 orderHash);
+    error InvalidRouteReservation();
+    error RouteReservationAlreadyExists(bytes32 orderHash, bytes32 reservationKey);
+    error RouteReservationUnavailable(bytes32 orderHash, uint128 available, uint128 requested);
+    error UnauthorizedRouteReserver(address caller);
+    error UnauthorizedClearingConsumer(address expected, address actual);
+
+    function ROUTE_RESERVER_ROLE() external view returns (bytes32);
 
     function placeSeriesOrder(bytes32 orderHash, LevelHint calldata hint) external returns (BookId bookId);
     function placePackageOrder(bytes32 orderHash, PackageLeg[] calldata legs, LevelHint calldata hint)
         external
         returns (BookId bookId);
+    function reserveForRoute(
+        RouteId routeId,
+        bytes32 orderHash,
+        Lots quantity,
+        uint64 expiry,
+        bytes32 reservationKey,
+        address clearingConsumer
+    ) external;
+    function releaseRouteReservation(bytes32 reservationKey, bytes32 releaseReference) external;
+    function expireRouteReservation(bytes32 reservationKey) external;
+    function getRouteReservation(bytes32 reservationKey) external view returns (SourceRouteReservation memory);
+    function availableLots(bytes32 orderHash) external view returns (Lots);
     function matchSeries(BookId bookId, SeriesClearingRequest[] calldata proposals)
         external
         returns (FillId[] memory fillIds);

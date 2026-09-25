@@ -4,7 +4,7 @@ pragma solidity 0.8.37;
 import {RouteLib} from "../../src/libraries/RouteLib.sol";
 import {RiskAdmission, RiskAdmissionId, RiskAdmissionStatus} from "../../src/types/RiskTypes.sol";
 import {PackageLeg} from "../../src/types/PackageDefinition.sol";
-import {ExecutableRoute, RouteComponent, RouteId} from "../../src/types/RoutingTypes.sol";
+import {CoincidencePlan, ExecutableRoute, RouteComponent, RouteId} from "../../src/types/RoutingTypes.sol";
 
 contract RouteLiquiditySourceMock {
     mapping(RouteId routeId => bool live) public live;
@@ -48,6 +48,15 @@ contract RouteLiquiditySourceMock {
     function releaseComponents(RouteId routeId, bytes32 reservationHash, bytes32) external {
         require(reservations[routeId] == reservationHash);
         live[routeId] = false;
+    }
+
+    function reserveCoincidence(RouteId routeId, CoincidencePlan calldata plan)
+        external
+        returns (bytes32 reservationHash)
+    {
+        reservationHash = keccak256(abi.encode(routeId, plan));
+        reservations[routeId] = reservationHash;
+        live[routeId] = true;
     }
 
     function invalidate(RouteId routeId) external {

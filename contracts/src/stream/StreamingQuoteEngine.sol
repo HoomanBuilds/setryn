@@ -3,6 +3,7 @@ pragma solidity 0.8.37;
 
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
 import {IAtomicClearingEngine} from "../interfaces/IAtomicClearingEngine.sol";
 import {IStreamCapacityManager} from "../interfaces/IStreamCapacityManager.sol";
@@ -31,8 +32,11 @@ import {
     StreamSizeBand
 } from "../types/StreamTypes.sol";
 import {Lots, PriceTicks} from "../types/Units.sol";
+import {RouteId, SourceReservationStatus, SourceRouteReservation} from "../types/RoutingTypes.sol";
 
-contract StreamingQuoteEngine is IStreamingQuoteEngine, ReentrancyGuard {
+contract StreamingQuoteEngine is IStreamingQuoteEngine, AccessControl, ReentrancyGuard {
+    bytes32 public constant ROUTE_RESERVER_ROLE = keccak256("SETRYN_STREAM_ROUTE_RESERVER_ROLE");
+
     struct StreamRecord {
         StreamPolicy policy;
         uint64 nextSequence;
@@ -47,12 +51,16 @@ contract StreamingQuoteEngine is IStreamingQuoteEngine, ReentrancyGuard {
     mapping(StreamId streamId => StreamLadderLevel[] levels) private _ladders;
     mapping(address maker => mapping(uint256 nonce => bool used)) private _usedNonces;
     mapping(bytes32 ephemeralQuoteHash => bool used) private _usedEphemeralQuotes;
+    mapping(bytes32 reservationKey => SourceRouteReservation reservation) private _routeReservations;
+    mapping(StreamId streamId => bytes32 reservationKey) private _streamReservationKeys;
 
     constructor(IAtomicClearingEngine atomicClearingEngine_, IStreamCapacityManager capacityManager_) {
         _requireDependency(address(atomicClearingEngine_));
         _requireDependency(address(capacityManager_));
         _atomicClearingEngine = atomicClearingEngine_;
         _capacityManager = capacityManager_;
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(ROUTE_RESERVER_ROLE, msg.sender);
     }
 
     function registerStream(
@@ -88,6 +96,14 @@ contract StreamingQuoteEngine is IStreamingQuoteEngine, ReentrancyGuard {
         StreamRecord storage record = _requireStream(streamId);
         if (msg.sender != record.policy.maker) revert UnauthorizedExecutor(record.policy.maker, msg.sender);
         if (!record.active) revert StreamNotLive(streamId);
+        bytes32 reservationKey = _streamReservationKeys[streamId];
+        if (reservationKey != bytes32(0)) {
+            _closeRouteReservation(
+                reservationKey,
+                SourceReservationStatus.Released,
+                keccak256(abi.encode("STREAM_SIGNED_CANCEL", StreamId.unwrap(streamId)))
+            );
+        }
         record.active = false;
         _capacityManager.releaseStreamCapacity(streamId);
         emit StreamCancelled(streamId, msg.sender);
@@ -96,6 +112,14 @@ contract StreamingQuoteEngine is IStreamingQuoteEngine, ReentrancyGuard {
     function expireStream(StreamId streamId) external nonReentrant {
         StreamRecord storage record = _requireStream(streamId);
         if (!record.active || block.timestamp <= record.policy.expiry) revert StreamNotLive(streamId);
+        bytes32 reservationKey = _streamReservationKeys[streamId];
+        if (reservationKey != bytes32(0)) {
+            _closeRouteReservation(
+                reservationKey,
+                SourceReservationStatus.Expired,
+                keccak256(abi.encode("STREAM_EXPIRED", StreamId.unwrap(streamId)))
+            );
+        }
         record.active = false;
         _capacityManager.expireStreamCapacity(streamId);
         emit StreamCancelled(streamId, msg.sender);
@@ -140,6 +164,72 @@ contract StreamingQuoteEngine is IStreamingQuoteEngine, ReentrancyGuard {
                 capacity.inventoryLots
             )
         );
+    }
+
+    function reserveForRoute(
+        RouteId routeId,
+        StreamId streamId,
+        Lots quantity,
+        uint64 expiry,
+        bytes32 reservationKey,
+        address clearingConsumer
+    ) external onlyRole(ROUTE_RESERVER_ROLE) nonReentrant {
+        uint128 requested = Lots.unwrap(quantity);
+        StreamRecord storage record = _requireStream(streamId);
+        if (
+            RouteId.unwrap(routeId) == bytes32(0) || reservationKey == bytes32(0)
+                || clearingConsumer != record.policy.permittedExecutor || requested == 0 || expiry <= block.timestamp
+                || !record.active || expiry > record.policy.expiry
+                || _routeReservations[reservationKey].status != SourceReservationStatus.Unspecified
+                || _streamReservationKeys[streamId] != bytes32(0)
+        ) revert InvalidRouteReservation();
+        StreamCapacityState memory capacity = _capacityManager.getStreamCapacity(streamId);
+        uint256 liability = uint256(requested) * record.policy.liabilityPerLot;
+        if (liability == 0 || liability > capacity.capacity.remainingLiability) revert InvalidRouteReservation();
+        StreamPricingLib.quote(
+            record.policy, _sizeBands[streamId], _ladders[streamId], quantity, capacity.inventoryLots
+        );
+        _streamReservationKeys[streamId] = reservationKey;
+        _routeReservations[reservationKey] = SourceRouteReservation({
+            routeId: routeId,
+            sourceId: StreamId.unwrap(streamId),
+            reservationKey: reservationKey,
+            clearingConsumer: clearingConsumer,
+            quantity: quantity,
+            expiry: expiry,
+            status: SourceReservationStatus.Active
+        });
+        emit StreamRouteReserved(streamId, routeId, reservationKey, quantity, expiry, clearingConsumer);
+    }
+
+    function releaseRouteReservation(bytes32 reservationKey, bytes32 releaseReference)
+        external
+        onlyRole(ROUTE_RESERVER_ROLE)
+        nonReentrant
+    {
+        if (releaseReference == bytes32(0)) revert InvalidRouteReservation();
+        _closeRouteReservation(reservationKey, SourceReservationStatus.Released, releaseReference);
+    }
+
+    function expireRouteReservation(bytes32 reservationKey) external nonReentrant {
+        SourceRouteReservation storage reservation = _routeReservations[reservationKey];
+        if (reservation.status != SourceReservationStatus.Active || block.timestamp <= reservation.expiry) {
+            revert InvalidRouteReservation();
+        }
+        _closeRouteReservation(
+            reservationKey,
+            SourceReservationStatus.Expired,
+            keccak256(abi.encode("STREAM_ROUTE_EXPIRED", reservationKey))
+        );
+    }
+
+    function getRouteReservation(bytes32 reservationKey)
+        external
+        view
+        returns (SourceRouteReservation memory reservation)
+    {
+        reservation = _routeReservations[reservationKey];
+        if (reservation.status == SourceReservationStatus.Unspecified) revert InvalidRouteReservation();
     }
 
     function fillSeries(StreamFill calldata fill, SeriesClearingRequest calldata request)
@@ -226,6 +316,20 @@ contract StreamingQuoteEngine is IStreamingQuoteEngine, ReentrancyGuard {
         }
         if (msg.sender != policy.permittedExecutor) {
             revert UnauthorizedExecutor(policy.permittedExecutor, msg.sender);
+        }
+        bytes32 reservationKey = _streamReservationKeys[fill.streamId];
+        if (reservationKey != bytes32(0)) {
+            SourceRouteReservation storage reservation = _routeReservations[reservationKey];
+            if (
+                reservation.status != SourceReservationStatus.Active || reservation.clearingConsumer != msg.sender
+                    || Lots.unwrap(reservation.quantity) != Lots.unwrap(fill.fillLots)
+                    || block.timestamp > reservation.expiry
+            ) revert InvalidRouteReservation();
+            _closeRouteReservation(
+                reservationKey,
+                SourceReservationStatus.Consumed,
+                keccak256(abi.encode("STREAM_ROUTE_CONSUMED", StreamId.unwrap(fill.streamId), fill.sequence))
+            );
         }
         if (fill.sequence != record.nextSequence) revert InvalidSequence(record.nextSequence, fill.sequence);
         uint256 refreshEnds = uint256(fill.refreshedAt) + policy.refreshInterval;
@@ -335,6 +439,19 @@ contract StreamingQuoteEngine is IStreamingQuoteEngine, ReentrancyGuard {
     function _requireStream(StreamId streamId) private view returns (StreamRecord storage record) {
         record = _streams[streamId];
         if (record.policy.maker == address(0)) revert UnknownStream(streamId);
+    }
+
+    function _closeRouteReservation(bytes32 reservationKey, SourceReservationStatus status, bytes32 closeReference)
+        private
+    {
+        SourceRouteReservation storage reservation = _routeReservations[reservationKey];
+        if (reservation.status != SourceReservationStatus.Active || closeReference == bytes32(0)) {
+            revert InvalidRouteReservation();
+        }
+        StreamId streamId = StreamId.wrap(reservation.sourceId);
+        _streamReservationKeys[streamId] = bytes32(0);
+        reservation.status = status;
+        emit StreamRouteReservationClosed(streamId, reservation.routeId, reservationKey, uint8(status), closeReference);
     }
 
     function _requireDependency(address dependency) private view {

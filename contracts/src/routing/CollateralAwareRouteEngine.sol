@@ -209,6 +209,8 @@ contract CollateralAwareRouteEngine is ICollateralAwareRouteEngine, AccessContro
         returns (bytes32 planHash)
     {
         planHash = RouteLib.validateCoincidence(plan, packageLegs);
+        bytes32 reservationHash = _liquiditySource.reserveCoincidence(RouteId.wrap(planHash), plan);
+        if (reservationHash == bytes32(0)) revert InvalidRoute();
         emit CoincidenceValidated(planHash, plan.leftOrderHash, plan.rightOrderHash);
     }
 
