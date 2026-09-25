@@ -68,6 +68,8 @@ type PositionId is bytes32;
 
 type FillId is bytes32;
 
+type BookId is bytes32;
+
 /// @dev An open, namespaced identifier for a holder action policy. Consumers must recognize the
 /// exact policy they implement and fail closed on unsupported policies.
 type ExercisePolicyId is bytes32;
@@ -96,6 +98,8 @@ type FeeModelId is bytes32;
 /// per-action data against that commitment at charge time. Any nonzero value is meaningful, and a
 /// consumer must explicitly recognize the exact actions it supports and fail closed on the rest.
 type FeeActionId is bytes32;
+
+type FeeRemainderPolicyId is bytes32;
 
 /// @dev A chain-local custody account handle, never a cross-chain identity. It is derived from the
 /// vault address and chainId precisely so the same creator and salt name different accounts in two
