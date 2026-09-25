@@ -1,0 +1,312 @@
+{
+  "$schema": "../deployment-manifest.schema.json",
+  "schemaVersion": "1.0.0",
+  "environment": "arbitrum-sepolia",
+  "chainId": 421614,
+  "status": "planned",
+  "generatedAt": null,
+  "sourceCommit": null,
+  "blockReference": {
+    "number": null,
+    "hash": null,
+    "mode": "planned"
+  },
+  "compiler": {
+    "name": "solc",
+    "version": "0.8.37",
+    "evmVersion": "cancun",
+    "optimizer": {
+      "enabled": true,
+      "runs": 1000000
+    },
+    "bytecodeHashMode": "none"
+  },
+  "broadcast": {
+    "enabled": false,
+    "signed": false,
+    "transactionCount": 0
+  },
+  "contracts": [
+    {
+      "name": "AssetRegistry",
+      "artifact": "contracts/out/AssetRegistry.sol/AssetRegistry.json",
+      "address": null,
+      "implementation": null,
+      "constructorArguments": [
+        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
+        {"name": "initialAdmin", "type": "address", "value": null}
+      ],
+      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
+      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
+      "owner": {"address": null, "source": "SETRYN_INITIAL_ADMIN"},
+      "roles": [
+        {"name": "REGISTRAR_ROLE", "id": "0x046791d0a4cfdf4f410ba80f11e88f14c2169ca01bd510dc3e57eddcb84681da", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
+        {"name": "STATUS_MANAGER_ROLE", "id": "0x26cbe3408315b5c5c670bdfc25e49f6fc01f2537366048a7f3bbd2bf508effb4", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]}
+      ],
+      "caps": [],
+      "dependencies": []
+    },
+    {
+      "name": "AdapterRegistry",
+      "artifact": "contracts/out/AdapterRegistry.sol/AdapterRegistry.json",
+      "address": null,
+      "implementation": null,
+      "constructorArguments": [
+        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
+        {"name": "initialAdmin", "type": "address", "value": null}
+      ],
+      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
+      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
+      "owner": {"address": null, "source": "SETRYN_INITIAL_ADMIN"},
+      "roles": [
+        {"name": "ADAPTER_QUALIFIER_ROLE", "id": "0xc52033eec72c8c677ea9347118ec0f9999bb198a97c080f24c910b44848e0fbd", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
+        {"name": "ADAPTER_STATUS_MANAGER_ROLE", "id": "0xb9587c24a37da0ae08e71cca64d8f45ee0a7d9bb53d56ef15069283ed5612b39", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]}
+      ],
+      "caps": [],
+      "dependencies": []
+    },
+    {
+      "name": "CalendarRegistry",
+      "artifact": "contracts/out/CalendarRegistry.sol/CalendarRegistry.json",
+      "address": null,
+      "implementation": null,
+      "constructorArguments": [
+        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
+        {"name": "initialAdmin", "type": "address", "value": null}
+      ],
+      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
+      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
+      "owner": {"address": null, "source": "SETRYN_INITIAL_ADMIN"},
+      "roles": [
+        {"name": "CALENDAR_REGISTRAR_ROLE", "id": "0xc005105cf41195f093abedee8ba94fecc986b3fe47c00f41026a52a77de1aa7b", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
+        {"name": "CALENDAR_STATUS_MANAGER_ROLE", "id": "0x15b4e49aa45275bbb60ef90feb0d1deecaf4131b33b1310c359024cec0083bd4", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]}
+      ],
+      "caps": [],
+      "dependencies": []
+    },
+    {
+      "name": "SessionRegistry",
+      "artifact": "contracts/out/SessionRegistry.sol/SessionRegistry.json",
+      "address": null,
+      "implementation": null,
+      "constructorArguments": [
+        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
+        {"name": "initialAdmin", "type": "address", "value": null},
+        {"name": "calendarRegistry", "type": "address", "value": "$contracts.CalendarRegistry.address"}
+      ],
+      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
+      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
+      "owner": {"address": null, "source": "SETRYN_INITIAL_ADMIN"},
+      "roles": [
+        {"name": "SESSION_REGISTRAR_ROLE", "id": "0x1447103ecc629480a2f3ca44db1eb9876a9db039dbaea99ca563510d0102703d", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
+        {"name": "SESSION_STATUS_MANAGER_ROLE", "id": "0x67281b39c42c54ddf3726b4298852a5d5abe364bd56d310d5007e4450f054092", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]}
+      ],
+      "caps": [],
+      "dependencies": ["CalendarRegistry"]
+    },
+    {
+      "name": "SettlementAssetRegistry",
+      "artifact": "contracts/out/SettlementAssetRegistry.sol/SettlementAssetRegistry.json",
+      "address": null,
+      "implementation": null,
+      "constructorArguments": [
+        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
+        {"name": "initialAdmin", "type": "address", "value": null},
+        {"name": "assetRegistry", "type": "address", "value": "$contracts.AssetRegistry.address"}
+      ],
+      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
+      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
+      "owner": {"address": null, "source": "SETRYN_INITIAL_ADMIN"},
+      "roles": [
+        {"name": "QUALIFIER_ROLE", "id": "0xfd23476a0bec4a4ad955c8b10b0c127f588467b695c2ec17e9938c6c800eea88", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
+        {"name": "STATUS_MANAGER_ROLE", "id": "0xeb66ef46406ee3d74188f552bd34965bc71a93b7af3d955512be970b3dded898", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]}
+      ],
+      "caps": [],
+      "dependencies": ["AssetRegistry"]
+    },
+    {
+      "name": "BenchmarkRegistry",
+      "artifact": "contracts/out/BenchmarkRegistry.sol/BenchmarkRegistry.json",
+      "address": null,
+      "implementation": null,
+      "constructorArguments": [
+        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
+        {"name": "initialAdmin", "type": "address", "value": null},
+        {"name": "assetRegistry", "type": "address", "value": "$contracts.AssetRegistry.address"},
+        {"name": "adapterRegistry", "type": "address", "value": "$contracts.AdapterRegistry.address"},
+        {"name": "calendarRegistry", "type": "address", "value": "$contracts.CalendarRegistry.address"},
+        {"name": "sessionRegistry", "type": "address", "value": "$contracts.SessionRegistry.address"}
+      ],
+      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
+      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
+      "owner": {"address": null, "source": "SETRYN_INITIAL_ADMIN"},
+      "roles": [
+        {"name": "BENCHMARK_QUALIFIER_ROLE", "id": "0x794d455bfa9b4162866b33b1aaeb405ab91c2e8ecaa25feef76acbabff0a72dd", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
+        {"name": "BENCHMARK_STATUS_MANAGER_ROLE", "id": "0x2c86bc9529ed0e41f12e981d22d5318fce87e812921a08ddb938e8d53fccaca6", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]}
+      ],
+      "caps": [],
+      "dependencies": ["AssetRegistry", "AdapterRegistry", "CalendarRegistry", "SessionRegistry"]
+    },
+    {
+      "name": "FeeScheduleRegistry",
+      "artifact": "contracts/out/FeeScheduleRegistry.sol/FeeScheduleRegistry.json",
+      "address": null,
+      "implementation": null,
+      "constructorArguments": [
+        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
+        {"name": "initialAdmin", "type": "address", "value": null},
+        {"name": "settlementAssetRegistry", "type": "address", "value": "$contracts.SettlementAssetRegistry.address"}
+      ],
+      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
+      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
+      "owner": {"address": null, "source": "SETRYN_INITIAL_ADMIN"},
+      "roles": [
+        {"name": "FEE_SCHEDULE_QUALIFIER_ROLE", "id": "0xa5cec1a62f15fc8a8034c794d9b737f8e023eaa1eda517b30d4c2f18d15eedda", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
+        {"name": "FEE_SCHEDULE_STATUS_MANAGER_ROLE", "id": "0x81ecb19f3cbdf48faf8ac71db2c71b938e6e0a75e5eab1d27ad07d05d63f7e66", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]}
+      ],
+      "caps": [],
+      "dependencies": ["SettlementAssetRegistry"]
+    },
+    {
+      "name": "RiskDomainRegistry",
+      "artifact": "contracts/out/RiskDomainRegistry.sol/RiskDomainRegistry.json",
+      "address": null,
+      "implementation": null,
+      "constructorArguments": [
+        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
+        {"name": "initialAdmin", "type": "address", "value": null},
+        {"name": "settlementAssetRegistry", "type": "address", "value": "$contracts.SettlementAssetRegistry.address"},
+        {"name": "adapterRegistry", "type": "address", "value": "$contracts.AdapterRegistry.address"}
+      ],
+      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
+      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
+      "owner": {"address": null, "source": "SETRYN_INITIAL_ADMIN"},
+      "roles": [
+        {"name": "RISK_DOMAIN_QUALIFIER_ROLE", "id": "0xc02652fe082a3c29004e2c9f4bea23227871ce63a2cd640c3a60d2f21d8ae1b7", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
+        {"name": "RISK_DOMAIN_STATUS_MANAGER_ROLE", "id": "0x54e3cacf9a55868b0df4f907f1220883c67d9efd13b13a48d28069aaa9d3cde7", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]}
+      ],
+      "caps": [],
+      "dependencies": ["SettlementAssetRegistry", "AdapterRegistry"]
+    },
+    {
+      "name": "InstrumentRegistry",
+      "artifact": "contracts/out/InstrumentRegistry.sol/InstrumentRegistry.json",
+      "address": null,
+      "implementation": null,
+      "constructorArguments": [
+        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
+        {"name": "initialAdmin", "type": "address", "value": null},
+        {"name": "adapterRegistry", "type": "address", "value": "$contracts.AdapterRegistry.address"},
+        {"name": "evaluationGasHardCap", "type": "uint64", "value": null}
+      ],
+      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
+      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
+      "owner": {"address": null, "source": "SETRYN_INITIAL_ADMIN"},
+      "roles": [
+        {"name": "INSTRUMENT_QUALIFIER_ROLE", "id": "0x02f561dea513e88edf318b113c6f470fd4f80b79ecdd913b3c21bef6a990546d", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
+        {"name": "INSTRUMENT_STATUS_MANAGER_ROLE", "id": "0x3654db16c3864e4a90ce3a136bb6d96b623c8b4f55d27e6d27aea6198179c34f", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]}
+      ],
+      "caps": [{"name": "evaluationGasHardCap", "unit": "gas", "value": null}],
+      "dependencies": ["AdapterRegistry"]
+    },
+    {
+      "name": "MarketRegistry",
+      "artifact": "contracts/out/MarketRegistry.sol/MarketRegistry.json",
+      "address": null,
+      "implementation": null,
+      "constructorArguments": [
+        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
+        {"name": "initialAdmin", "type": "address", "value": null},
+        {"name": "assetRegistry", "type": "address", "value": "$contracts.AssetRegistry.address"},
+        {"name": "settlementAssetRegistry", "type": "address", "value": "$contracts.SettlementAssetRegistry.address"},
+        {"name": "collateralVault", "type": "address", "value": "$contracts.CollateralVault.address"},
+        {"name": "benchmarkRegistry", "type": "address", "value": "$contracts.BenchmarkRegistry.address"},
+        {"name": "calendarRegistry", "type": "address", "value": "$contracts.CalendarRegistry.address"},
+        {"name": "sessionRegistry", "type": "address", "value": "$contracts.SessionRegistry.address"},
+        {"name": "riskDomainRegistry", "type": "address", "value": "$contracts.RiskDomainRegistry.address"},
+        {"name": "feeScheduleRegistry", "type": "address", "value": "$contracts.FeeScheduleRegistry.address"}
+      ],
+      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
+      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
+      "owner": {"address": null, "source": "SETRYN_INITIAL_ADMIN"},
+      "roles": [
+        {"name": "MARKET_QUALIFIER_ROLE", "id": "0x0281a465e3c123a5ed19aa8e5ffe24e30e46ec3bf4c00b5cf47c46f4539ecb74", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
+        {"name": "MARKET_STATUS_MANAGER_ROLE", "id": "0x22ceba6f2e648f7e4675327e44c50ef05fcda828fcb01ef0fbad9537b7b3c9d3", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]}
+      ],
+      "caps": [],
+      "dependencies": [
+        "AssetRegistry",
+        "SettlementAssetRegistry",
+        "CollateralVault",
+        "BenchmarkRegistry",
+        "CalendarRegistry",
+        "SessionRegistry",
+        "RiskDomainRegistry",
+        "FeeScheduleRegistry"
+      ]
+    },
+    {
+      "name": "SeriesRegistry",
+      "artifact": "contracts/out/SeriesRegistry.sol/SeriesRegistry.json",
+      "address": null,
+      "implementation": null,
+      "constructorArguments": [
+        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
+        {"name": "initialAdmin", "type": "address", "value": null},
+        {"name": "marketRegistry", "type": "address", "value": "$contracts.MarketRegistry.address"},
+        {"name": "instrumentRegistry", "type": "address", "value": "$contracts.InstrumentRegistry.address"}
+      ],
+      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
+      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
+      "owner": {"address": null, "source": "SETRYN_INITIAL_ADMIN"},
+      "roles": [
+        {"name": "SERIES_QUALIFIER_ROLE", "id": "0x7ed8715f5b228a75c531118974b1168e56a6853913f0acf96f6a685ca217a167", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
+        {"name": "SERIES_STATUS_MANAGER_ROLE", "id": "0xd237b9d78d4ee869267036ee8b6bf72841fa63051a1a54ae147f11f8ef5b9102", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]}
+      ],
+      "caps": [],
+      "dependencies": ["MarketRegistry", "InstrumentRegistry"]
+    },
+    {
+      "name": "CollateralVault",
+      "artifact": "contracts/out/CollateralVault.sol/CollateralVault.json",
+      "address": null,
+      "implementation": null,
+      "constructorArguments": [
+        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
+        {"name": "initialAdmin", "type": "address", "value": null},
+        {"name": "settlementAssetRegistry", "type": "address", "value": "$contracts.SettlementAssetRegistry.address"},
+        {"name": "riskDomainRegistry", "type": "address", "value": "$contracts.RiskDomainRegistry.address"},
+        {"name": "maxLockDuration", "type": "uint64", "value": 2592000}
+      ],
+      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
+      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
+      "owner": {"address": null, "source": "SETRYN_INITIAL_ADMIN"},
+      "roles": [
+        {"name": "COLLATERAL_LOCKER_ROLE", "id": "0xae58182dd6e03509898e3d2294a55cf04f584b2dd7f21b08c2eeac8b3007695e", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
+        {"name": "COLLATERAL_SETTLER_ROLE", "id": "0x4465f16537f957eb9bcc1f5ecc11148e07b2322719cc82074aa38ad12eeff48e", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
+        {"name": "TERMINAL_RESERVATION_CREATOR_ROLE", "id": "0xc2b36aaef1c77d75c1a65b1b4b26b56243ce47c7985a837ed48dbb1b9ac45894", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
+        {"name": "TERMINAL_RESERVATION_RESOLVER_ROLE", "id": "0x99c8955d749bac1f2fd2f8b5664c86fccab0a2d838caf0cb697396ee11112e9a", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
+        {"name": "EXCESS_RECOVERY_ROLE", "id": "0xea19ef25c0f12242c433a7b1cecf15553dbc6476762f77c0745b1473ee04ee17", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]}
+      ],
+      "caps": [
+        {"name": "maxLockDuration", "unit": "seconds", "value": 2592000}
+      ],
+      "dependencies": ["SettlementAssetRegistry", "RiskDomainRegistry"]
+    }
+  ],
+  "externalDependencies": [
+    {
+      "name": "Circle test USDC",
+      "address": "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d",
+      "purpose": "Candidate settlement token for a later qualified registry binding",
+      "provenance": {
+        "kind": "official-documentation",
+        "reference": "https://developers.circle.com/stablecoins/usdc-contract-addresses",
+        "verifiedAt": null
+      },
+      "runtimeCodeHash": null,
+      "qualificationStatus": "pending",
+      "consumers": ["SettlementAssetRegistry"]
+    }
+  ]
+}

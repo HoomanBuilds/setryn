@@ -22,6 +22,7 @@ coverage/
 *.tsbuildinfo
 
 # Foundry
+/cache/
 /contracts/out/
 /contracts/cache/
 /contracts/broadcast/
@@ -29,6 +30,7 @@ coverage/
 
 # Local deployments and runtime data
 /deployments/local/
+/.setryn/
 *.log
 
 # Test and hosting output
