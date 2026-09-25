@@ -70,6 +70,8 @@ type FillId is bytes32;
 
 type BookId is bytes32;
 
+type SettlementId is bytes32;
+
 /// @dev An open, namespaced identifier for a holder action policy. Consumers must recognize the
 /// exact policy they implement and fail closed on unsupported policies.
 type ExercisePolicyId is bytes32;
