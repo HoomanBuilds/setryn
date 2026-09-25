@@ -147,8 +147,9 @@ export function buildPreview(
 export type StageState =
   | { kind: "IDLE" }
   | { kind: "COMPILED"; reference: string }
-  | { kind: "QUEUED"; reference: string }
-  | { kind: "SETTLED_PREVIEW"; reference: string };
+  | { kind: "EXECUTING"; reference: string }
+  | { kind: "COMPLETED"; reference: string; receiptId: string }
+  | { kind: "FAILED"; reference: string; message: string };
 
 /** Deterministic local reference so a preview record is traceable without a chain write. */
 export function previewReference(marketId: string, lots: number, price: number): string {

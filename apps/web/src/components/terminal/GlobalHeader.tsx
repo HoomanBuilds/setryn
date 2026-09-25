@@ -5,9 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronDown, Menu, Wallet, X } from "lucide-react";
 import { DataRow, SectionLabel, StatusDot } from "@/components/terminal/primitives";
-import { ACCOUNT, ENVIRONMENT } from "@/lib/terminal/account";
-import { ACCOUNT_SUMMARY } from "@/lib/portfolio/model";
-import { formatCompactUsd, formatMultiple } from "@/lib/terminal/format";
+import { useGatewaySnapshot, useInternalGateway } from "@/components/gateway/InternalGatewayProvider";
+import { formatCompactUsd } from "@/lib/terminal/format";
 import { DEFAULT_TRADE_HREF } from "@/lib/terminal/markets";
 
 interface NavItem {
@@ -49,21 +48,67 @@ function Mark() {
   );
 }
 
-function EnvironmentChip({ className = "" }: { className?: string }) {
+function EnvironmentChip({ label, className = "" }: { label: string; className?: string }) {
   return (
     <span
       className={`flex shrink-0 items-center gap-1.5 rounded-sm bg-raised px-2 py-1 text-xs whitespace-nowrap text-dim ${className}`}
     >
       <StatusDot ok />
-      {ENVIRONMENT.chain}
+      {label}
     </span>
   );
 }
 
 export function GlobalHeader() {
   const pathname = usePathname();
+  const gateway = useInternalGateway();
+  const snapshot = useGatewaySnapshot();
   const [menuOpen, setMenuOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [collateralKind, setCollateralKind] = useState<"DEPOSIT" | "WITHDRAW">("DEPOSIT");
+  const [collateralAmount, setCollateralAmount] = useState("");
+  const [collateralPending, setCollateralPending] = useState(false);
+  const [accountMessage, setAccountMessage] = useState<string | null>(null);
+
+  const shortAddress = snapshot.wallet.address
+    ? `${snapshot.wallet.address.slice(0, 6)}...${snapshot.wallet.address.slice(-4)}`
+    : null;
+
+  const connect = async () => {
+    setAccountMessage(null);
+    try {
+      await gateway.connectWallet();
+    } catch {
+      setAccountMessage("Wallet connection was not completed. Try again from your wallet.");
+    }
+  };
+
+  const submitCollateral = async () => {
+    const amount = Number.parseFloat(collateralAmount);
+    setCollateralPending(true);
+    setAccountMessage(null);
+    try {
+      const result = await gateway.submitCollateralIntent({
+        kind: collateralKind,
+        accountId: snapshot.account.id,
+        asset: snapshot.account.collateralAsset,
+        amount,
+        recipient: snapshot.wallet.address ?? "",
+      });
+      setCollateralAmount("");
+      setAccountMessage(`${result.kind === "DEPOSIT" ? "Deposited" : "Withdrew"} ${result.amount.toLocaleString()} USDC in the demo runtime.`);
+    } catch (error) {
+      setAccountMessage(
+        error instanceof Error && error.message === "CONNECT_WALLET"
+          ? "Connect a wallet before creating a collateral intent."
+          : error instanceof Error && error.message === "INSUFFICIENT_AVAILABLE_COLLATERAL"
+            ? "That withdrawal exceeds available collateral."
+            : "Enter a valid collateral amount and try again.",
+      );
+    } finally {
+      setCollateralPending(false);
+    }
+  };
 
   return (
     <header className="relative z-40 shrink-0 border-b border-line bg-panel">
@@ -133,18 +178,18 @@ export function GlobalHeader() {
         </nav>
 
         <div className="ml-auto flex min-w-0 items-center gap-2 lg:gap-3">
-          <EnvironmentChip className="hidden md:flex" />
+          <EnvironmentChip label={snapshot.environment.label} className="hidden md:flex" />
 
           <div className="relative shrink-0">
             <button
               type="button"
               onClick={() => setAccountOpen((open) => !open)}
               aria-expanded={accountOpen}
-              aria-label={`Account, ${ACCOUNT.subaccount}`}
+              aria-label={`Account, ${snapshot.account.label}`}
               className="focus-ring flex h-11 items-center gap-1.5 rounded-md border border-line bg-raised px-2 text-sm text-dim transition-colors hover:border-line-strong hover:text-ink lg:h-9 lg:gap-2 lg:px-2.5"
             >
               <Wallet size={15} aria-hidden="true" className="shrink-0" />
-              <span className="hidden min-[360px]:inline">{ACCOUNT.subaccount}</span>
+              <span className="hidden min-[360px]:inline">{shortAddress ?? "Connect"}</span>
               <ChevronDown
                 size={14}
                 aria-hidden="true"
@@ -163,34 +208,67 @@ export function GlobalHeader() {
                 <div className="absolute top-full right-0 z-50 mt-2 w-[min(320px,calc(100vw-16px))] rounded-lg border border-line-strong bg-panel p-3 shadow-[0_24px_48px_rgba(0,0,0,0.55)]">
                   <div className="flex items-baseline justify-between gap-3">
                     <SectionLabel>Account</SectionLabel>
-                    <span className="text-xs text-faint">{ACCOUNT.workspace}</span>
+                    <span className="text-xs text-faint">{snapshot.account.label}</span>
                   </div>
-                  <p className="mt-2 text-xs leading-snug text-dim">
-                    No wallet is connected. This build cannot request a signature or move
-                    collateral, so every balance below is a preview fixture.
-                  </p>
+                  {snapshot.wallet.status !== "CONNECTED" ? (
+                    <button
+                      type="button"
+                      disabled={snapshot.wallet.status === "CONNECTING"}
+                      onClick={connect}
+                      className="focus-ring mt-3 h-9 w-full rounded-md bg-brand text-xs font-semibold text-app disabled:opacity-60"
+                    >
+                      {snapshot.wallet.status === "CONNECTING" ? "Connecting..." : "Connect wallet"}
+                    </button>
+                  ) : (
+                    <p className="mt-2 font-mono text-xs text-dim">{shortAddress}</p>
+                  )}
 
                   <div className="mt-3 divide-y divide-line border-t border-line">
-                    <DataRow label="Equity" value={formatCompactUsd(ACCOUNT_SUMMARY.equity)} />
+                    <DataRow label="Equity" value={formatCompactUsd(snapshot.account.equity)} />
                     <DataRow
                       label="Eligible collateral"
-                      value={formatCompactUsd(ACCOUNT_SUMMARY.eligible)}
+                      value={formatCompactUsd(snapshot.account.eligible)}
                     />
-                    <DataRow label="Available" value={formatCompactUsd(ACCOUNT_SUMMARY.available)} />
-                    <DataRow label="Reserved" value={formatCompactUsd(ACCOUNT_SUMMARY.reserved)} />
-                    <DataRow
-                      label="Initial margin"
-                      value={formatCompactUsd(ACCOUNT_SUMMARY.initialMargin)}
-                    />
-                    <DataRow
-                      label="Maintenance margin"
-                      value={formatCompactUsd(ACCOUNT_SUMMARY.maintenanceMargin)}
-                    />
-                    <DataRow
-                      label="Health factor"
-                      value={formatMultiple(ACCOUNT_SUMMARY.healthFactor)}
-                    />
-                    <DataRow label="Risk domain" value={ACCOUNT.riskDomain} tone="muted" />
+                    <DataRow label="Available" value={formatCompactUsd(snapshot.account.available)} />
+                    <DataRow label="Reserved" value={formatCompactUsd(snapshot.account.reserved)} />
+                    <DataRow label="Risk domain" value={snapshot.account.riskDomain} tone="muted" />
+                  </div>
+
+                  <div className="mt-3 border-t border-line pt-3">
+                    <div className="grid grid-cols-2 gap-1 rounded-md bg-inset p-1">
+                      {(["DEPOSIT", "WITHDRAW"] as const).map((kind) => (
+                        <button
+                          key={kind}
+                          type="button"
+                          onClick={() => setCollateralKind(kind)}
+                          className={`focus-ring h-8 rounded text-xs ${collateralKind === kind ? "bg-raised text-ink" : "text-faint"}`}
+                        >
+                          {kind === "DEPOSIT" ? "Deposit" : "Withdraw"}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="mt-2 flex gap-2">
+                      <label className="flex h-9 min-w-0 flex-1 items-center rounded-md border border-line bg-inset px-2">
+                        <span className="sr-only">Collateral amount</span>
+                        <input
+                          inputMode="decimal"
+                          value={collateralAmount}
+                          onChange={(event) => setCollateralAmount(event.target.value)}
+                          placeholder="0.00"
+                          className="min-w-0 flex-1 bg-transparent text-right font-mono text-xs text-ink outline-none"
+                        />
+                        <span className="ml-2 text-xs text-faint">USDC</span>
+                      </label>
+                      <button
+                        type="button"
+                        disabled={collateralPending}
+                        onClick={submitCollateral}
+                        className="focus-ring h-9 rounded-md border border-line px-3 text-xs text-dim hover:border-line-strong hover:text-ink disabled:opacity-60"
+                      >
+                        {collateralPending ? "Pending" : "Submit"}
+                      </button>
+                    </div>
+                    {accountMessage ? <p className="mt-2 text-xs leading-snug text-dim">{accountMessage}</p> : null}
                   </div>
 
                   <Link
@@ -265,7 +343,7 @@ export function GlobalHeader() {
 
             <div className="mt-1 flex items-center justify-between gap-2 border-t border-line px-1 pt-2.5">
               <span className="text-xs text-faint">Environment</span>
-              <EnvironmentChip />
+              <EnvironmentChip label={snapshot.environment.label} />
             </div>
           </div>
         </>

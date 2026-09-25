@@ -1,0 +1,98 @@
+"use client";
+
+import Link from "next/link";
+import { Check, CircleAlert, LoaderCircle } from "lucide-react";
+import { SectionLabel } from "@/components/terminal/primitives";
+import type { OrderExecutionProgress, SubmissionStepId } from "@/lib/internal-gateway/types";
+
+const STEPS: SubmissionStepId[] = [
+  "AUTHORIZED",
+  "SUBMITTED",
+  "INCLUDED",
+  "FILLED",
+  "POSITION_CREATED",
+  "RECEIPT_READY",
+];
+
+function shortHash(value: string): string {
+  return `${value.slice(0, 10)}...${value.slice(-6)}`;
+}
+
+function stateLabel(status: OrderExecutionProgress["status"]): string {
+  if (status === "CONNECTING") return "Connecting wallet";
+  if (status === "AUTHORIZING") return "Authorizing package";
+  if (status === "SUBMITTING") return "Clearing package";
+  if (status === "COMPLETED") return "Execution complete";
+  if (status === "FAILED") return "Execution not completed";
+  return "Awaiting authorization";
+}
+
+export function ExecutionTimeline({ progress }: { progress: OrderExecutionProgress }) {
+  const updateByStep = new Map(progress.updates.map((update) => [update.step, update]));
+  const active = progress.status === "CONNECTING" || progress.status === "AUTHORIZING" || progress.status === "SUBMITTING";
+
+  return (
+    <div className="overflow-hidden rounded-md border border-line-strong bg-raised">
+      <div className="flex items-center justify-between gap-3 border-b border-line px-3 py-2">
+        <SectionLabel>Execution timeline</SectionLabel>
+        <span className={`text-xs ${progress.status === "FAILED" ? "text-down" : "text-dim"}`}>
+          {stateLabel(progress.status)}
+        </span>
+      </div>
+
+      {progress.status === "AUTHORIZING" || progress.status === "CONNECTING" ? (
+        <div className="flex items-start gap-2 px-3 py-2.5 text-xs leading-snug text-dim">
+          <LoaderCircle size={14} aria-hidden="true" className="mt-0.5 shrink-0 animate-spin text-brand" />
+          <span>
+            {progress.status === "CONNECTING"
+              ? "Preparing the local wallet session for this test environment."
+              : "Binding the selected package, route, limit, and collateral cap to one demo authorization."}
+          </span>
+        </div>
+      ) : null}
+
+      {progress.status === "FAILED" ? (
+        <div className="flex items-start gap-2 px-3 py-2.5 text-xs leading-snug text-down">
+          <CircleAlert size={14} aria-hidden="true" className="mt-0.5 shrink-0" />
+          <span>{progress.error}</span>
+        </div>
+      ) : (
+        <ol className="divide-y divide-line">
+          {STEPS.map((step) => {
+            const update = updateByStep.get(step);
+            const pending = active && !update;
+            return (
+              <li key={step} className="flex gap-2 px-3 py-2">
+                <span className="mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-line-strong">
+                  {update ? (
+                    <Check size={10} aria-hidden="true" className="text-up" />
+                  ) : pending ? (
+                    <LoaderCircle size={10} aria-hidden="true" className="animate-spin text-brand" />
+                  ) : null}
+                </span>
+                <span className="min-w-0 text-xs leading-snug">
+                  <span className={update ? "text-ink" : "text-faint"}>{update?.label ?? step.toLowerCase().replace(/_/g, " ")}</span>
+                  {update ? <span className="block text-faint">{update.detail}</span> : null}
+                  {update?.transactionHash ? (
+                    <span className="mt-0.5 block font-mono text-faint">{shortHash(update.transactionHash)}</span>
+                  ) : null}
+                </span>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+
+      {progress.result ? (
+        <div className="border-t border-line px-3 py-2.5">
+          <Link
+            href={`/activity/receipts/${progress.result.receipt.id}`}
+            className="focus-ring flex h-9 items-center justify-center rounded-md border border-line text-xs text-dim transition-colors hover:border-line-strong hover:text-ink"
+          >
+            Verify execution receipt
+          </Link>
+        </div>
+      ) : null}
+    </div>
+  );
+}

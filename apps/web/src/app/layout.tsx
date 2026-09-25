@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import { GlobalHeader } from "@/components/terminal/GlobalHeader";
 import { StatusStrip } from "@/components/terminal/StatusStrip";
+import { InternalGatewayProvider } from "@/components/gateway/InternalGatewayProvider";
 import "./globals.css";
 
 const plexSans = IBM_Plex_Sans({
@@ -33,12 +34,13 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
   return (
     <html lang="en" className={`${plexSans.variable} ${plexMono.variable}`}>
       <body>
-        {/* One app frame for every route: the document never scrolls, panels do. */}
-        <div className="flex h-dvh w-full flex-col overflow-hidden bg-app">
-          <GlobalHeader />
-          <StatusStrip />
-          {children}
-        </div>
+        <InternalGatewayProvider>
+          <div className="flex h-dvh w-full flex-col overflow-hidden bg-app">
+            <GlobalHeader />
+            <StatusStrip />
+            {children}
+          </div>
+        </InternalGatewayProvider>
       </body>
     </html>
   );

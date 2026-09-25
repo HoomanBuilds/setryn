@@ -2,13 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useGatewaySnapshot, useInternalGateway } from "@/components/gateway/InternalGatewayProvider";
 import { AnalysisPanel, type VizTab } from "@/components/terminal/AnalysisPanel";
 import { ConsolePanel } from "@/components/terminal/ConsolePanel";
 import { ContractSpec, MarketHeader, MarketStatGrid } from "@/components/terminal/MarketHeader";
 import { OrderBookPanel } from "@/components/terminal/OrderBookPanel";
 import { OrderTicket } from "@/components/terminal/OrderTicket";
 import { Disclosure, Tabs } from "@/components/terminal/primitives";
-import { COLLATERAL_TOTALS } from "@/lib/terminal/account";
 import {
   bestReferencePrice,
   buildPreview,
@@ -26,6 +26,7 @@ import {
   initialPreviewStream,
 } from "@/lib/terminal/preview-market";
 import type { BookRow, ConsoleTabId, PackageMarket } from "@/lib/terminal/types";
+import type { OrderExecutionProgress } from "@/lib/internal-gateway/types";
 
 type MobileTab = "market" | "book" | "order" | "positions";
 
@@ -35,6 +36,18 @@ const MOBILE_TABS = [
   { id: "order", label: "Ticket" },
   { id: "positions", label: "Positions" },
 ];
+
+function executionError(error: unknown): string {
+  if (!(error instanceof Error)) return "The demo runtime could not complete this package order.";
+  if (error.message === "CONNECT_WALLET") return "Connect a wallet before authorizing this package.";
+  if (error.message === "INSUFFICIENT_AVAILABLE_COLLATERAL") {
+    return "Available collateral no longer covers this package and its fee cap.";
+  }
+  if (error.message === "AUTHORIZATION_EXPIRED") return "The authorization expired before submission. Review and try again.";
+  if (error.message === "SIGNER_MISMATCH") return "The active wallet does not match the package authorization.";
+  if (error.message === "MAINNET_WRITE_DISABLED") return "Mainnet writes are disabled by the Setryn demo runtime.";
+  return "The demo runtime did not reach a final package outcome. No completion is claimed.";
+}
 
 function initialTicket(market: PackageMarket): TicketState {
   return {
@@ -51,6 +64,8 @@ function initialTicket(market: PackageMarket): TicketState {
 /** The route owns the selected market. Nothing here mirrors it into state. */
 export function TerminalWorkspace({ market }: { market: PackageMarket }) {
   const router = useRouter();
+  const gateway = useInternalGateway();
+  const gatewaySnapshot = useGatewaySnapshot();
 
   const [vizTab, setVizTab] = useState<VizTab>("price");
   const [consoleTab, setConsoleTab] = useState<ConsoleTabId>("strategies");
@@ -58,6 +73,8 @@ export function TerminalWorkspace({ market }: { market: PackageMarket }) {
   const [mobileTab, setMobileTab] = useState<MobileTab>("market");
   const [ticket, setTicket] = useState<TicketState>(() => initialTicket(market));
   const [stage, setStage] = useState<StageState>({ kind: "IDLE" });
+  const [execution, setExecution] = useState<OrderExecutionProgress>({ status: "IDLE", updates: [] });
+  const [loadedExecutionMarketId, setLoadedExecutionMarketId] = useState<string | null>(null);
   const [stream, setStream] = useState(() => initialPreviewStream(market.id));
   const [pricedMarketId, setPricedMarketId] = useState(market.id);
 
@@ -68,6 +85,8 @@ export function TerminalWorkspace({ market }: { market: PackageMarket }) {
     setPricedMarketId(market.id);
     setTicket(initialTicket(market));
     setStage({ kind: "IDLE" });
+    setExecution({ status: "IDLE", updates: [] });
+    setLoadedExecutionMarketId(null);
     setStream(initialPreviewStream(market.id));
     setConsoleScoped(true);
   }
@@ -80,6 +99,18 @@ export function TerminalWorkspace({ market }: { market: PackageMarket }) {
     return () => window.clearInterval(timer);
   }, [market.id]);
 
+  useEffect(() => {
+    if (loadedExecutionMarketId === market.id) return;
+    const latest = gatewaySnapshot.executions.find(
+      (candidate) => candidate.result.position.marketId === market.id,
+    );
+    if (latest) {
+      setExecution({ status: "COMPLETED", updates: latest.updates, result: latest.result });
+      setStage({ kind: "COMPLETED", reference: latest.id, receiptId: latest.result.receipt.id });
+    }
+    setLoadedExecutionMarketId(market.id);
+  }, [gatewaySnapshot.executions, loadedExecutionMarketId, market.id]);
+
   const activeStream =
     stream.marketId === market.id ? stream : initialPreviewStream(market.id);
   const liveMarket = useMemo(
@@ -88,13 +119,6 @@ export function TerminalWorkspace({ market }: { market: PackageMarket }) {
   );
   const previewEpochSeconds =
     Math.floor(Date.parse(SCENARIO_CLOCK_ISO) / 1_000) + activeStream.tick;
-
-  useEffect(() => {
-    if (stage.kind !== "QUEUED") return;
-    const reference = stage.reference;
-    const timer = window.setTimeout(() => setStage({ kind: "SETTLED_PREVIEW", reference }), 1_400);
-    return () => window.clearTimeout(timer);
-  }, [stage]);
 
   const route = useMemo(
     () => liveMarket.routes.find((candidate) => candidate.id === ticket.routeId) ?? null,
@@ -108,18 +132,22 @@ export function TerminalWorkspace({ market }: { market: PackageMarket }) {
 
   const maxLots = useMemo(() => {
     const multiple = route?.collateralMultiple ?? 1;
+    const feePerLot =
+      (liveMarket.notionalPerLot * ((route?.protocolFeeBps ?? 2.5) + (route?.counterpartyFeeBps ?? 0))) /
+      10_000;
     const byCollateral = Math.floor(
-      COLLATERAL_TOTALS.available / (liveMarket.collateralPerLot * multiple),
+      gatewaySnapshot.account.available / (liveMarket.collateralPerLot * multiple + feePerLot),
     );
     const byCapacity = route ? route.availableLots : liveMarket.firmDepthLots;
     return Math.max(1, Math.min(byCollateral, byCapacity));
-  }, [liveMarket, route]);
+  }, [gatewaySnapshot.account.available, liveMarket, route]);
 
   const selectMarket = useCallback((next: PackageMarket) => router.push(tradeHref(next)), [router]);
 
   const patchTicket = useCallback(
     (patch: Partial<TicketState>) => {
       setStage({ kind: "IDLE" });
+      setExecution({ status: "IDLE", updates: [] });
       setTicket((current) => {
         const next = { ...current, ...patch };
         if (patch.privateRfq === false && current.routeId === "SOLVER_RFQ") {
@@ -173,13 +201,61 @@ export function TerminalWorkspace({ market }: { market: PackageMarket }) {
     });
   }, [liveMarket.id, preview.lots, preview.limitPrice]);
 
-  const onConfirm = useCallback(() => {
-    setStage((current) =>
-      current.kind === "COMPILED" ? { kind: "QUEUED", reference: current.reference } : current,
-    );
-  }, []);
+  const onConfirm = useCallback(async () => {
+    if (stage.kind !== "COMPILED" || !route) return;
+    const reference = stage.reference;
+    try {
+      if (gateway.getSnapshot().wallet.status !== "CONNECTED") {
+        setStage({ kind: "EXECUTING", reference });
+        setExecution({ status: "CONNECTING", updates: [] });
+        await gateway.connectWallet();
+      }
 
-  const onReset = useCallback(() => setStage({ kind: "IDLE" }), []);
+      setStage({ kind: "EXECUTING", reference });
+      setExecution((current) => ({ ...current, status: "AUTHORIZING" }));
+      const account = gateway.getSnapshot().account;
+      const signer = gateway.getSnapshot().wallet.address;
+      const authorization = await gateway.authorizeOrder({
+        accountId: account.id,
+        marketId: liveMarket.id,
+        packageCode: liveMarket.code,
+        routeId: route.id,
+        routeLabel: route.label,
+        side: ticket.intent,
+        lots: preview.lots,
+        limitPrice: preview.limitPrice,
+        executionPrice: preview.effectivePrice,
+        timeInForce: ticket.tif,
+        feeCap: preview.totalFees,
+        collateralRequired: preview.totalCollateral,
+        recipient: signer ?? "",
+        disclosure: ticket.privateRfq ? "PRIVATE_RFQ" : "PUBLIC",
+        settlementGuarantee: preview.settlementGuarantee,
+      });
+
+      setExecution({ status: "SUBMITTING", updates: [], authorization });
+      const result = await gateway.submitAuthorizedOrder(authorization, (update) => {
+        setExecution((current) => ({
+          ...current,
+          status: "SUBMITTING",
+          updates: [...current.updates, update],
+        }));
+      });
+      setExecution((current) => ({ ...current, status: "COMPLETED", result }));
+      setStage({ kind: "COMPLETED", reference, receiptId: result.receipt.id });
+      setConsoleTab("strategies");
+      setConsoleScoped(true);
+    } catch (error) {
+      const message = executionError(error);
+      setExecution((current) => ({ ...current, status: "FAILED", error: message }));
+      setStage({ kind: "FAILED", reference, message });
+    }
+  }, [gateway, liveMarket, preview, route, stage, ticket]);
+
+  const onReset = useCallback(() => {
+    setStage({ kind: "IDLE" });
+    setExecution({ status: "IDLE", updates: [] });
+  }, []);
 
   const show = (tab: MobileTab) => (mobileTab === tab ? "flex" : "hidden");
   const activePrice = Number.parseFloat(ticket.limitInput);
@@ -253,6 +329,7 @@ export function TerminalWorkspace({ market }: { market: PackageMarket }) {
             preview={preview}
             route={route}
             stage={stage}
+            execution={execution}
             maxLots={maxLots}
             onChange={patchTicket}
             onStage={onStage}
@@ -273,6 +350,8 @@ export function TerminalWorkspace({ market }: { market: PackageMarket }) {
             onTab={setConsoleTab}
             scoped={consoleScoped}
             onScopedChange={setConsoleScoped}
+            runtimePositions={gatewaySnapshot.positions}
+            runtimeReceipts={gatewaySnapshot.receipts}
           />
         </div>
       </main>

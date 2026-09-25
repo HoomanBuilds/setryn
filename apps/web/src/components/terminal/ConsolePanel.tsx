@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { EmptyState, SOURCE_LABEL, SourceMark, Tabs, tone } from "@/components/terminal/primitives";
 import { CONSOLE, CONSOLE_TABS } from "@/lib/terminal/console";
 import {
@@ -13,7 +14,8 @@ import {
 } from "@/lib/terminal/format";
 import { findMarket, packageLabel } from "@/lib/terminal/markets";
 import { strategyPnl } from "@/lib/portfolio/model";
-import type { ConsoleTabId, PackageMarket } from "@/lib/terminal/types";
+import type { ConsoleTabId, PackageMarket, ReceiptRecord, StrategyRecord } from "@/lib/terminal/types";
+import type { ExecutionPosition, ExecutionReceipt } from "@/lib/internal-gateway/types";
 
 const ADVERSE = new Set(["REJECTED", "SUBMISSION_UNKNOWN", "RECONCILING", "EXPIRED", "CANCELLED"]);
 
@@ -75,22 +77,50 @@ export function ConsolePanel({
   onTab,
   scoped,
   onScopedChange,
+  runtimePositions = [],
+  runtimeReceipts = [],
 }: {
   market: PackageMarket;
   tab: ConsoleTabId;
   onTab: (tab: ConsoleTabId) => void;
   scoped: boolean;
   onScopedChange: (scoped: boolean) => void;
+  runtimePositions?: ExecutionPosition[];
+  runtimeReceipts?: ExecutionReceipt[];
 }) {
+  const runtimeStrategies: StrategyRecord[] = runtimePositions.map((position) => ({
+    id: position.id,
+    marketId: position.marketId,
+    side: position.side,
+    lots: position.lots,
+    entryPrice: position.entryPrice,
+    initialMargin: position.collateral,
+    maintenanceMargin: position.collateral * 0.75,
+    attribution: { carry: 0, funding: 0, fees: 0, residual: 0 },
+    nextEvent: "New package position. Lifecycle monitoring is active.",
+    state: position.state,
+  }));
+  const runtimeReceiptRows: Array<ReceiptRecord & { href?: string }> = runtimeReceipts.map(
+    (receipt) => ({
+      id: receipt.id,
+      marketId: receipt.marketId,
+      package: receipt.packageCode,
+      kind: "BEST_EXECUTION",
+      commitment: `${receipt.orderHash.slice(0, 10)}...${receipt.orderHash.slice(-6)}`,
+      state: "READY",
+      detail: `${receipt.routeLabel}. ${receipt.guarantee}. ${receipt.evidence.toLowerCase()} evidence.`,
+      href: `/activity/receipts/${receipt.id}`,
+    }),
+  );
   const keep = <T extends { marketId: string }>(rows: T[]) =>
     scoped ? rows.filter((row) => row.marketId === market.id) : rows;
 
-  const strategies = keep(CONSOLE.strategies);
+  const strategies = keep([...runtimeStrategies, ...CONSOLE.strategies]);
   const orders = keep(CONSOLE.orders);
   const rfqs = keep(CONSOLE.rfqs);
   const fills = keep(CONSOLE.fills);
   const recovery = keep(CONSOLE.recovery);
-  const receipts = keep(CONSOLE.receipts);
+  const receipts = keep([...runtimeReceiptRows, ...CONSOLE.receipts]);
 
   const counts: Record<ConsoleTabId, number> = {
     strategies: strategies.length,
@@ -354,7 +384,15 @@ export function ConsolePanel({
             >
               {receipts.map((row) => (
                 <Tr key={row.id} highlight={!scoped && row.marketId === market.id}>
-                  <td className={`${TD} tnum font-mono whitespace-nowrap text-faint`}>{row.id}</td>
+                  <td className={`${TD} tnum font-mono whitespace-nowrap text-faint`}>
+                    {"href" in row && row.href ? (
+                      <Link href={row.href} className="focus-ring text-ink underline decoration-line-strong underline-offset-2 hover:decoration-ink">
+                        {row.id}
+                      </Link>
+                    ) : (
+                      row.id
+                    )}
+                  </td>
                   <td className={`${TD} whitespace-nowrap text-ink`}>{row.package}</td>
                   <td className={`${TD} whitespace-nowrap text-dim`}>{stateLabel(row.kind)}</td>
                   <td className={`${TD} tnum font-mono whitespace-nowrap text-ink`}>

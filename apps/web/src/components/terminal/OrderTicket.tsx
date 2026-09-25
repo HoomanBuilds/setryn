@@ -1,6 +1,7 @@
 "use client";
 
 import { Lock, Minus, Plus, TriangleAlert } from "lucide-react";
+import { ExecutionTimeline } from "@/components/gateway/ExecutionTimeline";
 import { ROUTE_HINT_ID, RouteTable } from "@/components/terminal/RouteTable";
 import { TicketEconomics } from "@/components/terminal/TicketEconomics";
 import {
@@ -18,6 +19,7 @@ import type {
 } from "@/lib/terminal/economics";
 import { formatLots, formatNumber, formatUsd, priceUnitSuffix } from "@/lib/terminal/format";
 import type { PackageMarket, RouteQuote } from "@/lib/terminal/types";
+import type { OrderExecutionProgress } from "@/lib/internal-gateway/types";
 
 const INTENTS: { value: Intent; label: string }[] = [
   { value: "ENTER", label: "Enter" },
@@ -95,6 +97,7 @@ export function OrderTicket({
   preview,
   route,
   stage,
+  execution,
   maxLots,
   onChange,
   onStage,
@@ -106,6 +109,7 @@ export function OrderTicket({
   preview: EconomicsPreview;
   route: RouteQuote | null;
   stage: StageState;
+  execution: OrderExecutionProgress;
   maxLots: number;
   onChange: (patch: Partial<TicketState>) => void;
   onStage: () => void;
@@ -116,6 +120,7 @@ export function OrderTicket({
   const bestPrice = state.intent === "ENTER" ? market.bestAsk : market.bestBid;
   const invalid = preview.blockers.length > 0;
   const blocked = invalid || preview.routeMissing;
+  const locked = execution.status === "CONNECTING" || execution.status === "AUTHORIZING" || execution.status === "SUBMITTING";
 
   const stepLimit = (direction: 1 | -1) => {
     const next = (Number.parseFloat(state.limitInput) || bestPrice) + direction * market.tickSize;
@@ -128,7 +133,11 @@ export function OrderTicket({
         <SectionLabel>Order ticket</SectionLabel>
       </div>
 
-      <div className="scroll-thin flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-3 lg:px-4">
+      <fieldset
+        disabled={locked}
+        aria-busy={locked}
+        className={`scroll-thin flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto border-0 px-3 py-3 lg:px-4 ${locked ? "opacity-65" : ""}`}
+      >
         <Segmented
           options={INTENTS}
           value={state.intent}
@@ -253,7 +262,7 @@ export function OrderTicket({
         />
 
         <TicketEconomics market={market} preview={preview} route={route} />
-      </div>
+      </fieldset>
 
       <div className="shrink-0 space-y-2.5 border-t border-line bg-panel px-3 pt-3 pb-3 lg:px-4">
         {invalid ? (
@@ -276,6 +285,7 @@ export function OrderTicket({
           preview={preview}
           route={route}
           stage={stage}
+          execution={execution}
           blocked={blocked}
           invalid={invalid}
           routeMissing={preview.routeMissing}
@@ -303,6 +313,7 @@ function StageArea({
   preview,
   route,
   stage,
+  execution,
   blocked,
   invalid,
   routeMissing,
@@ -315,6 +326,7 @@ function StageArea({
   preview: EconomicsPreview;
   route: RouteQuote | null;
   stage: StageState;
+  execution: OrderExecutionProgress;
   blocked: boolean;
   invalid: boolean;
   routeMissing: boolean;
@@ -371,9 +383,9 @@ function StageArea({
             ? "Disclosure: private RFQ, visible only to invited solvers."
             : "Disclosure: public package book, visible on the aggregate tape."}
         </p>
-        <p className="border-t border-line px-3 py-2 text-xs leading-snug text-down">
-          Preview only. No wallet is connected, no signature is requested, and no transaction will
-          reach Arbitrum Sepolia.
+        <p className="border-t border-line px-3 py-2 text-xs leading-snug text-faint">
+          Local demo only. The next action simulates authorization and clearing in this browser.
+          It cannot submit to Arbitrum Sepolia or mainnet.
         </p>
         <div className="grid grid-cols-2 gap-2 px-3 py-2">
           <button
@@ -388,57 +400,25 @@ function StageArea({
             onClick={onConfirm}
             className="focus-ring h-11 rounded-md bg-brand text-sm font-semibold text-app transition-colors hover:brightness-105 lg:h-9"
           >
-            Confirm preview
+            Authorize and execute demo
           </button>
         </div>
       </div>
     );
   }
 
-  if (stage.kind === "QUEUED") {
-    return (
-      <div className="rounded-md border border-line bg-raised px-3 py-3">
-        <p className="text-sm text-ink">Running the local preview state machine</p>
-        <ol className="mt-2 space-y-1 text-xs text-faint">
-          <li>Compiled package payload</li>
-          <li>Checked route capacity and collateral</li>
-          <li className="text-ink">Resolving the preview clearing state</li>
-        </ol>
-        <div
-          className="mt-2.5 h-[2px] w-full overflow-hidden rounded-full bg-line"
-          role="progressbar"
-          aria-label="Preview progress"
-        >
-          <span className="block h-full w-1/3 animate-pulse bg-brand" />
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="overflow-hidden rounded-md border border-line bg-raised">
-      <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
-        <SectionLabel>Preview record</SectionLabel>
-        <span className="tnum font-mono text-xs text-dim">{stage.reference}</span>
-      </div>
-      <div className="px-3 py-2.5 text-xs leading-relaxed text-dim">
-        <p>
-          {`${verb} ${formatLots(preview.lots)} lots of ${market.code} at ${formatNumber(preview.effectivePrice, market.priceDecimals)} ${unit} would clear through ${route?.label.toLowerCase()} with a ${preview.settlementGuarantee.toLowerCase()} guarantee.`}
-        </p>
-        <p className="mt-2 text-down">
-          This is a local scenario record. No protocol state changed, no collateral moved, and no
-          receipt exists to verify.
-        </p>
-      </div>
-      <div className="px-3 pt-1 pb-3">
+    <div className="space-y-2">
+      <ExecutionTimeline progress={execution} />
+      {stage.kind === "COMPLETED" || stage.kind === "FAILED" ? (
         <button
           type="button"
           onClick={onReset}
           className="focus-ring h-11 w-full rounded-md border border-line text-sm text-dim transition-colors hover:border-line-strong hover:text-ink lg:h-9"
         >
-          Reset ticket
+          New package order
         </button>
-      </div>
+      ) : null}
     </div>
   );
 }
