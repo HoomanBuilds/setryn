@@ -59,6 +59,11 @@ type SettlementClassId is bytes32;
 
 type SeriesId is bytes32;
 
+/// @dev A chain-local bilateral position identifier namespaced by the immutable position engine
+/// deployment that created it. Position identifiers are derived by PositionEngine from the chain,
+/// engine identity, fill identity, exact series version, both accounts, and fill ordinal.
+type PositionId is bytes32;
+
 /// @dev An open, namespaced identifier for a holder action policy. Consumers must recognize the
 /// exact policy they implement and fail closed on unsupported policies.
 type ExercisePolicyId is bytes32;
