@@ -6,6 +6,7 @@ import {TerminalLiabilityReservation} from "../../src/types/CollateralTypes.sol"
 import {TerminalLiabilityReservationStatus, TerminalOutcomeKind} from "../../src/types/Enums.sol";
 import {AccountId, PositionId, TerminalLiabilityReservationId} from "../../src/types/Identifiers.sol";
 import {PositionEconomics, PositionLifecycle, PositionStatus} from "../../src/types/PositionTypes.sol";
+import {LifecyclePositionSnapshot} from "../../src/types/LifecycleTypes.sol";
 import {LocalSetrynFixture, SetrynLocalFixture} from "../fixtures/SetrynLocalFixture.sol";
 import {PositionEngineHandler} from "./handlers/PositionEngineHandler.sol";
 
@@ -87,6 +88,18 @@ contract PositionEngineInvariantTest is SetrynLocalFixture {
         uint256 count = handler.positionCount();
         for (uint256 i; i < count; ++i) {
             assertTrue(engine.positionStatus(handler.positionAt(i)) != PositionStatus.Unspecified);
+        }
+    }
+
+    function invariant_CanonicalLifecycleSnapshotsRemainBoundToEveryPosition() public view {
+        uint256 count = handler.positionCount();
+        for (uint256 i; i < count; ++i) {
+            PositionId positionId = handler.positionAt(i);
+            LifecyclePositionSnapshot memory snapshot = engine.getLifecyclePosition(positionId);
+            assertEq(PositionId.unwrap(snapshot.positionId), PositionId.unwrap(positionId));
+            assertTrue(snapshot.immutableHash != bytes32(0));
+            assertTrue(snapshot.lifecycleHash != bytes32(0));
+            assertTrue(snapshot.economicsHash != bytes32(0));
         }
     }
 

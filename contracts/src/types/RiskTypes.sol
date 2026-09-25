@@ -90,3 +90,16 @@ struct RiskAdmission {
     uint128 terminalLiabilityBaseUnits;
     RiskAdmissionStatus status;
 }
+
+struct DefaultRiskProof {
+    PositionId positionId;
+    RiskAdmissionId admissionId;
+    uint64 evaluatedAt;
+    uint64 finalResolutionAt;
+    uint64 settlementDeadline;
+    PortfolioRiskResult result;
+    uint128 maintenanceRequirementMinor;
+    uint128 collateralValueMinor;
+    uint128 availableCollateralMinor;
+    bytes32 deficiencyProofHash;
+}

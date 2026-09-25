@@ -2,12 +2,14 @@
 pragma solidity 0.8.37;
 
 import {IPositionEngineTerminalState} from "./IPositionEngineTerminalState.sol";
+import {ILifecyclePositionSource} from "./ILifecyclePositionSource.sol";
+import {ICompressionPositionSource} from "./ICompressionPositionSource.sol";
 import {ICollateralVault} from "./ICollateralVault.sol";
 import {ISeriesRegistry} from "./ISeriesRegistry.sol";
 import {AccountId, AssetId, CollateralLockId, PositionId} from "../types/Identifiers.sol";
 import {PositionCreation, PositionEconomics, PositionLifecycle, PositionStatus} from "../types/PositionTypes.sol";
 
-interface IPositionEngine is IPositionEngineTerminalState {
+interface IPositionEngine is IPositionEngineTerminalState, ILifecyclePositionSource, ICompressionPositionSource {
     event PositionCreated(
         PositionId indexed positionId,
         bytes32 indexed fillIdentity,
@@ -82,6 +84,8 @@ interface IPositionEngine is IPositionEngineTerminalState {
     error UnsupportedTerminalAlternative(PositionStatus status);
 
     function createPosition(PositionCreation calldata creation) external returns (PositionId positionId);
+
+    function createLifecycleSuccessor(PositionCreation calldata creation) external returns (PositionId positionId);
 
     function createPositionFundingLock(
         bytes32 lockReference,

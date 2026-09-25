@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 
 import {IPositionEngine} from "../../src/interfaces/IPositionEngine.sol";
 import {IPositionPayoffModuleV1} from "../../src/interfaces/IPositionPayoffModuleV1.sol";
+import {PositionLifecycleExecutor} from "../../src/lifecycle/PositionLifecycleExecutor.sol";
 import {PositionEngine} from "../../src/position/PositionEngine.sol";
 import {CollateralLock, TerminalLiabilityReservation} from "../../src/types/CollateralTypes.sol";
 import {LockStatus, TerminalLiabilityReservationStatus, TerminalOutcomeKind} from "../../src/types/Enums.sol";
@@ -22,6 +23,16 @@ import {
     PositionLifecycle,
     PositionStatus
 } from "../../src/types/PositionTypes.sol";
+import {CompressionPosition} from "../../src/types/CompressionTypes.sol";
+import {
+    LifecycleAction,
+    LifecycleActionId,
+    LifecycleActionKind,
+    LifecycleCollateralReplacement,
+    LifecycleInput,
+    LifecyclePositionSnapshot,
+    LifecycleSuccessor
+} from "../../src/types/LifecycleTypes.sol";
 import {Lots, PriceTicks} from "../../src/types/Units.sol";
 import {LocalSetrynFixture, SetrynLocalFixture} from "../fixtures/SetrynLocalFixture.sol";
 
@@ -196,6 +207,64 @@ contract PositionEngineTest is SetrynLocalFixture {
         PositionId positionId = engine.createPosition(_creation(FILL, 0, 1));
         vm.expectRevert(IPositionEngine.FixingWindowNotOpen.selector);
         engine.beginFixing(positionId);
+    }
+
+    function test_LifecycleAndCompressionSnapshotsComeFromPinnedPositionState() public {
+        PositionId positionId = engine.createPosition(_creation(FILL, 0, 2));
+
+        LifecyclePositionSnapshot memory lifecycle = engine.getLifecyclePosition(positionId);
+        CompressionPosition memory compression = engine.getCompressionPosition(positionId);
+
+        assertEq(PositionId.unwrap(lifecycle.positionId), PositionId.unwrap(positionId));
+        assertTrue(lifecycle.immutableHash != bytes32(0));
+        assertTrue(lifecycle.lifecycleHash != bytes32(0));
+        assertTrue(lifecycle.economicsHash != bytes32(0));
+        assertEq(Lots.unwrap(lifecycle.positionLots), 2);
+        assertEq(lifecycle.longTerminalLiabilityBaseUnits, 200_000);
+        assertEq(lifecycle.shortTerminalLiabilityBaseUnits, 200_000);
+        assertEq(compression.economicsHash, lifecycle.economicsHash);
+        assertEq(compression.lifecycleHash, lifecycle.lifecycleHash);
+    }
+
+    function test_LifecycleEligibilityFailsClosedForUnsupportedPartialActions() public {
+        PositionId positionId = engine.createPosition(_creation(FILL, 0, 1));
+
+        assertFalse(engine.isLifecycleActionEligible(positionId, LifecycleActionKind.PartialUnwind));
+        assertTrue(engine.isLifecycleActionEligible(positionId, LifecycleActionKind.FullUnwind));
+        assertTrue(engine.isCompressionEligible(positionId));
+
+        engine.recordZeroLiabilityAlternative(positionId, PositionStatus.Replaced, keccak256("replacement"));
+        assertFalse(engine.isLifecycleActionEligible(positionId, LifecycleActionKind.FullUnwind));
+        assertFalse(engine.isCompressionEligible(positionId));
+    }
+
+    function testFuzz_LifecycleSnapshotLiabilityScalesExactly(uint8 rawLots) public {
+        uint128 lots = uint128(bound(rawLots, 1, 100));
+        PositionId positionId = engine.createPosition(_creation(FILL, 0, lots));
+
+        LifecyclePositionSnapshot memory snapshot = engine.getLifecyclePosition(positionId);
+        assertEq(Lots.unwrap(snapshot.positionLots), lots);
+        assertEq(snapshot.longTerminalLiabilityBaseUnits, lots * 100_000);
+        assertEq(snapshot.shortTerminalLiabilityBaseUnits, lots * 100_000);
+    }
+
+    function test_LifecycleExecutorFailsClosedForPartialUnwind() public {
+        PositionLifecycleExecutor executor = new PositionLifecycleExecutor(2 days, address(this), engine);
+        LifecycleAction memory action;
+        action.kind = LifecycleActionKind.PartialUnwind;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                PositionLifecycleExecutor.UnsupportedLifecycleAction.selector, LifecycleActionKind.PartialUnwind
+            )
+        );
+        executor.executeLifecycleAction(
+            LifecycleActionId.wrap(keccak256("unsupported-partial")),
+            action,
+            new LifecycleInput[](0),
+            new LifecycleSuccessor[](0),
+            new LifecycleCollateralReplacement[](0)
+        );
     }
 
     function _creation(bytes32 fillIdentity, uint32 ordinal, uint128 lots)

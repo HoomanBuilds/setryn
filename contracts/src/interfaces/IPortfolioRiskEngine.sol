@@ -6,6 +6,7 @@ import {ICollateralVault} from "./ICollateralVault.sol";
 import {IRiskDomainRegistry} from "./IRiskDomainRegistry.sol";
 import {AccountId, RiskDomainId} from "../types/Identifiers.sol";
 import {
+    DefaultRiskProof,
     PortfolioPositionWitness,
     PortfolioRiskResult,
     RiskAdmission,
@@ -13,6 +14,8 @@ import {
     RiskAdmissionRequest,
     RiskObservation
 } from "../types/RiskTypes.sol";
+import {ObjectiveDefaultState} from "../types/DefaultTypes.sol";
+import {PositionId} from "../types/Identifiers.sol";
 
 interface IPortfolioRiskEngine {
     event RiskAdmissionReserved(
@@ -33,6 +36,14 @@ interface IPortfolioRiskEngine {
         uint32 indexed riskDomainVersion,
         uint128 openInterestReductionBaseUnits,
         bytes32 reductionReference
+    );
+    event ObjectiveDefaultStatePublished(
+        PositionId indexed positionId,
+        AccountId indexed accountId,
+        RiskDomainId indexed riskDomainId,
+        uint32 riskDomainVersion,
+        uint64 sequence,
+        bytes32 stateHash
     );
 
     error ZeroDependency(address dependency);
@@ -57,6 +68,8 @@ interface IPortfolioRiskEngine {
     error RiskNonceAlreadyUsed(AccountId accountId, uint256 nonce);
     error ExposureUnderflow(uint128 current, uint128 requestedReduction);
     error ZeroReference();
+    error InvalidDefaultRiskProof();
+    error UnknownDefaultRiskState(PositionId positionId, AccountId accountId);
 
     function reserveNewRisk(
         RiskAdmissionRequest calldata request,
@@ -81,4 +94,7 @@ interface IPortfolioRiskEngine {
     function adapterRegistry() external view returns (IAdapterRegistry);
     function collateralVault() external view returns (ICollateralVault);
     function getAdmission(RiskAdmissionId admissionId) external view returns (RiskAdmission memory admission);
+    function publishObjectiveDefaultState(DefaultRiskProof calldata proof)
+        external
+        returns (ObjectiveDefaultState memory state);
 }

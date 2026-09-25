@@ -9,14 +9,18 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IAdapterRegistry} from "../interfaces/IAdapterRegistry.sol";
 import {ICollateralVault} from "../interfaces/ICollateralVault.sol";
 import {IPortfolioRiskEngine} from "../interfaces/IPortfolioRiskEngine.sol";
+import {IDefaultRiskSource} from "../interfaces/IDefaultRiskSource.sol";
 import {IRiskDomainRegistry} from "../interfaces/IRiskDomainRegistry.sol";
 import {AdapterDefinitionLib} from "../libraries/AdapterDefinitionLib.sol";
 import {PortfolioRiskLib} from "../libraries/PortfolioRiskLib.sol";
 import {RiskDomainDefinitionLib} from "../libraries/RiskDomainDefinitionLib.sol";
 import {AdapterVersion} from "../types/AdapterDefinition.sol";
-import {AccountId, AdapterId, CollateralId, RiskDomainId, RiskModelId} from "../types/Identifiers.sol";
+import {AccountId, AdapterId, CollateralId, PositionId, RiskDomainId, RiskModelId} from "../types/Identifiers.sol";
+import {DefaultProcessLib} from "../libraries/DefaultProcessLib.sol";
+import {ObjectiveDefaultState} from "../types/DefaultTypes.sol";
 import {RiskDomainVersion} from "../types/RiskDomainDefinition.sol";
 import {
+    DefaultRiskProof,
     PortfolioPositionWitness,
     PortfolioRiskMetrics,
     PortfolioRiskResult,
@@ -28,7 +32,12 @@ import {
     RiskObservation
 } from "../types/RiskTypes.sol";
 
-contract PortfolioRiskEngine is IPortfolioRiskEngine, AccessControlDefaultAdminRules, ReentrancyGuard {
+contract PortfolioRiskEngine is
+    IPortfolioRiskEngine,
+    IDefaultRiskSource,
+    AccessControlDefaultAdminRules,
+    ReentrancyGuard
+{
     bytes32 public constant RISK_CONSUMER_ROLE = keccak256("SETRYN_RISK_CONSUMER_ROLE");
     bytes32 private constant OPEN_INTEREST_CAP = keccak256("OPEN_INTEREST");
     bytes32 private constant ACCOUNT_LIABILITY_CAP = keccak256("ACCOUNT_LIABILITY");
@@ -49,6 +58,8 @@ contract PortfolioRiskEngine is IPortfolioRiskEngine, AccessControlDefaultAdminR
     mapping(RiskDomainId domainId => mapping(uint32 version => uint128 amount)) private _reservedLiability;
     mapping(AccountId accountId => mapping(RiskDomainId domainId => mapping(uint32 version => uint128 amount))) private
         _accountReservedLiability;
+    mapping(bytes32 defaultStateKey => ObjectiveDefaultState state) private _objectiveDefaultStates;
+    mapping(bytes32 defaultStateKey => uint64 sequence) private _defaultStateSequences;
 
     constructor(
         uint48 defaultAdminDelay,
@@ -200,12 +211,108 @@ contract PortfolioRiskEngine is IPortfolioRiskEngine, AccessControlDefaultAdminR
         if (admission.status == RiskAdmissionStatus.Unspecified) revert UnknownRiskAdmission(admissionId);
     }
 
+    function publishObjectiveDefaultState(DefaultRiskProof calldata proof)
+        external
+        onlyRole(RISK_CONSUMER_ROLE)
+        nonReentrant
+        returns (ObjectiveDefaultState memory state)
+    {
+        RiskAdmission storage admission = _admissions[proof.admissionId];
+        if (
+            PositionId.unwrap(proof.positionId) == bytes32(0) || admission.status != RiskAdmissionStatus.Consumed
+                || PortfolioRiskLib.hashResult(proof.result) != admission.resultHash
+                || proof.evaluatedAt > block.timestamp || block.timestamp - proof.evaluatedAt > maximumObservationAge
+                || proof.finalResolutionAt <= proof.evaluatedAt || proof.settlementDeadline <= proof.finalResolutionAt
+                || proof.result.configurationHash == bytes32(0) || proof.result.witnessHash == bytes32(0)
+                || proof.result.observationsHash == bytes32(0) || proof.deficiencyProofHash == bytes32(0)
+                || proof.maintenanceRequirementMinor < proof.collateralValueMinor
+        ) revert InvalidDefaultRiskProof();
+        RiskDomainVersion memory domain = _requireDomain(admission.riskDomainId, admission.riskDomainVersion);
+        CollateralId collateralId = _collateralVault.deriveCollateralId(
+            domain.definition.collateralAssetId, domain.definition.collateralAssetVersion
+        );
+        (uint128 total,, uint128 available) = _collateralVault.balanceOf(admission.accountId, collateralId);
+        if (proof.collateralValueMinor > total || proof.availableCollateralMinor > available) {
+            revert InvalidDefaultRiskProof();
+        }
+        bytes32 stateKey = _defaultStateKey(
+            proof.positionId, admission.accountId, admission.riskDomainId, admission.riskDomainVersion
+        );
+        uint64 sequence = _defaultStateSequences[stateKey] + 1;
+        _defaultStateSequences[stateKey] = sequence;
+        bytes32 counterCommitment = keccak256(
+            abi.encode(
+                proof.result.witnessHash,
+                proof.deficiencyProofHash,
+                admission.requestHash,
+                admission.resultHash,
+                _liveOpenInterest[admission.riskDomainId][admission.riskDomainVersion],
+                _accountLiveOpenInterest[admission.accountId][admission.riskDomainId][admission.riskDomainVersion],
+                _collateralVault.accountRiskDomainTerminalLiability(
+                    admission.accountId, admission.riskDomainId, admission.riskDomainVersion
+                )
+            )
+        );
+        state = ObjectiveDefaultState({
+            positionId: proof.positionId,
+            accountId: admission.accountId,
+            riskDomainId: admission.riskDomainId,
+            collateralId: collateralId,
+            riskDomainVersion: admission.riskDomainVersion,
+            evaluatedAt: proof.evaluatedAt,
+            finalResolutionAt: proof.finalResolutionAt,
+            settlementDeadline: proof.settlementDeadline,
+            sequence: sequence,
+            maintenanceRequirementMinor: proof.maintenanceRequirementMinor,
+            collateralValueMinor: proof.collateralValueMinor,
+            deficiencyMinor: proof.maintenanceRequirementMinor - proof.collateralValueMinor,
+            availableCollateralMinor: proof.availableCollateralMinor,
+            configurationHash: proof.result.configurationHash,
+            witnessHash: counterCommitment,
+            observationsHash: proof.result.observationsHash,
+            stateHash: bytes32(0)
+        });
+        state.stateHash = DefaultProcessLib.hashObjectiveState(state);
+        _objectiveDefaultStates[stateKey] = state;
+        emit ObjectiveDefaultStatePublished(
+            proof.positionId,
+            admission.accountId,
+            admission.riskDomainId,
+            admission.riskDomainVersion,
+            sequence,
+            state.stateHash
+        );
+    }
+
+    function objectiveDefaultState(
+        PositionId positionId,
+        AccountId accountId,
+        RiskDomainId riskDomainId,
+        uint32 riskDomainVersion
+    ) external view returns (ObjectiveDefaultState memory state) {
+        state = _objectiveDefaultStates[_defaultStateKey(positionId, accountId, riskDomainId, riskDomainVersion)];
+        if (state.sequence == 0) revert UnknownDefaultRiskState(positionId, accountId);
+    }
+
     function openInterest(RiskDomainId riskDomainId, uint32 version)
         external
         view
         returns (uint128 live, uint128 reserved)
     {
         return (_liveOpenInterest[riskDomainId][version], _reservedOpenInterest[riskDomainId][version]);
+    }
+
+    function _defaultStateKey(
+        PositionId positionId,
+        AccountId accountId,
+        RiskDomainId riskDomainId,
+        uint32 riskDomainVersion
+    ) private pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                keccak256("SetrynObjectiveDefaultStateKeyV1"), positionId, accountId, riskDomainId, riskDomainVersion
+            )
+        );
     }
 
     function _evaluate(

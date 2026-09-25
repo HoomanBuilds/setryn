@@ -38,6 +38,8 @@ import {
     PositionLifecycle,
     PositionStatus
 } from "../types/PositionTypes.sol";
+import {CompressionPosition} from "../types/CompressionTypes.sol";
+import {LifecycleActionKind, LifecyclePositionSnapshot} from "../types/LifecycleTypes.sol";
 import {SeriesVersion} from "../types/SeriesDefinition.sol";
 import {Lots, LotsLib} from "../types/Units.sol";
 
@@ -63,6 +65,9 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
     );
     bytes32 private constant ALTERNATIVE_OUTCOME_TYPEHASH =
         keccak256("SetrynPositionAlternativeV1(bytes32 positionId,uint8 status,bytes32 reference)");
+    bytes32 private constant POSITION_ECONOMICS_HASH_TYPEHASH = keccak256("SetrynPositionEconomicsHashV1");
+    bytes32 private constant POSITION_IMMUTABLE_HASH_TYPEHASH = keccak256("SetrynPositionImmutableHashV1");
+    bytes32 private constant POSITION_LIFECYCLE_HASH_TYPEHASH = keccak256("SetrynPositionLifecycleHashV1");
 
     bytes32 public immutable positionEngineId;
 
@@ -136,10 +141,32 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
         onlyRole(CLEARING_ENGINE_ROLE)
         returns (PositionId positionId)
     {
+        return _createPosition(creation, true);
+    }
+
+    function createLifecycleSuccessor(PositionCreation calldata creation)
+        external
+        nonReentrant
+        onlyRole(LIFECYCLE_ENGINE_ROLE)
+        returns (PositionId positionId)
+    {
+        return _createPosition(creation, false);
+    }
+
+    function _createPosition(PositionCreation calldata creation, bool requireOpenForNewRisk)
+        private
+        returns (PositionId positionId)
+    {
         _validateCreation(creation);
         positionId = _derivePositionId(creation);
         if (_lifecycles[positionId].status != PositionStatus.Unspecified) revert PositionAlreadyExists(positionId);
-        if (!_seriesRegistry.isOpenForNewRisk(creation.seriesId, creation.seriesVersion, _currentDay())) {
+        if (
+            requireOpenForNewRisk
+                && !_seriesRegistry.isOpenForNewRisk(creation.seriesId, creation.seriesVersion, _currentDay())
+        ) {
+            revert SeriesClosedForNewRisk(bytes32(SeriesId.unwrap(creation.seriesId)), creation.seriesVersion);
+        }
+        if (!requireOpenForNewRisk && !_seriesRegistry.isLifecycleEnabled(creation.seriesId, creation.seriesVersion)) {
             revert SeriesClosedForNewRisk(bytes32(SeriesId.unwrap(creation.seriesId)), creation.seriesVersion);
         }
 
@@ -471,12 +498,163 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
         return _positionCount;
     }
 
+    function getLifecyclePosition(PositionId positionId)
+        external
+        view
+        returns (LifecyclePositionSnapshot memory snapshot)
+    {
+        return _lifecycleSnapshot(positionId);
+    }
+
+    function isLifecycleActionEligible(PositionId positionId, LifecycleActionKind kind) external view returns (bool) {
+        PositionLifecycle storage lifecycle = _lifecycles[positionId];
+        if (lifecycle.status != PositionStatus.Live || kind == LifecycleActionKind.Unspecified) return false;
+        SeriesVersion memory series =
+            _seriesRegistry.getSeries(_economics[positionId].seriesId, _economics[positionId].seriesVersion);
+        if (kind == LifecycleActionKind.Exercise) {
+            return block.timestamp >= series.definition.exerciseOpensAt
+                && block.timestamp < series.definition.exerciseCutoffAt;
+        }
+        if (kind == LifecycleActionKind.Lapse) return block.timestamp >= series.definition.exerciseCutoffAt;
+        if (kind == LifecycleActionKind.PartialUnwind) return false;
+        return true;
+    }
+
+    function getCompressionPosition(PositionId positionId) external view returns (CompressionPosition memory position) {
+        LifecyclePositionSnapshot memory snapshot = _lifecycleSnapshot(positionId);
+        position = CompressionPosition({
+            positionId: positionId,
+            seriesId: snapshot.seriesId,
+            seriesVersion: snapshot.seriesVersion,
+            longAccountId: snapshot.longAccountId,
+            shortAccountId: snapshot.shortAccountId,
+            riskDomainId: snapshot.riskDomainId,
+            riskDomainVersion: snapshot.riskDomainVersion,
+            collateralId: snapshot.collateralId,
+            lots: snapshot.positionLots,
+            entryPriceTicks: snapshot.entryPriceTicks,
+            economicsHash: snapshot.economicsHash,
+            longTerminalLiabilityBaseUnits: snapshot.longTerminalLiabilityBaseUnits,
+            shortTerminalLiabilityBaseUnits: snapshot.shortTerminalLiabilityBaseUnits,
+            lifecycleHash: snapshot.lifecycleHash
+        });
+    }
+
+    function isCompressionEligible(PositionId positionId) external view returns (bool) {
+        return _lifecycles[positionId].status == PositionStatus.Live;
+    }
+
     function seriesRegistry() external view returns (ISeriesRegistry) {
         return _seriesRegistry;
     }
 
     function collateralVault() external view returns (ICollateralVault) {
         return _collateralVault;
+    }
+
+    function _lifecycleSnapshot(PositionId positionId)
+        private
+        view
+        returns (LifecyclePositionSnapshot memory snapshot)
+    {
+        _requirePositionView(positionId);
+        PositionEconomics storage economics = _economics[positionId];
+        PositionLifecycle storage lifecycle = _lifecycles[positionId];
+        SeriesVersion memory series = _seriesRegistry.getSeries(economics.seriesId, economics.seriesVersion);
+        CollateralId collateralId =
+            _collateralVault.deriveCollateralId(economics.settlementAssetId, economics.settlementAssetVersion);
+        bytes32 economicsHash = _economicsHash(economics);
+        bytes32 lifecycleHash = keccak256(
+            abi.encode(
+                POSITION_LIFECYCLE_HASH_TYPEHASH,
+                uint8(lifecycle.status),
+                lifecycle.finalFixingReference,
+                lifecycle.finalFixingsHash,
+                lifecycle.terminalOutcomeReference,
+                lifecycle.terminalTransferMinor
+            )
+        );
+        bytes32 immutableHash = keccak256(
+            abi.encode(
+                POSITION_IMMUTABLE_HASH_TYPEHASH,
+                positionEngineId,
+                PositionId.unwrap(positionId),
+                economicsHash,
+                economics.longAccountId,
+                economics.shortAccountId,
+                economics.longReservationId,
+                economics.shortReservationId,
+                keccak256(_payoffTerms[positionId])
+            )
+        );
+        snapshot = LifecyclePositionSnapshot({
+            positionId: positionId,
+            immutableHash: immutableHash,
+            lifecycleHash: lifecycleHash,
+            seriesId: economics.seriesId,
+            seriesVersion: economics.seriesVersion,
+            longAccountId: economics.longAccountId,
+            shortAccountId: economics.shortAccountId,
+            riskDomainId: economics.riskDomainId,
+            riskDomainVersion: economics.riskDomainVersion,
+            feeScheduleId: economics.feeScheduleId,
+            feeScheduleVersion: economics.feeScheduleVersion,
+            collateralId: collateralId,
+            positionLots: economics.lots,
+            remainingExerciseLots: economics.lots,
+            entryPriceTicks: economics.entryPriceTicks,
+            economicsHash: economicsHash,
+            packageProvenanceHash: bytes32(0),
+            exercisePolicyId: series.definition.exercisePolicyId,
+            expiryAt: series.definition.expiryAt,
+            exerciseOpensAt: series.definition.exerciseOpensAt,
+            exerciseCutoffAt: series.definition.exerciseCutoffAt,
+            lapseEligibleAt: series.definition.exerciseCutoffAt,
+            longTerminalLiabilityBaseUnits: economics.maxLongDebitMinor,
+            shortTerminalLiabilityBaseUnits: economics.maxShortDebitMinor
+        });
+    }
+
+    function _economicsHash(PositionEconomics storage economics) private view returns (bytes32) {
+        return keccak256(
+            bytes.concat(
+                abi.encode(
+                    POSITION_ECONOMICS_HASH_TYPEHASH,
+                    economics.seriesId,
+                    economics.seriesVersionHash,
+                    economics.marketId,
+                    economics.instrumentId,
+                    economics.payoffModuleId,
+                    economics.payoffModule,
+                    economics.payoffModuleCodeHash,
+                    economics.settlementAssetId,
+                    economics.riskDomainId,
+                    economics.feeScheduleId,
+                    economics.payoffTermsHash,
+                    economics.fixingSlotsHash
+                ),
+                abi.encode(
+                    economics.seriesVersion,
+                    economics.marketVersion,
+                    economics.instrumentVersion,
+                    economics.payoffModuleVersion,
+                    economics.settlementAssetVersion,
+                    economics.riskDomainVersion,
+                    economics.feeScheduleVersion,
+                    economics.fixingWindowOpen,
+                    economics.finalResolutionAt,
+                    economics.settlementDeadline,
+                    economics.maxEvaluationGas,
+                    economics.lots,
+                    economics.entryPriceTicks,
+                    economics.maxLongDebitMinorPerLot,
+                    economics.maxShortDebitMinorPerLot,
+                    economics.maxLongDebitMinor,
+                    economics.maxShortDebitMinor,
+                    economics.terminalDisruptionTransferMinorPerLot
+                )
+            )
+        );
     }
 
     function _createReservation(
