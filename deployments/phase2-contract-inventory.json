@@ -2,6 +2,12 @@
   "schemaVersion": "2.0.0",
   "qualificationSlots": ["runtimeCodeHash", "configurationHash", "capabilityHash", "evidenceHash"],
   "bootstrapRevocationPlan": ["wire exact protocol roles", "revoke deployer operational roles", "begin delayed admin transfer", "activate no economic object or adapter"],
+  "deploymentPrincipals": ["SETRYN_GOVERNANCE_ADMIN", "SETRYN_GOVERNANCE_OPERATOR", "SETRYN_GUARDIAN", "SETRYN_EXCESS_RECOVERY_OPERATOR", "SETRYN_PRIVACY_KEY_PUBLISHER", "SETRYN_LIFECYCLE_WITNESS_STAGER"],
+  "productionBlockers": [
+    {"code":"EXECUTION_GRAPH_NOT_WIRED","contracts":["OrderState","AtomicClearingEngine","PublicOrderBook"],"resolution":"Deploy the production policy gates and risk admission binding with a deterministic execution graph before granting clearing roles."},
+    {"code":"CAPACITY_GRAPH_NOT_WIRED","contracts":["PrivateRfqBook","SealedAuctionHouse","StreamingQuoteEngine","BatchClearingEngine","CollateralAwareRouteEngine"],"resolution":"Deploy and bind the vault-backed capacity managers, validation gates, reservation registry, and protocol liquidity source."},
+    {"code":"RECEIPT_AUTHORITIES_NOT_WIRED","contracts":["VerifiableReceiptLedger"],"resolution":"Deploy exact subject authority adapters and bind every supported subject kind before ledger activation."}
+  ],
   "contracts": [
     {"name":"AssetRegistry","dependencies":[],"runtimeCodeHash":null,"evidenceHash":null,"roleAuthority":["governance"],"supported":["asset-versioning"],"disabled":[],"activation":"planned"},
     {"name":"AdapterRegistry","dependencies":[],"runtimeCodeHash":null,"evidenceHash":null,"roleAuthority":["governance","adapter-qualifier"],"supported":["adapter-versioning"],"disabled":["automatic-external-qualification"],"activation":"planned"},

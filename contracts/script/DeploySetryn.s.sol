@@ -2,6 +2,9 @@
 pragma solidity 0.8.37;
 
 import {Script, console2} from "forge-std/Script.sol";
+import {
+    AccessControlDefaultAdminRules
+} from "@openzeppelin/contracts/access/extensions/AccessControlDefaultAdminRules.sol";
 
 import {CollateralVault} from "../src/collateral/CollateralVault.sol";
 import {CanonicalStrategyCompiler} from "../src/compiler/CanonicalStrategyCompiler.sol";
@@ -73,6 +76,8 @@ contract DeploySetryn is Script {
     error EnvironmentChainMismatch(string environment, uint256 chainId);
     error UnsupportedDeploymentEnvironment(string environment);
     error BootstrapAdminMismatch(address deployer, address initialAdmin);
+    error InvalidDeploymentPrincipal(address principal);
+    error PrincipalSeparationRequired(address governanceAdmin, address operationalPrincipal);
     error Uint48EnvironmentValueOutOfRange(string name, uint256 value);
     error Uint64EnvironmentValueOutOfRange(string name, uint256 value);
 
@@ -127,6 +132,17 @@ contract DeploySetryn is Script {
         address deployer = vm.envAddress("SETRYN_DEPLOYER_ADDRESS");
         address initialAdmin = vm.envAddress("SETRYN_INITIAL_ADMIN");
         if (deployer != initialAdmin) revert BootstrapAdminMismatch(deployer, initialAdmin);
+        address governanceAdmin = vm.envAddress("SETRYN_GOVERNANCE_ADMIN");
+        address governanceOperator = vm.envAddress("SETRYN_GOVERNANCE_OPERATOR");
+        address guardian = vm.envAddress("SETRYN_GUARDIAN");
+        address excessRecovery = vm.envAddress("SETRYN_EXCESS_RECOVERY_OPERATOR");
+        address privacyKeyPublisher = vm.envAddress("SETRYN_PRIVACY_KEY_PUBLISHER");
+        address lifecycleWitnessStager = vm.envAddress("SETRYN_LIFECYCLE_WITNESS_STAGER");
+        _requireSeparatedPrincipal(deployer, governanceAdmin, governanceOperator);
+        _requireSeparatedPrincipal(deployer, governanceAdmin, guardian);
+        _requireSeparatedPrincipal(deployer, governanceAdmin, excessRecovery);
+        _requireSeparatedPrincipal(deployer, governanceAdmin, privacyKeyPublisher);
+        _requireSeparatedPrincipal(deployer, governanceAdmin, lifecycleWitnessStager);
         uint48 defaultAdminDelay = _envUint48("SETRYN_DEFAULT_ADMIN_DELAY", 2 days);
         uint64 maxLockDuration = _envUint64("SETRYN_MAX_LOCK_DURATION", 30 days);
         uint64 evaluationGasHardCap = _envUint64("SETRYN_EVALUATION_GAS_HARD_CAP");
@@ -214,6 +230,7 @@ contract DeploySetryn is Script {
             IRiskDomainRegistry(address(deployment.riskDomainRegistry)),
             IAdapterRegistry(address(deployment.adapterRegistry)),
             ICollateralVault(address(deployment.collateralVault)),
+            IPositionEngine(address(deployment.positionEngine)),
             maximumRiskAdapterGas,
             maximumRiskObservationAge
         );
@@ -273,13 +290,44 @@ contract DeploySetryn is Script {
         deployment.windowAverageScalarPayoffModule = new WindowAverageScalarPayoffModule();
         deployment.correlationDispersionScalarPayoffModule = new CorrelationDispersionScalarPayoffModule();
 
-        _wireInternalRoles(deployment);
+        _wireInternalRoles(
+            deployment,
+            deployer,
+            governanceAdmin,
+            governanceOperator,
+            guardian,
+            excessRecovery,
+            privacyKeyPublisher,
+            lifecycleWitnessStager
+        );
+        bytes32 postWiringEvidence = _postWiringEvidence(
+            deployment,
+            deployer,
+            governanceAdmin,
+            governanceOperator,
+            guardian,
+            excessRecovery,
+            privacyKeyPublisher,
+            lifecycleWitnessStager
+        );
         vm.stopBroadcast();
 
         _logDeployment(deployment);
+        console2.log("POST_WIRING_EVIDENCE_HASH");
+        console2.logBytes32(postWiringEvidence);
     }
 
-    function _wireInternalRoles(Deployment memory deployment) private {
+    function _wireInternalRoles(
+        Deployment memory deployment,
+        address bootstrapAdmin,
+        address governanceAdmin,
+        address governanceOperator,
+        address guardian,
+        address excessRecovery,
+        address privacyKeyPublisher,
+        address lifecycleWitnessStager
+    ) private {
+        _wireRegistryRoles(deployment, bootstrapAdmin, governanceOperator);
         deployment.collateralVault
             .grantRole(deployment.collateralVault.COLLATERAL_LOCKER_ROLE(), address(deployment.positionEngine));
         deployment.collateralVault
@@ -323,10 +371,193 @@ contract DeploySetryn is Script {
             .grantRole(deployment.collateralVault.COLLATERAL_LOCKER_ROLE(), address(deployment.defaultProcessEngine));
         deployment.collateralVault
             .grantRole(deployment.collateralVault.COLLATERAL_SETTLER_ROLE(), address(deployment.defaultProcessEngine));
+        deployment.collateralVault.grantRole(deployment.collateralVault.EXCESS_RECOVERY_ROLE(), excessRecovery);
         deployment.fundedFeeEngine
             .grantRole(
                 deployment.fundedFeeEngine.FEE_ACTION_CONSUMER_ROLE(), address(deployment.cashSettlementCoordinator)
             );
+        deployment.portfolioRiskEngine.grantRole(
+            deployment.portfolioRiskEngine.EXPOSURE_REDUCER_ROLE(), address(deployment.positionLifecycleExecutor)
+        );
+        deployment.portfolioRiskEngine.grantRole(
+            deployment.portfolioRiskEngine.EXPOSURE_REDUCER_ROLE(), address(deployment.cashSettlementCoordinator)
+        );
+        deployment.portfolioRiskEngine.grantRole(
+            deployment.portfolioRiskEngine.EXPOSURE_REDUCER_ROLE(), address(deployment.defaultProcessEngine)
+        );
+        deployment.positionLifecycleExecutor.grantRole(
+            deployment.positionLifecycleExecutor.WITNESS_STAGER_ROLE(), lifecycleWitnessStager
+        );
+        deployment.signedLifecycleEngine.grantRole(deployment.signedLifecycleEngine.LIFECYCLE_GUARDIAN_ROLE(), guardian);
+        deployment.compressionCoordinator.grantRole(
+            deployment.compressionCoordinator.COMPRESSION_GUARDIAN_ROLE(), guardian
+        );
+        deployment.privacyCommitmentRegistry.grantRole(
+            deployment.privacyCommitmentRegistry.POLICY_QUALIFIER_ROLE(), governanceOperator
+        );
+        deployment.privacyCommitmentRegistry.grantRole(
+            deployment.privacyCommitmentRegistry.POLICY_ACTIVATOR_ROLE(), governanceOperator
+        );
+        deployment.privacyCommitmentRegistry.grantRole(
+            deployment.privacyCommitmentRegistry.EPOCH_KEY_PUBLISHER_ROLE(), privacyKeyPublisher
+        );
+
+        _revokeBootstrapOperationalRoles(deployment, bootstrapAdmin);
+        _beginAdminTransfers(deployment, governanceAdmin);
+    }
+
+    function _wireRegistryRoles(Deployment memory d, address bootstrap, address operator) private {
+        d.assetRegistry.grantRole(d.assetRegistry.REGISTRAR_ROLE(), operator);
+        d.assetRegistry.grantRole(d.assetRegistry.STATUS_MANAGER_ROLE(), operator);
+        d.adapterRegistry.grantRole(d.adapterRegistry.ADAPTER_QUALIFIER_ROLE(), operator);
+        d.adapterRegistry.grantRole(d.adapterRegistry.ADAPTER_STATUS_MANAGER_ROLE(), operator);
+        d.calendarRegistry.grantRole(d.calendarRegistry.CALENDAR_REGISTRAR_ROLE(), operator);
+        d.calendarRegistry.grantRole(d.calendarRegistry.CALENDAR_STATUS_MANAGER_ROLE(), operator);
+        d.sessionRegistry.grantRole(d.sessionRegistry.SESSION_REGISTRAR_ROLE(), operator);
+        d.sessionRegistry.grantRole(d.sessionRegistry.SESSION_STATUS_MANAGER_ROLE(), operator);
+        d.settlementAssetRegistry.grantRole(d.settlementAssetRegistry.QUALIFIER_ROLE(), operator);
+        d.settlementAssetRegistry.grantRole(d.settlementAssetRegistry.STATUS_MANAGER_ROLE(), operator);
+        d.benchmarkRegistry.grantRole(d.benchmarkRegistry.BENCHMARK_QUALIFIER_ROLE(), operator);
+        d.benchmarkRegistry.grantRole(d.benchmarkRegistry.BENCHMARK_STATUS_MANAGER_ROLE(), operator);
+        d.feeScheduleRegistry.grantRole(d.feeScheduleRegistry.FEE_SCHEDULE_QUALIFIER_ROLE(), operator);
+        d.feeScheduleRegistry.grantRole(d.feeScheduleRegistry.FEE_SCHEDULE_STATUS_MANAGER_ROLE(), operator);
+        d.riskDomainRegistry.grantRole(d.riskDomainRegistry.RISK_DOMAIN_QUALIFIER_ROLE(), operator);
+        d.riskDomainRegistry.grantRole(d.riskDomainRegistry.RISK_DOMAIN_STATUS_MANAGER_ROLE(), operator);
+        d.instrumentRegistry.grantRole(d.instrumentRegistry.INSTRUMENT_QUALIFIER_ROLE(), operator);
+        d.instrumentRegistry.grantRole(d.instrumentRegistry.INSTRUMENT_STATUS_MANAGER_ROLE(), operator);
+        d.marketRegistry.grantRole(d.marketRegistry.MARKET_QUALIFIER_ROLE(), operator);
+        d.marketRegistry.grantRole(d.marketRegistry.MARKET_STATUS_MANAGER_ROLE(), operator);
+        d.seriesRegistry.grantRole(d.seriesRegistry.SERIES_QUALIFIER_ROLE(), operator);
+        d.seriesRegistry.grantRole(d.seriesRegistry.SERIES_STATUS_MANAGER_ROLE(), operator);
+        d.packageRegistry.grantRole(d.packageRegistry.PACKAGE_QUALIFIER_ROLE(), operator);
+        d.packageRegistry.grantRole(d.packageRegistry.PACKAGE_STATUS_MANAGER_ROLE(), operator);
+
+        d.assetRegistry.revokeRole(d.assetRegistry.REGISTRAR_ROLE(), bootstrap);
+        d.assetRegistry.revokeRole(d.assetRegistry.STATUS_MANAGER_ROLE(), bootstrap);
+        d.adapterRegistry.revokeRole(d.adapterRegistry.ADAPTER_QUALIFIER_ROLE(), bootstrap);
+        d.adapterRegistry.revokeRole(d.adapterRegistry.ADAPTER_STATUS_MANAGER_ROLE(), bootstrap);
+        d.calendarRegistry.revokeRole(d.calendarRegistry.CALENDAR_REGISTRAR_ROLE(), bootstrap);
+        d.calendarRegistry.revokeRole(d.calendarRegistry.CALENDAR_STATUS_MANAGER_ROLE(), bootstrap);
+        d.sessionRegistry.revokeRole(d.sessionRegistry.SESSION_REGISTRAR_ROLE(), bootstrap);
+        d.sessionRegistry.revokeRole(d.sessionRegistry.SESSION_STATUS_MANAGER_ROLE(), bootstrap);
+        d.settlementAssetRegistry.revokeRole(d.settlementAssetRegistry.QUALIFIER_ROLE(), bootstrap);
+        d.settlementAssetRegistry.revokeRole(d.settlementAssetRegistry.STATUS_MANAGER_ROLE(), bootstrap);
+        d.benchmarkRegistry.revokeRole(d.benchmarkRegistry.BENCHMARK_QUALIFIER_ROLE(), bootstrap);
+        d.benchmarkRegistry.revokeRole(d.benchmarkRegistry.BENCHMARK_STATUS_MANAGER_ROLE(), bootstrap);
+        d.feeScheduleRegistry.revokeRole(d.feeScheduleRegistry.FEE_SCHEDULE_QUALIFIER_ROLE(), bootstrap);
+        d.feeScheduleRegistry.revokeRole(d.feeScheduleRegistry.FEE_SCHEDULE_STATUS_MANAGER_ROLE(), bootstrap);
+        d.riskDomainRegistry.revokeRole(d.riskDomainRegistry.RISK_DOMAIN_QUALIFIER_ROLE(), bootstrap);
+        d.riskDomainRegistry.revokeRole(d.riskDomainRegistry.RISK_DOMAIN_STATUS_MANAGER_ROLE(), bootstrap);
+        d.instrumentRegistry.revokeRole(d.instrumentRegistry.INSTRUMENT_QUALIFIER_ROLE(), bootstrap);
+        d.instrumentRegistry.revokeRole(d.instrumentRegistry.INSTRUMENT_STATUS_MANAGER_ROLE(), bootstrap);
+        d.marketRegistry.revokeRole(d.marketRegistry.MARKET_QUALIFIER_ROLE(), bootstrap);
+        d.marketRegistry.revokeRole(d.marketRegistry.MARKET_STATUS_MANAGER_ROLE(), bootstrap);
+        d.seriesRegistry.revokeRole(d.seriesRegistry.SERIES_QUALIFIER_ROLE(), bootstrap);
+        d.seriesRegistry.revokeRole(d.seriesRegistry.SERIES_STATUS_MANAGER_ROLE(), bootstrap);
+        d.packageRegistry.revokeRole(d.packageRegistry.PACKAGE_QUALIFIER_ROLE(), bootstrap);
+        d.packageRegistry.revokeRole(d.packageRegistry.PACKAGE_STATUS_MANAGER_ROLE(), bootstrap);
+    }
+
+    function _revokeBootstrapOperationalRoles(Deployment memory d, address bootstrap) private {
+        d.collateralVault.revokeRole(d.collateralVault.COLLATERAL_LOCKER_ROLE(), bootstrap);
+        d.collateralVault.revokeRole(d.collateralVault.COLLATERAL_SETTLER_ROLE(), bootstrap);
+        d.collateralVault.revokeRole(d.collateralVault.TERMINAL_RESERVATION_CREATOR_ROLE(), bootstrap);
+        d.collateralVault.revokeRole(d.collateralVault.TERMINAL_RESERVATION_RESOLVER_ROLE(), bootstrap);
+        d.collateralVault.revokeRole(d.collateralVault.EXCESS_RECOVERY_ROLE(), bootstrap);
+        d.positionEngine.revokeRole(d.positionEngine.CLEARING_ENGINE_ROLE(), bootstrap);
+        d.positionEngine.revokeRole(d.positionEngine.FUNDING_REQUESTER_ROLE(), bootstrap);
+        d.positionEngine.revokeRole(d.positionEngine.FIXING_ENGINE_ROLE(), bootstrap);
+        d.positionEngine.revokeRole(d.positionEngine.LIFECYCLE_ENGINE_ROLE(), bootstrap);
+        d.positionEngine.revokeRole(d.positionEngine.DEFAULT_ENGINE_ROLE(), bootstrap);
+        d.fundedFeeEngine.revokeRole(d.fundedFeeEngine.FEE_ACTION_CONSUMER_ROLE(), bootstrap);
+        d.portfolioRiskEngine.revokeRole(d.portfolioRiskEngine.RISK_CONSUMER_ROLE(), bootstrap);
+        d.portfolioRiskEngine.revokeRole(d.portfolioRiskEngine.EXPOSURE_REDUCER_ROLE(), bootstrap);
+        d.positionLifecycleExecutor.revokeRole(d.positionLifecycleExecutor.SIGNED_LIFECYCLE_ENGINE_ROLE(), bootstrap);
+        d.positionLifecycleExecutor.revokeRole(d.positionLifecycleExecutor.COMPRESSION_COORDINATOR_ROLE(), bootstrap);
+        d.positionLifecycleExecutor.revokeRole(d.positionLifecycleExecutor.DEFAULT_PROCESS_ENGINE_ROLE(), bootstrap);
+        d.positionLifecycleExecutor.revokeRole(d.positionLifecycleExecutor.WITNESS_STAGER_ROLE(), bootstrap);
+        d.signedLifecycleEngine.revokeRole(d.signedLifecycleEngine.LIFECYCLE_GUARDIAN_ROLE(), bootstrap);
+        d.compressionCoordinator.revokeRole(d.compressionCoordinator.COMPRESSION_GUARDIAN_ROLE(), bootstrap);
+        d.privacyCommitmentRegistry.revokeRole(d.privacyCommitmentRegistry.POLICY_QUALIFIER_ROLE(), bootstrap);
+        d.privacyCommitmentRegistry.revokeRole(d.privacyCommitmentRegistry.POLICY_ACTIVATOR_ROLE(), bootstrap);
+        d.privacyCommitmentRegistry.revokeRole(d.privacyCommitmentRegistry.EPOCH_KEY_PUBLISHER_ROLE(), bootstrap);
+    }
+
+    function _beginAdminTransfers(Deployment memory d, address governanceAdmin) private {
+        _beginAdminTransfer(address(d.assetRegistry), governanceAdmin);
+        _beginAdminTransfer(address(d.adapterRegistry), governanceAdmin);
+        _beginAdminTransfer(address(d.calendarRegistry), governanceAdmin);
+        _beginAdminTransfer(address(d.sessionRegistry), governanceAdmin);
+        _beginAdminTransfer(address(d.settlementAssetRegistry), governanceAdmin);
+        _beginAdminTransfer(address(d.benchmarkRegistry), governanceAdmin);
+        _beginAdminTransfer(address(d.feeScheduleRegistry), governanceAdmin);
+        _beginAdminTransfer(address(d.riskDomainRegistry), governanceAdmin);
+        _beginAdminTransfer(address(d.instrumentRegistry), governanceAdmin);
+        _beginAdminTransfer(address(d.marketRegistry), governanceAdmin);
+        _beginAdminTransfer(address(d.seriesRegistry), governanceAdmin);
+        _beginAdminTransfer(address(d.collateralVault), governanceAdmin);
+        _beginAdminTransfer(address(d.packageRegistry), governanceAdmin);
+        _beginAdminTransfer(address(d.positionEngine), governanceAdmin);
+        _beginAdminTransfer(address(d.fundedFeeEngine), governanceAdmin);
+        _beginAdminTransfer(address(d.portfolioRiskEngine), governanceAdmin);
+        _beginAdminTransfer(address(d.positionLifecycleExecutor), governanceAdmin);
+        _beginAdminTransfer(address(d.signedLifecycleEngine), governanceAdmin);
+        _beginAdminTransfer(address(d.compressionCoordinator), governanceAdmin);
+        _beginAdminTransfer(address(d.privacyCommitmentRegistry), governanceAdmin);
+    }
+
+    function _beginAdminTransfer(address target, address governanceAdmin) private {
+        AccessControlDefaultAdminRules(target).beginDefaultAdminTransfer(governanceAdmin);
+    }
+
+    function _postWiringEvidence(
+        Deployment memory d,
+        address bootstrap,
+        address governanceAdmin,
+        address governanceOperator,
+        address guardian,
+        address excessRecovery,
+        address privacyKeyPublisher,
+        address lifecycleWitnessStager
+    ) private view returns (bytes32) {
+        (address registryPendingAdmin, uint48 registryAcceptSchedule) = d.assetRegistry.pendingDefaultAdmin();
+        (address privacyPendingAdmin, uint48 privacyAcceptSchedule) =
+            d.privacyCommitmentRegistry.pendingDefaultAdmin();
+        if (registryPendingAdmin != governanceAdmin || privacyPendingAdmin != governanceAdmin) {
+            revert InvalidDeploymentPrincipal(governanceAdmin);
+        }
+        return keccak256(
+            abi.encode(
+                block.chainid,
+                governanceAdmin,
+                governanceOperator,
+                guardian,
+                excessRecovery,
+                privacyKeyPublisher,
+                lifecycleWitnessStager,
+                !d.portfolioRiskEngine.hasRole(d.portfolioRiskEngine.EXPOSURE_REDUCER_ROLE(), bootstrap),
+                d.portfolioRiskEngine.hasRole(
+                    d.portfolioRiskEngine.EXPOSURE_REDUCER_ROLE(), address(d.positionLifecycleExecutor)
+                ),
+                d.portfolioRiskEngine.hasRole(
+                    d.portfolioRiskEngine.EXPOSURE_REDUCER_ROLE(), address(d.cashSettlementCoordinator)
+                ),
+                d.portfolioRiskEngine.hasRole(
+                    d.portfolioRiskEngine.EXPOSURE_REDUCER_ROLE(), address(d.defaultProcessEngine)
+                ),
+                registryPendingAdmin,
+                registryAcceptSchedule,
+                privacyPendingAdmin,
+                privacyAcceptSchedule
+            )
+        );
+    }
+
+    function _requireSeparatedPrincipal(address bootstrap, address governanceAdmin, address operational) private pure {
+        if (governanceAdmin == address(0) || operational == address(0)) revert InvalidDeploymentPrincipal(address(0));
+        if (governanceAdmin == bootstrap || operational == bootstrap || operational == governanceAdmin) {
+            revert PrincipalSeparationRequired(governanceAdmin, operational);
+        }
     }
 
     function _requireAllowedTarget(string memory environment) private view {

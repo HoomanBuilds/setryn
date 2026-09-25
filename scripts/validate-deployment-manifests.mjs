@@ -90,6 +90,9 @@ function validateManifest(manifestPath) {
   ) {
     throw new Error(`${manifestPath}: Phase 2 inventory or authority policy drifted`);
   }
+  if (!manifest.phase2.finalPrincipals || !manifest.phase2.qualificationEvidence) {
+    throw new Error(`${manifestPath}: Phase 2 final authority or qualification evidence is missing`);
+  }
   const phase2Deployments = manifest.phase2.deployments;
   const deployedPhase2Names = phase2Deployments.map(({ name }) => name);
   if (new Set(deployedPhase2Names).size !== deployedPhase2Names.length) {

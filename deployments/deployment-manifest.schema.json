@@ -177,7 +177,7 @@
     "phase2": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["inventoryFile", "contracts", "deployments", "bootstrapAuthority", "activationPolicy", "mainnetBroadcastAllowed"],
+      "required": ["inventoryFile", "contracts", "deployments", "bootstrapAuthority", "finalPrincipals", "qualificationEvidence", "activationPolicy", "mainnetBroadcastAllowed"],
       "properties": {
         "inventoryFile": {"const": "../phase2-contract-inventory.json"},
         "contracts": {
@@ -211,6 +211,36 @@
           "properties": {
             "source": {"const": "SETRYN_DEPLOYER_ADDRESS"},
             "postWiringRevocationRequired": {"const": true}
+          }
+        },
+        "finalPrincipals": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["governanceAdmin", "governanceOperator", "guardian", "excessRecoveryOperator", "privacyKeyPublisher", "lifecycleWitnessStager"],
+          "properties": {
+            "governanceAdmin": {"$ref": "#/$defs/principal"},
+            "governanceOperator": {"$ref": "#/$defs/principal"},
+            "guardian": {"$ref": "#/$defs/principal"},
+            "excessRecoveryOperator": {"$ref": "#/$defs/principal"},
+            "privacyKeyPublisher": {"$ref": "#/$defs/principal"},
+            "lifecycleWitnessStager": {"$ref": "#/$defs/principal"}
+          }
+        },
+        "qualificationEvidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["constructorDependencies", "configurationHash", "capabilityHash", "roleAssignments", "activation", "supportedCapabilities", "disabledCapabilities", "postWiringEvidenceHash", "bootstrapRolesRevoked", "adminTransfersBegun"],
+          "properties": {
+            "constructorDependencies": {"type": "string", "minLength": 1},
+            "configurationHash": {"$ref": "#/$defs/nullableBytes32"},
+            "capabilityHash": {"$ref": "#/$defs/nullableBytes32"},
+            "roleAssignments": {"type": "string", "minLength": 1},
+            "activation": {"enum": ["planned", "qualified", "blocked"]},
+            "supportedCapabilities": {"type": "string", "minLength": 1},
+            "disabledCapabilities": {"type": "string", "minLength": 1},
+            "postWiringEvidenceHash": {"$ref": "#/$defs/nullableBytes32"},
+            "bootstrapRolesRevoked": {"type": "boolean"},
+            "adminTransfersBegun": {"type": "boolean"}
           }
         },
         "activationPolicy": {"const": "registered-paused-until-qualified"},

@@ -20,6 +20,26 @@
     "contracts": ["AssetRegistry", "AdapterRegistry", "CalendarRegistry", "SessionRegistry", "SettlementAssetRegistry", "BenchmarkRegistry", "FeeScheduleRegistry", "RiskDomainRegistry", "InstrumentRegistry", "MarketRegistry", "SeriesRegistry", "CollateralVault", "PackageRegistry", "CanonicalStrategyCompiler", "PositionEngine", "FixingEngine", "FundedFeeEngine", "PortfolioRiskEngine", "PositionLifecycleExecutor", "CashSettlementCoordinator", "PrivacyCommitmentRegistry", "OperationalAdapterExecutor", "CappedForwardPayoffModule", "NdfPayoffModule", "EuropeanCallPayoffModule", "EuropeanPutPayoffModule", "CollarPayoffModule", "RateForwardPayoffModule", "RateCapPayoffModule", "RateFloorPayoffModule", "RateCollarPayoffModule", "BasisSpreadPayoffModule", "CalendarSpreadPayoffModule", "WindowAverageScalarPayoffModule", "CorrelationDispersionScalarPayoffModule", "OrderState", "AtomicClearingEngine", "PublicOrderBook", "PrivateRfqBook", "SealedAuctionHouse", "StreamingQuoteEngine", "BatchClearingEngine", "CollateralAwareRouteEngine", "AccountPolicyAuthority", "LifecyclePolicyValidator", "DefaultBidderGate", "SignedLifecycleEngine", "CompressionCoordinator", "DefaultProcessEngine", "VerifiableReceiptLedger"],
     "deployments": [],
     "bootstrapAuthority": {"source": "SETRYN_DEPLOYER_ADDRESS", "postWiringRevocationRequired": true},
+    "finalPrincipals": {
+      "governanceAdmin": {"address": null, "source": "SETRYN_GOVERNANCE_ADMIN"},
+      "governanceOperator": {"address": null, "source": "SETRYN_GOVERNANCE_OPERATOR"},
+      "guardian": {"address": null, "source": "SETRYN_GUARDIAN"},
+      "excessRecoveryOperator": {"address": null, "source": "SETRYN_EXCESS_RECOVERY_OPERATOR"},
+      "privacyKeyPublisher": {"address": null, "source": "SETRYN_PRIVACY_KEY_PUBLISHER"},
+      "lifecycleWitnessStager": {"address": null, "source": "SETRYN_LIFECYCLE_WITNESS_STAGER"}
+    },
+    "qualificationEvidence": {
+      "constructorDependencies": "../phase2-contract-inventory.json#/contracts/*/dependencies",
+      "configurationHash": null,
+      "capabilityHash": null,
+      "roleAssignments": "../phase2-contract-inventory.json#/contracts/*/roleAuthority",
+      "activation": "blocked",
+      "supportedCapabilities": "../phase2-contract-inventory.json#/contracts/*/supported",
+      "disabledCapabilities": "../phase2-contract-inventory.json#/contracts/*/disabled",
+      "postWiringEvidenceHash": null,
+      "bootstrapRolesRevoked": false,
+      "adminTransfersBegun": false
+    },
     "activationPolicy": "registered-paused-until-qualified",
     "mainnetBroadcastAllowed": false
   },

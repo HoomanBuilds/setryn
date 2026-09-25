@@ -22,6 +22,19 @@ if (
 ) {
   throw new Error("Phase 2 qualification hash slots drifted");
 }
+const requiredPrincipals = [
+  "SETRYN_GOVERNANCE_ADMIN",
+  "SETRYN_GOVERNANCE_OPERATOR",
+  "SETRYN_GUARDIAN",
+  "SETRYN_EXCESS_RECOVERY_OPERATOR",
+  "SETRYN_PRIVACY_KEY_PUBLISHER",
+  "SETRYN_LIFECYCLE_WITNESS_STAGER",
+];
+if (JSON.stringify(inventory.deploymentPrincipals) !== JSON.stringify(requiredPrincipals)) {
+  throw new Error("Phase 2 deployment principal inventory drifted");
+}
+if (!Array.isArray(inventory.productionBlockers)) throw new Error("Phase 2 blockers must be structured");
+const blockedContracts = new Set(inventory.productionBlockers.flatMap(({ contracts }) => contracts));
 const inventoryNames = inventory.contracts.map(({ name }) => name);
 assertUnique(inventoryNames, "inventory contract");
 for (const contract of inventory.contracts) {
@@ -30,6 +43,9 @@ for (const contract of inventory.contracts) {
   }
   if (!['planned', 'blocked'].includes(contract.activation)) {
     throw new Error(`${contract.name} has invalid activation state`);
+  }
+  if (contract.activation === "blocked" && !blockedContracts.has(contract.name)) {
+    throw new Error(`${contract.name} has no structured production blocker`);
   }
   if (contract.runtimeCodeHash !== null || contract.evidenceHash !== null) {
     throw new Error(`${contract.name} must not claim deployment evidence before the Phase 2 gate`);
@@ -45,6 +61,20 @@ for (const manifest of manifests) {
   }
   if (!Array.isArray(manifest.phase2.deployments)) {
     throw new Error(`${manifest.environment} Phase 2 deployment evidence must be an array`);
+  }
+  const principals = manifest.phase2.finalPrincipals;
+  for (const [key, source] of [
+    ["governanceAdmin", "SETRYN_GOVERNANCE_ADMIN"],
+    ["governanceOperator", "SETRYN_GOVERNANCE_OPERATOR"],
+    ["guardian", "SETRYN_GUARDIAN"],
+    ["excessRecoveryOperator", "SETRYN_EXCESS_RECOVERY_OPERATOR"],
+    ["privacyKeyPublisher", "SETRYN_PRIVACY_KEY_PUBLISHER"],
+    ["lifecycleWitnessStager", "SETRYN_LIFECYCLE_WITNESS_STAGER"],
+  ]) {
+    if (principals?.[key]?.source !== source) throw new Error(`${manifest.environment} principal ${key} drifted`);
+  }
+  if (!manifest.phase2.qualificationEvidence) {
+    throw new Error(`${manifest.environment} qualification evidence policy is missing`);
   }
   if (manifest.environment === "arbitrum-one") {
     if (manifest.status !== "disabled" || manifest.broadcast.enabled || manifest.broadcast.signed) {
@@ -68,6 +98,9 @@ for (const contract of inventory.contracts) {
 }
 if (!deploymentScript.includes("ArbitrumOneDeploymentDisabled")) {
   throw new Error("Deployment script lost the Arbitrum One hard stop");
+}
+for (const marker of ["EXPOSURE_REDUCER_ROLE", "beginDefaultAdminTransfer", "POST_WIRING_EVIDENCE_HASH"]) {
+  if (!deploymentScript.includes(marker)) throw new Error(`Deployment script lost ${marker}`);
 }
 
 process.stdout.write("Phase 2 deployment, binding, and projection inventory is internally consistent.\n");
