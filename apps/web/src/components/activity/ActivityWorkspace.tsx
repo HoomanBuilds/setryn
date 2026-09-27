@@ -233,6 +233,7 @@ function AttemptDetail({ attempt }: { attempt: ActivityAttemptView | null }) {
 
   const market = findMarket(attempt.marketId);
   const referenceLabel = attempt.result === "SIMULATED" ? "Runtime reference" : "Transaction reference";
+  const outcomeLabel = attempt.outcome === "CLOSED" ? "Closed" : attempt.outcome === "REDUCED" ? "Reduced" : "Opened";
 
   return (
     <Surface
@@ -244,6 +245,7 @@ function AttemptDetail({ attempt }: { attempt: ActivityAttemptView | null }) {
         <p className="mt-1 text-xs text-faint">{attempt.environment} / {attempt.source.toLowerCase()} source</p>
       </div>
 
+      <DetailRow label="Outcome" value={outcomeLabel} />
       <DetailRow label="Order hash" value={<HashValue value={attempt.orderHash} title="Order hash" />} hint={attempt.orderHash} />
       <DetailRow label="Route" value={attempt.routeLabel} />
       <DetailRow label="Fill" value={`${formatLots(attempt.lots)} lots at ${market ? `${formatNumber(attempt.price, market.priceDecimals)} ${priceUnitSuffix(market.priceUnit)}` : formatNumber(attempt.price, 2)}`} />

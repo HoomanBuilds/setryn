@@ -56,12 +56,21 @@ function runtimePosition(
   snapshot: GatewaySnapshot,
 ): Position {
   const market = findMarket(execution.marketId);
-  const receipt = snapshot.receipts.find(
+  const openingReceipt = snapshot.executions.find(
     (candidate) =>
-      candidate.marketId === execution.marketId &&
-      candidate.lots === execution.lots &&
-      candidate.price === execution.entryPrice,
-  );
+      candidate.result.outcome === "OPENED" && candidate.result.position?.id === execution.id,
+  )?.result.receipt;
+  const receipt =
+    openingReceipt ??
+    snapshot.executions.find(
+      (candidate) => candidate.result.position?.id === execution.id,
+    )?.result.receipt ??
+    snapshot.receipts.find(
+      (candidate) =>
+        candidate.marketId === execution.marketId &&
+        candidate.lots === execution.lots &&
+        candidate.price === execution.entryPrice,
+    );
   const fee = receipt?.fees ?? 0;
   const direction = execution.side === "LONG" ? 1 : -1;
   const price = round(

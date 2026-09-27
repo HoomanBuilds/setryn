@@ -61,11 +61,31 @@ function restoreSnapshot(): GatewaySnapshot {
     if (snapshot.environment.id !== "LOCAL_DEMO" || !Array.isArray(snapshot.receipts)) {
       return initialSnapshot();
     }
+    const positions = Array.isArray(snapshot.positions) ? snapshot.positions : [];
+    const executions = Array.isArray(snapshot.executions)
+      ? snapshot.executions.map((execution) => {
+          const result = execution.result as Partial<PackageExecutionResult> & {
+            position?: PackageExecutionResult["position"];
+          };
+          if (result && typeof result.outcome === "string") return execution;
+          return {
+            ...execution,
+            result: {
+              fillId: result?.fillId ?? "FIL-LEGACY",
+              outcome: "OPENED" as const,
+              position: result?.position ?? null,
+              closedPositionId: null,
+              closedLots: 0,
+              receipt: result?.receipt as PackageExecutionResult["receipt"],
+            },
+          };
+        })
+      : [];
     return {
       ...snapshot,
       wallet: { status: "DISCONNECTED", address: null, chainId: null },
-      positions: Array.isArray(snapshot.positions) ? snapshot.positions : [],
-      executions: Array.isArray(snapshot.executions) ? snapshot.executions : [],
+      positions,
+      executions,
     };
   } catch {
     return initialSnapshot();
@@ -138,7 +158,25 @@ export class DemoTradingGateway implements InternalTradingGateway {
     this.assertWritableEnvironment();
     const signer = this.snapshot.wallet.address;
     if (!signer || this.snapshot.wallet.status !== "CONNECTED") throw new Error("CONNECT_WALLET");
-    if (intent.collateralRequired + intent.feeCap > this.snapshot.account.available) {
+    if (intent.side === "ENTER" && intent.closePositionId != null) {
+      throw new Error("CLOSE_POSITION_FORBIDDEN_FOR_ENTRY");
+    }
+    if (intent.side === "EXIT") {
+      if (!intent.closePositionId) throw new Error("CLOSE_POSITION_REQUIRED");
+      if (intent.collateralRequired !== 0) throw new Error("EXIT_REQUIRES_ZERO_COLLATERAL");
+      const target = this.snapshot.positions.find(
+        (position) => position.id === intent.closePositionId,
+      );
+      if (!target) throw new Error("POSITION_NOT_FOUND");
+      if (target.marketId !== intent.marketId) throw new Error("POSITION_MARKET_MISMATCH");
+      if (!Number.isFinite(intent.lots) || intent.lots <= 0) throw new Error("INVALID_CLOSE_LOTS");
+      if (intent.lots - target.lots > 1e-9) throw new Error("CLOSE_LOTS_EXCEEDS_POSITION");
+      const releasable =
+        target.lots > 0 ? (target.collateral * intent.lots) / target.lots : 0;
+      if (intent.feeCap > this.snapshot.account.available + releasable) {
+        throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
+      }
+    } else if (intent.collateralRequired + intent.feeCap > this.snapshot.account.available) {
       throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
     }
     await wait(300);
@@ -161,13 +199,65 @@ export class DemoTradingGateway implements InternalTradingGateway {
     this.assertWritableEnvironment();
     if (authorization.signer !== this.snapshot.wallet.address) throw new Error("SIGNER_MISMATCH");
     if (Date.parse(authorization.deadline) <= Date.now()) throw new Error("AUTHORIZATION_EXPIRED");
+    const intent = authorization.intent;
+    const isExit = intent.side === "EXIT";
+    if (!isExit && intent.closePositionId != null) {
+      throw new Error("CLOSE_POSITION_FORBIDDEN_FOR_ENTRY");
+    }
+
+    let exitTargetId: string | null = null;
+    let exitCloseLots = 0;
+    let exitRelease = 0;
+    let exitIsFull = false;
+    if (isExit) {
+      if (!intent.closePositionId) throw new Error("CLOSE_POSITION_REQUIRED");
+      if (intent.collateralRequired !== 0) throw new Error("EXIT_REQUIRES_ZERO_COLLATERAL");
+      const target = this.snapshot.positions.find(
+        (position) => position.id === intent.closePositionId,
+      );
+      if (!target) throw new Error("POSITION_NOT_FOUND");
+      if (target.marketId !== intent.marketId) throw new Error("POSITION_MARKET_MISMATCH");
+      if (!Number.isFinite(intent.lots) || intent.lots <= 0) throw new Error("INVALID_CLOSE_LOTS");
+      if (intent.lots - target.lots > 1e-9) throw new Error("CLOSE_LOTS_EXCEEDS_POSITION");
+      exitTargetId = target.id;
+      exitCloseLots = intent.lots;
+      exitRelease = target.lots > 0 ? (target.collateral * intent.lots) / target.lots : 0;
+      exitIsFull = intent.lots >= target.lots - 1e-9;
+      if (intent.feeCap > this.snapshot.account.available + exitRelease) {
+        throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
+      }
+    }
+
     const transactionHash = digest(`${authorization.orderHash}:transaction`);
+    const positionStep: SubmissionUpdate = isExit
+      ? exitIsFull
+        ? {
+            step: "POSITION_CLOSED",
+            label: "Position closed",
+            detail: `Closed ${intent.lots} lots; the package position was removed and pro-rata collateral released.`,
+          }
+        : {
+            step: "POSITION_UPDATED",
+            label: "Position reduced",
+            detail: `Closed ${intent.lots} lots pro rata; the remaining package position stays active.`,
+          }
+      : {
+          step: "POSITION_CREATED",
+          label: "Position created",
+          detail: "Collateral reservation and package position were recorded together.",
+        };
     const updates: SubmissionUpdate[] = [
       { step: "AUTHORIZED", label: "Authorized", detail: "Package authorization is bound to the selected account and route." },
       { step: "SUBMITTED", label: "Submitted", detail: "Authorization accepted by the demo clearing runtime." },
       { step: "INCLUDED", label: "Included", detail: "Package execution was included as one clearing result.", transactionHash },
-      { step: "FILLED", label: "Filled", detail: `${authorization.intent.lots} package lots filled at the selected route price.` },
-      { step: "POSITION_CREATED", label: "Position created", detail: "Collateral reservation and package position were recorded together." },
+      {
+        step: "FILLED",
+        label: "Filled",
+        detail: isExit
+          ? `${intent.lots} package lots closed at the selected route price.`
+          : `${intent.lots} package lots filled at the selected route price.`,
+      },
+      positionStep,
     ];
     const journal: SubmissionUpdate[] = [];
     for (const update of updates) {
@@ -177,30 +267,90 @@ export class DemoTradingGateway implements InternalTradingGateway {
     }
 
     const fillId = identifier("FIL");
-    const positionId = identifier("STR");
     const receiptId = identifier("RCP");
     const receipt: ExecutionReceipt = {
       id: receiptId,
       orderHash: authorization.orderHash,
       fillId,
       transactionHash,
-      marketId: authorization.intent.marketId,
-      packageCode: authorization.intent.packageCode,
-      routeLabel: authorization.intent.routeLabel,
-      lots: authorization.intent.lots,
-      price: authorization.intent.executionPrice,
-      fees: authorization.intent.feeCap,
-      guarantee: authorization.intent.settlementGuarantee,
+      marketId: intent.marketId,
+      packageCode: intent.packageCode,
+      routeLabel: intent.routeLabel,
+      lots: intent.lots,
+      price: intent.executionPrice,
+      fees: intent.feeCap,
+      guarantee: intent.settlementGuarantee,
       evidence: this.snapshot.environment.evidence,
       createdAt: new Date().toISOString(),
     };
+
+    if (isExit) {
+      const target = this.snapshot.positions.find((position) => position.id === exitTargetId);
+      if (!target) throw new Error("POSITION_NOT_FOUND");
+      const remainingLots = target.lots - exitCloseLots;
+      const remainingCollateral = Math.max(0, target.collateral - exitRelease);
+      const updatedPosition =
+        exitIsFull || remainingLots <= 1e-9
+          ? null
+          : {
+              ...target,
+              lots: remainingLots,
+              collateral: remainingCollateral,
+            };
+      this.publish({
+        ...this.snapshot,
+        account: {
+          ...this.snapshot.account,
+          reserved: this.snapshot.account.reserved - exitRelease + intent.feeCap,
+          available: this.snapshot.account.available + exitRelease - intent.feeCap,
+        },
+        positions:
+          updatedPosition === null
+            ? this.snapshot.positions.filter((position) => position.id !== target.id)
+            : this.snapshot.positions.map((position) =>
+                position.id === target.id ? updatedPosition : position,
+              ),
+        receipts: [receipt, ...this.snapshot.receipts],
+      });
+      const receiptUpdate = {
+        step: "RECEIPT_READY" as const,
+        label: "Receipt ready",
+        detail: "Execution evidence is available for inspection.",
+      };
+      journal.push(receiptUpdate);
+      onUpdate(receiptUpdate);
+      const result: PackageExecutionResult = {
+        fillId,
+        outcome: updatedPosition === null ? "CLOSED" : "REDUCED",
+        position: updatedPosition,
+        closedPositionId: target.id,
+        closedLots: exitCloseLots,
+        receipt,
+      };
+      this.publish({
+        ...this.snapshot,
+        executions: [
+          {
+            id: identifier("EXE"),
+            orderHash: authorization.orderHash,
+            updates: journal,
+            result,
+            createdAt: receipt.createdAt,
+          },
+          ...this.snapshot.executions,
+        ],
+      });
+      return result;
+    }
+
+    const positionId = identifier("STR");
     const position: PackageExecutionResult["position"] = {
       id: positionId,
-      marketId: authorization.intent.marketId,
-      side: authorization.intent.side === "ENTER" ? "LONG" : "SHORT",
-      lots: authorization.intent.lots,
-      entryPrice: authorization.intent.executionPrice,
-      collateral: authorization.intent.collateralRequired,
+      marketId: intent.marketId,
+      side: "LONG",
+      lots: intent.lots,
+      entryPrice: intent.executionPrice,
+      collateral: intent.collateralRequired,
       state: "ACTIVE" as const,
       createdAt: receipt.createdAt,
     };
@@ -209,11 +359,11 @@ export class DemoTradingGateway implements InternalTradingGateway {
       account: {
         ...this.snapshot.account,
         reserved:
-          this.snapshot.account.reserved + authorization.intent.collateralRequired + authorization.intent.feeCap,
+          this.snapshot.account.reserved + intent.collateralRequired + intent.feeCap,
         available:
-          this.snapshot.account.available - authorization.intent.collateralRequired - authorization.intent.feeCap,
+          this.snapshot.account.available - intent.collateralRequired - intent.feeCap,
       },
-      positions: [position, ...this.snapshot.positions],
+      positions: position ? [position, ...this.snapshot.positions] : [...this.snapshot.positions],
       receipts: [receipt, ...this.snapshot.receipts],
     });
     const receiptUpdate = {
@@ -225,7 +375,10 @@ export class DemoTradingGateway implements InternalTradingGateway {
     onUpdate(receiptUpdate);
     const result: PackageExecutionResult = {
       fillId,
+      outcome: "OPENED",
       position,
+      closedPositionId: null,
+      closedLots: 0,
       receipt,
     };
     this.publish({

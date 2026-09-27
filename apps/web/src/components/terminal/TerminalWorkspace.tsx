@@ -20,6 +20,7 @@ import {
 } from "@/lib/terminal/economics";
 import { SCENARIO_CLOCK_ISO } from "@/lib/terminal/format";
 import { parseHandoff, type HandoffContext } from "@/lib/terminal/handoff";
+import { LIFECYCLE_STRATEGIES } from "@/lib/lifecycle/fixtures";
 import { tradeHref } from "@/lib/terminal/markets";
 import {
   advancePreviewStream,
@@ -42,11 +43,18 @@ function executionError(error: unknown): string {
   if (!(error instanceof Error)) return "The demo runtime could not complete this package order.";
   if (error.message === "CONNECT_WALLET") return "Connect a wallet before authorizing this package.";
   if (error.message === "INSUFFICIENT_AVAILABLE_COLLATERAL") {
-    return "Available collateral no longer covers this package and its fee cap.";
+    return "Available collateral plus released collateral no longer covers the fee cap.";
   }
   if (error.message === "AUTHORIZATION_EXPIRED") return "The authorization expired before submission. Review and try again.";
   if (error.message === "SIGNER_MISMATCH") return "The active wallet does not match the package authorization.";
   if (error.message === "MAINNET_WRITE_DISABLED") return "Mainnet writes are disabled by the Setryn demo runtime.";
+  if (error.message === "CLOSE_POSITION_REQUIRED") return "Select an active package position to close.";
+  if (error.message === "CLOSE_POSITION_FORBIDDEN_FOR_ENTRY") return "Entry orders cannot reference a position to close.";
+  if (error.message === "POSITION_NOT_FOUND") return "The selected position is no longer active in this demo session.";
+  if (error.message === "POSITION_MARKET_MISMATCH") return "The selected position does not belong to this market.";
+  if (error.message === "INVALID_CLOSE_LOTS") return "Enter a close quantity above zero.";
+  if (error.message === "CLOSE_LOTS_EXCEEDS_POSITION") return "Quantity exceeds the selected package lots. Reduce quantity to close within the active package.";
+  if (error.message === "EXIT_REQUIRES_ZERO_COLLATERAL") return "Exits require no new collateral. Review the ticket and try again.";
   return "The demo runtime did not reach a final package outcome. No completion is claimed.";
 }
 
@@ -62,6 +70,8 @@ function initialTicket(market: PackageMarket, handoff?: HandoffContext): TicketS
     tif: "GTC",
     privateRfq: false,
     routeId: null,
+    closePositionId:
+      intent === "EXIT" && handoff?.lifecycleId ? handoff.lifecycleId : null,
   };
 }
 
@@ -130,7 +140,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   useEffect(() => {
     if (loadedExecutionMarketId === market.id) return;
     const latest = gatewaySnapshot.executions.find(
-      (candidate) => candidate.result.position.marketId === market.id,
+      (candidate) => candidate.result.receipt.marketId === market.id,
     );
     if (latest) {
       setExecution({ status: "COMPLETED", updates: latest.updates, result: latest.result });
@@ -153,12 +163,58 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     [liveMarket, ticket.routeId],
   );
 
+  const eligibleClosePositions = useMemo(
+    () => gatewaySnapshot.positions.filter((position) => position.marketId === liveMarket.id),
+    [gatewaySnapshot.positions, liveMarket.id],
+  );
+
+  const selectedClosePosition = useMemo(
+    () =>
+      ticket.intent === "EXIT" && ticket.closePositionId
+        ? (eligibleClosePositions.find((position) => position.id === ticket.closePositionId) ?? null)
+        : null,
+    [eligibleClosePositions, ticket.closePositionId, ticket.intent],
+  );
+
+  const lifecycleCloseBlocker = useMemo(() => {
+    if (!handoff.present || handoff.intent !== "EXIT" || !handoff.lifecycleId) return null;
+    const matched = gatewaySnapshot.positions.find(
+      (position) => position.id === handoff.lifecycleId,
+    );
+    if (matched) {
+      if (matched.marketId !== liveMarket.id) {
+        return `Lifecycle handoff ${handoff.lifecycleId} belongs to another market and cannot close a ${liveMarket.id} package.`;
+      }
+      return null;
+    }
+    const isStaticExample = LIFECYCLE_STRATEGIES.some(
+      (strategy) => strategy.id === handoff.lifecycleId,
+    );
+    if (isStaticExample) {
+      return `Lifecycle handoff ${handoff.lifecycleId} refers to a static example, not an active demo position. Open a runtime position first.`;
+    }
+    return `Lifecycle handoff ${handoff.lifecycleId} refers to an unavailable runtime position. It may be closed or from another session.`;
+  }, [gatewaySnapshot.positions, handoff.intent, handoff.lifecycleId, handoff.present, liveMarket.id]);
+
+  const effectiveHandoff = useMemo<HandoffContext>(
+    () => ({
+      ...handoff,
+      blockedReason: handoff.blockedReason ?? lifecycleCloseBlocker,
+    }),
+    [handoff, lifecycleCloseBlocker],
+  );
+
   const preview = useMemo(
-    () => buildPreview(liveMarket, ticket, route),
-    [liveMarket, ticket, route],
+    () => buildPreview(liveMarket, ticket, route, selectedClosePosition),
+    [liveMarket, ticket, route, selectedClosePosition],
   );
 
   const maxLots = useMemo(() => {
+    const byCapacity = route ? route.availableLots : liveMarket.firmDepthLots;
+    if (ticket.intent === "EXIT") {
+      if (!selectedClosePosition) return 1;
+      return Math.max(1, Math.min(selectedClosePosition.lots, byCapacity));
+    }
     const multiple = route?.collateralMultiple ?? 1;
     const feePerLot =
       (liveMarket.notionalPerLot * ((route?.protocolFeeBps ?? 2.5) + (route?.counterpartyFeeBps ?? 0))) /
@@ -166,9 +222,8 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     const byCollateral = Math.floor(
       gatewaySnapshot.account.available / (liveMarket.collateralPerLot * multiple + feePerLot),
     );
-    const byCapacity = route ? route.availableLots : liveMarket.firmDepthLots;
     return Math.max(1, Math.min(byCollateral, byCapacity));
-  }, [gatewaySnapshot.account.available, liveMarket, route]);
+  }, [gatewaySnapshot.account.available, liveMarket, route, selectedClosePosition, ticket.intent]);
 
   const selectMarket = useCallback((next: PackageMarket) => router.push(tradeHref(next)), [router]);
 
@@ -180,6 +235,9 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         const next = { ...current, ...patch };
         if (patch.privateRfq === false && current.routeId === "SOLVER_RFQ") {
           next.routeId = null;
+        }
+        if (next.intent === "ENTER") {
+          next.closePositionId = null;
         }
         /* Picking a route or flipping intent reprices the ticket onto what that
            route can actually execute, so a fresh selection is never born invalid. */
@@ -208,6 +266,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       setTicket((current) => ({
         ...current,
         intent: row.side === "ASK" ? "ENTER" : "EXIT",
+        closePositionId: row.side === "ASK" ? null : current.closePositionId,
         limitInput: row.price.toFixed(liveMarket.priceDecimals),
       }));
     },
@@ -223,12 +282,12 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   );
 
   const onStage = useCallback(() => {
-    if (handoff.blockedReason !== null) return;
+    if (effectiveHandoff.blockedReason !== null) return;
     setStage({
       kind: "COMPILED",
       reference: previewReference(liveMarket.id, preview.lots, preview.limitPrice),
     });
-  }, [handoff.blockedReason, liveMarket.id, preview.lots, preview.limitPrice]);
+  }, [effectiveHandoff.blockedReason, liveMarket.id, preview.lots, preview.limitPrice]);
 
   const onConfirm = useCallback(async () => {
     if (stage.kind !== "COMPILED" || !route) return;
@@ -244,6 +303,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       setExecution((current) => ({ ...current, status: "AUTHORIZING" }));
       const account = gateway.getSnapshot().account;
       const signer = gateway.getSnapshot().wallet.address;
+      const isExit = ticket.intent === "EXIT";
       const authorization = await gateway.authorizeOrder({
         accountId: account.id,
         marketId: liveMarket.id,
@@ -256,7 +316,8 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         executionPrice: preview.effectivePrice,
         timeInForce: ticket.tif,
         feeCap: preview.totalFees,
-        collateralRequired: preview.totalCollateral,
+        collateralRequired: isExit ? 0 : preview.totalCollateral,
+        closePositionId: isExit ? ticket.closePositionId : null,
         recipient: signer ?? "",
         disclosure: ticket.privateRfq ? "PRIVATE_RFQ" : "PUBLIC",
         settlementGuarantee: preview.settlementGuarantee,
@@ -360,7 +421,8 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
             stage={stage}
             execution={execution}
             maxLots={maxLots}
-            handoff={handoff}
+            handoff={effectiveHandoff}
+            closePositions={eligibleClosePositions}
             onChange={patchTicket}
             onStage={onStage}
             onConfirm={onConfirm}

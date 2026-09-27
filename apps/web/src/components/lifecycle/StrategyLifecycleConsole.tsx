@@ -95,7 +95,7 @@ function actionHref(strategy: LifecycleStrategy, proposal: LifecycleProposal): s
     const params = new URLSearchParams({
       lifecycle: strategy.id,
       intent: proposal.kind.toLowerCase(),
-      lots: String(strategy.lots),
+      lots: String(proposal.requestedLots),
       maxCloseCost: String(proposal.maxCloseCost),
       guarantee: strategy.guarantee.toLowerCase(),
     });
@@ -108,7 +108,7 @@ function actionHref(strategy: LifecycleStrategy, proposal: LifecycleProposal): s
     source: "lifecycle",
     lifecycle: strategy.id,
     intent: proposal.kind.toLowerCase(),
-    lots: String(strategy.lots),
+    lots: String(proposal.requestedLots),
     maxCloseCost: String(proposal.maxCloseCost),
     guarantee: strategy.guarantee.toLowerCase(),
   });
@@ -434,7 +434,7 @@ function ProposalDetail({ strategy, proposal }: { strategy: LifecycleStrategy; p
             <TimerReset size={14} aria-hidden="true" className="text-faint" />
           </div>
           <div className="divide-y divide-line px-3">
-            <CompactRow label="Max close cost" value={formatCompactUsd(proposal.maxCloseCost)} />
+            <CompactRow label="Requested bound" value={formatCompactUsd(proposal.maxCloseCost)} />
             <CompactRow label="Expected unwind" value={formatDuration(proposal.estimatedTimeToUnwindSeconds)} />
             <CompactRow label="Quote policy" value={proposal.quoteRequirement} mono={false} />
           </div>

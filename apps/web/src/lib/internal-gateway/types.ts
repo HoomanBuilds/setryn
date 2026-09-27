@@ -89,6 +89,7 @@ export interface PackageOrderIntent {
   timeInForce: TimeInForce;
   feeCap: number;
   collateralRequired: number;
+  closePositionId: string | null;
   recipient: string;
   disclosure: "PUBLIC" | "PRIVATE_RFQ";
   settlementGuarantee: string;
@@ -109,6 +110,8 @@ export type SubmissionStepId =
   | "INCLUDED"
   | "FILLED"
   | "POSITION_CREATED"
+  | "POSITION_UPDATED"
+  | "POSITION_CLOSED"
   | "RECEIPT_READY";
 
 export interface SubmissionUpdate {
@@ -118,9 +121,14 @@ export interface SubmissionUpdate {
   transactionHash?: string;
 }
 
+export type ExecutionOutcome = "OPENED" | "REDUCED" | "CLOSED";
+
 export interface PackageExecutionResult {
   fillId: string;
-  position: ExecutionPosition;
+  outcome: ExecutionOutcome;
+  position: ExecutionPosition | null;
+  closedPositionId: string | null;
+  closedLots: number;
   receipt: ExecutionReceipt;
 }
 

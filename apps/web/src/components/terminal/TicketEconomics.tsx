@@ -15,24 +15,31 @@ export function TicketEconomics({
   market,
   preview,
   route,
+  intent,
 }: {
   market: PackageMarket;
   preview: EconomicsPreview;
   route: RouteQuote | null;
+  intent: "ENTER" | "EXIT";
 }) {
   const sized = preview.lots > 0;
   const unit = priceUnitSuffix(market.priceUnit);
   const feeBps = route ? route.protocolFeeBps + route.counterpartyFeeBps : 0;
   const recovery = route ? RECOVERY_COPY[route.guarantee] : null;
   const dash = "not set";
+  const isExit = intent === "EXIT";
 
   return (
     <div className="border-t border-line pt-1">
       <div className="divide-y divide-line">
         <DataRow
-          label="Collateral required"
-          value={sized ? formatUsd(preview.totalCollateral, 2) : dash}
-          title="Scenario margin for this package under the selected route."
+          label={isExit ? "New collateral" : "Collateral required"}
+          value={isExit ? "No new collateral" : sized ? formatUsd(preview.totalCollateral, 2) : dash}
+          title={
+            isExit
+              ? "Exits require no new collateral. Pro-rata collateral is released and the fee cap is paid from released plus available funds."
+              : "Scenario margin for this package under the selected route."
+          }
         />
         <DataRow
           label="All-in fee"

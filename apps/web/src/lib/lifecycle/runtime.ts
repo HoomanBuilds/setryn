@@ -12,10 +12,19 @@ function roleForFamily(family: LegFamily): string {
 }
 
 function receiptForPosition(snapshot: GatewaySnapshot, position: ExecutionPosition) {
+  const opening = snapshot.executions.find(
+    (execution) =>
+      execution.result.outcome === "OPENED" && execution.result.position?.id === position.id,
+  )?.result.receipt;
+  if (opening) return opening;
   const viaExecution = snapshot.executions.find(
-    (execution) => execution.result.position.id === position.id,
+    (execution) => execution.result.position?.id === position.id,
   )?.result.receipt;
   if (viaExecution) return viaExecution;
+  const viaClose = snapshot.executions.find(
+    (execution) => execution.result.closedPositionId === position.id,
+  )?.result.receipt;
+  if (viaClose) return viaClose;
   return (
     snapshot.receipts.find(
       (candidate) =>
@@ -72,9 +81,10 @@ export function runtimeLifecycleStrategies(snapshot: GatewaySnapshot): readonly 
       label: `Exit ${position.lots} lots as a complete package`,
       actionLabel: "Open package exit",
       route: "TRADE",
+      requestedLots: position.lots,
       summary:
         "Opens the trade terminal for a complete package exit. A fresh quote and authorization are still required; no outcome is claimed from this view.",
-      quoteRequirement: `Requires a fresh package quote for ${position.lots} lots within the stated close-cost bound.`,
+      quoteRequirement: `Requires a fresh package quote for ${position.lots} lots. The handoff bound is a requested bound only and is reset by the fresh quote.`,
       maxCloseCost: closeCost,
       estimatedTimeToUnwindSeconds: timeToUnwindSeconds,
       impacts: [
@@ -109,9 +119,9 @@ export function runtimeLifecycleStrategies(snapshot: GatewaySnapshot): readonly 
           detail: "Price and close-cost bound are set only by a new quote.",
         },
         {
-          label: "Maximum close cost",
+          label: "Requested close-cost bound",
           state: "REQUIRES_QUOTE",
-          detail: "The bound is enforced only in the final trade request.",
+          detail: "The handoff bound is a request only. The fresh route quote sets the fee cap.",
         },
       ],
     };
@@ -128,9 +138,10 @@ export function runtimeLifecycleStrategies(snapshot: GatewaySnapshot): readonly 
         label: `Reduce package exposure by ${reduce} lots`,
         actionLabel: "Open package reduction",
         route: "TRADE",
+        requestedLots: reduce,
         summary:
           "Opens the trade terminal for a partial package reduction. The hedge ratio on remaining lots is preserved in the request; no outcome is claimed from this view.",
-        quoteRequirement: `Requires a fresh package quote for ${reduce} lots within the stated close-cost bound.`,
+        quoteRequirement: `Requires a fresh package quote for ${reduce} lots. The handoff bound is a requested bound only and is reset by the fresh quote.`,
         maxCloseCost: Math.max(1, Math.round((closeCost * reduce) / position.lots)),
         estimatedTimeToUnwindSeconds: Math.min(180, 22 + reduce * 2),
         impacts: [

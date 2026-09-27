@@ -5,13 +5,11 @@ import { Check, CircleAlert, LoaderCircle } from "lucide-react";
 import { SectionLabel } from "@/components/terminal/primitives";
 import type { OrderExecutionProgress, SubmissionStepId } from "@/lib/internal-gateway/types";
 
-const STEPS: SubmissionStepId[] = [
+const BASE_STEPS: SubmissionStepId[] = [
   "AUTHORIZED",
   "SUBMITTED",
   "INCLUDED",
   "FILLED",
-  "POSITION_CREATED",
-  "RECEIPT_READY",
 ];
 
 function shortHash(value: string): string {
@@ -30,6 +28,14 @@ function stateLabel(status: OrderExecutionProgress["status"]): string {
 export function ExecutionTimeline({ progress }: { progress: OrderExecutionProgress }) {
   const updateByStep = new Map(progress.updates.map((update) => [update.step, update]));
   const active = progress.status === "CONNECTING" || progress.status === "AUTHORIZING" || progress.status === "SUBMITTING";
+  const positionUpdate = progress.updates.find(
+    (update) =>
+      update.step === "POSITION_CLOSED" ||
+      update.step === "POSITION_UPDATED" ||
+      update.step === "POSITION_CREATED",
+  );
+  const positionStep: SubmissionStepId = positionUpdate?.step ?? "POSITION_CREATED";
+  const steps: SubmissionStepId[] = [...BASE_STEPS, positionStep, "RECEIPT_READY"];
 
   return (
     <div className="overflow-hidden rounded-md border border-line-strong bg-raised">
@@ -58,7 +64,7 @@ export function ExecutionTimeline({ progress }: { progress: OrderExecutionProgre
         </div>
       ) : (
         <ol className="divide-y divide-line">
-          {STEPS.map((step) => {
+          {steps.map((step) => {
             const update = updateByStep.get(step);
             const pending = active && !update;
             return (

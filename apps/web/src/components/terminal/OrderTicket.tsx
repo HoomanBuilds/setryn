@@ -20,7 +20,7 @@ import type {
 import { formatLots, formatNumber, formatUsd, priceUnitSuffix } from "@/lib/terminal/format";
 import type { HandoffContext } from "@/lib/terminal/handoff";
 import type { PackageMarket, RouteQuote } from "@/lib/terminal/types";
-import type { OrderExecutionProgress } from "@/lib/internal-gateway/types";
+import type { ExecutionPosition, OrderExecutionProgress } from "@/lib/internal-gateway/types";
 
 const INTENTS: { value: Intent; label: string }[] = [
   { value: "ENTER", label: "Enter" },
@@ -101,6 +101,7 @@ export function OrderTicket({
   execution,
   maxLots,
   handoff,
+  closePositions,
   onChange,
   onStage,
   onConfirm,
@@ -114,6 +115,7 @@ export function OrderTicket({
   execution: OrderExecutionProgress;
   maxLots: number;
   handoff: HandoffContext;
+  closePositions: ExecutionPosition[];
   onChange: (patch: Partial<TicketState>) => void;
   onStage: () => void;
   onConfirm: () => void;
@@ -126,6 +128,10 @@ export function OrderTicket({
   const invalid = blockers.length > 0;
   const blocked = invalid || preview.routeMissing;
   const locked = execution.status === "CONNECTING" || execution.status === "AUTHORIZING" || execution.status === "SUBMITTING";
+  const isExit = state.intent === "EXIT";
+  const selectedClose = isExit
+    ? (closePositions.find((position) => position.id === state.closePositionId) ?? null)
+    : null;
   const guaranteeLabel =
     handoff.guarantee === "PACKAGE_ATOMIC"
       ? "package atomic"
@@ -177,7 +183,7 @@ export function OrderTicket({
               ) : null}
               {handoff.legId ? <span className="tnum font-mono">{handoff.legId}</span> : null}
               {handoff.maxCloseCost !== null ? (
-                <span className="tnum font-mono">cap {formatUsd(handoff.maxCloseCost, 0)}</span>
+                <span className="tnum font-mono">requested bound {formatUsd(handoff.maxCloseCost, 0)}</span>
               ) : null}
               {guaranteeLabel ? <span>{guaranteeLabel}</span> : null}
               {handoff.studioMode ? <span>{handoff.studioMode}</span> : null}
@@ -194,6 +200,45 @@ export function OrderTicket({
           label="Package intent"
           tone="direction"
         />
+
+        {isExit ? (
+          <div>
+            <div className="mb-1.5 flex items-baseline justify-between gap-2">
+              <label htmlFor="ticket-close" className="text-xs text-dim">
+                Close strategy
+              </label>
+              <span className="tnum font-mono text-xs text-off">
+                {`${closePositions.length} active`}
+              </span>
+            </div>
+            <select
+              id="ticket-close"
+              value={state.closePositionId ?? ""}
+              onChange={(event) =>
+                onChange({ closePositionId: event.target.value || null })
+              }
+              className="focus-ring tnum h-9 w-full rounded-md border border-line bg-inset px-2 font-mono text-xs text-ink"
+            >
+              <option value="">Select a package position</option>
+              {closePositions.map((position) => (
+                <option key={position.id} value={position.id}>
+                  {`${position.id} · ${position.side} · ${position.lots} lots · ${Math.round(position.collateral)} USDC`}
+                </option>
+              ))}
+            </select>
+            {selectedClose ? (
+              <p className="mt-1 text-[11px] leading-snug text-dim">
+                {`${selectedClose.id} · ${selectedClose.side.toLowerCase()} · ${selectedClose.lots} lots · ${formatUsd(selectedClose.collateral, 0)} collateral. Closes as a complete package; legs cannot be broken.`}
+              </p>
+            ) : (
+              <p className="mt-1 text-[11px] leading-snug text-faint">
+                {closePositions.length === 0
+                  ? "No active package positions for this market. Enter a package first."
+                  : "Choose which active package this exit reduces. Quantity cannot exceed its lots."}
+              </p>
+            )}
+          </div>
+        ) : null}
 
         <Segmented
           options={ORDER_TYPES}
@@ -237,7 +282,11 @@ export function OrderTicket({
             <button
               type="button"
               onClick={() => onChange({ lotsInput: String(maxLots) })}
-              title={`Largest quantity this workspace can collateralise on the selected route: ${maxLots} lots`}
+              title={
+                state.intent === "EXIT"
+                  ? `Largest close quantity on the selected position and route: ${maxLots} lots`
+                  : `Largest quantity this workspace can collateralise on the selected route: ${maxLots} lots`
+              }
               className="focus-ring h-9 rounded-md border border-line bg-raised text-xs text-dim transition-colors hover:border-line-strong hover:text-ink lg:h-7"
             >
               Max
@@ -310,7 +359,7 @@ export function OrderTicket({
           onSelect={(routeId) => onChange({ routeId })}
         />
 
-        <TicketEconomics market={market} preview={preview} route={route} />
+        <TicketEconomics market={market} preview={preview} route={route} intent={state.intent} />
       </fieldset>
 
       <div className="shrink-0 space-y-2.5 border-t border-line bg-panel px-3 pt-3 pb-3 lg:px-4">
@@ -419,12 +468,18 @@ function StageArea({
             value={`${verb}, ${state.orderType === "LIMIT" ? "limit" : "marketable"}, ${state.tif}`}
           />
           <PayloadRow label="Quantity" value={`${formatLots(preview.lots)} lots`} />
+          {state.intent === "EXIT" ? (
+            <PayloadRow label="Close position" value={state.closePositionId ?? "none"} />
+          ) : null}
           <PayloadRow
             label="Limit"
             value={`${formatNumber(preview.limitPrice, market.priceDecimals)} ${unit}`}
           />
           <PayloadRow label="Route" value={route?.label ?? "none"} />
-          <PayloadRow label="Collateral" value={formatUsd(preview.totalCollateral, 2)} />
+          <PayloadRow
+            label={state.intent === "EXIT" ? "New collateral" : "Collateral"}
+            value={state.intent === "EXIT" ? "No new collateral" : formatUsd(preview.totalCollateral, 2)}
+          />
           <PayloadRow label="Total fees" value={formatUsd(preview.totalFees, 2)} />
         </dl>
         <p className="px-3 pb-2 text-xs leading-snug text-dim">

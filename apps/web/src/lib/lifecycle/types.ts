@@ -48,6 +48,7 @@ export interface LifecycleProposal {
   label: string;
   actionLabel: string;
   route: "TRADE" | "STUDIO";
+  requestedLots: number;
   summary: string;
   quoteRequirement: string;
   maxCloseCost: number;

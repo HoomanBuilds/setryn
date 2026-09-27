@@ -29,6 +29,7 @@ export interface ActivityAttemptView {
   createdAt: string;
   completedAt: string | null;
   result: ActivityResultState;
+  outcome: "OPENED" | "REDUCED" | "CLOSED";
   source: ActivitySource;
   evidence: GatewaySnapshot["environment"]["evidence"];
   environment: string;
@@ -62,6 +63,7 @@ function toAttempt(execution: GatewayExecution, snapshot: GatewaySnapshot): Acti
     createdAt: execution.createdAt,
     completedAt: receipt.createdAt,
     result,
+    outcome: execution.result.outcome,
     source: "RUNTIME",
     evidence: receipt.evidence,
     environment: snapshot.environment.label,

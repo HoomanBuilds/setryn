@@ -12,6 +12,11 @@ export interface TicketState {
   tif: TimeInForce;
   privateRfq: boolean;
   routeId: string | null;
+  closePositionId: string | null;
+}
+
+export interface ClosePositionRef {
+  lots: number;
 }
 
 export interface EconomicsPreview {
@@ -76,6 +81,7 @@ export function buildPreview(
   market: PackageMarket,
   state: TicketState,
   route: RouteQuote | null,
+  closePosition?: ClosePositionRef | null,
 ): EconomicsPreview {
   const lots = Math.max(0, Number.parseFloat(state.lotsInput) || 0);
   const limitPrice = Number.parseFloat(state.limitInput) || 0;
@@ -94,10 +100,20 @@ export function buildPreview(
   const counterpartyFee = (notional * counterpartyFeeBps) / 10_000;
 
   const guarantee = route ? GUARANTEE_COPY[route.guarantee] : null;
+  const isExit = state.intent === "EXIT";
 
   const blockers: string[] = [];
   if (lots <= 0) blockers.push("Enter a package quantity above zero.");
   if (limitPrice === 0) blockers.push("Enter a package-price limit.");
+  if (isExit) {
+    if (!closePosition || !(closePosition.lots > 0)) {
+      blockers.push("Exit requires exactly one active runtime package. Select a package to close.");
+    } else if (lots > closePosition.lots) {
+      blockers.push(
+        `Quantity exceeds the selected package lots (${closePosition.lots} lots). Reduce quantity to close within the active package.`,
+      );
+    }
+  }
   if (route && lots > route.availableLots) {
     blockers.push(
       `Route capacity is ${route.availableLots} lots. Reduce quantity or pick another route.`,
@@ -123,7 +139,7 @@ export function buildPreview(
     notional,
     routePrice: price,
     effectivePrice,
-    totalCollateral: lots * market.collateralPerLot * collateralMultiple,
+    totalCollateral: isExit ? 0 : lots * market.collateralPerLot * collateralMultiple,
     protocolFee,
     counterpartyFee,
     counterpartyFeeLabel: route?.counterpartyFeeLabel ?? "Counterparty fee",
