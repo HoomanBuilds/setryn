@@ -30,11 +30,11 @@ function round1(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
-export function runtimeLifecycleStrategies(snapshot: GatewaySnapshot): LifecycleStrategy[] {
+export function runtimeLifecycleStrategies(snapshot: GatewaySnapshot): readonly LifecycleStrategy[] {
   const environmentLabel = snapshot.environment.label;
   const evidenceLabel = snapshot.environment.evidence;
 
-  return snapshot.positions.map((position) => {
+  return snapshot.positions.filter((position) => findMarket(position.marketId).id === position.marketId).map((position) => {
     const market = findMarket(position.marketId);
     const receipt = receiptForPosition(snapshot, position);
     const direction = position.side === "LONG" ? 1 : -1;
@@ -188,7 +188,7 @@ export function runtimeLifecycleStrategies(snapshot: GatewaySnapshot): Lifecycle
         market.settlementClass === "CASH_USDC_NDF"
           ? `Cash USDC NDF at ${market.fixingSource}`
           : `Cash USDC at ${market.fixingSource}`,
-      guarantee: "LEG_SEQUENCED",
+      guarantee: market.routes[0]?.guarantee ?? "LEG_SEQUENCED",
       recoveryClass: "Local runtime completion only",
       observation: {
         provenance: "EXECUTABLE",
