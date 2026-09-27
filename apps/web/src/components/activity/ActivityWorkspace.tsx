@@ -314,12 +314,61 @@ function matchesFilter(attempt: ActivityAttemptView, filter: ActivityFilter): bo
   return attempt.result === "COMPLETE" || attempt.result === "SIMULATED" || attempt.result === "FAILED";
 }
 
+function toCsvCell(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) return "";
+  const text = String(value);
+  if (text.includes("\"") || text.includes(",") || text.includes("\n") || text.includes("\r")) {
+    return "\"" + text.replaceAll("\"", "\"\"") + "\"";
+  }
+  return text;
+}
+
 export function ActivityWorkspace() {
   const snapshot = useGatewaySnapshot();
   const attempts = useMemo(() => activityAttemptsFromGateway(snapshot), [snapshot]);
   const [filter, setFilter] = useState<ActivityFilter>("ALL");
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const localReceipts = snapshot.receipts;
+  const exportDisabled = localReceipts.length === 0;
+
+  function handleExportLocalCsv() {
+    if (localReceipts.length === 0) return;
+    const header = ["receipt_id", "created_at", "market", "package", "route", "lots", "price", "fees", "realized_pnl_usd", "collateral_released_usd", "guarantee", "evidence", "order_hash", "fill_id", "transaction_reference"];
+    const lines = [header.join(",")];
+    for (const receipt of localReceipts) {
+      lines.push(
+        [
+          receipt.id,
+          receipt.createdAt,
+          receipt.marketId,
+          receipt.packageCode,
+          receipt.routeLabel,
+          receipt.lots,
+          receipt.price,
+          receipt.fees,
+          receipt.realizedPnlUsd,
+          receipt.collateralReleasedUsd,
+          receipt.guarantee,
+          receipt.evidence,
+          receipt.orderHash,
+          receipt.fillId,
+          receipt.transactionHash,
+        ]
+          .map(toCsvCell)
+          .join(","),
+      );
+    }
+    const blob = new Blob([lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "setryn-local-receipts.csv";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
 
   const visibleAttempts = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -366,7 +415,21 @@ export function ActivityWorkspace() {
           <div className="min-w-0 space-y-4">
             <Surface
               label="Attempt ledger"
-              action={<span className="text-xs text-faint">Newest first</span>}
+              action={
+                <div className="flex items-center gap-2">
+                  <span className="hidden text-xs text-faint md:block">Local browser demo export, not Arbitrum accounting</span>
+                  <button
+                    type="button"
+                    onClick={handleExportLocalCsv}
+                    disabled={exportDisabled}
+                    title="Local browser demo export, not Arbitrum accounting"
+                    className="focus-ring inline-flex h-7 items-center rounded-md border border-line px-2 text-xs text-dim transition-colors hover:border-line-strong hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Export local CSV
+                  </button>
+                  <span className="text-xs text-faint">Newest first</span>
+                </div>
+              }
             >
               <div className="flex flex-col gap-2 border-b border-line px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
                 <div className="no-scrollbar -mx-1 flex min-w-0 overflow-x-auto px-1" role="tablist" aria-label="Activity result filter">
