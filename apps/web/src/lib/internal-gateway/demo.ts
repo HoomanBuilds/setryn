@@ -6,6 +6,7 @@ import type {
   InternalTradingGateway,
   PackageExecutionResult,
   PackageOrderIntent,
+  RestingPackageOrder,
   SignedOrderAuthorization,
   SubmissionUpdate,
 } from "./types";
@@ -49,6 +50,7 @@ function initialSnapshot(): GatewaySnapshot {
     positions: [],
     receipts: [],
     executions: [],
+    restingOrders: [],
   };
 }
 
@@ -62,6 +64,32 @@ function restoreSnapshot(): GatewaySnapshot {
       return initialSnapshot();
     }
     const positions = Array.isArray(snapshot.positions) ? snapshot.positions : [];
+    const rawRestingOrders = (snapshot as { restingOrders?: unknown }).restingOrders;
+    const restingOrders: RestingPackageOrder[] = Array.isArray(rawRestingOrders)
+      ? rawRestingOrders.filter((order): order is RestingPackageOrder => {
+          if (!order || typeof order !== "object") return false;
+          const candidate = order as Partial<RestingPackageOrder>;
+          return (
+            typeof candidate.id === "string" &&
+            typeof candidate.orderHash === "string" &&
+            typeof candidate.accountId === "string" &&
+            typeof candidate.marketId === "string" &&
+            typeof candidate.packageCode === "string" &&
+            typeof candidate.routeId === "string" &&
+            typeof candidate.routeLabel === "string" &&
+            (candidate.side === "ENTER" || candidate.side === "EXIT") &&
+            typeof candidate.lots === "number" &&
+            typeof candidate.limitPrice === "number" &&
+            candidate.timeInForce === "GTC" &&
+            typeof candidate.collateralReservation === "number" &&
+            typeof candidate.feeCap === "number" &&
+            (candidate.closePositionId === null ||
+              typeof candidate.closePositionId === "string") &&
+            typeof candidate.createdAt === "string" &&
+            (candidate.state === "WORKING" || candidate.state === "CANCELLED")
+          );
+        })
+      : [];
     const executions = Array.isArray(snapshot.executions)
       ? snapshot.executions.map((execution) => {
           const result = execution.result as Partial<PackageExecutionResult> & {
@@ -86,6 +114,7 @@ function restoreSnapshot(): GatewaySnapshot {
       wallet: { status: "DISCONNECTED", address: null, chainId: null },
       positions,
       executions,
+      restingOrders,
     };
   } catch {
     return initialSnapshot();
@@ -422,6 +451,122 @@ export class DemoTradingGateway implements InternalTradingGateway {
       ],
     });
     return result;
+  }
+
+  async placeRestingOrder(
+    authorization: SignedOrderAuthorization,
+  ): Promise<RestingPackageOrder> {
+    this.assertWritableEnvironment();
+    if (
+      !Number.isFinite(authorization.intent.contractMultiplier) ||
+      authorization.intent.contractMultiplier <= 0
+    ) {
+      throw new Error("INVALID_CONTRACT_MULTIPLIER");
+    }
+    if (authorization.intent.orderType !== "LIMIT") {
+      throw new Error("RESTING_ORDER_REQUIRES_LIMIT");
+    }
+    if (authorization.intent.timeInForce !== "GTC") {
+      throw new Error("RESTING_ORDER_REQUIRES_GTC");
+    }
+    if (authorization.signer !== this.snapshot.wallet.address) throw new Error("SIGNER_MISMATCH");
+    if (Date.parse(authorization.deadline) <= Date.now()) throw new Error("AUTHORIZATION_EXPIRED");
+    const intent = authorization.intent;
+    const isExit = intent.side === "EXIT";
+    if (!isExit && intent.closePositionId != null) {
+      throw new Error("CLOSE_POSITION_FORBIDDEN_FOR_ENTRY");
+    }
+
+    let reservation = 0;
+    if (isExit) {
+      if (!intent.closePositionId) throw new Error("CLOSE_POSITION_REQUIRED");
+      if (intent.collateralRequired !== 0) throw new Error("EXIT_REQUIRES_ZERO_COLLATERAL");
+      const target = this.snapshot.positions.find(
+        (position) => position.id === intent.closePositionId,
+      );
+      if (!target) throw new Error("POSITION_NOT_FOUND");
+      if (target.marketId !== intent.marketId) throw new Error("POSITION_MARKET_MISMATCH");
+      if (!Number.isFinite(intent.lots) || intent.lots <= 0) throw new Error("INVALID_CLOSE_LOTS");
+      if (intent.lots - target.lots > 1e-9) throw new Error("CLOSE_LOTS_EXCEEDS_POSITION");
+      reservation = 0;
+    } else {
+      if (intent.collateralRequired + intent.feeCap > this.snapshot.account.available) {
+        throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
+      }
+      reservation = intent.collateralRequired + intent.feeCap;
+    }
+
+    const createdAt = new Date().toISOString();
+    const order: RestingPackageOrder = {
+      id: identifier("ORD"),
+      orderHash: authorization.orderHash,
+      accountId: intent.accountId,
+      marketId: intent.marketId,
+      packageCode: intent.packageCode,
+      routeId: intent.routeId,
+      routeLabel: intent.routeLabel,
+      side: intent.side,
+      lots: intent.lots,
+      limitPrice: intent.limitPrice,
+      timeInForce: intent.timeInForce,
+      collateralReservation: reservation,
+      feeCap: intent.feeCap,
+      closePositionId: intent.closePositionId,
+      createdAt,
+      state: "WORKING",
+    };
+    const existingOrders = Array.isArray(this.snapshot.restingOrders)
+      ? this.snapshot.restingOrders
+      : [];
+    if (isExit) {
+      this.publish({
+        ...this.snapshot,
+        restingOrders: [order, ...existingOrders],
+      });
+    } else {
+      this.publish({
+        ...this.snapshot,
+        account: {
+          ...this.snapshot.account,
+          reserved: this.snapshot.account.reserved + reservation,
+          available: this.snapshot.account.available - reservation,
+        },
+        restingOrders: [order, ...existingOrders],
+      });
+    }
+    return order;
+  }
+
+  async cancelRestingOrder(orderId: string): Promise<RestingPackageOrder> {
+    this.assertWritableEnvironment();
+    const existingOrders = Array.isArray(this.snapshot.restingOrders)
+      ? this.snapshot.restingOrders
+      : [];
+    const target = existingOrders.find((order) => order.id === orderId);
+    if (!target) throw new Error("RESTING_ORDER_NOT_FOUND");
+    if (target.state !== "WORKING") throw new Error("RESTING_ORDER_NOT_WORKING");
+    const cancelledAt = new Date().toISOString();
+    const cancelled: RestingPackageOrder = {
+      ...target,
+      state: "CANCELLED",
+      cancelledAt,
+    };
+    const isExit = target.side === "EXIT";
+    let account = this.snapshot.account;
+    if (!isExit) {
+      const reservation = target.collateralReservation;
+      account = {
+        ...account,
+        reserved: Math.max(0, account.reserved - reservation),
+        available: account.available + reservation,
+      };
+    }
+    this.publish({
+      ...this.snapshot,
+      account,
+      restingOrders: existingOrders.map((order) => (order.id === orderId ? cancelled : order)),
+    });
+    return cancelled;
   }
 
   getReceipt(receiptId: string) {

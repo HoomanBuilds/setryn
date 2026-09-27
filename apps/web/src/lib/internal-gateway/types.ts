@@ -61,6 +61,7 @@ export interface GatewaySnapshot {
   positions: ExecutionPosition[];
   receipts: ExecutionReceipt[];
   executions: GatewayExecution[];
+  restingOrders: RestingPackageOrder[];
 }
 
 export interface CollateralIntent {
@@ -89,6 +90,7 @@ export interface PackageOrderIntent {
   limitPrice: number;
   executionPrice: number;
   contractMultiplier: number;
+  orderType: OrderType;
   timeInForce: TimeInForce;
   feeCap: number;
   collateralRequired: number;
@@ -96,6 +98,30 @@ export interface PackageOrderIntent {
   recipient: string;
   disclosure: "PUBLIC" | "PRIVATE_RFQ";
   settlementGuarantee: string;
+}
+
+export type OrderType = "MARKET" | "LIMIT";
+
+export type RestingOrderState = "WORKING" | "CANCELLED";
+
+export interface RestingPackageOrder {
+  id: string;
+  orderHash: string;
+  accountId: string;
+  marketId: string;
+  packageCode: string;
+  routeId: string;
+  routeLabel: string;
+  side: Intent;
+  lots: number;
+  limitPrice: number;
+  timeInForce: TimeInForce;
+  collateralReservation: number;
+  feeCap: number;
+  closePositionId: string | null;
+  createdAt: string;
+  cancelledAt?: string;
+  state: RestingOrderState;
 }
 
 export interface SignedOrderAuthorization {
@@ -169,5 +195,7 @@ export interface InternalTradingGateway {
     authorization: SignedOrderAuthorization,
     onUpdate: (update: SubmissionUpdate) => void,
   ): Promise<PackageExecutionResult>;
+  placeRestingOrder(authorization: SignedOrderAuthorization): Promise<RestingPackageOrder>;
+  cancelRestingOrder(orderId: string): Promise<RestingPackageOrder>;
   getReceipt(receiptId: string): ExecutionReceipt | null;
 }

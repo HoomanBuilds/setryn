@@ -299,6 +299,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         limitPrice: preview.limitPrice,
         executionPrice: preview.effectivePrice,
         contractMultiplier: liveMarket.contractMultiplier,
+        orderType: ticket.orderType === "LIMIT" ? "LIMIT" : "MARKET",
         timeInForce: ticket.tif,
         feeCap: preview.totalFees,
         collateralRequired: isExit ? 0 : preview.totalCollateral,
