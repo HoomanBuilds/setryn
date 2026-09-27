@@ -93,6 +93,14 @@ export function ReceiptExplorer({ receiptId }: { receiptId: string }) {
                 <span className="text-xs text-faint">Guarantee</span>
                 <strong className="mt-1 block text-sm font-medium text-ink">{receipt.guarantee}</strong>
               </div>
+              <div className="p-3">
+                <span className="text-xs text-faint">Collateral released</span>
+                <strong className="mt-1 block font-mono text-sm font-medium text-ink">{receipt.collateralReleasedUsd != null ? formatUsd(receipt.collateralReleasedUsd, 2) : "Unavailable"}</strong>
+              </div>
+              <div className="p-3">
+                <span className="text-xs text-faint">Realized PnL</span>
+                <strong className="mt-1 block font-mono text-sm font-medium text-ink">{receipt.realizedPnlUsd != null ? formatUsd(receipt.realizedPnlUsd, 2) : "Unavailable"}</strong>
+              </div>
             </div>
             <div className="border-t border-line px-3 py-2.5 text-xs leading-relaxed text-dim">
               {outcome === "CLOSED"

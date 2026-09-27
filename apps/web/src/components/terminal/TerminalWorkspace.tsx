@@ -50,6 +50,9 @@ function executionError(error: unknown): string {
   if (error.message === "INVALID_CLOSE_LOTS") return "Enter a close quantity above zero.";
   if (error.message === "CLOSE_LOTS_EXCEEDS_POSITION") return "Quantity exceeds the selected package lots. Reduce quantity to close within the active package.";
   if (error.message === "EXIT_REQUIRES_ZERO_COLLATERAL") return "Exits require no new collateral. Review the ticket and try again.";
+  if (error.message === "INVALID_CONTRACT_MULTIPLIER") {
+    return "The package multiplier is invalid and no package outcome was recorded.";
+  }
   return "The demo runtime did not reach a final package outcome. No completion is claimed.";
 }
 
@@ -295,6 +298,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         lots: preview.lots,
         limitPrice: preview.limitPrice,
         executionPrice: preview.effectivePrice,
+        contractMultiplier: liveMarket.contractMultiplier,
         timeInForce: ticket.tif,
         feeCap: preview.totalFees,
         collateralRequired: isExit ? 0 : preview.totalCollateral,

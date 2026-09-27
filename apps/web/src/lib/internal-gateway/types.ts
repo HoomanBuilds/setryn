@@ -43,6 +43,8 @@ export interface ExecutionReceipt {
   lots: number;
   price: number;
   fees: number;
+  realizedPnlUsd?: number;
+  collateralReleasedUsd?: number;
   guarantee: string;
   evidence: RuntimeEnvironment["evidence"];
   createdAt: string;
@@ -86,6 +88,7 @@ export interface PackageOrderIntent {
   lots: number;
   limitPrice: number;
   executionPrice: number;
+  contractMultiplier: number;
   timeInForce: TimeInForce;
   feeCap: number;
   collateralRequired: number;

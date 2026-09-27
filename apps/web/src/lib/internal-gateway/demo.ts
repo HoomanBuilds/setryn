@@ -156,6 +156,9 @@ export class DemoTradingGateway implements InternalTradingGateway {
 
   async authorizeOrder(intent: PackageOrderIntent): Promise<SignedOrderAuthorization> {
     this.assertWritableEnvironment();
+    if (!Number.isFinite(intent.contractMultiplier) || intent.contractMultiplier <= 0) {
+      throw new Error("INVALID_CONTRACT_MULTIPLIER");
+    }
     const signer = this.snapshot.wallet.address;
     if (!signer || this.snapshot.wallet.status !== "CONNECTED") throw new Error("CONNECT_WALLET");
     if (intent.side === "ENTER" && intent.closePositionId != null) {
@@ -173,7 +176,12 @@ export class DemoTradingGateway implements InternalTradingGateway {
       if (intent.lots - target.lots > 1e-9) throw new Error("CLOSE_LOTS_EXCEEDS_POSITION");
       const releasable =
         target.lots > 0 ? (target.collateral * intent.lots) / target.lots : 0;
-      if (intent.feeCap > this.snapshot.account.available + releasable) {
+      const multiplier = intent.contractMultiplier;
+      const direction = target.side === "SHORT" ? -1 : 1;
+      const realizedPnl =
+        (intent.executionPrice - target.entryPrice) * intent.lots * multiplier * direction;
+      const closeResult = releasable + realizedPnl - intent.feeCap;
+      if (this.snapshot.account.available + closeResult < -1e-9) {
         throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
       }
     } else if (intent.collateralRequired + intent.feeCap > this.snapshot.account.available) {
@@ -197,6 +205,12 @@ export class DemoTradingGateway implements InternalTradingGateway {
     onUpdate: (update: SubmissionUpdate) => void,
   ): Promise<PackageExecutionResult> {
     this.assertWritableEnvironment();
+    if (
+      !Number.isFinite(authorization.intent.contractMultiplier) ||
+      authorization.intent.contractMultiplier <= 0
+    ) {
+      throw new Error("INVALID_CONTRACT_MULTIPLIER");
+    }
     if (authorization.signer !== this.snapshot.wallet.address) throw new Error("SIGNER_MISMATCH");
     if (Date.parse(authorization.deadline) <= Date.now()) throw new Error("AUTHORIZATION_EXPIRED");
     const intent = authorization.intent;
@@ -208,6 +222,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
     let exitTargetId: string | null = null;
     let exitCloseLots = 0;
     let exitRelease = 0;
+    let exitRealizedPnl = 0;
     let exitIsFull = false;
     if (isExit) {
       if (!intent.closePositionId) throw new Error("CLOSE_POSITION_REQUIRED");
@@ -222,8 +237,13 @@ export class DemoTradingGateway implements InternalTradingGateway {
       exitTargetId = target.id;
       exitCloseLots = intent.lots;
       exitRelease = target.lots > 0 ? (target.collateral * intent.lots) / target.lots : 0;
+      const multiplier = intent.contractMultiplier;
+      const direction = target.side === "SHORT" ? -1 : 1;
+      exitRealizedPnl =
+        (intent.executionPrice - target.entryPrice) * intent.lots * multiplier * direction;
       exitIsFull = intent.lots >= target.lots - 1e-9;
-      if (intent.feeCap > this.snapshot.account.available + exitRelease) {
+      const closeResult = exitRelease + exitRealizedPnl - intent.feeCap;
+      if (this.snapshot.account.available + closeResult < -1e-9) {
         throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
       }
     }
@@ -234,12 +254,12 @@ export class DemoTradingGateway implements InternalTradingGateway {
         ? {
             step: "POSITION_CLOSED",
             label: "Position closed",
-            detail: `Closed ${intent.lots} lots; the package position was removed and pro-rata collateral released.`,
+            detail: `Closed ${intent.lots} lots; the local demo account recorded the $${exitRealizedPnl.toFixed(2)} package result and released $${exitRelease.toFixed(2)} collateral.`,
           }
         : {
             step: "POSITION_UPDATED",
             label: "Position reduced",
-            detail: `Closed ${intent.lots} lots pro rata; the remaining package position stays active.`,
+            detail: `Closed ${intent.lots} lots pro rata; the local demo account recorded the $${exitRealizedPnl.toFixed(2)} package result and the remaining package position stays active.`,
           }
       : {
           step: "POSITION_CREATED",
@@ -279,6 +299,8 @@ export class DemoTradingGateway implements InternalTradingGateway {
       lots: intent.lots,
       price: intent.executionPrice,
       fees: intent.feeCap,
+      realizedPnlUsd: isExit ? exitRealizedPnl : 0,
+      collateralReleasedUsd: isExit ? exitRelease : 0,
       guarantee: intent.settlementGuarantee,
       evidence: this.snapshot.environment.evidence,
       createdAt: new Date().toISOString(),
@@ -297,12 +319,17 @@ export class DemoTradingGateway implements InternalTradingGateway {
               lots: remainingLots,
               collateral: remainingCollateral,
             };
+      const closeResult = exitRelease + exitRealizedPnl - intent.feeCap;
+      const nextAvailable = this.snapshot.account.available + closeResult;
+      if (nextAvailable < -1e-9) throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
       this.publish({
         ...this.snapshot,
         account: {
           ...this.snapshot.account,
-          reserved: this.snapshot.account.reserved - exitRelease + intent.feeCap,
-          available: this.snapshot.account.available + exitRelease - intent.feeCap,
+          reserved: Math.max(0, this.snapshot.account.reserved - exitRelease),
+          available: nextAvailable,
+          eligible: this.snapshot.account.eligible + closeResult,
+          equity: this.snapshot.account.equity + closeResult,
         },
         positions:
           updatedPosition === null
