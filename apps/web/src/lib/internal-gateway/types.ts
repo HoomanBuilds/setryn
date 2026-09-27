@@ -62,6 +62,7 @@ export interface GatewaySnapshot {
   receipts: ExecutionReceipt[];
   executions: GatewayExecution[];
   restingOrders: RestingPackageOrder[];
+  rfqRequests: RfqRequest[];
 }
 
 export interface CollateralIntent {
@@ -133,6 +134,27 @@ export interface SignedOrderAuthorization {
   intent: PackageOrderIntent;
 }
 
+export type RfqRequestState = "OPEN" | "CANCELLED";
+
+export interface FirmRfqQuote {
+  id: string;
+  solverLabel: string;
+  packagePrice: number;
+  feeCap: number;
+  capacityLots: number;
+  expiresAt: string;
+  settlementGuarantee: string;
+}
+
+export interface RfqRequest {
+  id: string;
+  authorization: SignedOrderAuthorization;
+  createdAt: string;
+  expiresAt: string;
+  state: RfqRequestState;
+  quotes: FirmRfqQuote[];
+}
+
 export type SubmissionStepId =
   | "AUTHORIZED"
   | "SUBMITTED"
@@ -199,5 +221,7 @@ export interface InternalTradingGateway {
   ): Promise<PackageExecutionResult>;
   placeRestingOrder(authorization: SignedOrderAuthorization): Promise<RestingPackageOrder>;
   cancelRestingOrder(orderId: string): Promise<RestingPackageOrder>;
+  requestRfq(authorization: SignedOrderAuthorization): Promise<RfqRequest>;
+  cancelRfq(requestId: string): Promise<RfqRequest>;
   getReceipt(receiptId: string): ExecutionReceipt | null;
 }

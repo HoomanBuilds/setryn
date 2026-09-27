@@ -2,11 +2,13 @@ import type {
   CollateralIntent,
   CollateralIntentResult,
   ExecutionReceipt,
+  FirmRfqQuote,
   GatewaySnapshot,
   InternalTradingGateway,
   PackageExecutionResult,
   PackageOrderIntent,
   RestingPackageOrder,
+  RfqRequest,
   SignedOrderAuthorization,
   SubmissionUpdate,
 } from "./types";
@@ -51,6 +53,7 @@ function initialSnapshot(): GatewaySnapshot {
     receipts: [],
     executions: [],
     restingOrders: [],
+    rfqRequests: [],
   };
 }
 
@@ -109,12 +112,85 @@ function restoreSnapshot(): GatewaySnapshot {
           };
         })
       : [];
+    const rawRfqRequests = (snapshot as { rfqRequests?: unknown }).rfqRequests;
+    const rfqRequests: RfqRequest[] = Array.isArray(rawRfqRequests)
+      ? rawRfqRequests.filter((request): request is RfqRequest => {
+          if (!request || typeof request !== "object") return false;
+          const candidate = request as Partial<RfqRequest>;
+          if (typeof candidate.id !== "string") return false;
+          if (candidate.state !== "OPEN" && candidate.state !== "CANCELLED") return false;
+          if (
+            typeof candidate.createdAt !== "string" ||
+            !Number.isFinite(Date.parse(candidate.createdAt))
+          )
+            return false;
+          if (
+            typeof candidate.expiresAt !== "string" ||
+            !Number.isFinite(Date.parse(candidate.expiresAt))
+          )
+            return false;
+          const authorization = candidate.authorization as Partial<SignedOrderAuthorization> | null | undefined;
+          if (!authorization || typeof authorization !== "object") return false;
+          if (typeof authorization.orderHash !== "string" || authorization.orderHash.length === 0)
+            return false;
+          if (typeof authorization.signature !== "string" || authorization.signature.length === 0)
+            return false;
+          if (typeof authorization.signer !== "string" || authorization.signer.length === 0)
+            return false;
+          if (typeof authorization.nonce !== "string" || authorization.nonce.length === 0)
+            return false;
+          if (typeof authorization.deadline !== "string" || authorization.deadline.length === 0)
+            return false;
+          if (!authorization.intent || typeof authorization.intent !== "object") return false;
+          if (!Array.isArray(candidate.quotes) || candidate.quotes.length < 2) return false;
+          return candidate.quotes.every((quote) => {
+            if (!quote || typeof quote !== "object") return false;
+            const candidateQuote = quote as Partial<FirmRfqQuote>;
+            if (typeof candidateQuote.id !== "string" || candidateQuote.id.length === 0)
+              return false;
+            if (
+              typeof candidateQuote.solverLabel !== "string" ||
+              candidateQuote.solverLabel.length === 0
+            )
+              return false;
+            if (
+              typeof candidateQuote.packagePrice !== "number" ||
+              !Number.isFinite(candidateQuote.packagePrice)
+            )
+              return false;
+            if (
+              typeof candidateQuote.feeCap !== "number" ||
+              !Number.isFinite(candidateQuote.feeCap) ||
+              candidateQuote.feeCap < 0
+            )
+              return false;
+            if (
+              typeof candidateQuote.capacityLots !== "number" ||
+              !Number.isFinite(candidateQuote.capacityLots) ||
+              candidateQuote.capacityLots <= 0
+            )
+              return false;
+            if (
+              typeof candidateQuote.expiresAt !== "string" ||
+              !Number.isFinite(Date.parse(candidateQuote.expiresAt))
+            )
+              return false;
+            if (
+              typeof candidateQuote.settlementGuarantee !== "string" ||
+              candidateQuote.settlementGuarantee.length === 0
+            )
+              return false;
+            return true;
+          });
+        })
+      : [];
     return {
       ...snapshot,
       wallet: { status: "DISCONNECTED", address: null, chainId: null },
       positions,
       executions,
       restingOrders,
+      rfqRequests,
     };
   } catch {
     return initialSnapshot();
@@ -565,6 +641,89 @@ export class DemoTradingGateway implements InternalTradingGateway {
       ...this.snapshot,
       account,
       restingOrders: existingOrders.map((order) => (order.id === orderId ? cancelled : order)),
+    });
+    return cancelled;
+  }
+
+  async requestRfq(authorization: SignedOrderAuthorization): Promise<RfqRequest> {
+    this.assertWritableEnvironment();
+    if (
+      !Number.isFinite(authorization.intent.contractMultiplier) ||
+      authorization.intent.contractMultiplier <= 0
+    ) {
+      throw new Error("INVALID_CONTRACT_MULTIPLIER");
+    }
+    if (authorization.signer !== this.snapshot.wallet.address) throw new Error("SIGNER_MISMATCH");
+    if (Date.parse(authorization.deadline) <= Date.now()) throw new Error("AUTHORIZATION_EXPIRED");
+    const intent = authorization.intent;
+    if (intent.disclosure !== "PRIVATE_RFQ") {
+      throw new Error("RFQ_REQUIRES_PRIVATE_DISCLOSURE");
+    }
+    if (intent.routeId !== "SOLVER_RFQ") {
+      throw new Error("RFQ_REQUIRES_SOLVER_ROUTE");
+    }
+    const expiresAt = new Date(Date.now() + 45_000).toISOString();
+    const createdAt = new Date().toISOString();
+    const requestId = identifier("RFQ");
+    const isEnter = intent.side === "ENTER";
+    const northstarPrice = intent.limitPrice;
+    const meridianPrice = isEnter
+      ? Math.min(intent.limitPrice, intent.limitPrice * 0.999)
+      : Math.max(intent.limitPrice, intent.limitPrice * 1.001);
+    const northstarFeeCap = intent.feeCap;
+    const meridianFeeCap = Math.max(0, intent.feeCap * 0.9);
+    const quotes: FirmRfqQuote[] = [
+      {
+        id: identifier("QTE"),
+        solverLabel: "Northstar Solver",
+        capacityLots: intent.lots,
+        packagePrice: northstarPrice,
+        feeCap: northstarFeeCap,
+        settlementGuarantee: intent.settlementGuarantee,
+        expiresAt,
+      },
+      {
+        id: identifier("QTE"),
+        solverLabel: "Meridian Solver",
+        capacityLots: intent.lots,
+        packagePrice: meridianPrice,
+        feeCap: meridianFeeCap,
+        settlementGuarantee: intent.settlementGuarantee,
+        expiresAt,
+      },
+    ];
+    const request: RfqRequest = {
+      id: requestId,
+      authorization,
+      state: "OPEN",
+      expiresAt,
+      createdAt,
+      quotes,
+    };
+    const existingRequests = Array.isArray(this.snapshot.rfqRequests)
+      ? this.snapshot.rfqRequests
+      : [];
+    this.publish({
+      ...this.snapshot,
+      rfqRequests: [request, ...existingRequests],
+    });
+    return request;
+  }
+
+  async cancelRfq(requestId: string): Promise<RfqRequest> {
+    this.assertWritableEnvironment();
+    const existingRequests = Array.isArray(this.snapshot.rfqRequests)
+      ? this.snapshot.rfqRequests
+      : [];
+    const target = existingRequests.find((request) => request.id === requestId);
+    if (!target) throw new Error("RFQ_NOT_FOUND");
+    if (target.state !== "OPEN") throw new Error("RFQ_NOT_OPEN");
+    const cancelled: RfqRequest = { ...target, state: "CANCELLED" };
+    this.publish({
+      ...this.snapshot,
+      rfqRequests: existingRequests.map((request) =>
+        request.id === requestId ? cancelled : request,
+      ),
     });
     return cancelled;
   }
