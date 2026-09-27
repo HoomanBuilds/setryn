@@ -201,6 +201,10 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       idle("The RFQ request already executed and cannot resume as an actionable quote.");
       return;
     }
+    if (Date.parse(request.expiresAt) <= Date.now()) {
+      idle("The RFQ request expired. Confirm the ticket again for a fresh quote.");
+      return;
+    }
     if (request.state === "SELECTED" && !request.selectedQuoteId) {
       idle("The selected RFQ quote is no longer available. Confirm the ticket again for a fresh quote.");
       return;

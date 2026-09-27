@@ -24,14 +24,16 @@ function secondsLeft(value: string, now: number): number {
   return Math.max(0, Math.ceil((Date.parse(value) - now) / 1000));
 }
 
-function stateLabel(state: RfqRequestState): string {
+function stateLabel(state: RfqRequestState, expired: boolean): string {
+  if (expired && (state === "OPEN" || state === "SELECTED")) return "Expired";
   if (state === "OPEN") return "Open";
   if (state === "SELECTED") return "Quote selected";
   if (state === "EXECUTED") return "Executed";
   return "Cancelled";
 }
 
-function stateClass(state: RfqRequestState): string {
+function stateClass(state: RfqRequestState, expired: boolean): string {
+  if (expired && (state === "OPEN" || state === "SELECTED")) return "text-faint";
   if (state === "OPEN") return "text-brand";
   if (state === "SELECTED") return "text-up";
   if (state === "EXECUTED") return "text-dim";
@@ -51,12 +53,13 @@ function RfqCard({ request, now }: { request: RfqRequest; now: number }) {
   const intent = request.authorization.intent;
   const market = findMarket(intent.marketId);
   const knownMarket = market.id === intent.marketId ? market : null;
-  const isActive = request.state === "OPEN" || request.state === "SELECTED";
   const selectedQuote = request.selectedQuoteId
     ? (request.quotes.find((quote) => quote.id === request.selectedQuoteId) ?? null)
     : null;
   const requestLeft = secondsLeft(request.expiresAt, now);
   const requestExpired = Date.parse(request.expiresAt) <= now;
+  const requestActive =
+    (request.state === "OPEN" || request.state === "SELECTED") && !requestExpired;
 
   return (
     <article
@@ -68,8 +71,8 @@ function RfqCard({ request, now }: { request: RfqRequest; now: number }) {
           <h3 className="truncate text-sm text-ink">{intent.packageCode}</h3>
           <p className="tnum mt-0.5 truncate font-mono text-xs text-faint">{request.id}</p>
         </div>
-        <span className={`shrink-0 text-xs ${stateClass(request.state)}`}>
-          {stateLabel(request.state)}
+        <span className={`shrink-0 text-xs ${stateClass(request.state, requestExpired)}`}>
+          {stateLabel(request.state, requestExpired)}
         </span>
       </div>
 
@@ -150,8 +153,14 @@ function RfqCard({ request, now }: { request: RfqRequest; now: number }) {
         )}
       </div>
 
+      {requestExpired && (request.state === "OPEN" || request.state === "SELECTED") ? (
+        <p className="border-t border-line px-3 py-2 text-xs leading-snug text-faint">
+          Request expired before execution, so no execution was created.
+        </p>
+      ) : null}
+
       <div className="flex flex-wrap gap-2 border-t border-line px-3 py-2.5">
-        {isActive && knownMarket ? (
+        {requestActive && knownMarket ? (
           <Link
             href={`${tradeHref(knownMarket)}?rfq=${encodeURIComponent(request.id)}`}
             className="focus-ring inline-flex h-9 items-center rounded-md border border-line px-3 text-xs text-dim transition-colors hover:border-line-strong hover:text-ink"
@@ -188,10 +197,16 @@ export function RfqWorkspace() {
     [snapshot.rfqRequests],
   );
   const active = requests.filter(
-    (request) => request.state === "OPEN" || request.state === "SELECTED",
+    (request) =>
+      (request.state === "OPEN" || request.state === "SELECTED") &&
+      Date.parse(request.expiresAt) > now,
   );
   const history = requests.filter(
-    (request) => request.state === "EXECUTED" || request.state === "CANCELLED",
+    (request) =>
+      request.state === "EXECUTED" ||
+      request.state === "CANCELLED" ||
+      ((request.state === "OPEN" || request.state === "SELECTED") &&
+        Date.parse(request.expiresAt) <= now),
   );
 
   return (
