@@ -174,6 +174,7 @@ export type OrderExecutionStatus =
   | "CONNECTING"
   | "AUTHORIZING"
   | "SUBMITTING"
+  | "RESTING"
   | "COMPLETED"
   | "FAILED";
 
@@ -181,6 +182,7 @@ export interface OrderExecutionProgress {
   status: OrderExecutionStatus;
   updates: SubmissionUpdate[];
   authorization?: SignedOrderAuthorization;
+  restingOrder?: RestingPackageOrder;
   result?: PackageExecutionResult;
   error?: string;
 }

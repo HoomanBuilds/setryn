@@ -20,12 +20,31 @@ function stateLabel(status: OrderExecutionProgress["status"]): string {
   if (status === "CONNECTING") return "Connecting wallet";
   if (status === "AUTHORIZING") return "Authorizing package";
   if (status === "SUBMITTING") return "Clearing package";
+  if (status === "RESTING") return "Working locally";
   if (status === "COMPLETED") return "Execution complete";
   if (status === "FAILED") return "Execution not completed";
   return "Awaiting authorization";
 }
 
 export function ExecutionTimeline({ progress }: { progress: OrderExecutionProgress }) {
+  if (progress.status === "RESTING") {
+    const orderId = progress.restingOrder?.id ?? progress.authorization?.orderHash ?? "";
+    return (
+      <div className="overflow-hidden rounded-md border border-line-strong bg-raised">
+        <div className="flex items-center justify-between gap-3 border-b border-line px-3 py-2">
+          <SectionLabel>Execution timeline</SectionLabel>
+          <span className="text-xs text-dim">Working locally</span>
+        </div>
+        <div className="px-3 py-2.5 text-xs leading-snug text-dim">
+          <p>{`Resting order ${orderId} is working locally.`}</p>
+          <p className="mt-1 text-faint">No fill, receipt, or position. Local demo only.</p>
+          {orderId ? (
+            <p className="tnum mt-1 font-mono text-ink">{orderId}</p>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
   const updateByStep = new Map(progress.updates.map((update) => [update.step, update]));
   const active = progress.status === "CONNECTING" || progress.status === "AUTHORIZING" || progress.status === "SUBMITTING";
   const positionUpdate = progress.updates.find(

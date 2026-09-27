@@ -37,6 +37,7 @@ export interface EconomicsPreview {
   freshnessLabel: string;
   freshnessSeconds: number;
   marketable: boolean;
+  rests: boolean;
   /** Route choice is explicit, so its absence is an instruction and never an error. */
   routeMissing: boolean;
   blockers: string[];
@@ -89,6 +90,7 @@ export function buildPreview(
 
   const price = route ? routePrice(route, state.intent) : bestReferencePrice(market, state.intent);
   const marketable = limitCrosses(limitPrice, price, state.intent);
+  const rests = state.orderType === "LIMIT" && !marketable && state.tif === "GTC";
   const effectivePrice = state.orderType === "LIMIT" && !marketable ? limitPrice : price;
 
   const protocolFeeBps = route?.protocolFeeBps ?? 2.5;
@@ -126,6 +128,11 @@ export function buildPreview(
         : "A marketable limit must be at or below the route bid.",
     );
   }
+  if (state.orderType === "LIMIT" && !marketable && (state.tif === "IOC" || state.tif === "FOK")) {
+    blockers.push(
+      "A non-marketable limit with IOC or FOK cannot rest. Use GTC to rest the order or adjust the limit to cross.",
+    );
+  }
   if (state.tif === "FOK" && route && lots > route.availableLots) {
     blockers.push("Fill or kill cannot clear more than the reserved route capacity.");
   }
@@ -155,6 +162,7 @@ export function buildPreview(
       : "Package mark, preview snapshot",
     freshnessSeconds: market.snapshotAgeSeconds,
     marketable,
+    rests,
     routeMissing: !route,
     blockers,
   };
@@ -164,6 +172,7 @@ export type StageState =
   | { kind: "IDLE" }
   | { kind: "COMPILED"; reference: string }
   | { kind: "EXECUTING"; reference: string }
+  | { kind: "RESTING"; reference: string; orderId: string }
   | { kind: "COMPLETED"; reference: string; receiptId: string }
   | { kind: "FAILED"; reference: string; message: string };
 

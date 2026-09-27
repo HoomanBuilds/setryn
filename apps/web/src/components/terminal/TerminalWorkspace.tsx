@@ -276,6 +276,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   const onConfirm = useCallback(async () => {
     if (stage.kind !== "COMPILED" || !route) return;
     const reference = stage.reference;
+    const shouldRest = preview.rests;
     try {
       if (gateway.getSnapshot().wallet.status !== "CONNECTED") {
         setStage({ kind: "EXECUTING", reference });
@@ -309,6 +310,13 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         settlementGuarantee: preview.settlementGuarantee,
       });
 
+      if (shouldRest) {
+        const restingOrder = await gateway.placeRestingOrder(authorization);
+        setExecution({ status: "RESTING", updates: [], authorization, restingOrder });
+        setStage({ kind: "RESTING", reference, orderId: restingOrder.id });
+        return;
+      }
+
       setExecution({ status: "SUBMITTING", updates: [], authorization });
       const result = await gateway.submitAuthorizedOrder(authorization, (update) => {
         setExecution((current) => ({
@@ -332,6 +340,22 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     setStage({ kind: "IDLE" });
     setExecution({ status: "IDLE", updates: [] });
   }, []);
+
+  const onCancelResting = useCallback(async () => {
+    if (stage.kind !== "RESTING") return;
+    const reference = stage.reference;
+    const orderId = stage.orderId;
+    try {
+      await gateway.cancelRestingOrder(orderId);
+    } catch (error) {
+      const message = executionError(error);
+      setExecution((current) => ({ ...current, status: "FAILED", error: message }));
+      setStage({ kind: "FAILED", reference, message });
+      return;
+    }
+    setStage({ kind: "IDLE" });
+    setExecution({ status: "IDLE", updates: [] });
+  }, [gateway, stage]);
 
   const show = (tab: MobileTab) => (mobileTab === tab ? "flex" : "hidden");
   const activePrice = Number.parseFloat(ticket.limitInput);
@@ -412,6 +436,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
             onChange={patchTicket}
             onStage={onStage}
             onConfirm={onConfirm}
+            onCancelResting={onCancelResting}
             onReset={onReset}
           />
         </div>

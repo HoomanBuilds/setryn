@@ -105,6 +105,7 @@ export function OrderTicket({
   onChange,
   onStage,
   onConfirm,
+  onCancelResting,
   onReset,
 }: {
   market: PackageMarket;
@@ -119,6 +120,7 @@ export function OrderTicket({
   onChange: (patch: Partial<TicketState>) => void;
   onStage: () => void;
   onConfirm: () => void;
+  onCancelResting: () => void;
   onReset: () => void;
 }) {
   const unit = priceUnitSuffix(market.priceUnit);
@@ -127,7 +129,7 @@ export function OrderTicket({
   const blockers = externalBlock ? [...preview.blockers, externalBlock] : preview.blockers;
   const invalid = blockers.length > 0;
   const blocked = invalid || preview.routeMissing;
-  const locked = execution.status === "CONNECTING" || execution.status === "AUTHORIZING" || execution.status === "SUBMITTING";
+  const locked = execution.status === "CONNECTING" || execution.status === "AUTHORIZING" || execution.status === "SUBMITTING" || stage.kind === "RESTING" || execution.status === "RESTING";
   const isExit = state.intent === "EXIT";
   const selectedClose = isExit
     ? (closePositions.find((position) => position.id === state.closePositionId) ?? null)
@@ -389,6 +391,7 @@ export function OrderTicket({
           routeMissing={preview.routeMissing}
           onStage={onStage}
           onConfirm={onConfirm}
+          onCancelResting={onCancelResting}
           onReset={onReset}
         />
       </div>
@@ -417,6 +420,7 @@ function StageArea({
   routeMissing,
   onStage,
   onConfirm,
+  onCancelResting,
   onReset,
 }: {
   market: PackageMarket;
@@ -430,6 +434,7 @@ function StageArea({
   routeMissing: boolean;
   onStage: () => void;
   onConfirm: () => void;
+  onCancelResting: () => void;
   onReset: () => void;
 }) {
   const unit = priceUnitSuffix(market.priceUnit);
@@ -487,6 +492,12 @@ function StageArea({
             ? "Disclosure: private RFQ, visible only to invited solvers."
             : "Disclosure: public package book, visible on the aggregate tape."}
         </p>
+        {preview.rests ? (
+          <p className="px-3 pb-2 text-xs leading-snug text-dim">
+            This limit does not cross, so it will rest locally as a working order. No
+            fill, receipt, or position is created.
+          </p>
+        ) : null}
         <p className="border-t border-line px-3 py-2 text-xs leading-snug text-faint">
           Local demo only. The next action simulates authorization and clearing in this browser.
           It cannot submit to Arbitrum Sepolia or mainnet.
@@ -504,9 +515,24 @@ function StageArea({
             onClick={onConfirm}
             className="focus-ring h-11 rounded-md bg-brand text-sm font-semibold text-app transition-colors hover:brightness-105 lg:h-9"
           >
-            Authorize and execute demo
+            {preview.rests ? "Authorize and rest demo" : "Authorize and execute demo"}
           </button>
         </div>
+      </div>
+    );
+  }
+
+  if (stage.kind === "RESTING") {
+    return (
+      <div className="space-y-2">
+        <ExecutionTimeline progress={execution} />
+        <button
+          type="button"
+          onClick={onCancelResting}
+          className="focus-ring h-11 w-full rounded-md border border-line text-sm text-dim transition-colors hover:border-line-strong hover:text-ink lg:h-9"
+        >
+          Cancel working order
+        </button>
       </div>
     );
   }
