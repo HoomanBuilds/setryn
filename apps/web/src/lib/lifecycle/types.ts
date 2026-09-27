@@ -2,6 +2,8 @@ import type { Guarantee, PackageLeg, PackageMarket, Provenance, Qualification } 
 
 export type LifecycleHealth = "HEALTHY" | "ATTENTION" | "WINDOW_OPEN";
 
+export type LifecycleOrigin = "RUNTIME" | "STATIC_PREVIEW";
+
 export type LifecycleActionKind = "ROLL" | "REBALANCE" | "MIGRATE" | "DE_RISK" | "EXIT";
 
 export type LifecycleBoundaryKind = "FUNDING" | "FIXING" | "EXPIRY" | "REBALANCE";
@@ -58,6 +60,11 @@ export interface LifecycleStrategy {
   id: string;
   market: PackageMarket;
   label: string;
+  origin: LifecycleOrigin;
+  environmentLabel: string;
+  evidenceLabel: string;
+  receiptId: string | null;
+  createdAt: string | null;
   side: "LONG" | "SHORT";
   lots: number;
   health: LifecycleHealth;

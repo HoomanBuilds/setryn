@@ -15,7 +15,9 @@ import {
   TimerReset,
 } from "lucide-react";
 import { MetaLine, SectionLabel, Tabs } from "@/components/terminal/primitives";
+import { useGatewaySnapshot } from "@/components/gateway/InternalGatewayProvider";
 import { LIFECYCLE_STRATEGIES } from "@/lib/lifecycle/fixtures";
+import { runtimeLifecycleStrategies } from "@/lib/lifecycle/runtime";
 import type {
   LifecycleActionKind,
   LifecycleBoundary,
@@ -34,7 +36,7 @@ import {
   formatShare,
   priceUnitSuffix,
 } from "@/lib/terminal/format";
-import { tradeHref } from "@/lib/terminal/markets";
+import { DEFAULT_TRADE_HREF, tradeHref } from "@/lib/terminal/markets";
 
 type ConsoleTab = "PLAN" | "LEGS" | "BOUNDARIES";
 
@@ -130,54 +132,124 @@ function Figure({
   );
 }
 
+function StrategyRow({
+  strategy,
+  selected,
+  onSelect,
+}: {
+  strategy: LifecycleStrategy;
+  selected: boolean;
+  onSelect: (id: string) => void;
+}) {
+  const originLabel = strategy.origin === "RUNTIME" ? "Runtime" : "Static preview";
+  return (
+    <button
+      key={strategy.id}
+      type="button"
+      aria-pressed={selected}
+      onClick={() => onSelect(strategy.id)}
+      className={`focus-ring w-full border-b border-line px-3 py-3 text-left transition-colors ${
+        selected ? "bg-raised" : "hover:bg-raised/60"
+      }`}
+    >
+      <span className="flex items-start gap-2">
+        <span aria-hidden="true" className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${healthDot(strategy.health)}`} />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-baseline justify-between gap-2">
+            <span className="truncate text-sm text-ink">{strategy.label}</span>
+            <span className="tnum shrink-0 font-mono text-xs text-dim">{formatLots(strategy.lots)}</span>
+          </span>
+          <span className="mt-0.5 block truncate font-mono text-xs text-faint">{strategy.market.code}</span>
+          <span className="mt-1.5 flex items-center gap-1.5">
+            <span
+              className={`rounded-sm border px-1.5 py-0.5 text-[10px] uppercase ${
+                strategy.origin === "RUNTIME" ? "border-brand/40 text-brand" : "border-line text-faint"
+              }`}
+            >
+              {originLabel}
+            </span>
+            <span className="truncate font-mono text-[10px] text-faint">
+              {strategy.origin === "RUNTIME"
+                ? `${strategy.environmentLabel} / ${strategy.evidenceLabel}`
+                : strategy.environmentLabel}
+            </span>
+          </span>
+          <span className="mt-1.5 flex items-center justify-between gap-2 text-xs">
+            <span className="truncate text-faint">{strategy.boundaries[0]?.dueLabel}</span>
+            <span className={`shrink-0 uppercase ${healthTone(strategy.health)}`}>
+              {strategy.health.replaceAll("_", " ").toLowerCase()}
+            </span>
+          </span>
+        </span>
+      </span>
+    </button>
+  );
+}
+
 function StrategyList({
+  strategies,
+  runtimeCount,
+  previewCount,
   selectedId,
   onSelect,
 }: {
+  strategies: LifecycleStrategy[];
+  runtimeCount: number;
+  previewCount: number;
   selectedId: string;
   onSelect: (id: string) => void;
 }) {
+  const runtime = strategies.filter((strategy) => strategy.origin === "RUNTIME");
+  const preview = strategies.filter((strategy) => strategy.origin !== "RUNTIME");
   return (
     <aside className="flex min-h-0 flex-col border-b border-line bg-panel xl:border-r xl:border-b-0">
       <div className="flex h-11 items-center justify-between border-b border-line px-3">
         <SectionLabel>Active packages</SectionLabel>
-        <span className="tnum font-mono text-xs text-off">{LIFECYCLE_STRATEGIES.length}</span>
+        <span className="tnum font-mono text-xs text-off">{strategies.length}</span>
       </div>
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
-        {LIFECYCLE_STRATEGIES.map((strategy) => {
-          const selected = strategy.id === selectedId;
-          return (
-            <button
-              key={strategy.id}
-              type="button"
-              aria-pressed={selected}
-              onClick={() => onSelect(strategy.id)}
-              className={`focus-ring w-full border-b border-line px-3 py-3 text-left transition-colors ${
-                selected ? "bg-raised" : "hover:bg-raised/60"
-              }`}
+        <div className="flex h-8 items-center justify-between border-b border-line px-3">
+          <span className="text-[11px] uppercase text-faint">Runtime positions</span>
+          <span className="tnum font-mono text-[11px] text-off">{runtimeCount}</span>
+        </div>
+        {runtime.length === 0 ? (
+          <div className="border-b border-line px-3 py-3">
+            <p className="text-xs leading-snug text-faint">
+              No runtime positions in this browser session yet. Create one from the trade terminal.
+            </p>
+            <Link
+              href={DEFAULT_TRADE_HREF}
+              className="focus-ring mt-2 inline-flex h-8 items-center gap-1.5 rounded-md border border-line px-2.5 text-xs text-dim transition-colors hover:border-line-strong hover:text-ink"
             >
-              <span className="flex items-start gap-2">
-                <span aria-hidden="true" className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${healthDot(strategy.health)}`} />
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-baseline justify-between gap-2">
-                    <span className="truncate text-sm text-ink">{strategy.label}</span>
-                    <span className="tnum shrink-0 font-mono text-xs text-dim">{formatLots(strategy.lots)}</span>
-                  </span>
-                  <span className="mt-0.5 block truncate font-mono text-xs text-faint">{strategy.market.code}</span>
-                  <span className="mt-2 flex items-center justify-between gap-2 text-xs">
-                    <span className="truncate text-faint">{strategy.boundaries[0]?.dueLabel}</span>
-                    <span className={`shrink-0 uppercase ${healthTone(strategy.health)}`}>
-                      {strategy.health.replaceAll("_", " ").toLowerCase()}
-                    </span>
-                  </span>
-                </span>
-              </span>
-            </button>
-          );
-        })}
+              Open trade terminal
+              <ArrowUpRight size={12} aria-hidden="true" />
+            </Link>
+          </div>
+        ) : (
+          runtime.map((strategy) => (
+            <StrategyRow
+              key={strategy.id}
+              strategy={strategy}
+              selected={strategy.id === selectedId}
+              onSelect={onSelect}
+            />
+          ))
+        )}
+        <div className="flex h-8 items-center justify-between border-b border-line px-3">
+          <span className="text-[11px] uppercase text-faint">Static preview examples</span>
+          <span className="tnum font-mono text-[11px] text-off">{previewCount}</span>
+        </div>
+        {preview.map((strategy) => (
+          <StrategyRow
+            key={strategy.id}
+            strategy={strategy}
+            selected={strategy.id === selectedId}
+            onSelect={onSelect}
+          />
+        ))}
       </div>
       <div className="border-t border-line px-3 py-2.5 text-xs text-faint">
-        3 active / 0 terminal / preview workspace
+        {runtimeCount} runtime / {previewCount} preview / bounds set at handoff
       </div>
     </aside>
   );
@@ -195,6 +267,13 @@ function PackageHeader({ strategy }: { strategy: LifecycleStrategy }) {
           <div className="flex items-center gap-2">
             <Layers3 size={15} aria-hidden="true" className="text-brand" />
             <SectionLabel>Strategy account</SectionLabel>
+            <span
+              className={`rounded-sm border px-1.5 py-0.5 text-[10px] uppercase ${
+                strategy.origin === "RUNTIME" ? "border-brand/40 text-brand" : "border-line text-faint"
+              }`}
+            >
+              {strategy.origin === "RUNTIME" ? "Runtime" : "Static preview"}
+            </span>
           </div>
           <h1 className="mt-1 truncate text-lg font-medium text-ink">{strategy.label}</h1>
           <MetaLine
@@ -206,6 +285,11 @@ function PackageHeader({ strategy }: { strategy: LifecycleStrategy }) {
               strategy.settlementClass,
             ]}
           />
+          <p className="mt-1 truncate font-mono text-[11px] text-faint">
+            {strategy.origin === "RUNTIME"
+              ? `${strategy.environmentLabel} / ${strategy.evidenceLabel} evidence${strategy.receiptId ? ` / ${strategy.receiptId}` : ""}`
+              : `${strategy.environmentLabel} / ${strategy.evidenceLabel} example`}
+          </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <span className={`rounded-sm border border-line px-2 py-1 text-xs uppercase ${healthTone(strategy.health)}`}>
@@ -532,6 +616,9 @@ function OperationsRail({ strategy }: { strategy: LifecycleStrategy }) {
             value={`${strategy.observation.ageSeconds}s / ${strategy.observation.asOfLabel}`}
           />
           <CompactRow label="Class" value={strategy.observation.provenance.toLowerCase()} />
+          <CompactRow label="Environment" value={strategy.environmentLabel} mono={false} />
+          <CompactRow label="Evidence" value={strategy.evidenceLabel} />
+          {strategy.receiptId ? <CompactRow label="Receipt" value={strategy.receiptId} /> : null}
           {nextBoundary ? <CompactRow label="Next boundary" value={nextBoundary.dueLabel} /> : null}
         </div>
       </section>
@@ -539,7 +626,14 @@ function OperationsRail({ strategy }: { strategy: LifecycleStrategy }) {
       <section className="px-3 py-3">
         <div className="flex items-start gap-2 text-xs leading-snug text-faint">
           <CircleAlert size={14} aria-hidden="true" className="mt-0.5 shrink-0 text-brand" />
-          <span>Arbitrum Sepolia preview. All values are typed fixtures and observed simulation data. Mainnet writes remain disabled.</span>
+          {strategy.origin === "RUNTIME" ? (
+            <span>
+              {strategy.environmentLabel} / {strategy.evidenceLabel} evidence / current browser session. Marks
+              come from the canonical catalog; no further outcome is claimed from this view.
+            </span>
+          ) : (
+            <span>Arbitrum Sepolia preview. All values are typed fixtures and observed simulation data. Mainnet writes remain disabled.</span>
+          )}
         </div>
       </section>
     </aside>
@@ -547,17 +641,23 @@ function OperationsRail({ strategy }: { strategy: LifecycleStrategy }) {
 }
 
 export function StrategyLifecycleConsole() {
-  const [selectedId, setSelectedId] = useState(LIFECYCLE_STRATEGIES[0].id);
+  const snapshot = useGatewaySnapshot();
+  const runtimeStrategies = useMemo(() => runtimeLifecycleStrategies(snapshot), [snapshot]);
+  const strategies = useMemo(
+    () => [...runtimeStrategies, ...LIFECYCLE_STRATEGIES],
+    [runtimeStrategies],
+  );
+  const runtimeCount = runtimeStrategies.length;
+  const previewCount = LIFECYCLE_STRATEGIES.length;
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tab, setTab] = useState<ConsoleTab>("PLAN");
   const strategy = useMemo(
-    () => LIFECYCLE_STRATEGIES.find((candidate) => candidate.id === selectedId) ?? LIFECYCLE_STRATEGIES[0],
-    [selectedId],
+    () =>
+      (selectedId ? strategies.find((candidate) => candidate.id === selectedId) : undefined) ??
+      strategies[0],
+    [selectedId, strategies],
   );
-  const [proposalSelection, setProposalSelection] = useState<Record<string, string>>({
-    [LIFECYCLE_STRATEGIES[0].id]: LIFECYCLE_STRATEGIES[0].proposals[0].id,
-    [LIFECYCLE_STRATEGIES[1].id]: LIFECYCLE_STRATEGIES[1].proposals[0].id,
-    [LIFECYCLE_STRATEGIES[2].id]: LIFECYCLE_STRATEGIES[2].proposals[0].id,
-  });
+  const [proposalSelection, setProposalSelection] = useState<Record<string, string>>({});
   const selectedProposal =
     strategy.proposals.find((proposal) => proposal.id === proposalSelection[strategy.id]) ?? strategy.proposals[0];
 
@@ -572,7 +672,7 @@ export function StrategyLifecycleConsole() {
         <div className="flex min-h-12 flex-col lg:h-12 lg:flex-row lg:items-center lg:gap-4 lg:px-4">
           <div className="flex h-12 min-w-0 items-center gap-3 px-3 lg:h-auto lg:px-0">
             <h1 className="shrink-0 text-sm font-semibold text-ink lg:text-base">Strategy Lifecycle</h1>
-            <MetaLine className="hidden min-w-0 truncate xl:flex" items={["coordinated package operations", "Arbitrum Sepolia", "mainnet writes disabled"]} />
+            <MetaLine className="hidden min-w-0 truncate xl:flex" items={[`${runtimeCount} runtime / ${previewCount} preview`, snapshot.environment.label, `${snapshot.environment.evidence} evidence`]} />
           </div>
           <div className="no-scrollbar overflow-x-auto border-t border-line px-2 lg:ml-auto lg:border-t-0 lg:px-0">
             <Tabs items={TABS} value={tab} onChange={(value) => setTab(value as ConsoleTab)} idBase="lifecycle" />
@@ -581,7 +681,13 @@ export function StrategyLifecycleConsole() {
       </section>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto xl:grid xl:grid-cols-[272px_minmax(0,1fr)_328px] xl:overflow-hidden">
-        <StrategyList selectedId={strategy.id} onSelect={selectStrategy} />
+        <StrategyList
+          strategies={strategies}
+          runtimeCount={runtimeCount}
+          previewCount={previewCount}
+          selectedId={strategy.id}
+          onSelect={selectStrategy}
+        />
 
         <section className="min-w-0 border-b border-line bg-app xl:min-h-0 xl:overflow-y-auto xl:border-r xl:border-b-0">
           <PackageHeader strategy={strategy} />
