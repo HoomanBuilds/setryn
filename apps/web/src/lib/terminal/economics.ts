@@ -173,6 +173,8 @@ export type StageState =
   | { kind: "COMPILED"; reference: string }
   | { kind: "EXECUTING"; reference: string }
   | { kind: "RESTING"; reference: string; orderId: string }
+  | { kind: "RFQ"; reference: string; requestId: string }
+  | { kind: "RFQ_SELECTED"; reference: string; requestId: string; quoteId: string }
   | { kind: "COMPLETED"; reference: string; receiptId: string }
   | { kind: "FAILED"; reference: string; message: string };
 

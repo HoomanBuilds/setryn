@@ -50,6 +50,13 @@ function executionError(error: unknown): string {
   if (error.message === "INVALID_CLOSE_LOTS") return "Enter a close quantity above zero.";
   if (error.message === "CLOSE_LOTS_EXCEEDS_POSITION") return "Quantity exceeds the selected package lots. Reduce quantity to close within the active package.";
   if (error.message === "EXIT_REQUIRES_ZERO_COLLATERAL") return "Exits require no new collateral. Review the ticket and try again.";
+  if (error.message === "RFQ_NOT_FOUND") return "The RFQ request is no longer available. Confirm the ticket again for a fresh quote.";
+  if (error.message === "RFQ_NOT_OPEN") return "The RFQ request is no longer open. Confirm the ticket again for a fresh quote.";
+  if (error.message === "RFQ_QUOTE_NOT_FOUND") return "The selected RFQ quote is no longer available. Select another quote.";
+  if (error.message === "RFQ_EXPIRED") return "The selected RFQ quote expired before execution. Select another quote.";
+  if (error.message === "RFQ_REQUIRES_PRIVATE_DISCLOSURE") return "The selected route requires a private RFQ disclosure.";
+  if (error.message === "RFQ_REQUIRES_SOLVER_ROUTE") return "The selected route requires the solver RFQ route.";
+  if (error.message === "RFQ_CAPACITY_EXCEEDED") return "The selected RFQ quote no longer has capacity for this size. Select another quote.";
   if (error.message === "INVALID_CONTRACT_MULTIPLIER") {
     return "The package multiplier is invalid and no package outcome was recorded.";
   }
@@ -102,6 +109,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   const [ticket, setTicket] = useState<TicketState>(() => initialTicket(market, handoff));
   const [stage, setStage] = useState<StageState>({ kind: "IDLE" });
   const [execution, setExecution] = useState<OrderExecutionProgress>({ status: "IDLE", updates: [] });
+  const [rfqError, setRfqError] = useState<string | null>(null);
   const [loadedExecutionMarketId, setLoadedExecutionMarketId] = useState<string | null>(null);
   const [pricedMarketId, setPricedMarketId] = useState(market.id);
   const [appliedHandoffKey, setAppliedHandoffKey] = useState(handoff.key);
@@ -120,6 +128,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     setTicket(initialTicket(market, handoff));
     setStage({ kind: "IDLE" });
     setExecution({ status: "IDLE", updates: [] });
+    setRfqError(null);
     setLoadedExecutionMarketId(null);
     setConsoleScoped(true);
   } else if (appliedHandoffKey !== handoff.key) {
@@ -127,6 +136,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     setTicket(initialTicket(market, handoff));
     setStage({ kind: "IDLE" });
     setExecution({ status: "IDLE", updates: [] });
+    setRfqError(null);
     setLoadedExecutionMarketId(null);
   }
 
@@ -146,6 +156,11 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     () => liveMarket.routes.find((candidate) => candidate.id === ticket.routeId) ?? null,
     [liveMarket, ticket.routeId],
   );
+
+  const rfqRequest = useMemo(() => {
+    if (stage.kind !== "RFQ" && stage.kind !== "RFQ_SELECTED") return null;
+    return gatewaySnapshot.rfqRequests.find((candidate) => candidate.id === stage.requestId) ?? null;
+  }, [gatewaySnapshot.rfqRequests, stage]);
 
   const eligibleClosePositions = useMemo(
     () => gatewaySnapshot.positions.filter((position) => position.marketId === liveMarket.id),
@@ -215,6 +230,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     (patch: Partial<TicketState>) => {
       setStage({ kind: "IDLE" });
       setExecution({ status: "IDLE", updates: [] });
+      setRfqError(null);
       setTicket((current) => {
         const next = { ...current, ...patch };
         if (patch.privateRfq === false && current.routeId === "SOLVER_RFQ") {
@@ -247,6 +263,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   const selectBookRow = useCallback(
     (row: BookRow) => {
       setStage({ kind: "IDLE" });
+      setRfqError(null);
       setTicket((current) => ({
         ...current,
         intent: row.side === "ASK" ? "ENTER" : "EXIT",
@@ -267,6 +284,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
 
   const onStage = useCallback(() => {
     if (effectiveHandoff.blockedReason !== null) return;
+    setRfqError(null);
     setStage({
       kind: "COMPILED",
       reference: previewReference(liveMarket.id, preview.lots, preview.limitPrice),
@@ -278,6 +296,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     const reference = stage.reference;
     const shouldRest = preview.rests;
     try {
+      setRfqError(null);
       if (gateway.getSnapshot().wallet.status !== "CONNECTED") {
         setStage({ kind: "EXECUTING", reference });
         setExecution({ status: "CONNECTING", updates: [] });
@@ -310,6 +329,14 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         settlementGuarantee: preview.settlementGuarantee,
       });
 
+      if (route.requiresPrivate && ticket.privateRfq) {
+        const request = await gateway.requestRfq(authorization);
+        setExecution({ status: "IDLE", updates: [] });
+        setStage({ kind: "RFQ", reference, requestId: request.id });
+        setRfqError(null);
+        return;
+      }
+
       if (shouldRest) {
         const restingOrder = await gateway.placeRestingOrder(authorization);
         setExecution({ status: "RESTING", updates: [], authorization, restingOrder });
@@ -341,6 +368,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   const onReset = useCallback(() => {
     setStage({ kind: "IDLE" });
     setExecution({ status: "IDLE", updates: [] });
+    setRfqError(null);
   }, []);
 
   const cancelRestingOrderById = useCallback(
@@ -362,6 +390,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     }
     setStage({ kind: "IDLE" });
     setExecution({ status: "IDLE", updates: [] });
+    setRfqError(null);
   }, [cancelRestingOrderById, stage]);
 
   const onCancelConsoleRestingOrder = useCallback(
@@ -374,10 +403,100 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       if (stage.kind === "RESTING" && stage.orderId === orderId) {
         setStage({ kind: "IDLE" });
         setExecution({ status: "IDLE", updates: [] });
+        setRfqError(null);
       }
     },
     [cancelRestingOrderById, stage],
   );
+
+  const onSelectRfqQuote = useCallback(
+    async (quoteId: string) => {
+      if (stage.kind !== "RFQ") return;
+      const reference = stage.reference;
+      const requestId = stage.requestId;
+      try {
+        await gateway.selectRfqQuote(requestId, quoteId);
+        setStage({ kind: "RFQ_SELECTED", reference, requestId, quoteId });
+        setRfqError(null);
+      } catch (error) {
+        setRfqError(executionError(error));
+      }
+    },
+    [gateway, stage],
+  );
+
+  const onCancelRfq = useCallback(async () => {
+    if (stage.kind !== "RFQ" && stage.kind !== "RFQ_SELECTED") return;
+    const requestId = stage.requestId;
+    try {
+      await gateway.cancelRfq(requestId);
+    } catch (error) {
+      setRfqError(executionError(error));
+      return;
+    }
+    setStage({ kind: "IDLE" });
+    setExecution({ status: "IDLE", updates: [] });
+    setRfqError(null);
+  }, [gateway, stage]);
+
+  const onExecuteRfqQuote = useCallback(async () => {
+    if (stage.kind !== "RFQ_SELECTED") return;
+    const reference = stage.reference;
+    const requestId = stage.requestId;
+    const quoteId = stage.quoteId;
+    const currentRequest =
+      gatewaySnapshot.rfqRequests.find((candidate) => candidate.id === requestId) ?? null;
+    const currentQuote = currentRequest?.quotes.find((quote) => quote.id === quoteId) ?? null;
+    if (!currentRequest) {
+      setRfqError(executionError(new Error("RFQ_NOT_FOUND")));
+      return;
+    }
+    if (!currentQuote) {
+      setRfqError(executionError(new Error("RFQ_QUOTE_NOT_FOUND")));
+      return;
+    }
+    if (currentRequest.state !== "SELECTED" || currentRequest.selectedQuoteId !== quoteId) {
+      setRfqError(executionError(new Error("RFQ_NOT_OPEN")));
+      return;
+    }
+    if (currentQuote.capacityLots < currentRequest.authorization.intent.lots) {
+      setRfqError(executionError(new Error("RFQ_CAPACITY_EXCEEDED")));
+      return;
+    }
+    if (
+      Date.parse(currentRequest.expiresAt) <= Date.now() ||
+      Date.parse(currentQuote.expiresAt) <= Date.now()
+    ) {
+      setRfqError(executionError(new Error("RFQ_EXPIRED")));
+      return;
+    }
+    try {
+      setStage({ kind: "EXECUTING", reference });
+      setExecution((current) => ({ ...current, status: "AUTHORIZING" }));
+      const baseIntent = currentRequest.authorization.intent;
+      const authorization = await gateway.authorizeOrder({
+        ...baseIntent,
+        executionPrice: currentQuote.packagePrice,
+        feeCap: currentQuote.feeCap,
+      });
+      setExecution({ status: "SUBMITTING", updates: [], authorization });
+      const result = await gateway.submitAuthorizedOrder(authorization, (update) => {
+        setExecution((current) => ({
+          ...current,
+          status: "SUBMITTING",
+          updates: [...current.updates, update],
+        }));
+      });
+      setExecution((current) => ({ ...current, status: "COMPLETED", result }));
+      setStage({ kind: "COMPLETED", reference, receiptId: result.receipt.id });
+      setConsoleTab("strategies");
+      setConsoleScoped(true);
+    } catch (error) {
+      setExecution({ status: "IDLE", updates: [] });
+      setStage({ kind: "RFQ_SELECTED", reference, requestId, quoteId });
+      setRfqError(executionError(error));
+    }
+  }, [gateway, gatewaySnapshot.rfqRequests, stage]);
 
   const show = (tab: MobileTab) => (mobileTab === tab ? "flex" : "hidden");
   const activePrice = Number.parseFloat(ticket.limitInput);
@@ -452,12 +571,17 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
             route={route}
             stage={stage}
             execution={execution}
+            rfqRequest={rfqRequest}
+            rfqError={rfqError}
             maxLots={maxLots}
             handoff={effectiveHandoff}
             closePositions={eligibleClosePositions}
             onChange={patchTicket}
             onStage={onStage}
             onConfirm={onConfirm}
+            onSelectRfqQuote={onSelectRfqQuote}
+            onExecuteRfqQuote={onExecuteRfqQuote}
+            onCancelRfq={onCancelRfq}
             onCancelResting={onCancelResting}
             onReset={onReset}
           />

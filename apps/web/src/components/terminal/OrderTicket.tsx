@@ -3,6 +3,7 @@
 import { Lock, Minus, Plus, TriangleAlert } from "lucide-react";
 import { ExecutionTimeline } from "@/components/gateway/ExecutionTimeline";
 import { ROUTE_HINT_ID, RouteTable } from "@/components/terminal/RouteTable";
+import { RfqQuotePanel } from "@/components/terminal/RfqQuotePanel";
 import { TicketEconomics } from "@/components/terminal/TicketEconomics";
 import {
   CheckRow,
@@ -20,7 +21,11 @@ import type {
 import { formatLots, formatNumber, formatUsd, priceUnitSuffix } from "@/lib/terminal/format";
 import type { HandoffContext } from "@/lib/terminal/handoff";
 import type { PackageMarket, RouteQuote } from "@/lib/terminal/types";
-import type { ExecutionPosition, OrderExecutionProgress } from "@/lib/internal-gateway/types";
+import type {
+  ExecutionPosition,
+  OrderExecutionProgress,
+  RfqRequest,
+} from "@/lib/internal-gateway/types";
 
 const INTENTS: { value: Intent; label: string }[] = [
   { value: "ENTER", label: "Enter" },
@@ -102,11 +107,16 @@ export function OrderTicket({
   maxLots,
   handoff,
   closePositions,
+  rfqRequest,
+  rfqError,
   onChange,
   onStage,
   onConfirm,
   onCancelResting,
   onReset,
+  onSelectRfqQuote,
+  onExecuteRfqQuote,
+  onCancelRfq,
 }: {
   market: PackageMarket;
   state: TicketState;
@@ -117,11 +127,16 @@ export function OrderTicket({
   maxLots: number;
   handoff: HandoffContext;
   closePositions: ExecutionPosition[];
+  rfqRequest?: RfqRequest | null;
+  rfqError?: string | null;
   onChange: (patch: Partial<TicketState>) => void;
   onStage: () => void;
   onConfirm: () => void;
   onCancelResting: () => void;
   onReset: () => void;
+  onSelectRfqQuote?: (quoteId: string) => void;
+  onExecuteRfqQuote?: () => void;
+  onCancelRfq?: () => void;
 }) {
   const unit = priceUnitSuffix(market.priceUnit);
   const bestPrice = state.intent === "ENTER" ? market.bestAsk : market.bestBid;
@@ -129,7 +144,7 @@ export function OrderTicket({
   const blockers = externalBlock ? [...preview.blockers, externalBlock] : preview.blockers;
   const invalid = blockers.length > 0;
   const blocked = invalid || preview.routeMissing;
-  const locked = execution.status === "CONNECTING" || execution.status === "AUTHORIZING" || execution.status === "SUBMITTING" || stage.kind === "RESTING" || execution.status === "RESTING";
+  const locked = execution.status === "CONNECTING" || execution.status === "AUTHORIZING" || execution.status === "SUBMITTING" || stage.kind === "RESTING" || execution.status === "RESTING" || stage.kind === "RFQ" || stage.kind === "RFQ_SELECTED";
   const isExit = state.intent === "EXIT";
   const selectedClose = isExit
     ? (closePositions.find((position) => position.id === state.closePositionId) ?? null)
@@ -389,10 +404,15 @@ export function OrderTicket({
           blocked={blocked}
           invalid={invalid}
           routeMissing={preview.routeMissing}
+          rfqRequest={rfqRequest ?? null}
+          rfqError={rfqError ?? null}
           onStage={onStage}
           onConfirm={onConfirm}
           onCancelResting={onCancelResting}
           onReset={onReset}
+          onSelectRfqQuote={onSelectRfqQuote}
+          onExecuteRfqQuote={onExecuteRfqQuote}
+          onCancelRfq={onCancelRfq}
         />
       </div>
     </section>
@@ -418,10 +438,15 @@ function StageArea({
   blocked,
   invalid,
   routeMissing,
+  rfqRequest,
+  rfqError,
   onStage,
   onConfirm,
   onCancelResting,
   onReset,
+  onSelectRfqQuote,
+  onExecuteRfqQuote,
+  onCancelRfq,
 }: {
   market: PackageMarket;
   state: TicketState;
@@ -432,13 +457,31 @@ function StageArea({
   blocked: boolean;
   invalid: boolean;
   routeMissing: boolean;
+  rfqRequest?: RfqRequest | null;
+  rfqError?: string | null;
   onStage: () => void;
   onConfirm: () => void;
   onCancelResting: () => void;
   onReset: () => void;
+  onSelectRfqQuote?: (quoteId: string) => void;
+  onExecuteRfqQuote?: () => void;
+  onCancelRfq?: () => void;
 }) {
   const unit = priceUnitSuffix(market.priceUnit);
   const verb = state.intent === "ENTER" ? "Enter" : "Exit";
+
+  if (stage.kind === "RFQ" || stage.kind === "RFQ_SELECTED") {
+    return (
+      <RfqQuotePanel
+        market={market}
+        rfqRequest={rfqRequest ?? null}
+        rfqError={rfqError ?? null}
+        onSelectRfqQuote={onSelectRfqQuote}
+        onExecuteRfqQuote={onExecuteRfqQuote}
+        onCancelRfq={onCancelRfq}
+      />
+    );
+  }
 
   if (stage.kind === "IDLE") {
     return (
@@ -459,6 +502,7 @@ function StageArea({
   }
 
   if (stage.kind === "COMPILED") {
+    const requiresRfq = (route?.requiresPrivate ?? false) && state.privateRfq;
     return (
       <div className="overflow-hidden rounded-md border border-line-strong bg-raised pb-1">
         <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
@@ -515,7 +559,7 @@ function StageArea({
             onClick={onConfirm}
             className="focus-ring h-11 rounded-md bg-brand text-sm font-semibold text-app transition-colors hover:brightness-105 lg:h-9"
           >
-            {preview.rests ? "Authorize and rest demo" : "Authorize and execute demo"}
+            {requiresRfq ? "Request firm quotes" : preview.rests ? "Authorize and rest demo" : "Authorize and execute demo"}
           </button>
         </div>
       </div>
