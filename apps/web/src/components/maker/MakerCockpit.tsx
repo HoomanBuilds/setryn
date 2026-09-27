@@ -2,6 +2,7 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import { CirclePause, CirclePlay, ShieldAlert, SlidersHorizontal } from "lucide-react";
+import { useGatewaySnapshot } from "@/components/gateway/InternalGatewayProvider";
 import { makerCockpitSnapshot } from "@/lib/maker/fixtures";
 import type {
   CapacityKind,
@@ -261,44 +262,117 @@ function QuotePolicy({
 function RfqQueue({ selectedSeries }: { selectedSeries: string }) {
   const requests = makerCockpitSnapshot.rfqs.filter((rfq) => rfq.seriesId === selectedSeries);
   const series = makerCockpitSnapshot.series.find((item) => item.id === selectedSeries);
+  const snapshot = useGatewaySnapshot();
+  const localRequests = useMemo(
+    () =>
+      [...snapshot.rfqRequests]
+        .filter((request) => request.authorization.intent.marketId.toLowerCase() === selectedSeries.toLowerCase())
+        .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)),
+    [snapshot.rfqRequests, selectedSeries],
+  );
+  const runtimeOrigin = snapshot.environment.label;
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[640px] border-collapse text-left">
-        <caption className="sr-only">Active simulated RFQ queue</caption>
-        <thead className="border-b border-line bg-inset text-[10px] tracking-[0.07em] text-faint uppercase">
-          <tr>
-            <th className="h-8 px-3 font-medium lg:px-4">Request</th>
-            <th className="h-8 px-2 font-medium">Side</th>
-            <th className="h-8 px-2 text-right font-medium">Size</th>
-            <th className="h-8 px-2 text-right font-medium">Time left</th>
-            <th className="h-8 px-2 text-right font-medium">Hedge cost</th>
-            <th className="h-8 px-3 text-right font-medium lg:px-4">Modeled edge</th>
-          </tr>
-        </thead>
-        <tbody>
-          {requests.length > 0 ? requests.map((rfq) => (
-            <tr key={rfq.id} className="border-b border-line-soft last:border-0 hover:bg-raised/55">
-              <td className="h-11 px-3 lg:px-4">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-xs text-ink">{rfq.id.toUpperCase()}</span>
-                  <OriginTag />
-                </div>
-                <span className="mt-0.5 block text-[10px] text-off">{rfq.counterpartyScope}</span>
-              </td>
-              <td className={`px-2 font-mono text-xs ${rfq.side === "BUY" ? "text-up" : "text-down"}`}>{rfq.side}</td>
-              <td className="tnum px-2 text-right font-mono text-xs text-dim">{rfq.sizeLabel}</td>
-              <td className="tnum px-2 text-right font-mono text-xs text-brand">{rfq.expiresInSeconds}s</td>
-              <td className="tnum px-2 text-right font-mono text-xs text-dim">{rfq.modeledHedgeCostBps.toFixed(1)} bp</td>
-              <td className="tnum px-3 text-right font-mono text-xs text-up lg:px-4">+{rfq.modeledEdgeBps.toFixed(1)} bp</td>
-            </tr>
-          )) : (
+    <div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[640px] border-collapse text-left">
+          <caption className="sr-only">Active simulated RFQ queue</caption>
+          <thead className="border-b border-line bg-inset text-[10px] tracking-[0.07em] text-faint uppercase">
             <tr>
-              <td colSpan={6} className="px-4 py-6 text-xs text-faint">No active simulated RFQs for {series?.displayName}.</td>
+              <th className="h-8 px-3 font-medium lg:px-4">Request</th>
+              <th className="h-8 px-2 font-medium">Side</th>
+              <th className="h-8 px-2 text-right font-medium">Size</th>
+              <th className="h-8 px-2 text-right font-medium">Time left</th>
+              <th className="h-8 px-2 text-right font-medium">Hedge cost</th>
+              <th className="h-8 px-3 text-right font-medium lg:px-4">Modeled edge</th>
             </tr>
-          )}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {requests.length > 0 ? requests.map((rfq) => (
+              <tr key={rfq.id} className="border-b border-line-soft last:border-0 hover:bg-raised/55">
+                <td className="h-11 px-3 lg:px-4">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs text-ink">{rfq.id.toUpperCase()}</span>
+                    <OriginTag label="SIMULATED" />
+                  </div>
+                  <span className="mt-0.5 block text-[10px] text-off">{rfq.counterpartyScope}</span>
+                </td>
+                <td className={`px-2 font-mono text-xs ${rfq.side === "BUY" ? "text-up" : "text-down"}`}>{rfq.side}</td>
+                <td className="tnum px-2 text-right font-mono text-xs text-dim">{rfq.sizeLabel}</td>
+                <td className="tnum px-2 text-right font-mono text-xs text-brand">{rfq.expiresInSeconds}s</td>
+                <td className="tnum px-2 text-right font-mono text-xs text-dim">{rfq.modeledHedgeCostBps.toFixed(1)} bp</td>
+                <td className="tnum px-3 text-right font-mono text-xs text-up lg:px-4">+{rfq.modeledEdgeBps.toFixed(1)} bp</td>
+              </tr>
+            )) : (
+              <tr>
+                <td colSpan={6} className="px-4 py-6 text-xs text-faint">No active simulated RFQs for {series?.displayName}.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <div className="border-t border-line">
+        <div className="flex items-center justify-between gap-3 border-b border-line-soft px-3 py-2 lg:px-4">
+          <span className="text-[10px] tracking-[0.07em] text-faint uppercase">Local user RFQs · read-only</span>
+          <span className="tnum font-mono text-xs text-dim">{localRequests.length}</span>
+        </div>
+        <p className="border-b border-line-soft px-3 py-2 text-[10px] leading-snug text-off lg:px-4">
+          Private RFQ records from {runtimeOrigin}; visible here for context only. This screen does not control, create, or clear them.
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] border-collapse text-left">
+            <caption className="sr-only">Local user private RFQ records for the selected series</caption>
+            <thead className="border-b border-line bg-inset text-[10px] tracking-[0.07em] text-faint uppercase">
+              <tr>
+                <th className="h-8 px-3 font-medium lg:px-4">Request</th>
+                <th className="h-8 px-2 font-medium">Side</th>
+                <th className="h-8 px-2 text-right font-medium">Lots</th>
+                <th className="h-8 px-2 font-medium">State</th>
+                <th className="h-8 px-2 text-right font-medium">Expiry / terminal</th>
+                <th className="h-8 px-3 text-right font-medium lg:px-4">Selected solver</th>
+              </tr>
+            </thead>
+            <tbody>
+              {localRequests.length > 0 ? localRequests.map((request) => {
+                const sideLabel = request.authorization.intent.side === "ENTER" ? "Enter" : "Exit";
+                const lotsLabel = `${request.authorization.intent.lots}`;
+                const selectedQuote = request.selectedQuoteId
+                  ? (request.quotes.find((quote) => quote.id === request.selectedQuoteId) ?? null)
+                  : null;
+                const isTerminal = request.state === "EXECUTED" || request.state === "CANCELLED";
+                const expired = Date.parse(request.expiresAt) <= Date.now();
+                const expiryLabel = isTerminal
+                  ? (request.state === "EXECUTED"
+                    ? (request.receiptId ? `Executed · ${request.receiptId}` : "Executed")
+                    : "Cancelled")
+                  : (expired ? "Expired" : new Date(request.expiresAt).toLocaleTimeString());
+                return (
+                  <tr key={request.id} className="border-b border-line-soft last:border-0 hover:bg-raised/55">
+                    <td className="h-11 px-3 lg:px-4">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs text-ink">{request.id}</span>
+                        <OriginTag label={runtimeOrigin.toUpperCase()} />
+                      </div>
+                      <span className="mt-0.5 block text-[10px] text-off">{runtimeOrigin}</span>
+                    </td>
+                    <td className="px-2 font-mono text-xs text-dim">{sideLabel}</td>
+                    <td className="tnum px-2 text-right font-mono text-xs text-dim">{lotsLabel}</td>
+                    <td className="px-2 font-mono text-xs text-dim">{request.state}</td>
+                    <td className="tnum px-2 text-right font-mono text-xs text-dim">{expiryLabel}</td>
+                    <td className="tnum px-3 text-right font-mono text-xs text-dim lg:px-4">
+                      {selectedQuote ? selectedQuote.solverLabel : "-"}
+                    </td>
+                  </tr>
+                );
+              }) : (
+                <tr>
+                  <td colSpan={6} className="px-4 py-6 text-xs text-faint">No local user RFQs for {series?.displayName} in {runtimeOrigin}.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
