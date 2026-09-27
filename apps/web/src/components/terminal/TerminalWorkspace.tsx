@@ -105,6 +105,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   const gatewaySnapshot = useGatewaySnapshot();
   const searchParams = useSearchParams();
   const handoff = useMemo(() => parseHandoff(searchParams), [searchParams]);
+  const rfqParam = searchParams.get("rfq");
 
   const [vizTab, setVizTab] = useState<VizTab>("price");
   const [consoleTab, setConsoleTab] = useState<ConsoleTabId>("strategies");
@@ -117,6 +118,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   const [loadedExecutionMarketId, setLoadedExecutionMarketId] = useState<string | null>(null);
   const [pricedMarketId, setPricedMarketId] = useState(market.id);
   const [appliedHandoffKey, setAppliedHandoffKey] = useState(handoff.key);
+  const [appliedRfqKey, setAppliedRfqKey] = useState<string | null>(null);
 
   /* Shared coherent preview feed: one tick drives every market, so the
      terminal never owns a page-local interval or stream. */
@@ -129,6 +131,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   if (pricedMarketId !== market.id) {
     setPricedMarketId(market.id);
     setAppliedHandoffKey(handoff.key);
+    setAppliedRfqKey(null);
     setTicket(initialTicket(market, handoff));
     setStage({ kind: "IDLE" });
     setExecution({ status: "IDLE", updates: [] });
@@ -137,6 +140,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     setConsoleScoped(true);
   } else if (appliedHandoffKey !== handoff.key) {
     setAppliedHandoffKey(handoff.key);
+    setAppliedRfqKey(null);
     setTicket(initialTicket(market, handoff));
     setStage({ kind: "IDLE" });
     setExecution({ status: "IDLE", updates: [] });
@@ -155,6 +159,90 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     }
     setLoadedExecutionMarketId(market.id);
   }, [gatewaySnapshot.executions, loadedExecutionMarketId, market.id]);
+
+  useEffect(() => {
+    if (rfqParam === null) return;
+    const key = `${market.id}::${rfqParam}`;
+    if (appliedRfqKey === key) return;
+    const requestId = rfqParam.trim();
+    const idle = (message: string) => {
+      setAppliedRfqKey(key);
+      setStage((current) =>
+        current.kind === "RFQ" || current.kind === "RFQ_SELECTED" ? { kind: "IDLE" } : current,
+      );
+      setExecution((current) =>
+        current.status === "IDLE" ? current : { status: "IDLE", updates: [] },
+      );
+      setRfqError(message);
+    };
+    if (
+      requestId.length === 0 ||
+      requestId.length > 128 ||
+      !/^[A-Za-z0-9:_-]{1,128}$/.test(requestId)
+    ) {
+      idle("The RFQ link reference is malformed, so no local demo request was resumed.");
+      return;
+    }
+    const request =
+      gatewaySnapshot.rfqRequests.find((candidate) => candidate.id === requestId) ?? null;
+    if (!request) {
+      idle("The RFQ request is no longer available. Confirm the ticket again for a fresh quote.");
+      return;
+    }
+    if (request.authorization.intent.marketId !== market.id) {
+      idle("The RFQ request belongs to another market and cannot resume in this terminal.");
+      return;
+    }
+    if (request.state === "CANCELLED") {
+      idle("The RFQ request was cancelled. Confirm the ticket again for a fresh quote.");
+      return;
+    }
+    if (request.state === "EXECUTED") {
+      idle("The RFQ request already executed and cannot resume as an actionable quote.");
+      return;
+    }
+    if (request.state === "SELECTED" && !request.selectedQuoteId) {
+      idle("The selected RFQ quote is no longer available. Confirm the ticket again for a fresh quote.");
+      return;
+    }
+    const intent = request.authorization.intent;
+    const routeId = liveMarket.routes.some((candidate) => candidate.id === intent.routeId)
+      ? intent.routeId
+      : liveMarket.routes.some((candidate) => candidate.id === "SOLVER_RFQ")
+        ? "SOLVER_RFQ"
+        : null;
+    setTicket({
+      intent: intent.side,
+      orderType: intent.orderType === "LIMIT" ? "LIMIT" : "MARKETABLE_LIMIT",
+      lotsInput: String(intent.lots),
+      limitInput: intent.limitPrice.toFixed(market.priceDecimals),
+      tif: intent.timeInForce,
+      privateRfq: true,
+      routeId,
+      closePositionId: intent.side === "EXIT" ? intent.closePositionId : null,
+    });
+    const reference = previewReference(market.id, intent.lots, intent.limitPrice);
+    if (request.state === "SELECTED" && request.selectedQuoteId) {
+      setStage({
+        kind: "RFQ_SELECTED",
+        reference,
+        requestId: request.id,
+        quoteId: request.selectedQuoteId,
+      });
+    } else {
+      setStage({ kind: "RFQ", reference, requestId: request.id });
+    }
+    setExecution({ status: "IDLE", updates: [] });
+    setRfqError(null);
+    setAppliedRfqKey(key);
+  }, [
+    appliedRfqKey,
+    gatewaySnapshot.rfqRequests,
+    liveMarket.routes,
+    market.id,
+    market.priceDecimals,
+    rfqParam,
+  ]);
 
   const route = useMemo(
     () => liveMarket.routes.find((candidate) => candidate.id === ticket.routeId) ?? null,
@@ -573,6 +661,14 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
           aria-labelledby="mobile-tab-order"
           className={`${show("order")} min-h-0 min-w-0 flex-1 flex-col border-line lg:col-start-3 lg:row-start-1 lg:row-end-3 lg:flex lg:border-l`}
         >
+          {stage.kind === "IDLE" && rfqError ? (
+            <p
+              role="alert"
+              className="shrink-0 border-b border-line bg-down-soft px-4 py-2 text-xs leading-snug text-down"
+            >
+              {rfqError}
+            </p>
+          ) : null}
           <OrderTicket
             market={liveMarket}
             state={ticket}

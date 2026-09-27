@@ -41,8 +41,10 @@ const NAV_GROUPS: NavGroup[] = [
     id: "monitor",
     label: "Monitor",
     items: [
+      { id: "rfqs", label: "RFQs", prefix: "/rfqs", href: "/rfqs" },
       { id: "activity", label: "Activity", prefix: "/activity", href: "/activity" },
       { id: "lifecycle", label: "Lifecycle", prefix: "/lifecycle", href: "/lifecycle" },
+      { id: "rfqs", label: "RFQs", prefix: "/rfqs", href: "/rfqs" },
     ],
   },
   {
