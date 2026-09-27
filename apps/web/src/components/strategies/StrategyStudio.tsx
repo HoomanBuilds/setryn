@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { ArrowUpRight, Check, Layers3, Plus, ShieldCheck, X } from "lucide-react";
 import { PayoffChart } from "@/components/terminal/viz/PayoffChart";
 import { MetaLine, Segmented, SourceMark } from "@/components/terminal/primitives";
@@ -11,6 +12,7 @@ import {
   instrumentCatalog,
   marketTemplates,
 } from "@/lib/strategies/catalog";
+import { parseStudioHandoff, type StudioHandoffContext } from "@/lib/strategies/handoff";
 import type { DraftLeg, InstrumentOption, PackageDirection, PackageDraft, StrategyBuildMode } from "@/lib/strategies/types";
 import {
   formatCompactUsd,
@@ -43,6 +45,50 @@ function initialDraft(): PackageDraft {
     lots: 10,
     legs: draftFromMarket(INITIAL_MARKET),
   };
+}
+
+function draftForHandoff(handoff: StudioHandoffContext): PackageDraft | null {
+  if (!handoff.valid) return null;
+  if (handoff.marketId === null || handoff.direction === null || handoff.lots === null) return null;
+  const market = MARKETS.find((candidate) => candidate.id === handoff.marketId);
+  if (!market) return null;
+  return {
+    mode: "TEMPLATE",
+    marketId: market.id,
+    direction: handoff.direction,
+    lots: handoff.lots,
+    legs: draftFromMarket(market),
+  };
+}
+
+function HandoffContextBar({ handoff }: { handoff: StudioHandoffContext }) {
+  const summary = [
+    handoff.marketId,
+    handoff.direction ? handoff.direction.toLowerCase() : null,
+    handoff.lots !== null ? `${String(handoff.lots)} lots` : null,
+  ]
+    .filter((part): part is string => part !== null)
+    .join(" / ");
+  const refs = [handoff.exposureId, handoff.lifecycleId, handoff.intent].filter(
+    (part): part is string => part !== null,
+  );
+  return (
+    <div className="shrink-0 border-b border-line bg-panel px-3 py-2 lg:px-4">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+        <span className="font-medium tracking-[0.08em] text-faint uppercase">
+          {handoff.sourceLabel ? `Handoff / ${handoff.sourceLabel}` : "Handoff"}
+        </span>
+        <span className="tnum font-mono text-dim">{summary}</span>
+        {refs.length > 0 ? (
+          <span className="tnum truncate font-mono text-off">{refs.join(" / ")}</span>
+        ) : null}
+      </div>
+      <p className="mt-1 text-xs leading-snug text-faint">
+        Read-only handoff context. No order is created here. Arbitrum Sepolia preview; mainnet
+        writes remain disabled.
+      </p>
+    </div>
+  );
 }
 
 function qualificationClass(qualification: Qualification): string {
@@ -285,7 +331,28 @@ function ScenarioPanel({
 }
 
 export function StrategyStudio() {
-  const [draft, setDraft] = useState<PackageDraft>(initialDraft);
+  return (
+    <Suspense
+      fallback={
+        <div className="flex flex-1 items-center justify-center bg-app text-xs text-faint">
+          Loading strategy studio
+        </div>
+      }
+    >
+      <StudioContent />
+    </Suspense>
+  );
+}
+
+function StudioContent() {
+  const searchParams = useSearchParams();
+  const handoff = useMemo(() => parseStudioHandoff(searchParams), [searchParams]);
+  const [draft, setDraft] = useState<PackageDraft>(() => draftForHandoff(handoff) ?? initialDraft());
+  const [appliedHandoffKey, setAppliedHandoffKey] = useState(handoff.key);
+  if (appliedHandoffKey !== handoff.key) {
+    setAppliedHandoffKey(handoff.key);
+    setDraft(draftForHandoff(handoff) ?? initialDraft());
+  }
   const catalog = useMemo(() => instrumentCatalog(), []);
   const catalogById = useMemo(() => new Map(catalog.map((instrument) => [instrument.id, instrument])), [catalog]);
   const [selectedInstrument, setSelectedInstrument] = useState("");
@@ -374,6 +441,7 @@ export function StrategyStudio() {
           </div>
         </div>
       </section>
+      {handoff.valid ? <HandoffContextBar handoff={handoff} /> : null}
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto xl:grid xl:grid-cols-[272px_minmax(0,1fr)_344px] xl:overflow-hidden">
         <aside className="flex min-h-0 flex-col border-b border-line bg-panel xl:border-r xl:border-b-0">

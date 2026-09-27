@@ -91,17 +91,28 @@ function constraintLabel(state: LifecycleConstraint["state"]): string {
 }
 
 function actionHref(strategy: LifecycleStrategy, proposal: LifecycleProposal): string {
+  if (proposal.route === "TRADE") {
+    const params = new URLSearchParams({
+      lifecycle: strategy.id,
+      intent: proposal.kind.toLowerCase(),
+      lots: String(strategy.lots),
+      maxCloseCost: String(proposal.maxCloseCost),
+      guarantee: strategy.guarantee.toLowerCase(),
+    });
+    return `${tradeHref(strategy.market)}?${params.toString()}`;
+  }
+
   const params = new URLSearchParams({
+    market: strategy.market.id,
+    direction: strategy.side.toLowerCase(),
+    source: "lifecycle",
     lifecycle: strategy.id,
     intent: proposal.kind.toLowerCase(),
     lots: String(strategy.lots),
     maxCloseCost: String(proposal.maxCloseCost),
     guarantee: strategy.guarantee.toLowerCase(),
   });
-
-  return proposal.route === "TRADE"
-    ? `${tradeHref(strategy.market)}?${params.toString()}`
-    : `/strategies?${params.toString()}`;
+  return `/strategies?${params.toString()}`;
 }
 
 function legHref(strategy: LifecycleStrategy, leg: LifecycleLeg): string {
