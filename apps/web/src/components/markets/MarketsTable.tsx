@@ -172,7 +172,7 @@ const COLUMNS: Column[] = [
   {
     id: "observation",
     label: "Obs",
-    title: "Age of the preview fixture snapshot behind this row.",
+    title: "Age of the local preview stream snapshot behind this row.",
     numeric: true,
     key: (market) => market.snapshotAgeSeconds,
     hide: "hidden 2xl:table-cell",
@@ -419,7 +419,7 @@ function MobileMarketList({
                 />
                 <DetailRow
                   label="Observation"
-                  value={`preview fixture, ${market.snapshotAgeSeconds}s`}
+                  value={`local preview stream, ${market.snapshotAgeSeconds}s`}
                 />
               </div>
             ) : null}

@@ -7,6 +7,7 @@ import { MarketsTable } from "@/components/markets/MarketsTable";
 import { TermCurve } from "@/components/markets/TermCurve";
 import { FilterSelect, SearchField } from "@/components/markets/controls";
 import { MetaLine, SOURCE_LABEL, SourceMark, Tabs } from "@/components/terminal/primitives";
+import { usePreviewBoard } from "@/components/terminal/PreviewMarketProvider";
 import { formatLots } from "@/lib/terminal/format";
 import {
   ANY,
@@ -22,7 +23,6 @@ import {
   underlyingOptions,
   type DirectoryFilters,
 } from "@/lib/terminal/discovery";
-import type { PackageMarket } from "@/lib/terminal/types";
 
 type ViewId = "table" | "ladder" | "curve";
 
@@ -42,7 +42,8 @@ function selectedCount(filters: DirectoryFilters): number {
   ].filter((value) => value !== ANY).length;
 }
 
-export function MarketsDirectory({ markets }: { markets: PackageMarket[] }) {
+export function MarketsDirectory() {
+  const { markets } = usePreviewBoard();
   const [view, setView] = useState<ViewId>("table");
   const [filters, setFilters] = useState<DirectoryFilters>(EMPTY_FILTERS);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -82,7 +83,7 @@ export function MarketsDirectory({ markets }: { markets: PackageMarket[] }) {
 
   const provenance = [
     `${visible.length} of ${markets.length} markets`,
-    "preview fixture",
+    "coherent local preview feed",
     observation.min === observation.max
       ? `observed ${observation.min}s ago`
       : `observed ${observation.min}s to ${observation.max}s ago`,

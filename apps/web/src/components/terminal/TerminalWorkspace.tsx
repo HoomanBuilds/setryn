@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useGatewaySnapshot, useInternalGateway } from "@/components/gateway/InternalGatewayProvider";
+import { usePreviewMarket } from "@/components/terminal/PreviewMarketProvider";
 import { AnalysisPanel, type VizTab } from "@/components/terminal/AnalysisPanel";
 import { ConsolePanel } from "@/components/terminal/ConsolePanel";
 import { ContractSpec, MarketHeader, MarketStatGrid } from "@/components/terminal/MarketHeader";
@@ -18,15 +19,9 @@ import {
   type StageState,
   type TicketState,
 } from "@/lib/terminal/economics";
-import { SCENARIO_CLOCK_ISO } from "@/lib/terminal/format";
 import { parseHandoff, type HandoffContext } from "@/lib/terminal/handoff";
 import { LIFECYCLE_STRATEGIES } from "@/lib/lifecycle/fixtures";
 import { tradeHref } from "@/lib/terminal/markets";
-import {
-  advancePreviewStream,
-  derivePreviewMarket,
-  initialPreviewStream,
-} from "@/lib/terminal/preview-market";
 import type { BookRow, ConsoleTabId, PackageMarket } from "@/lib/terminal/types";
 import type { OrderExecutionProgress } from "@/lib/internal-gateway/types";
 
@@ -105,9 +100,12 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   const [stage, setStage] = useState<StageState>({ kind: "IDLE" });
   const [execution, setExecution] = useState<OrderExecutionProgress>({ status: "IDLE", updates: [] });
   const [loadedExecutionMarketId, setLoadedExecutionMarketId] = useState<string | null>(null);
-  const [stream, setStream] = useState(() => initialPreviewStream(market.id));
   const [pricedMarketId, setPricedMarketId] = useState(market.id);
   const [appliedHandoffKey, setAppliedHandoffKey] = useState(handoff.key);
+
+  /* Shared coherent preview feed: one tick drives every market, so the
+     terminal never owns a page-local interval or stream. */
+  const { liveMarket, previewEpochSeconds } = usePreviewMarket(market.id);
 
   /* A route change repoints the ticket during the same render, so a limit price
      from the previous market is never painted under the new one. View
@@ -119,7 +117,6 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     setStage({ kind: "IDLE" });
     setExecution({ status: "IDLE", updates: [] });
     setLoadedExecutionMarketId(null);
-    setStream(initialPreviewStream(market.id));
     setConsoleScoped(true);
   } else if (appliedHandoffKey !== handoff.key) {
     setAppliedHandoffKey(handoff.key);
@@ -128,14 +125,6 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     setExecution({ status: "IDLE", updates: [] });
     setLoadedExecutionMarketId(null);
   }
-
-  useEffect(() => {
-    setStream(initialPreviewStream(market.id));
-    const timer = window.setInterval(() => {
-      setStream((current) => advancePreviewStream(market.id, current));
-    }, 1_000);
-    return () => window.clearInterval(timer);
-  }, [market.id]);
 
   useEffect(() => {
     if (loadedExecutionMarketId === market.id) return;
@@ -148,15 +137,6 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     }
     setLoadedExecutionMarketId(market.id);
   }, [gatewaySnapshot.executions, loadedExecutionMarketId, market.id]);
-
-  const activeStream =
-    stream.marketId === market.id ? stream : initialPreviewStream(market.id);
-  const liveMarket = useMemo(
-    () => derivePreviewMarket(market, activeStream),
-    [market, activeStream],
-  );
-  const previewEpochSeconds =
-    Math.floor(Date.parse(SCENARIO_CLOCK_ISO) / 1_000) + activeStream.tick;
 
   const route = useMemo(
     () => liveMarket.routes.find((candidate) => candidate.id === ticket.routeId) ?? null,

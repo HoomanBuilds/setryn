@@ -4,6 +4,7 @@ import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import { GlobalHeader } from "@/components/terminal/GlobalHeader";
 import { StatusStrip } from "@/components/terminal/StatusStrip";
 import { InternalGatewayProvider } from "@/components/gateway/InternalGatewayProvider";
+import { PreviewMarketProvider } from "@/components/terminal/PreviewMarketProvider";
 import "./globals.css";
 
 const plexSans = IBM_Plex_Sans({
@@ -35,11 +36,13 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
     <html lang="en" className={`${plexSans.variable} ${plexMono.variable}`}>
       <body>
         <InternalGatewayProvider>
-          <div className="flex h-dvh w-full flex-col overflow-hidden bg-app">
-            <GlobalHeader />
-            <StatusStrip />
-            {children}
-          </div>
+          <PreviewMarketProvider>
+            <div className="flex h-dvh w-full flex-col overflow-hidden bg-app">
+              <GlobalHeader />
+              <StatusStrip />
+              {children}
+            </div>
+          </PreviewMarketProvider>
         </InternalGatewayProvider>
       </body>
     </html>

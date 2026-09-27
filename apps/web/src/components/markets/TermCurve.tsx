@@ -4,7 +4,6 @@ import Link from "next/link";
 import { QualificationTag } from "@/components/markets/controls";
 import { Delta, SectionLabel } from "@/components/terminal/primitives";
 import {
-  SCENARIO_CLOCK_ISO,
   changePercent,
   daysToExpiry,
   formatExpiry,
@@ -24,16 +23,6 @@ import type { PackageMarket } from "@/lib/terminal/types";
 
 const VIEW_W = 1000;
 const VIEW_H = 320;
-const PREVIEW_AS_OF = new Intl.DateTimeFormat("en-GB", {
-  day: "2-digit",
-  month: "short",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-  timeZone: "UTC",
-  timeZoneName: "short",
-}).format(new Date(SCENARIO_CLOCK_ISO));
 
 interface Plotted {
   market: PackageMarket;
@@ -136,7 +125,7 @@ function CurvePanel({ family }: { family: CurveFamily }) {
           </span>
         </div>
         <span className="text-xs text-off">
-          {`Solid: preview snapshot, ${PREVIEW_AS_OF} / dashed: prior session close`}
+          {`Solid: local preview stream / dashed: prior session close`}
         </span>
       </div>
 
@@ -169,8 +158,8 @@ function CurvePanel({ family }: { family: CurveFamily }) {
             role="img"
             aria-label={
               curved
-                ? `Preview term structure of ${family.label} as of ${PREVIEW_AS_OF}, net price in ${unit} from ${formatNumber(low, 1)} to ${formatNumber(high, 1)} across ${points.length} maturities of ${family.underlying}. The dashed line is the prior session close. The equivalent table follows.`
-                : `${family.label} has one visible maturity in the preview snapshot as of ${PREVIEW_AS_OF}, so no term structure is drawn. The equivalent table follows.`
+                ? `Preview term structure of ${family.label} on the synchronized local preview stream, net price in ${unit} from ${formatNumber(low, 1)} to ${formatNumber(high, 1)} across ${points.length} maturities of ${family.underlying}. The dashed line is the prior session close. The equivalent table follows.`
+                : `${family.label} has one visible maturity on the synchronized local preview stream, so no term structure is drawn. The equivalent table follows.`
             }
           >
             {curved ? (
