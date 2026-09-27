@@ -182,14 +182,26 @@ export function PositionDetail({
               {`${position.market.code} / ${position.id}`}
             </p>
           </div>
-          <Link
-            href={position.href}
-            aria-label={`Open the ${position.label} terminal`}
-            className="focus-ring flex h-11 shrink-0 items-center gap-1.5 rounded-md border border-line px-2.5 text-xs text-dim transition-colors hover:border-line-strong hover:text-ink lg:h-8"
-          >
-            Manage package
-            <ArrowUpRight size={13} aria-hidden="true" className="shrink-0" />
-          </Link>
+          <div className="flex shrink-0 items-center gap-2">
+            {position.exitHref ? (
+              <Link
+                href={position.exitHref}
+                aria-label={`Exit the ${position.label} package in the terminal`}
+                className="focus-ring flex h-11 shrink-0 items-center gap-1 rounded-md border border-line px-2 text-xs text-dim transition-colors hover:border-line-strong hover:text-ink lg:h-8"
+              >
+                Exit package
+                <ArrowUpRight size={13} aria-hidden="true" className="shrink-0" />
+              </Link>
+            ) : null}
+            <Link
+              href={position.href}
+              aria-label={`Open the ${position.label} terminal`}
+              className="focus-ring flex h-11 shrink-0 items-center gap-1.5 rounded-md border border-line px-2.5 text-xs text-dim transition-colors hover:border-line-strong hover:text-ink lg:h-8"
+            >
+              Manage package
+              <ArrowUpRight size={13} aria-hidden="true" className="shrink-0" />
+            </Link>
+          </div>
         </div>
 
         <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">

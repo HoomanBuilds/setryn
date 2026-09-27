@@ -59,6 +59,18 @@ function resolveRuntimeMarket(markets: readonly PackageMarket[], marketId: strin
   return market;
 }
 
+function runtimeExitHref(baseHref: string, positionId: string, lots: number): string {
+  const separator = baseHref.includes("?") ? "&" : "?";
+  const params = new URLSearchParams({
+    source: "portfolio",
+    sourceLabel: "Portfolio",
+    lifecycle: positionId,
+    intent: "exit",
+    lots: String(lots),
+  });
+  return `${baseHref}${separator}${params.toString()}`;
+}
+
 function runtimePosition(
   execution: ExecutionPosition,
   snapshot: GatewaySnapshot,
@@ -96,6 +108,7 @@ function runtimePosition(
   const bufferUsdc = round(equity - maintenanceMargin);
   const bufferPoints = round(bufferUsdc / (execution.lots * market.contractMultiplier));
   const liquidationPrice = round(market.netPrice - direction * bufferPoints);
+  const href = tradeHref(market);
 
   return {
     id: execution.id,
@@ -127,7 +140,8 @@ function runtimePosition(
           : "CRYPTO_CARRY",
     daysToExpiry: daysToExpiry(market.expiryIso),
     nextEvent: "Lifecycle monitoring is configured in the package terminal.",
-    href: tradeHref(market),
+    href,
+    exitHref: runtimeExitHref(href, execution.id, execution.lots),
     source: "RUNTIME_SIMULATION",
     provenance: `${snapshot.environment.label} clearing simulation`,
     receiptId: receipt?.id,
@@ -174,6 +188,7 @@ export function portfolioRuntime(snapshot: GatewaySnapshot, markets: readonly Pa
     ...runtimePositions,
     ...POSITIONS.map((position) => ({
       ...position,
+      exitHref: undefined,
       source: "REFERENCE_OBSERVATION" as const,
       provenance: "Preview market observation",
     })),

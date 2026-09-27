@@ -49,6 +49,8 @@ export interface Position {
   daysToExpiry: number;
   nextEvent: string;
   href: string;
+  /** Runtime-only terminal handoff for exiting the package. Absent on reference observations. */
+  exitHref?: string;
   source?: "RUNTIME_SIMULATION" | "REFERENCE_OBSERVATION";
   provenance?: string;
   receiptId?: string;
