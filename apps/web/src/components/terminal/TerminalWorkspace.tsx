@@ -52,11 +52,15 @@ function executionError(error: unknown): string {
   if (error.message === "EXIT_REQUIRES_ZERO_COLLATERAL") return "Exits require no new collateral. Review the ticket and try again.";
   if (error.message === "RFQ_NOT_FOUND") return "The RFQ request is no longer available. Confirm the ticket again for a fresh quote.";
   if (error.message === "RFQ_NOT_OPEN") return "The RFQ request is no longer open. Confirm the ticket again for a fresh quote.";
+  if (error.message === "RFQ_NOT_SELECTED") return "The RFQ request is no longer selected. Confirm the ticket again for a fresh quote.";
   if (error.message === "RFQ_QUOTE_NOT_FOUND") return "The selected RFQ quote is no longer available. Select another quote.";
   if (error.message === "RFQ_EXPIRED") return "The selected RFQ quote expired before execution. Select another quote.";
   if (error.message === "RFQ_REQUIRES_PRIVATE_DISCLOSURE") return "The selected route requires a private RFQ disclosure.";
   if (error.message === "RFQ_REQUIRES_SOLVER_ROUTE") return "The selected route requires the solver RFQ route.";
   if (error.message === "RFQ_CAPACITY_EXCEEDED") return "The selected RFQ quote no longer has capacity for this size. Select another quote.";
+  if (error.message === "RFQ_RECEIPT_REQUIRED") return "The execution completed but the RFQ receipt was missing.";
+  if (error.message === "RFQ_RECEIPT_NOT_FOUND") return "The execution completed but the RFQ receipt was not found.";
+  if (error.message === "RFQ_RECEIPT_MARKET_MISMATCH") return "The execution completed but the receipt did not match the RFQ market.";
   if (error.message === "INVALID_CONTRACT_MULTIPLIER") {
     return "The package multiplier is invalid and no package outcome was recorded.";
   }
@@ -487,6 +491,11 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
           updates: [...current.updates, update],
         }));
       });
+      try {
+        await gateway.completeRfq(requestId, result.receipt.id);
+      } catch (completeError) {
+        setRfqError(executionError(completeError));
+      }
       setExecution((current) => ({ ...current, status: "COMPLETED", result }));
       setStage({ kind: "COMPLETED", reference, receiptId: result.receipt.id });
       setConsoleTab("strategies");

@@ -121,7 +121,8 @@ function restoreSnapshot(): GatewaySnapshot {
           if (
             candidate.state !== "OPEN" &&
             candidate.state !== "SELECTED" &&
-            candidate.state !== "CANCELLED"
+            candidate.state !== "CANCELLED" &&
+            candidate.state !== "EXECUTED"
           )
             return false;
           if (
@@ -196,7 +197,21 @@ function restoreSnapshot(): GatewaySnapshot {
               return false;
             if (!candidate.quotes.some((quote) => quote.id === candidate.selectedQuoteId))
               return false;
-          } else if (candidate.selectedQuoteId !== null) return false;
+            if (candidate.receiptId !== null) return false;
+          } else if (candidate.state === "EXECUTED") {
+            if (
+              typeof candidate.selectedQuoteId !== "string" ||
+              candidate.selectedQuoteId.length === 0
+            )
+              return false;
+            if (!candidate.quotes.some((quote) => quote.id === candidate.selectedQuoteId))
+              return false;
+            if (typeof candidate.receiptId !== "string" || candidate.receiptId.length === 0)
+              return false;
+          } else {
+            if (candidate.selectedQuoteId !== null) return false;
+            if (candidate.receiptId !== null) return false;
+          }
           return true;
         })
       : [];
@@ -713,6 +728,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
       authorization,
       state: "OPEN",
       selectedQuoteId: null,
+      receiptId: null,
       expiresAt,
       createdAt,
       quotes,
@@ -740,7 +756,12 @@ export class DemoTradingGateway implements InternalTradingGateway {
     if (Date.parse(target.expiresAt) <= Date.now() || Date.parse(quote.expiresAt) <= Date.now()) {
       throw new Error("RFQ_EXPIRED");
     }
-    const selected: RfqRequest = { ...target, state: "SELECTED", selectedQuoteId: quote.id };
+    const selected: RfqRequest = {
+      ...target,
+      state: "SELECTED",
+      selectedQuoteId: quote.id,
+      receiptId: null,
+    };
     this.publish({
       ...this.snapshot,
       rfqRequests: existingRequests.map((request) =>
@@ -758,7 +779,12 @@ export class DemoTradingGateway implements InternalTradingGateway {
     const target = existingRequests.find((request) => request.id === requestId);
     if (!target) throw new Error("RFQ_NOT_FOUND");
     if (target.state !== "OPEN" && target.state !== "SELECTED") throw new Error("RFQ_NOT_OPEN");
-    const cancelled: RfqRequest = { ...target, state: "CANCELLED", selectedQuoteId: null };
+    const cancelled: RfqRequest = {
+      ...target,
+      state: "CANCELLED",
+      selectedQuoteId: null,
+      receiptId: null,
+    };
     this.publish({
       ...this.snapshot,
       rfqRequests: existingRequests.map((request) =>
@@ -766,6 +792,32 @@ export class DemoTradingGateway implements InternalTradingGateway {
       ),
     });
     return cancelled;
+  }
+
+  async completeRfq(requestId: string, receiptId: string): Promise<RfqRequest> {
+    this.assertWritableEnvironment();
+    const existingRequests = Array.isArray(this.snapshot.rfqRequests)
+      ? this.snapshot.rfqRequests
+      : [];
+    const target = existingRequests.find((request) => request.id === requestId);
+    if (!target) throw new Error("RFQ_NOT_FOUND");
+    if (target.state !== "SELECTED") throw new Error("RFQ_NOT_SELECTED");
+    if (typeof receiptId !== "string" || receiptId.length === 0) {
+      throw new Error("RFQ_RECEIPT_REQUIRED");
+    }
+    const receipt = this.snapshot.receipts.find((candidate) => candidate.id === receiptId);
+    if (!receipt) throw new Error("RFQ_RECEIPT_NOT_FOUND");
+    if (receipt.marketId !== target.authorization.intent.marketId) {
+      throw new Error("RFQ_RECEIPT_MARKET_MISMATCH");
+    }
+    const completed: RfqRequest = { ...target, state: "EXECUTED", receiptId };
+    this.publish({
+      ...this.snapshot,
+      rfqRequests: existingRequests.map((request) =>
+        request.id === requestId ? completed : request,
+      ),
+    });
+    return completed;
   }
 
   getReceipt(receiptId: string) {
