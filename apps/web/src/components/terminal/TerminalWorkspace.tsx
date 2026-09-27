@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useGatewaySnapshot, useInternalGateway } from "@/components/gateway/InternalGatewayProvider";
 import { AnalysisPanel, type VizTab } from "@/components/terminal/AnalysisPanel";
 import { ConsolePanel } from "@/components/terminal/ConsolePanel";
@@ -19,6 +19,7 @@ import {
   type TicketState,
 } from "@/lib/terminal/economics";
 import { SCENARIO_CLOCK_ISO } from "@/lib/terminal/format";
+import { parseHandoff, type HandoffContext } from "@/lib/terminal/handoff";
 import { tradeHref } from "@/lib/terminal/markets";
 import {
   advancePreviewStream,
@@ -49,46 +50,73 @@ function executionError(error: unknown): string {
   return "The demo runtime did not reach a final package outcome. No completion is claimed.";
 }
 
-function initialTicket(market: PackageMarket): TicketState {
+function initialTicket(market: PackageMarket, handoff?: HandoffContext): TicketState {
+  const intent = handoff?.intent ?? "ENTER";
   return {
-    intent: "ENTER",
+    intent,
     orderType: "MARKETABLE_LIMIT",
-    lotsInput: "10",
-    limitInput: market.bestAsk.toFixed(market.priceDecimals),
+    lotsInput: handoff?.lots != null ? String(handoff.lots) : "10",
+    limitInput: (intent === "EXIT" ? market.bestBid : market.bestAsk).toFixed(
+      market.priceDecimals,
+    ),
     tif: "GTC",
     privateRfq: false,
     routeId: null,
   };
 }
 
-/** The route owns the selected market. Nothing here mirrors it into state. */
 export function TerminalWorkspace({ market }: { market: PackageMarket }) {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex flex-1 items-center justify-center bg-app text-xs text-faint">
+          Loading terminal
+        </div>
+      }
+    >
+      <WorkspaceContent market={market} />
+    </Suspense>
+  );
+}
+
+/** The route owns the selected market. Nothing here mirrors it into state. */
+function WorkspaceContent({ market }: { market: PackageMarket }) {
   const router = useRouter();
   const gateway = useInternalGateway();
   const gatewaySnapshot = useGatewaySnapshot();
+  const searchParams = useSearchParams();
+  const handoff = useMemo(() => parseHandoff(searchParams), [searchParams]);
 
   const [vizTab, setVizTab] = useState<VizTab>("price");
   const [consoleTab, setConsoleTab] = useState<ConsoleTabId>("strategies");
   const [consoleScoped, setConsoleScoped] = useState(true);
   const [mobileTab, setMobileTab] = useState<MobileTab>("market");
-  const [ticket, setTicket] = useState<TicketState>(() => initialTicket(market));
+  const [ticket, setTicket] = useState<TicketState>(() => initialTicket(market, handoff));
   const [stage, setStage] = useState<StageState>({ kind: "IDLE" });
   const [execution, setExecution] = useState<OrderExecutionProgress>({ status: "IDLE", updates: [] });
   const [loadedExecutionMarketId, setLoadedExecutionMarketId] = useState<string | null>(null);
   const [stream, setStream] = useState(() => initialPreviewStream(market.id));
   const [pricedMarketId, setPricedMarketId] = useState(market.id);
+  const [appliedHandoffKey, setAppliedHandoffKey] = useState(handoff.key);
 
   /* A route change repoints the ticket during the same render, so a limit price
      from the previous market is never painted under the new one. View
      preferences are not market state and survive the switch. */
   if (pricedMarketId !== market.id) {
     setPricedMarketId(market.id);
-    setTicket(initialTicket(market));
+    setAppliedHandoffKey(handoff.key);
+    setTicket(initialTicket(market, handoff));
     setStage({ kind: "IDLE" });
     setExecution({ status: "IDLE", updates: [] });
     setLoadedExecutionMarketId(null);
     setStream(initialPreviewStream(market.id));
     setConsoleScoped(true);
+  } else if (appliedHandoffKey !== handoff.key) {
+    setAppliedHandoffKey(handoff.key);
+    setTicket(initialTicket(market, handoff));
+    setStage({ kind: "IDLE" });
+    setExecution({ status: "IDLE", updates: [] });
+    setLoadedExecutionMarketId(null);
   }
 
   useEffect(() => {
@@ -195,11 +223,12 @@ export function TerminalWorkspace({ market }: { market: PackageMarket }) {
   );
 
   const onStage = useCallback(() => {
+    if (handoff.blockedReason !== null) return;
     setStage({
       kind: "COMPILED",
       reference: previewReference(liveMarket.id, preview.lots, preview.limitPrice),
     });
-  }, [liveMarket.id, preview.lots, preview.limitPrice]);
+  }, [handoff.blockedReason, liveMarket.id, preview.lots, preview.limitPrice]);
 
   const onConfirm = useCallback(async () => {
     if (stage.kind !== "COMPILED" || !route) return;
@@ -331,6 +360,7 @@ export function TerminalWorkspace({ market }: { market: PackageMarket }) {
             stage={stage}
             execution={execution}
             maxLots={maxLots}
+            handoff={handoff}
             onChange={patchTicket}
             onStage={onStage}
             onConfirm={onConfirm}

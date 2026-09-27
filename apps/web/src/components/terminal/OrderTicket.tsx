@@ -18,6 +18,7 @@ import type {
   TimeInForce,
 } from "@/lib/terminal/economics";
 import { formatLots, formatNumber, formatUsd, priceUnitSuffix } from "@/lib/terminal/format";
+import type { HandoffContext } from "@/lib/terminal/handoff";
 import type { PackageMarket, RouteQuote } from "@/lib/terminal/types";
 import type { OrderExecutionProgress } from "@/lib/internal-gateway/types";
 
@@ -99,6 +100,7 @@ export function OrderTicket({
   stage,
   execution,
   maxLots,
+  handoff,
   onChange,
   onStage,
   onConfirm,
@@ -111,6 +113,7 @@ export function OrderTicket({
   stage: StageState;
   execution: OrderExecutionProgress;
   maxLots: number;
+  handoff: HandoffContext;
   onChange: (patch: Partial<TicketState>) => void;
   onStage: () => void;
   onConfirm: () => void;
@@ -118,9 +121,19 @@ export function OrderTicket({
 }) {
   const unit = priceUnitSuffix(market.priceUnit);
   const bestPrice = state.intent === "ENTER" ? market.bestAsk : market.bestBid;
-  const invalid = preview.blockers.length > 0;
+  const externalBlock = handoff.blockedReason;
+  const blockers = externalBlock ? [...preview.blockers, externalBlock] : preview.blockers;
+  const invalid = blockers.length > 0;
   const blocked = invalid || preview.routeMissing;
   const locked = execution.status === "CONNECTING" || execution.status === "AUTHORIZING" || execution.status === "SUBMITTING";
+  const guaranteeLabel =
+    handoff.guarantee === "PACKAGE_ATOMIC"
+      ? "package atomic"
+      : handoff.guarantee === "SOLVER_BONDED"
+        ? "solver bonded"
+        : handoff.guarantee === "LEG_SEQUENCED"
+          ? "leg sequenced"
+          : null;
 
   const stepLimit = (direction: 1 | -1) => {
     const next = (Number.parseFloat(state.limitInput) || bestPrice) + direction * market.tickSize;
@@ -138,6 +151,42 @@ export function OrderTicket({
         aria-busy={locked}
         className={`scroll-thin flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto border-0 px-3 py-3 lg:px-4 ${locked ? "opacity-65" : ""}`}
       >
+        {handoff.present ? (
+          <div className="rounded-md border border-line bg-raised px-3 py-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-medium tracking-[0.08em] text-faint uppercase">
+                {handoff.sourceLabel ? `Handoff · ${handoff.sourceLabel}` : "Handoff"}
+              </span>
+              {handoff.direction || handoff.lots !== null ? (
+                <span className="tnum font-mono text-[11px] text-dim">
+                  {[handoff.direction, handoff.lots !== null ? `${handoff.lots} lots` : null]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+              ) : null}
+            </div>
+            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] leading-snug text-dim">
+              {handoff.draftId ? (
+                <span className="tnum font-mono">{handoff.draftId}</span>
+              ) : null}
+              {handoff.lifecycleId ? (
+                <span className="tnum font-mono">{handoff.lifecycleId}</span>
+              ) : null}
+              {handoff.exposureId ? (
+                <span className="tnum font-mono">{handoff.exposureId}</span>
+              ) : null}
+              {handoff.legId ? <span className="tnum font-mono">{handoff.legId}</span> : null}
+              {handoff.maxCloseCost !== null ? (
+                <span className="tnum font-mono">cap {formatUsd(handoff.maxCloseCost, 0)}</span>
+              ) : null}
+              {guaranteeLabel ? <span>{guaranteeLabel}</span> : null}
+              {handoff.studioMode ? <span>{handoff.studioMode}</span> : null}
+            </div>
+            <div className="mt-1 text-[11px] leading-snug text-faint">
+              Read-only context. Select a route to continue; no quote is claimed.
+            </div>
+          </div>
+        ) : null}
         <Segmented
           options={INTENTS}
           value={state.intent}
@@ -270,7 +319,7 @@ export function OrderTicket({
             id={BLOCKER_LIST_ID}
             className="space-y-1.5 rounded-md border-l-2 border-down bg-down-soft px-3 py-2.5"
           >
-            {preview.blockers.map((blocker) => (
+            {blockers.map((blocker) => (
               <li key={blocker} className="flex gap-2 text-xs leading-snug text-down">
                 <TriangleAlert size={13} aria-hidden="true" className="mt-[2px] shrink-0" />
                 <span>{blocker}</span>
