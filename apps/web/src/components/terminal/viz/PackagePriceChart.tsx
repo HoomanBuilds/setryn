@@ -49,6 +49,8 @@ const MODES: { id: ChartMode; label: string }[] = [
   { id: "area", label: "Area" },
 ];
 
+const CHART_PREFS_KEY = "setryn:chart-prefs";
+
 function toCandlestickData(candle: PreviewCandle): CandlestickData<UTCTimestamp> {
   return {
     time: candle.time as UTCTimestamp,
@@ -121,6 +123,46 @@ export function PackagePriceChart({
   const [hover, setHover] = useState<PreviewCandle | null>(null);
   const [latest, setLatest] = useState<PreviewCandle | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(CHART_PREFS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { interval?: unknown; mode?: unknown };
+        if (
+          typeof parsed.interval === "string" &&
+          (INTERVALS as string[]).includes(parsed.interval)
+        ) {
+          setInterval(parsed.interval as ChartInterval);
+        }
+        if (
+          parsed.mode === "candles" ||
+          parsed.mode === "line" ||
+          parsed.mode === "area"
+        ) {
+          setMode(parsed.mode);
+        }
+      }
+    } catch {
+      setPrefsLoaded(true);
+      return;
+    }
+    setPrefsLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!prefsLoaded) return;
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        CHART_PREFS_KEY,
+        JSON.stringify({ interval, mode }),
+      );
+    } catch {
+      return;
+    }
+  }, [interval, mode, prefsLoaded]);
 
   const minuteHistory = useMemo(
     () => buildPreviewMinuteHistory(baseMarket),
