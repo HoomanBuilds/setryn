@@ -118,7 +118,12 @@ function restoreSnapshot(): GatewaySnapshot {
           if (!request || typeof request !== "object") return false;
           const candidate = request as Partial<RfqRequest>;
           if (typeof candidate.id !== "string") return false;
-          if (candidate.state !== "OPEN" && candidate.state !== "CANCELLED") return false;
+          if (
+            candidate.state !== "OPEN" &&
+            candidate.state !== "SELECTED" &&
+            candidate.state !== "CANCELLED"
+          )
+            return false;
           if (
             typeof candidate.createdAt !== "string" ||
             !Number.isFinite(Date.parse(candidate.createdAt))
@@ -143,7 +148,7 @@ function restoreSnapshot(): GatewaySnapshot {
             return false;
           if (!authorization.intent || typeof authorization.intent !== "object") return false;
           if (!Array.isArray(candidate.quotes) || candidate.quotes.length < 2) return false;
-          return candidate.quotes.every((quote) => {
+          const quotesValid = candidate.quotes.every((quote) => {
             if (!quote || typeof quote !== "object") return false;
             const candidateQuote = quote as Partial<FirmRfqQuote>;
             if (typeof candidateQuote.id !== "string" || candidateQuote.id.length === 0)
@@ -182,6 +187,17 @@ function restoreSnapshot(): GatewaySnapshot {
               return false;
             return true;
           });
+          if (!quotesValid) return false;
+          if (candidate.state === "SELECTED") {
+            if (
+              typeof candidate.selectedQuoteId !== "string" ||
+              candidate.selectedQuoteId.length === 0
+            )
+              return false;
+            if (!candidate.quotes.some((quote) => quote.id === candidate.selectedQuoteId))
+              return false;
+          } else if (candidate.selectedQuoteId !== null) return false;
+          return true;
         })
       : [];
     return {
@@ -696,6 +712,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
       id: requestId,
       authorization,
       state: "OPEN",
+      selectedQuoteId: null,
       expiresAt,
       createdAt,
       quotes,
@@ -710,7 +727,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
     return request;
   }
 
-  async cancelRfq(requestId: string): Promise<RfqRequest> {
+  async selectRfqQuote(requestId: string, quoteId: string): Promise<RfqRequest> {
     this.assertWritableEnvironment();
     const existingRequests = Array.isArray(this.snapshot.rfqRequests)
       ? this.snapshot.rfqRequests
@@ -718,7 +735,30 @@ export class DemoTradingGateway implements InternalTradingGateway {
     const target = existingRequests.find((request) => request.id === requestId);
     if (!target) throw new Error("RFQ_NOT_FOUND");
     if (target.state !== "OPEN") throw new Error("RFQ_NOT_OPEN");
-    const cancelled: RfqRequest = { ...target, state: "CANCELLED" };
+    const quote = target.quotes.find((candidate) => candidate.id === quoteId);
+    if (!quote) throw new Error("RFQ_QUOTE_NOT_FOUND");
+    if (Date.parse(target.expiresAt) <= Date.now() || Date.parse(quote.expiresAt) <= Date.now()) {
+      throw new Error("RFQ_EXPIRED");
+    }
+    const selected: RfqRequest = { ...target, state: "SELECTED", selectedQuoteId: quote.id };
+    this.publish({
+      ...this.snapshot,
+      rfqRequests: existingRequests.map((request) =>
+        request.id === requestId ? selected : request,
+      ),
+    });
+    return selected;
+  }
+
+  async cancelRfq(requestId: string): Promise<RfqRequest> {
+    this.assertWritableEnvironment();
+    const existingRequests = Array.isArray(this.snapshot.rfqRequests)
+      ? this.snapshot.rfqRequests
+      : [];
+    const target = existingRequests.find((request) => request.id === requestId);
+    if (!target) throw new Error("RFQ_NOT_FOUND");
+    if (target.state !== "OPEN" && target.state !== "SELECTED") throw new Error("RFQ_NOT_OPEN");
+    const cancelled: RfqRequest = { ...target, state: "CANCELLED", selectedQuoteId: null };
     this.publish({
       ...this.snapshot,
       rfqRequests: existingRequests.map((request) =>

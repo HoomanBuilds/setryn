@@ -134,7 +134,7 @@ export interface SignedOrderAuthorization {
   intent: PackageOrderIntent;
 }
 
-export type RfqRequestState = "OPEN" | "CANCELLED";
+export type RfqRequestState = "OPEN" | "SELECTED" | "CANCELLED";
 
 export interface FirmRfqQuote {
   id: string;
@@ -152,6 +152,7 @@ export interface RfqRequest {
   createdAt: string;
   expiresAt: string;
   state: RfqRequestState;
+  selectedQuoteId: string | null;
   quotes: FirmRfqQuote[];
 }
 
@@ -222,6 +223,7 @@ export interface InternalTradingGateway {
   placeRestingOrder(authorization: SignedOrderAuthorization): Promise<RestingPackageOrder>;
   cancelRestingOrder(orderId: string): Promise<RestingPackageOrder>;
   requestRfq(authorization: SignedOrderAuthorization): Promise<RfqRequest>;
+  selectRfqQuote(requestId: string, quoteId: string): Promise<RfqRequest>;
   cancelRfq(requestId: string): Promise<RfqRequest>;
   getReceipt(receiptId: string): ExecutionReceipt | null;
 }
