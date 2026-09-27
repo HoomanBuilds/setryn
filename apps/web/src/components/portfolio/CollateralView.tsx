@@ -1,6 +1,7 @@
 "use client";
 
 import { useGatewaySnapshot } from "@/components/gateway/InternalGatewayProvider";
+import { usePreviewBoard } from "@/components/terminal/PreviewMarketProvider";
 import { PlaneNote } from "@/components/portfolio/panels";
 import { CollateralPanel } from "@/components/portfolio/RiskPanels";
 import { SummaryStrip, type SummaryMetric } from "@/components/portfolio/SummaryStrip";
@@ -9,7 +10,8 @@ import { portfolioRuntime } from "@/lib/portfolio/runtime";
 
 export function CollateralView() {
   const snapshot = useGatewaySnapshot();
-  const portfolio = portfolioRuntime(snapshot);
+  const { markets } = usePreviewBoard();
+  const portfolio = portfolioRuntime(snapshot, markets);
   const { account } = portfolio;
   const metrics: SummaryMetric[] = [
     { label: "Posted", value: formatUsd(account.postedValue, 0), note: "runtime USDC" },

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { useGatewaySnapshot } from "@/components/gateway/InternalGatewayProvider";
+import { usePreviewBoard } from "@/components/terminal/PreviewMarketProvider";
 import { ControlRow, DimensionSelect } from "@/components/portfolio/controls";
 import { PositionDetail } from "@/components/portfolio/PositionDetail";
 import { PositionsList, PositionsTable } from "@/components/portfolio/PositionsTable";
@@ -17,7 +18,8 @@ const DETAIL_ID = "portfolio-position-detail";
 
 export function PositionsView() {
   const snapshot = useGatewaySnapshot();
-  const portfolio = portfolioRuntime(snapshot);
+  const { markets } = usePreviewBoard();
+  const portfolio = portfolioRuntime(snapshot, markets);
   const [groupBy, setGroupBy] = useState<GroupBy>("UNDERLYING");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const groups = useMemo(() => groupPortfolioPositions(portfolio.positions, groupBy), [portfolio.positions, groupBy]);

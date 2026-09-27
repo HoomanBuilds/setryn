@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useGatewaySnapshot } from "@/components/gateway/InternalGatewayProvider";
+import { usePreviewBoard } from "@/components/terminal/PreviewMarketProvider";
 import { ControlRow, DimensionSelect } from "@/components/portfolio/controls";
 import { ExpiryLadderPanel, ExposurePanel, ScenarioMatrix } from "@/components/portfolio/RiskPanels";
 import { PlaneNote } from "@/components/portfolio/panels";
@@ -18,7 +19,8 @@ const DIMENSIONS: { value: Dimension; label: string }[] = [
 
 export function RiskView() {
   const snapshot = useGatewaySnapshot();
-  const portfolio = portfolioRuntime(snapshot);
+  const { markets } = usePreviewBoard();
+  const portfolio = portfolioRuntime(snapshot, markets);
   const [dimension, setDimension] = useState<Dimension>("UNDERLYING");
   const byDomain = dimension === "DOMAIN";
   const groups = byDomain ? portfolio.reference.exposuresByDomain : portfolio.reference.exposuresByUnderlying;

@@ -23,6 +23,17 @@ function stateLabel(value: string) {
   return value.toLowerCase().replace(/_/g, " ");
 }
 
+function resolveRuntimeConsoleMarket(
+  markets: readonly PackageMarket[],
+  marketId: string,
+): PackageMarket {
+  const market = markets.find((candidate) => candidate.id === marketId);
+  if (!market) {
+    throw new Error(`Unknown runtime market: ${marketId}`);
+  }
+  return market;
+}
+
 function State({ value }: { value: string }) {
   return (
     <span className={ADVERSE.has(value) ? "text-down" : "text-dim"}>{stateLabel(value)}</span>
@@ -73,6 +84,7 @@ function Tr({ highlight, children }: { highlight: boolean; children: ReactNode }
 
 export function ConsolePanel({
   market,
+  markets,
   tab,
   onTab,
   scoped,
@@ -81,6 +93,7 @@ export function ConsolePanel({
   runtimeReceipts = [],
 }: {
   market: PackageMarket;
+  markets: readonly PackageMarket[];
   tab: ConsoleTabId;
   onTab: (tab: ConsoleTabId) => void;
   scoped: boolean;
@@ -115,6 +128,7 @@ export function ConsolePanel({
   const keep = <T extends { marketId: string }>(rows: T[]) =>
     scoped ? rows.filter((row) => row.marketId === market.id) : rows;
 
+  const runtimeStrategyIds = new Set(runtimeStrategies.map((strategy) => strategy.id));
   const strategies = keep([...runtimeStrategies, ...CONSOLE.strategies]);
   const orders = keep(CONSOLE.orders);
   const rfqs = keep(CONSOLE.rfqs);
@@ -190,7 +204,9 @@ export function ConsolePanel({
               ]}
             >
               {strategies.map((row) => {
-                const rowMarket = findMarket(row.marketId);
+                const rowMarket = runtimeStrategyIds.has(row.id)
+                  ? resolveRuntimeConsoleMarket(markets, row.marketId)
+                  : findMarket(row.marketId);
                 const unit = priceUnitSuffix(rowMarket.priceUnit);
                 const pnl = strategyPnl(row);
                 return (

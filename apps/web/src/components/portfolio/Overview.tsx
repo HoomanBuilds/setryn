@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useGatewaySnapshot } from "@/components/gateway/InternalGatewayProvider";
+import { usePreviewBoard } from "@/components/terminal/PreviewMarketProvider";
 import {
   Aggregate,
   DivergingBar,
@@ -151,7 +152,8 @@ function RuntimeHealth({ portfolio }: { portfolio: ReturnType<typeof portfolioRu
 
 export function OverviewView() {
   const snapshot = useGatewaySnapshot();
-  const portfolio = portfolioRuntime(snapshot);
+  const { markets } = usePreviewBoard();
+  const portfolio = portfolioRuntime(snapshot, markets);
 
   return (
     <div className="scroll-thin flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto lg:overflow-hidden">

@@ -1,7 +1,7 @@
 import type { GatewaySnapshot, ExecutionPosition } from "@/lib/internal-gateway/types";
 import { daysToExpiry, formatExpiry } from "@/lib/terminal/format";
-import { findMarket, packageLabel, tradeHref } from "@/lib/terminal/markets";
-import type { StrategyRecord } from "@/lib/terminal/types";
+import { packageLabel, tradeHref } from "@/lib/terminal/markets";
+import type { PackageMarket, StrategyRecord } from "@/lib/terminal/types";
 import {
   ACCOUNT_SUMMARY,
   BINDING_SCENARIO,
@@ -51,11 +51,20 @@ function runtimeRecord(position: ExecutionPosition, fees: number): StrategyRecor
   };
 }
 
+function resolveRuntimeMarket(markets: readonly PackageMarket[], marketId: string): PackageMarket {
+  const market = markets.find((candidate) => candidate.id === marketId);
+  if (!market) {
+    throw new Error(`Unknown runtime market: ${marketId}`);
+  }
+  return market;
+}
+
 function runtimePosition(
   execution: ExecutionPosition,
   snapshot: GatewaySnapshot,
+  markets: readonly PackageMarket[],
 ): Position {
-  const market = findMarket(execution.marketId);
+  const market = resolveRuntimeMarket(markets, execution.marketId);
   const openingReceipt = snapshot.executions.find(
     (candidate) =>
       candidate.result.outcome === "OPENED" && candidate.result.position?.id === execution.id,
@@ -159,8 +168,8 @@ export interface RuntimePortfolio {
   };
 }
 
-export function portfolioRuntime(snapshot: GatewaySnapshot): RuntimePortfolio {
-  const runtimePositions = snapshot.positions.map((position) => runtimePosition(position, snapshot));
+export function portfolioRuntime(snapshot: GatewaySnapshot, markets: readonly PackageMarket[]): RuntimePortfolio {
+  const runtimePositions = snapshot.positions.map((position) => runtimePosition(position, snapshot, markets));
   const positions = [
     ...runtimePositions,
     ...POSITIONS.map((position) => ({

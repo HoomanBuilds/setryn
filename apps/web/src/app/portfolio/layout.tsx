@@ -3,12 +3,14 @@
 import type { ReactNode } from "react";
 import { useGatewaySnapshot } from "@/components/gateway/InternalGatewayProvider";
 import { PortfolioNav } from "@/components/portfolio/PortfolioNav";
+import { usePreviewBoard } from "@/components/terminal/PreviewMarketProvider";
 import { MetaLine } from "@/components/terminal/primitives";
 import { portfolioRuntime, runtimeObservationLabel } from "@/lib/portfolio/runtime";
 
 export default function PortfolioLayout({ children }: { children: ReactNode }) {
   const snapshot = useGatewaySnapshot();
-  const portfolio = portfolioRuntime(snapshot);
+  const { markets } = usePreviewBoard();
+  const portfolio = portfolioRuntime(snapshot, markets);
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-app">

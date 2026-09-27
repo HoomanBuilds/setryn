@@ -1,6 +1,6 @@
 import type { ExecutionPosition, GatewaySnapshot } from "@/lib/internal-gateway/types";
-import { findMarket, packageLabel } from "@/lib/terminal/markets";
-import type { LegFamily } from "@/lib/terminal/types";
+import { packageLabel } from "@/lib/terminal/markets";
+import type { LegFamily, PackageMarket } from "@/lib/terminal/types";
 import type { LifecycleLeg, LifecycleProposal, LifecycleStrategy } from "./types";
 
 function roleForFamily(family: LegFamily): string {
@@ -39,12 +39,23 @@ function round1(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
-export function runtimeLifecycleStrategies(snapshot: GatewaySnapshot): readonly LifecycleStrategy[] {
+function resolveRuntimeMarket(markets: readonly PackageMarket[], marketId: string): PackageMarket {
+  const market = markets.find((candidate) => candidate.id === marketId);
+  if (!market) {
+    throw new Error(`Unknown runtime market: ${marketId}`);
+  }
+  return market;
+}
+
+export function runtimeLifecycleStrategies(
+  snapshot: GatewaySnapshot,
+  markets: readonly PackageMarket[],
+): readonly LifecycleStrategy[] {
   const environmentLabel = snapshot.environment.label;
   const evidenceLabel = snapshot.environment.evidence;
 
-  return snapshot.positions.filter((position) => findMarket(position.marketId).id === position.marketId).map((position) => {
-    const market = findMarket(position.marketId);
+  return snapshot.positions.map((position) => {
+    const market = resolveRuntimeMarket(markets, position.marketId);
     const receipt = receiptForPosition(snapshot, position);
     const direction = position.side === "LONG" ? 1 : -1;
     const markPrice = market.netPrice;

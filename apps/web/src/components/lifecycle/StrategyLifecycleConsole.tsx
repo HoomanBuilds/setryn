@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { MetaLine, SectionLabel, Tabs } from "@/components/terminal/primitives";
 import { useGatewaySnapshot } from "@/components/gateway/InternalGatewayProvider";
+import { usePreviewBoard } from "@/components/terminal/PreviewMarketProvider";
 import { LIFECYCLE_STRATEGIES } from "@/lib/lifecycle/fixtures";
 import { runtimeLifecycleStrategies } from "@/lib/lifecycle/runtime";
 import type {
@@ -653,7 +654,8 @@ function OperationsRail({ strategy }: { strategy: LifecycleStrategy }) {
 
 export function StrategyLifecycleConsole() {
   const snapshot = useGatewaySnapshot();
-  const runtimeStrategies = useMemo(() => runtimeLifecycleStrategies(snapshot), [snapshot]);
+  const { markets } = usePreviewBoard();
+  const runtimeStrategies = useMemo(() => runtimeLifecycleStrategies(snapshot, markets), [snapshot, markets]);
   const strategies = useMemo(
     () => [...runtimeStrategies, ...LIFECYCLE_STRATEGIES],
     [runtimeStrategies],

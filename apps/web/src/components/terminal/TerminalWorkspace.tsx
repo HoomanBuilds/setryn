@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useGatewaySnapshot, useInternalGateway } from "@/components/gateway/InternalGatewayProvider";
-import { usePreviewMarket } from "@/components/terminal/PreviewMarketProvider";
+import { usePreviewBoard, usePreviewMarket } from "@/components/terminal/PreviewMarketProvider";
 import { AnalysisPanel, type VizTab } from "@/components/terminal/AnalysisPanel";
 import { ConsolePanel } from "@/components/terminal/ConsolePanel";
 import { ContractSpec, MarketHeader, MarketStatGrid } from "@/components/terminal/MarketHeader";
@@ -106,6 +106,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   /* Shared coherent preview feed: one tick drives every market, so the
      terminal never owns a page-local interval or stream. */
   const { liveMarket, previewEpochSeconds } = usePreviewMarket(market.id);
+  const { markets } = usePreviewBoard();
 
   /* A route change repoints the ticket during the same render, so a limit price
      from the previous market is never painted under the new one. View
@@ -418,6 +419,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         >
           <ConsolePanel
             market={liveMarket}
+            markets={markets}
             tab={consoleTab}
             onTab={setConsoleTab}
             scoped={consoleScoped}
