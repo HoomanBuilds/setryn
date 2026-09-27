@@ -1,7 +1,7 @@
 # Setryn Project Workflow
 
 - The primary agent owns architecture, task decomposition, reviews, and handoffs.
-- Use Codex sub-agents for implementation. Do not use Claude CLI.
+- Use OpenCode with Muse 1.3 at xhigh for implementation. Do not use Claude CLI or Codex sub-agents for implementation.
 - Parallelize independent slices and keep file ownership separate to avoid conflicts.
 - Prioritize product progression over exhaustive testing.
 - Accumulate bounded implementation slices within the active phase. Review and run the phase verification gate only after the phase deliverables are complete.
