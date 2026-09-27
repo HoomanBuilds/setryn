@@ -314,6 +314,8 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         const restingOrder = await gateway.placeRestingOrder(authorization);
         setExecution({ status: "RESTING", updates: [], authorization, restingOrder });
         setStage({ kind: "RESTING", reference, orderId: restingOrder.id });
+        setConsoleTab("orders");
+        setConsoleScoped(true);
         return;
       }
 
@@ -341,12 +343,17 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     setExecution({ status: "IDLE", updates: [] });
   }, []);
 
+  const cancelRestingOrderById = useCallback(
+    (orderId: string) => gateway.cancelRestingOrder(orderId),
+    [gateway],
+  );
+
   const onCancelResting = useCallback(async () => {
     if (stage.kind !== "RESTING") return;
     const reference = stage.reference;
     const orderId = stage.orderId;
     try {
-      await gateway.cancelRestingOrder(orderId);
+      await cancelRestingOrderById(orderId);
     } catch (error) {
       const message = executionError(error);
       setExecution((current) => ({ ...current, status: "FAILED", error: message }));
@@ -355,7 +362,22 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     }
     setStage({ kind: "IDLE" });
     setExecution({ status: "IDLE", updates: [] });
-  }, [gateway, stage]);
+  }, [cancelRestingOrderById, stage]);
+
+  const onCancelConsoleRestingOrder = useCallback(
+    async (orderId: string) => {
+      try {
+        await cancelRestingOrderById(orderId);
+      } catch {
+        return;
+      }
+      if (stage.kind === "RESTING" && stage.orderId === orderId) {
+        setStage({ kind: "IDLE" });
+        setExecution({ status: "IDLE", updates: [] });
+      }
+    },
+    [cancelRestingOrderById, stage],
+  );
 
   const show = (tab: MobileTab) => (mobileTab === tab ? "flex" : "hidden");
   const activePrice = Number.parseFloat(ticket.limitInput);
@@ -456,6 +478,8 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
             onScopedChange={setConsoleScoped}
             runtimePositions={gatewaySnapshot.positions}
             runtimeReceipts={gatewaySnapshot.receipts}
+            runtimeRestingOrders={gatewaySnapshot.restingOrders}
+            onCancelRestingOrder={onCancelConsoleRestingOrder}
           />
         </div>
       </main>

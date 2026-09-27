@@ -15,7 +15,11 @@ import {
 import { findMarket, packageLabel } from "@/lib/terminal/markets";
 import { strategyPnl } from "@/lib/portfolio/model";
 import type { ConsoleTabId, PackageMarket, ReceiptRecord, StrategyRecord } from "@/lib/terminal/types";
-import type { ExecutionPosition, ExecutionReceipt } from "@/lib/internal-gateway/types";
+import type {
+  ExecutionPosition,
+  ExecutionReceipt,
+  RestingPackageOrder,
+} from "@/lib/internal-gateway/types";
 
 const ADVERSE = new Set(["REJECTED", "SUBMISSION_UNKNOWN", "RECONCILING", "EXPIRED", "CANCELLED"]);
 
@@ -91,6 +95,8 @@ export function ConsolePanel({
   onScopedChange,
   runtimePositions = [],
   runtimeReceipts = [],
+  runtimeRestingOrders = [],
+  onCancelRestingOrder,
 }: {
   market: PackageMarket;
   markets: readonly PackageMarket[];
@@ -100,6 +106,8 @@ export function ConsolePanel({
   onScopedChange: (scoped: boolean) => void;
   runtimePositions?: ExecutionPosition[];
   runtimeReceipts?: ExecutionReceipt[];
+  runtimeRestingOrders?: RestingPackageOrder[];
+  onCancelRestingOrder?: (orderId: string) => void;
 }) {
   const runtimeStrategies: StrategyRecord[] = runtimePositions.map((position) => ({
     id: position.id,
@@ -130,6 +138,7 @@ export function ConsolePanel({
 
   const runtimeStrategyIds = new Set(runtimeStrategies.map((strategy) => strategy.id));
   const strategies = keep([...runtimeStrategies, ...CONSOLE.strategies]);
+  const runtimeRestingOrderRows = keep(runtimeRestingOrders);
   const orders = keep(CONSOLE.orders);
   const rfqs = keep(CONSOLE.rfqs);
   const fills = keep(CONSOLE.fills);
@@ -138,7 +147,7 @@ export function ConsolePanel({
 
   const counts: Record<ConsoleTabId, number> = {
     strategies: strategies.length,
-    orders: orders.length,
+    orders: runtimeRestingOrderRows.length + orders.length,
     rfqs: rfqs.length,
     fills: fills.length,
     recovery: recovery.length,
@@ -235,7 +244,7 @@ export function ConsolePanel({
         ) : null}
 
         {tab === "orders" ? (
-          orders.length === 0 ? (
+          runtimeRestingOrderRows.length + orders.length === 0 ? (
             empty
           ) : (
             <Table
@@ -252,6 +261,48 @@ export function ConsolePanel({
                 { label: "Detail" },
               ]}
             >
+              {runtimeRestingOrderRows.map((order) => {
+                const rowMarket = resolveRuntimeConsoleMarket(markets, order.marketId);
+                const unit = priceUnitSuffix(rowMarket.priceUnit);
+                const cancellable = order.state === "WORKING" && onCancelRestingOrder;
+                return (
+                  <Tr key={order.id} highlight={!scoped && order.marketId === market.id}>
+                    <td className={`${TD} tnum font-mono whitespace-nowrap text-faint`}>{order.id}</td>
+                    <td className={`${TD} whitespace-nowrap text-ink`}>{packageLabel(rowMarket)}</td>
+                    <td className={`${TD} whitespace-nowrap text-dim`}>
+                      {order.side === "ENTER" ? "Enter" : "Exit"}
+                    </td>
+                    <td className={NUM}>
+                      {`${formatLots(0)} / ${formatLots(order.lots)}`}
+                    </td>
+                    <td className={NUM}>
+                      {`${formatNumber(order.limitPrice, rowMarket.priceDecimals)} ${unit}`}
+                    </td>
+                    <td className={`${TD} tnum font-mono whitespace-nowrap text-dim`}>
+                      {order.timeInForce}
+                    </td>
+                    <td className={`${TD} whitespace-nowrap text-dim`}>{order.routeLabel}</td>
+                    <td className={`${TD} whitespace-nowrap`}>
+                      <State value={order.state} />
+                    </td>
+                    <td className={`${TD} text-faint`}>
+                      <span className="flex items-start justify-between gap-2">
+                        <span>LOCAL_DEMO resting order. No fill, receipt, or position.</span>
+                        {cancellable ? (
+                          <button
+                            type="button"
+                            aria-label={`Cancel ${order.id}`}
+                            onClick={() => onCancelRestingOrder?.(order.id)}
+                            className="focus-ring shrink-0 rounded-sm border border-line px-1.5 py-0.5 text-[11px] text-dim transition-colors hover:text-ink"
+                          >
+                            Cancel
+                          </button>
+                        ) : null}
+                      </span>
+                    </td>
+                  </Tr>
+                );
+              })}
               {orders.map((row) => (
                 <Tr key={row.id} highlight={!scoped && row.marketId === market.id}>
                   <td className={`${TD} tnum font-mono whitespace-nowrap text-faint`}>{row.id}</td>
