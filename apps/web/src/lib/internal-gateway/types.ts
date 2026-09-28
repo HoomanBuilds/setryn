@@ -146,6 +146,8 @@ export interface SignedOrderAuthorization {
 
 export type RfqRequestState = "OPEN" | "SELECTED" | "CANCELLED" | "EXECUTED";
 
+export type RfqQuoteProvenance = "SEEDED_SOLVER" | "LOCAL_DEMO";
+
 export interface FirmRfqQuote {
   id: string;
   solverLabel: string;
@@ -154,6 +156,14 @@ export interface FirmRfqQuote {
   capacityLots: number;
   expiresAt: string;
   settlementGuarantee: string;
+  provenance: RfqQuoteProvenance;
+}
+
+export interface LocalMakerQuoteInput {
+  packagePrice: number;
+  capacityLots: number;
+  feeCap: number;
+  ttlSeconds: number;
 }
 
 export interface RfqRequest {
@@ -238,5 +248,7 @@ export interface InternalTradingGateway {
   selectRfqQuote(requestId: string, quoteId: string): Promise<RfqRequest>;
   cancelRfq(requestId: string): Promise<RfqRequest>;
   completeRfq(requestId: string, receiptId: string): Promise<RfqRequest>;
+  submitLocalMakerQuote(requestId: string, input: LocalMakerQuoteInput): Promise<RfqRequest>;
+  withdrawLocalMakerQuote(requestId: string): Promise<RfqRequest>;
   getReceipt(receiptId: string): ExecutionReceipt | null;
 }

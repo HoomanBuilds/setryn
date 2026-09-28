@@ -88,7 +88,14 @@ export function RfqQuotePanel({
           {rfqRequest.quotes.map((quote) => (
             <li key={quote.id} className="px-3 py-2">
               <div className="flex items-baseline justify-between gap-2">
-                <span className="text-xs text-ink">{quote.solverLabel}</span>
+                <span className="text-xs text-ink">
+                  {quote.solverLabel}
+                  {quote.provenance === "LOCAL_DEMO" ? (
+                    <span className="ml-2 border border-line px-1 font-mono text-[10px] text-dim">
+                      LOCAL_DEMO
+                    </span>
+                  ) : null}
+                </span>
                 <span className="tnum font-mono text-xs text-ink">
                   {`${formatNumber(quote.packagePrice, market.priceDecimals)} ${unit}`}
                 </span>
@@ -176,6 +183,11 @@ export function RfqQuotePanel({
                 <div className="flex items-baseline justify-between gap-2">
                   <span className="text-xs text-ink">
                     {isSelected ? `Selected · ${quote.solverLabel}` : quote.solverLabel}
+                    {quote.provenance === "LOCAL_DEMO" ? (
+                      <span className="ml-2 border border-line px-1 font-mono text-[10px] text-dim">
+                        LOCAL_DEMO
+                      </span>
+                    ) : null}
                   </span>
                   <span className="tnum font-mono text-xs text-ink">
                     {`${formatNumber(quote.packagePrice, market.priceDecimals)} ${unit}`}
@@ -250,7 +262,14 @@ export function RfqQuotePanel({
           return (
             <li key={quote.id} className="px-3 py-2">
               <div className="flex items-baseline justify-between gap-2">
-                <span className="text-xs text-ink">{quote.solverLabel}</span>
+                <span className="text-xs text-ink">
+                  {quote.solverLabel}
+                  {quote.provenance === "LOCAL_DEMO" ? (
+                    <span className="ml-2 border border-line px-1 font-mono text-[10px] text-dim">
+                      LOCAL_DEMO
+                    </span>
+                  ) : null}
+                </span>
                 <span className="tnum font-mono text-xs text-ink">
                   {`${formatNumber(quote.packagePrice, market.priceDecimals)} ${unit}`}
                 </span>

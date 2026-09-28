@@ -7,9 +7,11 @@ import type {
   GatewayExecution,
   GatewaySnapshot,
   InternalTradingGateway,
+  LocalMakerQuoteInput,
   PackageExecutionResult,
   PackageOrderIntent,
   RestingPackageOrder,
+  RfqQuoteProvenance,
   RfqRequest,
   SignedOrderAuthorization,
   SubmissionUpdate,
@@ -248,6 +250,13 @@ function restoreSnapshot(): GatewaySnapshot {
               candidateQuote.settlementGuarantee.length === 0
             )
               return false;
+            const provenance = (candidateQuote as { provenance?: unknown }).provenance;
+            if (
+              provenance !== undefined &&
+              provenance !== "SEEDED_SOLVER" &&
+              provenance !== "LOCAL_DEMO"
+            )
+              return false;
             return true;
           });
           if (!quotesValid) return false;
@@ -275,6 +284,21 @@ function restoreSnapshot(): GatewaySnapshot {
             if (candidate.receiptId !== null) return false;
           }
           return true;
+        })
+        .map((request) => {
+          const typed = request as RfqRequest;
+          return {
+            ...typed,
+            quotes: typed.quotes.map((quote) => {
+              const provenance = (quote as Partial<FirmRfqQuote>).provenance as
+                | RfqQuoteProvenance
+                | undefined;
+              if (provenance === "LOCAL_DEMO" || provenance === "SEEDED_SOLVER") {
+                return { ...quote, provenance };
+              }
+              return { ...quote, provenance: "SEEDED_SOLVER" as RfqQuoteProvenance };
+            }),
+          };
         })
       : [];
     return {
@@ -1039,7 +1063,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
     if (intent.routeId !== "SOLVER_RFQ") {
       throw new Error("RFQ_REQUIRES_SOLVER_ROUTE");
     }
-    const expiresAt = new Date(Date.now() + 45_000).toISOString();
+    const expiresAt = new Date(Date.now() + 300_000).toISOString();
     const createdAt = new Date().toISOString();
     const requestId = identifier("RFQ");
     const isEnter = intent.side === "ENTER";
@@ -1058,6 +1082,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
         feeCap: northstarFeeCap,
         settlementGuarantee: intent.settlementGuarantee,
         expiresAt,
+        provenance: "SEEDED_SOLVER",
       },
       {
         id: identifier("QTE"),
@@ -1067,6 +1092,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
         feeCap: meridianFeeCap,
         settlementGuarantee: intent.settlementGuarantee,
         expiresAt,
+        provenance: "SEEDED_SOLVER",
       },
     ];
     const request: RfqRequest = {
@@ -1101,6 +1127,9 @@ export class DemoTradingGateway implements InternalTradingGateway {
     if (!quote) throw new Error("RFQ_QUOTE_NOT_FOUND");
     if (Date.parse(target.expiresAt) <= Date.now() || Date.parse(quote.expiresAt) <= Date.now()) {
       throw new Error("RFQ_EXPIRED");
+    }
+    if (quote.capacityLots + 1e-9 < target.authorization.intent.lots) {
+      throw new Error("RFQ_CAPACITY_EXCEEDED");
     }
     const selected: RfqRequest = {
       ...target,
@@ -1164,6 +1193,103 @@ export class DemoTradingGateway implements InternalTradingGateway {
       ),
     });
     return completed;
+  }
+
+  async submitLocalMakerQuote(
+    requestId: string,
+    input: LocalMakerQuoteInput,
+  ): Promise<RfqRequest> {
+    this.assertWritableEnvironment();
+    const existingRequests = Array.isArray(this.snapshot.rfqRequests)
+      ? this.snapshot.rfqRequests
+      : [];
+    const target = existingRequests.find((request) => request.id === requestId);
+    if (!target) throw new Error("RFQ_NOT_FOUND");
+    if (target.state !== "OPEN") throw new Error("RFQ_NOT_OPEN");
+    if (Date.parse(target.expiresAt) <= Date.now()) throw new Error("RFQ_EXPIRED");
+    if (!Number.isFinite(input.packagePrice) || input.packagePrice <= 0) {
+      throw new Error("INVALID_PACKAGE_PRICE");
+    }
+    if (!Number.isFinite(input.feeCap) || input.feeCap < 0) {
+      throw new Error("INVALID_FEE_CAP");
+    }
+    if (!Number.isFinite(input.capacityLots) || input.capacityLots <= 0) {
+      throw new Error("INVALID_CAPACITY");
+    }
+    if (!Number.isFinite(input.ttlSeconds) || input.ttlSeconds < 5 || input.ttlSeconds > 45) {
+      throw new Error("INVALID_TTL");
+    }
+    const settlementGuarantee = target.authorization.intent.settlementGuarantee;
+    if (typeof settlementGuarantee !== "string" || settlementGuarantee.length === 0) {
+      throw new Error("RFQ_GUARANTEE_MISSING");
+    }
+    const ttlExpiresAt = Date.now() + Math.floor(input.ttlSeconds * 1000);
+    const requestExpiresAt = Date.parse(target.expiresAt);
+    const quoteExpiresAt = new Date(Math.min(ttlExpiresAt, requestExpiresAt)).toISOString();
+    const quote: FirmRfqQuote = {
+      id: identifier("QTE"),
+      solverLabel: "Local demo maker",
+      packagePrice: input.packagePrice,
+      feeCap: input.feeCap,
+      capacityLots: input.capacityLots,
+      expiresAt: quoteExpiresAt,
+      settlementGuarantee,
+      provenance: "LOCAL_DEMO",
+    };
+    const seeded = target.quotes.filter((candidate) => {
+      const provenance = (candidate as Partial<FirmRfqQuote>).provenance;
+      return provenance !== "LOCAL_DEMO";
+    });
+    const normalizedSeeded = seeded.map((candidate) => {
+      if (candidate.provenance === "SEEDED_SOLVER" || candidate.provenance === "LOCAL_DEMO") {
+        return candidate;
+      }
+      return { ...candidate, provenance: "SEEDED_SOLVER" as RfqQuoteProvenance };
+    });
+    const updated: RfqRequest = {
+      ...target,
+      quotes: [...normalizedSeeded, quote],
+    };
+    this.publish({
+      ...this.snapshot,
+      rfqRequests: existingRequests.map((request) =>
+        request.id === requestId ? updated : request,
+      ),
+    });
+    return updated;
+  }
+
+  async withdrawLocalMakerQuote(requestId: string): Promise<RfqRequest> {
+    this.assertWritableEnvironment();
+    const existingRequests = Array.isArray(this.snapshot.rfqRequests)
+      ? this.snapshot.rfqRequests
+      : [];
+    const target = existingRequests.find((request) => request.id === requestId);
+    if (!target) throw new Error("RFQ_NOT_FOUND");
+    if (target.state !== "OPEN") throw new Error("RFQ_NOT_OPEN");
+    if (Date.parse(target.expiresAt) <= Date.now()) throw new Error("RFQ_EXPIRED");
+    const owned = target.quotes.filter((candidate) => candidate.provenance === "LOCAL_DEMO");
+    const legacyOwned =
+      owned.length > 0
+        ? owned
+        : target.quotes.filter(
+            (candidate) =>
+              candidate.solverLabel === "Local demo maker" &&
+              (candidate as Partial<FirmRfqQuote>).provenance === undefined,
+          );
+    if (legacyOwned.length === 0) throw new Error("RFQ_QUOTE_NOT_FOUND");
+    const ownedIds = new Set(legacyOwned.map((candidate) => candidate.id));
+    const updated: RfqRequest = {
+      ...target,
+      quotes: target.quotes.filter((candidate) => !ownedIds.has(candidate.id)),
+    };
+    this.publish({
+      ...this.snapshot,
+      rfqRequests: existingRequests.map((request) =>
+        request.id === requestId ? updated : request,
+      ),
+    });
+    return updated;
   }
 
   getReceipt(receiptId: string) {

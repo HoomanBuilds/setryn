@@ -1,8 +1,11 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { CirclePause, CirclePlay, ShieldAlert, SlidersHorizontal } from "lucide-react";
-import { useGatewaySnapshot } from "@/components/gateway/InternalGatewayProvider";
+import {
+  useGatewaySnapshot,
+  useInternalGateway,
+} from "@/components/gateway/InternalGatewayProvider";
 import { makerCockpitSnapshot } from "@/lib/maker/fixtures";
 import type {
   CapacityKind,
@@ -12,6 +15,10 @@ import type {
   QuoteLevel,
   QuoteSessionState,
 } from "@/lib/maker/types";
+import type {
+  FirmRfqQuote,
+  RfqRequest as GatewayRfqRequest,
+} from "@/lib/internal-gateway/types";
 
 const money = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -259,10 +266,53 @@ function QuotePolicy({
   );
 }
 
-function RfqQueue({ selectedSeries }: { selectedSeries: string }) {
+function makerQuoteError(error: unknown): string {
+  if (!(error instanceof Error)) return "Local quote failed.";
+  if (error.message === "INVALID_PACKAGE_PRICE") return "Package price must be positive.";
+  if (error.message === "INVALID_FEE_CAP") return "Fee cap must be zero or more.";
+  if (error.message === "INVALID_CAPACITY") return "Capacity must be positive.";
+  if (error.message === "INVALID_TTL") return "TTL must be 5 to 45 seconds.";
+  if (error.message === "RFQ_NOT_FOUND") return "Request not found.";
+  if (error.message === "RFQ_NOT_OPEN") return "Request is not open.";
+  if (error.message === "RFQ_EXPIRED") return "Request expired.";
+  if (error.message === "RFQ_QUOTE_NOT_FOUND") return "Local quote not found.";
+  return "Local quote failed.";
+}
+
+function localMakerQuote(request: GatewayRfqRequest): FirmRfqQuote | null {
+  return request.quotes.find((quote) => quote.provenance === "LOCAL_DEMO") ?? null;
+}
+
+function RfqQueue({
+  selectedSeries,
+  sessionPaused,
+  riskPaused,
+  defaultTtl,
+  onNotice,
+}: {
+  selectedSeries: string;
+  sessionPaused: boolean;
+  riskPaused: boolean;
+  defaultTtl: number;
+  onNotice: (message: string) => void;
+}) {
   const requests = makerCockpitSnapshot.rfqs.filter((rfq) => rfq.seriesId === selectedSeries);
   const series = makerCockpitSnapshot.series.find((item) => item.id === selectedSeries);
   const snapshot = useGatewaySnapshot();
+  const gateway = useInternalGateway();
+  const [now, setNow] = useState(() => Date.now());
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [priceInput, setPriceInput] = useState("");
+  const [capacityInput, setCapacityInput] = useState("");
+  const [feeCapInput, setFeeCapInput] = useState("");
+  const [ttlInput, setTtlInput] = useState("");
+  const [working, setWorking] = useState(false);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   const localRequests = useMemo(
     () =>
       [...snapshot.rfqRequests]
@@ -271,6 +321,66 @@ function RfqQueue({ selectedSeries }: { selectedSeries: string }) {
     [snapshot.rfqRequests, selectedSeries],
   );
   const runtimeOrigin = snapshot.environment.label;
+
+  const openTicket = (request: GatewayRfqRequest) => {
+    const intent = request.authorization.intent;
+    const existing = localMakerQuote(request);
+    setPriceInput(String(existing ? existing.packagePrice : intent.limitPrice));
+    setCapacityInput(String(existing ? existing.capacityLots : intent.lots));
+    setFeeCapInput(String(existing ? existing.feeCap : intent.feeCap));
+    const clampedTtl = Math.min(45, Math.max(5, Math.round(defaultTtl)));
+    setTtlInput(String(clampedTtl));
+    setActiveId(request.id);
+  };
+
+  const closeTicket = () => {
+    if (working) return;
+    setActiveId(null);
+  };
+
+  const submitTicket = async (request: GatewayRfqRequest) => {
+    const existing = localMakerQuote(request);
+    const isReprice = existing !== null;
+    const packagePrice = Number(priceInput);
+    const capacityLots = Number(capacityInput);
+    const feeCap = Number(feeCapInput);
+    const ttlSeconds = Number(ttlInput);
+    if (working) return;
+    setWorking(true);
+    try {
+      const updated = await gateway.submitLocalMakerQuote(request.id, {
+        packagePrice,
+        capacityLots,
+        feeCap,
+        ttlSeconds,
+      });
+      const posted = localMakerQuote(updated);
+      setActiveId(null);
+      onNotice(
+        isReprice
+          ? `Local quote repriced for ${request.id} at ${posted ? posted.packagePrice : packagePrice}.`
+          : `Local quote posted for ${request.id} at ${posted ? posted.packagePrice : packagePrice}.`,
+      );
+    } catch (error) {
+      onNotice(makerQuoteError(error));
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const withdrawQuote = async (request: GatewayRfqRequest) => {
+    if (working) return;
+    setWorking(true);
+    try {
+      await gateway.withdrawLocalMakerQuote(request.id);
+      if (activeId === request.id) setActiveId(null);
+      onNotice(`Local quote withdrawn for ${request.id}.`);
+    } catch (error) {
+      onNotice(makerQuoteError(error));
+    } finally {
+      setWorking(false);
+    }
+  };
 
   return (
     <div>
@@ -313,14 +423,11 @@ function RfqQueue({ selectedSeries }: { selectedSeries: string }) {
       </div>
       <div className="border-t border-line">
         <div className="flex items-center justify-between gap-3 border-b border-line-soft px-3 py-2 lg:px-4">
-          <span className="text-[10px] tracking-[0.07em] text-faint uppercase">Local user RFQs · read-only</span>
+          <span className="text-[10px] tracking-[0.07em] text-faint uppercase">Local user RFQs</span>
           <span className="tnum font-mono text-xs text-dim">{localRequests.length}</span>
         </div>
-        <p className="border-b border-line-soft px-3 py-2 text-[10px] leading-snug text-off lg:px-4">
-          Private RFQ records from {runtimeOrigin}; visible here for context only. This screen does not control, create, or clear them.
-        </p>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] border-collapse text-left">
+          <table className="w-full min-w-[760px] border-collapse text-left">
             <caption className="sr-only">Local user private RFQ records for the selected series</caption>
             <thead className="border-b border-line bg-inset text-[10px] tracking-[0.07em] text-faint uppercase">
               <tr>
@@ -328,45 +435,175 @@ function RfqQueue({ selectedSeries }: { selectedSeries: string }) {
                 <th className="h-8 px-2 font-medium">Side</th>
                 <th className="h-8 px-2 text-right font-medium">Lots</th>
                 <th className="h-8 px-2 font-medium">State</th>
-                <th className="h-8 px-2 text-right font-medium">Expiry / terminal</th>
-                <th className="h-8 px-3 text-right font-medium lg:px-4">Selected solver</th>
+                <th className="h-8 px-2 text-right font-medium">Request expiry</th>
+                <th className="h-8 px-2 text-right font-medium">Local quote</th>
+                <th className="h-8 px-3 text-right font-medium lg:px-4">Actions</th>
               </tr>
             </thead>
             <tbody>
               {localRequests.length > 0 ? localRequests.map((request) => {
-                const sideLabel = request.authorization.intent.side === "ENTER" ? "Enter" : "Exit";
-                const lotsLabel = `${request.authorization.intent.lots}`;
-                const selectedQuote = request.selectedQuoteId
-                  ? (request.quotes.find((quote) => quote.id === request.selectedQuoteId) ?? null)
-                  : null;
+                const intent = request.authorization.intent;
+                const sideLabel = intent.side === "ENTER" ? "Enter" : "Exit";
                 const isTerminal = request.state === "EXECUTED" || request.state === "CANCELLED";
-                const expired = Date.parse(request.expiresAt) <= Date.now();
+                const requestExpired = Date.parse(request.expiresAt) <= now;
+                const requestOpen = request.state === "OPEN" && !requestExpired;
+                const secondsLeft = Math.max(0, Math.ceil((Date.parse(request.expiresAt) - now) / 1000));
                 const expiryLabel = isTerminal
                   ? (request.state === "EXECUTED"
-                    ? (request.receiptId ? `Executed · ${request.receiptId}` : "Executed")
+                    ? (request.receiptId ? `Executed ${request.receiptId}` : "Executed")
                     : "Cancelled")
-                  : (expired ? "Expired" : new Date(request.expiresAt).toLocaleTimeString());
+                  : (requestExpired ? "Expired" : `${secondsLeft}s`);
+                const owned = localMakerQuote(request);
+                const ownedExpired = owned ? Date.parse(owned.expiresAt) <= now : false;
+                const ownedLeft = owned ? Math.max(0, Math.ceil((Date.parse(owned.expiresAt) - now) / 1000)) : 0;
+                const blockReason = sessionPaused
+                  ? "Session paused"
+                  : riskPaused
+                    ? "Risk paused"
+                    : !requestOpen
+                      ? (request.state !== "OPEN" ? `Request ${request.state.toLowerCase()}` : "Request expired")
+                      : null;
+                const quoteDisabled = blockReason !== null || working;
+                const isActive = activeId === request.id;
                 return (
-                  <tr key={request.id} className="border-b border-line-soft last:border-0 hover:bg-raised/55">
-                    <td className="h-11 px-3 lg:px-4">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs text-ink">{request.id}</span>
-                        <OriginTag label={runtimeOrigin.toUpperCase()} />
-                      </div>
-                      <span className="mt-0.5 block text-[10px] text-off">{runtimeOrigin}</span>
-                    </td>
-                    <td className="px-2 font-mono text-xs text-dim">{sideLabel}</td>
-                    <td className="tnum px-2 text-right font-mono text-xs text-dim">{lotsLabel}</td>
-                    <td className="px-2 font-mono text-xs text-dim">{request.state}</td>
-                    <td className="tnum px-2 text-right font-mono text-xs text-dim">{expiryLabel}</td>
-                    <td className="tnum px-3 text-right font-mono text-xs text-dim lg:px-4">
-                      {selectedQuote ? selectedQuote.solverLabel : "-"}
-                    </td>
-                  </tr>
+                  <Fragment key={request.id}>
+                    <tr className="border-b border-line-soft last:border-0 hover:bg-raised/55">
+                      <td className="h-11 px-3 lg:px-4">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs text-ink">{request.id}</span>
+                          <OriginTag label={runtimeOrigin.toUpperCase()} />
+                        </div>
+                        <span className="mt-0.5 block text-[10px] text-off">{intent.packageCode}</span>
+                      </td>
+                      <td className="px-2 font-mono text-xs text-dim">{sideLabel}</td>
+                      <td className="tnum px-2 text-right font-mono text-xs text-dim">{intent.lots}</td>
+                      <td className="px-2 font-mono text-xs text-dim">{requestExpired && request.state === "OPEN" ? "OPEN" : request.state}</td>
+                      <td className="tnum px-2 text-right font-mono text-xs text-dim">{expiryLabel}</td>
+                      <td className="px-2 text-right">
+                        {owned ? (
+                          <span>
+                            <span className="tnum font-mono text-xs text-ink">{owned.packagePrice}</span>
+                            <span className="tnum ml-2 font-mono text-[11px] text-dim">{owned.capacityLots} lots</span>
+                            <span className="mt-0.5 block font-mono text-[10px] text-off">
+                              {owned.feeCap} cap · {ownedExpired ? "Expired" : `${ownedLeft}s`} · LOCAL_DEMO
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="font-mono text-xs text-faint">-</span>
+                        )}
+                      </td>
+                      <td className="px-3 lg:px-4">
+                        <span className="flex items-center justify-end gap-1.5">
+                          {owned ? (
+                            <>
+                              <button
+                                type="button"
+                                disabled={quoteDisabled}
+                                title={blockReason ?? "Replace local quote"}
+                                onClick={() => openTicket(request)}
+                                className="focus-ring h-7 cursor-pointer border border-line px-2 font-mono text-[11px] text-ink transition-colors hover:border-line-strong disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Reprice
+                              </button>
+                              <button
+                                type="button"
+                                disabled={!requestOpen || working}
+                                title={!requestOpen ? "Request not open" : "Withdraw local quote"}
+                                onClick={() => withdrawQuote(request)}
+                                className="focus-ring h-7 cursor-pointer border border-line px-2 font-mono text-[11px] text-dim transition-colors hover:border-line-strong hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Withdraw
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={quoteDisabled}
+                              title={blockReason ?? "Quote this request"}
+                              onClick={() => openTicket(request)}
+                              className="focus-ring h-7 cursor-pointer border border-line px-2 font-mono text-[11px] text-ink transition-colors hover:border-line-strong disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Quote
+                            </button>
+                          )}
+                        </span>
+                        {blockReason ? (
+                          <span className="mt-1 block text-right text-[10px] text-off">{blockReason}</span>
+                        ) : null}
+                      </td>
+                    </tr>
+                    {isActive && requestOpen ? (
+                      <tr key={`${request.id}-ticket`} className="border-b border-line-soft bg-inset">
+                        <td colSpan={7} className="px-3 py-2 lg:px-4">
+                          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                            <label className="grid gap-1">
+                              <span className="text-[10px] tracking-[0.06em] text-faint uppercase">Package price</span>
+                              <input
+                                value={priceInput}
+                                onChange={(event) => setPriceInput(event.target.value)}
+                                inputMode="decimal"
+                                className="focus-ring h-8 border border-line bg-panel px-2 font-mono text-xs text-ink"
+                                aria-label="Package price"
+                              />
+                            </label>
+                            <label className="grid gap-1">
+                              <span className="text-[10px] tracking-[0.06em] text-faint uppercase">Capacity lots</span>
+                              <input
+                                value={capacityInput}
+                                onChange={(event) => setCapacityInput(event.target.value)}
+                                inputMode="decimal"
+                                className="focus-ring h-8 border border-line bg-panel px-2 font-mono text-xs text-ink"
+                                aria-label="Capacity lots"
+                              />
+                            </label>
+                            <label className="grid gap-1">
+                              <span className="text-[10px] tracking-[0.06em] text-faint uppercase">Fee cap</span>
+                              <input
+                                value={feeCapInput}
+                                onChange={(event) => setFeeCapInput(event.target.value)}
+                                inputMode="decimal"
+                                className="focus-ring h-8 border border-line bg-panel px-2 font-mono text-xs text-ink"
+                                aria-label="Fee cap"
+                              />
+                            </label>
+                            <label className="grid gap-1">
+                              <span className="text-[10px] tracking-[0.06em] text-faint uppercase">TTL seconds, 5 to 45</span>
+                              <input
+                                value={ttlInput}
+                                onChange={(event) => setTtlInput(event.target.value)}
+                                inputMode="numeric"
+                                className="focus-ring h-8 border border-line bg-panel px-2 font-mono text-xs text-ink"
+                                aria-label="TTL seconds"
+                              />
+                            </label>
+                          </div>
+                          <span className="mt-2 flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={closeTicket}
+                              disabled={working}
+                              className="focus-ring h-7 cursor-pointer border border-line px-2 font-mono text-[11px] text-dim transition-colors hover:border-line-strong hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => submitTicket(request)}
+                              disabled={working || blockReason !== null}
+                              title={blockReason ?? (owned ? "Replace local quote" : "Submit local quote")}
+                              className="focus-ring h-7 cursor-pointer border border-line-strong bg-raised px-2 font-mono text-[11px] text-ink transition-colors hover:bg-raised disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {working ? "Working" : owned ? "Replace quote" : "Submit quote"}
+                            </button>
+                          </span>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
                 );
               }) : (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-xs text-faint">No local user RFQs for {series?.displayName} in {runtimeOrigin}.</td>
+                  <td colSpan={7} className="px-4 py-6 text-xs text-faint">No local user RFQs for {series?.displayName} in {runtimeOrigin}.</td>
                 </tr>
               )}
             </tbody>
@@ -617,7 +854,13 @@ export function MakerCockpit() {
           </Pane>
 
           <Pane title="Active RFQs" note="Requests remaining eligible under the simulated policy" tools={<span className="font-mono text-xs text-brand">{makerCockpitSnapshot.rfqs.filter((rfq) => rfq.seriesId === selectedSeries.id).length}</span>}>
-            <RfqQueue selectedSeries={selectedSeries.id} />
+            <RfqQueue
+              selectedSeries={selectedSeries.id}
+              sessionPaused={sessionPaused}
+              riskPaused={selectedRisk?.state === "PAUSED"}
+              defaultTtl={expiry}
+              onNotice={setNotice}
+            />
           </Pane>
 
           <Pane title="Inventory discipline" note="Net package and hedge condition" tools={<OriginTag />}>

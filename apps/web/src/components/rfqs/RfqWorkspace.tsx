@@ -133,6 +133,11 @@ function RfqCard({ request, now }: { request: RfqRequest; now: number }) {
                   <div className="flex items-baseline justify-between gap-2">
                     <span className="text-xs text-ink">
                       {isSelected ? `Selected · ${quote.solverLabel}` : quote.solverLabel}
+                      {quote.provenance === "LOCAL_DEMO" ? (
+                        <span className="ml-2 border border-line px-1 font-mono text-[10px] text-dim">
+                          LOCAL_DEMO
+                        </span>
+                      ) : null}
                     </span>
                     <span className="tnum font-mono text-xs text-ink">
                       {knownMarket
