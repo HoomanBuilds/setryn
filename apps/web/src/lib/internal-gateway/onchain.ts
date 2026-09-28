@@ -3,6 +3,7 @@ import {
   createWalletClient,
   custom,
   defineChain,
+  encodeAbiParameters,
   formatUnits,
   getAddress,
   http,
@@ -14,7 +15,16 @@ import {
   type EIP1193Provider,
   type Hex,
 } from "viem";
+import { executableAction, limitCrosses } from "@/lib/terminal/economics";
 import type { PackageMarket } from "@/lib/terminal/types";
+import {
+  orderStateAbi,
+  publicOrderBookAbi,
+  publicOrderTypedData,
+  riskBindingAbi,
+  serializePublicOrder,
+  type OnchainPublicOrder,
+} from "./protocol";
 import { loadSetrynRuntime, type SetrynRuntime } from "./runtime";
 import type {
   CollateralIntent,
@@ -32,7 +42,14 @@ import type {
 } from "./types";
 
 const ACCOUNT_SALT = keccak256(stringToHex("SETRYN_PRIMARY_ACCOUNT_V1"));
-const EMPTY_ID = `0x${"0".repeat(64)}`;
+const EMPTY_ID = `0x${"0".repeat(64)}` as Hex;
+const PRIMARY_MARKET_ID = "BTC-YC-24DEC26";
+const PUBLIC_SERIES_POLICY = keccak256(stringToHex("SETRYN_POLICY_PUBLIC_SERIES_V1"));
+const BOOK_ID_TYPEHASH = keccak256(
+  stringToHex(
+    "SetrynDirectBookV1(uint256 chainId,address book,address orderState,uint8 targetKind,bytes32 targetId,uint32 targetVersion,bytes32 executionModeId,bytes32 settlementAssetId,uint32 settlementAssetVersion,bytes32 feeScheduleId,uint32 feeScheduleVersion,bytes32 packageLegsHash)",
+  ),
+);
 
 const vaultAbi = [
   {
@@ -184,6 +201,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   private publicClient: ReturnType<typeof createPublicClient> | null = null;
   private walletClient: ReturnType<typeof createWalletClient> | null = null;
   private walletAddress: Address | null = null;
+  private readonly authorizations = new Map<string, SignedOrderAuthorization>();
 
   getSnapshot = (): GatewaySnapshot => this.snapshot;
 
@@ -324,8 +342,130 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     return { intentId: transactionHash, kind: intent.kind, amount: intent.amount, status: "COMPLETED" };
   }
 
-  async authorizeOrder(_intent: PackageOrderIntent): Promise<SignedOrderAuthorization> {
-    throw new Error("ONCHAIN_ORDER_FLOW_NOT_READY");
+  async authorizeOrder(intent: PackageOrderIntent): Promise<SignedOrderAuthorization> {
+    const { setryn, address, walletClient, publicClient } = await this.connected();
+    if (intent.disclosure !== "PUBLIC") throw new Error("ONCHAIN_RFQ_FLOW_NOT_READY");
+    if (intent.side !== "ENTER") throw new Error("ONCHAIN_EXIT_FLOW_NOT_READY");
+    if (intent.marketId !== PRIMARY_MARKET_ID) throw new Error("MARKET_NOT_ONCHAIN_ENABLED");
+    if (intent.recipient.toLowerCase() !== address.toLowerCase()) throw new Error("RECIPIENT_MISMATCH");
+    if (!Number.isInteger(intent.lots) || intent.lots < 1 || intent.lots > 10) throw new Error("INVALID_LOTS");
+    if (!Number.isFinite(intent.limitPrice)) throw new Error("INVALID_LIMIT_PRICE");
+    if (intent.orderType !== "LIMIT" || !["GTC", "GTD"].includes(intent.timeInForce)) {
+      throw new Error("ONCHAIN_AGGRESSIVE_ORDER_FLOW_NOT_READY");
+    }
+    const action = executableAction(intent.side, intent.packageSide);
+    if (limitCrosses(intent.limitPrice, intent.executionPrice, action)) {
+      throw new Error("ONCHAIN_AGGRESSIVE_ORDER_FLOW_NOT_READY");
+    }
+
+    const accountId = await this.accountId(address);
+    if (intent.accountId.toLowerCase() !== accountId.toLowerCase()) throw new Error("ACCOUNT_MISMATCH");
+    const block = await publicClient.getBlock();
+    let lifetime = BigInt(240);
+    if (intent.timeInForce === "GTD") {
+      const requestedExpiry = intent.expiresAt ? Date.parse(intent.expiresAt) : Number.NaN;
+      if (!Number.isFinite(requestedExpiry) || requestedExpiry <= Date.now()) throw new Error("INVALID_GTD_EXPIRY");
+      const requestedLifetime = BigInt(Math.max(1, Math.floor((requestedExpiry - Date.now()) / 1000)));
+      lifetime = requestedLifetime < lifetime ? requestedLifetime : lifetime;
+    }
+    const deadline = block.timestamp + lifetime;
+    const nonce = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(crypto.getRandomValues(new Uint32Array(1))[0]);
+    const salt = keccak256(stringToHex(`${address}:${nonce}:${intent.marketId}:${crypto.randomUUID()}`));
+    const policyContextHash = keccak256(
+      stringToHex(
+        `${intent.marketId}:${intent.routeId}:${intent.packageSide}:${intent.timeInForce}:${intent.settlementGuarantee}`,
+      ),
+    );
+    const priceTicks = BigInt(Math.round(intent.limitPrice * 10));
+    const int128Min = -(BigInt(1) << BigInt(127));
+    const int128Max = (BigInt(1) << BigInt(127)) - BigInt(1);
+    if (priceTicks < int128Min || priceTicks > int128Max) throw new Error("INVALID_LIMIT_PRICE");
+    const feeMinor = this.toMinorUnits(intent.feeCap);
+    const timeInForce = intent.timeInForce === "GTC" ? 1 : 2;
+    const order: OnchainPublicOrder = {
+      signer: address,
+      accountId,
+      policyId: PUBLIC_SERIES_POLICY,
+      policyContextHash,
+      actionId: setryn.enterActionId,
+      targetKind: 1,
+      seriesId: setryn.seriesId,
+      packageId: EMPTY_ID,
+      targetVersion: 1,
+      side: action === "BUY" ? 1 : 2,
+      lots: BigInt(intent.lots),
+      priceTicks,
+      timeInForce,
+      deadline,
+      executionModeId: setryn.executionModeId,
+      feeScheduleId: setryn.feeScheduleId,
+      feeScheduleVersion: 1,
+      maxFeeMinor: feeMinor > BigInt(0) ? feeMinor : BigInt(1),
+      recipient: address,
+      permittedExecutor: setryn.atomicClearingEngine,
+      nonce,
+      salt,
+      allowPartialFills: true,
+      minimumFillLots: BigInt(1),
+      remainderPolicy: 1,
+      postOnly: false,
+      reduceOnly: false,
+    };
+    const signature = await walletClient.signTypedData({
+      account: address,
+      domain: {
+        name: "Setryn",
+        version: "1",
+        chainId: setryn.chainId,
+        verifyingContract: setryn.orderState,
+      },
+      types: publicOrderTypedData,
+      primaryType: "PublicOrder",
+      message: order,
+    });
+    const orderHash = await publicClient.readContract({
+      address: setryn.orderState,
+      abi: orderStateAbi,
+      functionName: "hashOrder",
+      args: [order],
+    });
+    const reservation = await fetch("/api/internal/orders/reserve-risk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order: serializePublicOrder(order), signature, orderHash }),
+    });
+    const reservationResult = (await reservation.json()) as { admissionId?: unknown };
+    if (
+      !reservation.ok ||
+      typeof reservationResult.admissionId !== "string" ||
+      !/^0x[0-9a-fA-F]{64}$/.test(reservationResult.admissionId)
+    ) {
+      throw new Error("RISK_RESERVATION_FAILED");
+    }
+    const riskAdmissionId = reservationResult.admissionId as Hex;
+    const bindingHash = await walletClient.writeContract({
+      account: address,
+      chain: this.chain(setryn),
+      address: setryn.riskAdmissionBindingRegistry,
+      abi: riskBindingAbi,
+      functionName: "bindOrderRisk",
+      args: [order, riskAdmissionId],
+    });
+    const bindingReceipt = await publicClient.waitForTransactionReceipt({ hash: bindingHash });
+    if (bindingReceipt.status !== "success") throw new Error("RISK_BINDING_FAILED");
+
+    const authorization: SignedOrderAuthorization = {
+      orderHash,
+      signature,
+      signer: address,
+      nonce: nonce.toString(),
+      deadline: new Date(Number(deadline) * 1000).toISOString(),
+      intent,
+      onchainOrder: order,
+      riskAdmissionId,
+    };
+    this.authorizations.set(orderHash.toLowerCase(), authorization);
+    return authorization;
   }
 
   async submitAuthorizedOrder(
@@ -335,19 +475,138 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     throw new Error("ONCHAIN_ORDER_FLOW_NOT_READY");
   }
 
-  async placeRestingOrder(_authorization: SignedOrderAuthorization): Promise<RestingPackageOrder> {
-    throw new Error("ONCHAIN_ORDER_FLOW_NOT_READY");
+  async placeRestingOrder(authorization: SignedOrderAuthorization): Promise<RestingPackageOrder> {
+    const { setryn, address, walletClient, publicClient } = await this.connected();
+    const order = authorization.onchainOrder;
+    if (!order || !authorization.riskAdmissionId) throw new Error("INVALID_ONCHAIN_AUTHORIZATION");
+    if (authorization.signer.toLowerCase() !== address.toLowerCase()) throw new Error("SIGNER_MISMATCH");
+    if (order.timeInForce !== 1 && order.timeInForce !== 2) throw new Error("RESTING_TIME_IN_FORCE_REQUIRED");
+
+    const registrationHash = await walletClient.writeContract({
+      account: address,
+      chain: this.chain(setryn),
+      address: setryn.orderState,
+      abi: orderStateAbi,
+      functionName: "registerSignedOrder",
+      args: [order, authorization.signature as Hex],
+    });
+    const registrationReceipt = await publicClient.waitForTransactionReceipt({ hash: registrationHash });
+    if (registrationReceipt.status !== "success") throw new Error("ORDER_REGISTRATION_FAILED");
+
+    const bookId = this.deriveBookId(setryn);
+    const hint = await this.levelHint(bookId, order.side, order.priceTicks);
+    const placementHash = await walletClient.writeContract({
+      account: address,
+      chain: this.chain(setryn),
+      address: setryn.publicOrderBook,
+      abi: publicOrderBookAbi,
+      functionName: "placeSeriesOrder",
+      args: [authorization.orderHash as Hex, hint],
+    });
+    const placementReceipt = await publicClient.waitForTransactionReceipt({ hash: placementHash });
+    if (placementReceipt.status !== "success") throw new Error("ORDER_PLACEMENT_FAILED");
+
+    const now = new Date().toISOString();
+    const restingOrder: RestingPackageOrder = {
+      id: authorization.orderHash,
+      orderHash: authorization.orderHash,
+      accountId: authorization.intent.accountId,
+      marketId: authorization.intent.marketId,
+      packageCode: authorization.intent.packageCode,
+      routeId: authorization.intent.routeId,
+      routeLabel: authorization.intent.routeLabel,
+      side: authorization.intent.side,
+      packageSide: authorization.intent.packageSide,
+      lots: authorization.intent.lots,
+      filledLots: 0,
+      remainingLots: authorization.intent.lots,
+      limitPrice: authorization.intent.limitPrice,
+      timeInForce: authorization.intent.timeInForce,
+      expiresAt: authorization.deadline,
+      collateralReservation: authorization.intent.collateralRequired,
+      remainingCollateralReservation: authorization.intent.collateralRequired,
+      feeCap: authorization.intent.feeCap,
+      remainingFeeCap: authorization.intent.feeCap,
+      fillIds: [],
+      receiptIds: [],
+      closePositionId: authorization.intent.closePositionId,
+      replacesOrderId: authorization.intent.replacesOrderId,
+      createdAt: now,
+      state: "WORKING",
+      orderType: authorization.intent.orderType,
+      contractMultiplier: authorization.intent.contractMultiplier,
+      settlementGuarantee: authorization.intent.settlementGuarantee,
+      disclosure: authorization.intent.disclosure,
+      recipient: authorization.intent.recipient,
+      collateralRequired: authorization.intent.collateralRequired,
+    };
+    this.publish({ ...this.snapshot, restingOrders: [...this.snapshot.restingOrders, restingOrder] });
+    await this.refreshAccount();
+    return restingOrder;
   }
 
   async replaceRestingOrder(
-    _oldOrderId: string,
-    _authorization: SignedOrderAuthorization,
+    oldOrderId: string,
+    authorization: SignedOrderAuthorization,
   ): Promise<RestingPackageOrder> {
-    throw new Error("ONCHAIN_ORDER_FLOW_NOT_READY");
+    const cancelled = await this.cancelRestingOrder(oldOrderId);
+    const replacement = await this.placeRestingOrder(authorization);
+    const replacedAt = new Date().toISOString();
+    const replaced = { ...cancelled, state: "REPLACED" as const, replacedByOrderId: replacement.id, replacedAt };
+    this.publish({
+      ...this.snapshot,
+      restingOrders: this.snapshot.restingOrders.map((order) => (order.id === oldOrderId ? replaced : order)),
+    });
+    return replacement;
   }
 
-  async cancelRestingOrder(_orderId: string): Promise<RestingPackageOrder> {
-    throw new Error("ONCHAIN_ORDER_FLOW_NOT_READY");
+  async cancelRestingOrder(orderId: string): Promise<RestingPackageOrder> {
+    const { setryn, address, walletClient, publicClient } = await this.connected();
+    const current = this.snapshot.restingOrders.find((order) => order.id === orderId);
+    if (!current) throw new Error("RESTING_ORDER_NOT_FOUND");
+    if (current.state !== "WORKING" && current.state !== "PARTIALLY_FILLED") {
+      throw new Error("RESTING_ORDER_NOT_WORKING");
+    }
+    const authorization = this.authorizations.get(current.orderHash.toLowerCase());
+    if (!authorization?.onchainOrder || !authorization.riskAdmissionId) {
+      throw new Error("ORDER_AUTHORIZATION_UNAVAILABLE");
+    }
+    const orderHash = current.orderHash as Hex;
+    const cancelHash = await walletClient.writeContract({
+      account: address,
+      chain: this.chain(setryn),
+      address: setryn.orderState,
+      abi: orderStateAbi,
+      functionName: "cancelOrder",
+      args: [orderHash],
+    });
+    const cancelReceipt = await publicClient.waitForTransactionReceipt({ hash: cancelHash });
+    if (cancelReceipt.status !== "success") throw new Error("ORDER_CANCELLATION_FAILED");
+    const syncHash = await walletClient.writeContract({
+      account: address,
+      chain: this.chain(setryn),
+      address: setryn.publicOrderBook,
+      abi: publicOrderBookAbi,
+      functionName: "syncOrder",
+      args: [orderHash],
+    });
+    const syncReceipt = await publicClient.waitForTransactionReceipt({ hash: syncHash });
+    if (syncReceipt.status !== "success") throw new Error("ORDER_BOOK_SYNC_FAILED");
+    await this.releaseRiskReservation(authorization);
+
+    const cancelled: RestingPackageOrder = {
+      ...current,
+      state: "CANCELLED",
+      remainingCollateralReservation: 0,
+      remainingFeeCap: 0,
+      cancelledAt: new Date().toISOString(),
+    };
+    this.publish({
+      ...this.snapshot,
+      restingOrders: this.snapshot.restingOrders.map((order) => (order.id === orderId ? cancelled : order)),
+    });
+    await this.refreshAccount();
+    return cancelled;
   }
 
   reconcileRestingOrders(_markets: readonly PackageMarket[]): RestingPackageOrder[] {
@@ -474,6 +733,142 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         equity: posted,
       },
     });
+  }
+
+  private toMinorUnits(value: number): bigint {
+    if (!Number.isFinite(value) || value < 0) throw new Error("INVALID_MINOR_UNIT_AMOUNT");
+    return parseUnits(value.toFixed(6), 6);
+  }
+
+  private deriveBookId(setryn: SetrynRuntime): Hex {
+    return keccak256(
+      encodeAbiParameters(
+        [
+          { name: "typeHash", type: "bytes32" },
+          { name: "chainId", type: "uint256" },
+          { name: "book", type: "address" },
+          { name: "orderState", type: "address" },
+          { name: "targetKind", type: "uint8" },
+          { name: "targetId", type: "bytes32" },
+          { name: "targetVersion", type: "uint32" },
+          { name: "executionModeId", type: "bytes32" },
+          { name: "settlementAssetId", type: "bytes32" },
+          { name: "settlementAssetVersion", type: "uint32" },
+          { name: "feeScheduleId", type: "bytes32" },
+          { name: "feeScheduleVersion", type: "uint32" },
+          { name: "packageLegsHash", type: "bytes32" },
+        ],
+        [
+          BOOK_ID_TYPEHASH,
+          BigInt(setryn.chainId),
+          setryn.publicOrderBook,
+          setryn.orderState,
+          1,
+          setryn.seriesId,
+          1,
+          setryn.executionModeId,
+          setryn.settlementAssetId,
+          1,
+          setryn.feeScheduleId,
+          1,
+          EMPTY_ID,
+        ],
+      ),
+    );
+  }
+
+  private async levelHint(bookId: Hex, side: 1 | 2, priceTicks: bigint) {
+    if (!this.setryn || !this.publicClient) throw new Error("RUNTIME_UNAVAILABLE");
+    let current: Hex;
+    try {
+      current = await this.publicClient.readContract({
+        address: this.setryn.publicOrderBook,
+        abi: publicOrderBookAbi,
+        functionName: "bestLevel",
+        args: [bookId, side],
+      });
+    } catch {
+      return { previousLevelId: EMPTY_ID, nextLevelId: EMPTY_ID };
+    }
+    if (current === EMPTY_ID) return { previousLevelId: EMPTY_ID, nextLevelId: EMPTY_ID };
+
+    let previous = EMPTY_ID;
+    for (let depth = 0; depth < 256 && current !== EMPTY_ID; depth += 1) {
+      const level = await this.publicClient.readContract({
+        address: this.setryn.publicOrderBook,
+        abi: publicOrderBookAbi,
+        functionName: "getPriceLevel",
+        args: [current],
+      });
+      if (level.priceTicks === priceTicks) {
+        return { previousLevelId: EMPTY_ID, nextLevelId: EMPTY_ID };
+      }
+      const currentBeforeIncoming = side === 1 ? level.priceTicks > priceTicks : level.priceTicks < priceTicks;
+      if (!currentBeforeIncoming) return { previousLevelId: previous, nextLevelId: current };
+      previous = current;
+      current = level.nextLevelId;
+    }
+    if (current !== EMPTY_ID) throw new Error("ORDER_BOOK_DEPTH_LIMIT");
+    return { previousLevelId: previous, nextLevelId: EMPTY_ID };
+  }
+
+  private async releaseRiskReservation(authorization: SignedOrderAuthorization): Promise<void> {
+    const { setryn, address, walletClient, publicClient } = await this.connected();
+    if (!authorization.onchainOrder || !authorization.riskAdmissionId) {
+      throw new Error("ORDER_AUTHORIZATION_UNAVAILABLE");
+    }
+    const block = await publicClient.getBlock();
+    const nonce = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(crypto.getRandomValues(new Uint32Array(1))[0]);
+    const cancellationReference = keccak256(
+      encodeAbiParameters(
+        [
+          { name: "orderHash", type: "bytes32" },
+          { name: "nonce", type: "uint256" },
+        ],
+        [authorization.orderHash as Hex, nonce],
+      ),
+    );
+    const cancellation = {
+      admissionId: authorization.riskAdmissionId as Hex,
+      orderHash: authorization.orderHash as Hex,
+      accountId: authorization.onchainOrder.accountId,
+      signer: address,
+      nonce,
+      deadline: block.timestamp + BigInt(240),
+      cancellationReference,
+    } as const;
+    const signature = await walletClient.signTypedData({
+      account: address,
+      domain: {
+        name: "Setryn",
+        version: "1",
+        chainId: setryn.chainId,
+        verifyingContract: setryn.riskAdmissionBindingRegistry,
+      },
+      types: {
+        SetrynRiskAdmissionCancellationV1: [
+          { name: "admissionId", type: "bytes32" },
+          { name: "orderHash", type: "bytes32" },
+          { name: "accountId", type: "bytes32" },
+          { name: "signer", type: "address" },
+          { name: "nonce", type: "uint256" },
+          { name: "deadline", type: "uint64" },
+          { name: "cancellationReference", type: "bytes32" },
+        ],
+      },
+      primaryType: "SetrynRiskAdmissionCancellationV1",
+      message: cancellation,
+    });
+    const releaseHash = await walletClient.writeContract({
+      account: address,
+      chain: this.chain(setryn),
+      address: setryn.riskAdmissionBindingRegistry,
+      abi: riskBindingAbi,
+      functionName: "cancelBoundAdmission",
+      args: [cancellation, signature],
+    });
+    const releaseReceipt = await publicClient.waitForTransactionReceipt({ hash: releaseHash });
+    if (releaseReceipt.status !== "success") throw new Error("RISK_RELEASE_FAILED");
   }
 
   private async fundNativeGas(address: Address): Promise<void> {

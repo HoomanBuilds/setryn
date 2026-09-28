@@ -10,6 +10,7 @@ export interface SetrynRuntime {
   marketAdapter: Address;
   collateralVault: Address;
   portfolioRiskEngine: Address;
+  riskAdmissionBindingRegistry: Address;
   executionPolicyRegistry: Address;
   tradingSessionPolicy: Address;
   orderState: Address;

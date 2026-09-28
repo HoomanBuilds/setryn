@@ -1,5 +1,6 @@
 import type { Intent, PackageSide, TimeInForce } from "@/lib/terminal/economics";
 import type { PackageMarket } from "@/lib/terminal/types";
+import type { OnchainPublicOrder } from "./protocol";
 
 export type WalletStatus = "DISCONNECTED" | "CONNECTING" | "CONNECTED" | "WRONG_NETWORK";
 
@@ -168,6 +169,8 @@ export interface SignedOrderAuthorization {
   nonce: string;
   deadline: string;
   intent: PackageOrderIntent;
+  onchainOrder: OnchainPublicOrder;
+  riskAdmissionId: string;
 }
 
 export type RfqRequestState = "OPEN" | "SELECTED" | "CANCELLED" | "EXECUTED";
