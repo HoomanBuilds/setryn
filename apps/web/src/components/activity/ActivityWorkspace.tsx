@@ -23,7 +23,7 @@ type ActivityFilter = "ALL" | "TERMINAL" | "SIMULATED" | "UNKNOWN";
 const FILTERS: Array<{ id: ActivityFilter; label: string }> = [
   { id: "ALL", label: "All attempts" },
   { id: "TERMINAL", label: "Terminal" },
-  { id: "SIMULATED", label: "Local demo" },
+  { id: "SIMULATED", label: "Simulation" },
   { id: "UNKNOWN", label: "Unknown" },
 ];
 
@@ -261,8 +261,8 @@ function AttemptDetail({ attempt }: { attempt: ActivityAttemptView | null }) {
           <HashValue value={attempt.receipt.transactionReference} title={referenceLabel} />
           <p className="mt-2 text-xs leading-relaxed text-faint">
             {attempt.result === "SIMULATED"
-              ? "This identifier belongs to the local demo runtime. It has not been broadcast to Arbitrum and cannot be opened in an explorer."
-              : "This reference will be linked to a chain receipt after indexed event reconciliation is available."}
+              ? "This identifier belongs to a local simulation and is not an onchain transaction."
+              : "This is the transaction reference emitted by the connected development chain."}
           </p>
           <Link
             href={attempt.receipt.href}

@@ -130,7 +130,7 @@ export function TicketEconomics({
         ) : null}
 
         <p className="mt-3 text-xs leading-relaxed text-off">
-          {`Package mark is observed from the preview fixture. Route price is executable against ${preview.freshnessLabel.toLowerCase()}. Collateral and fees are estimated from those inputs. Residual and exposure are modeled.`}
+          {`Package mark comes from the active market feed. Route price is executable against ${preview.freshnessLabel.toLowerCase()}. Collateral and fees are estimated before authorization. Residual and exposure remain modeled.`}
         </p>
       </Disclosure>
     </div>

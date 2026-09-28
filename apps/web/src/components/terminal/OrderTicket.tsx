@@ -741,8 +741,8 @@ function StageArea({
               : requiresRfq
                 ? "Request firm quotes"
                 : preview.rests
-                  ? "Authorize and rest demo"
-                  : "Authorize and execute demo"}
+                  ? "Authorize and place"
+                  : "Authorize and execute"}
           </button>
         </div>
       </div>

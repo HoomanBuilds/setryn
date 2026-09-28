@@ -329,7 +329,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       requestId.length > 128 ||
       !/^[A-Za-z0-9:_-]{1,128}$/.test(requestId)
     ) {
-      idle("The RFQ link reference is malformed, so no local demo request was resumed.");
+      idle("The RFQ link reference is malformed, so no request was resumed.");
       return;
     }
     const request =

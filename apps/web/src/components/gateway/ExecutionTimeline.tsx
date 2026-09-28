@@ -93,7 +93,7 @@ export function ExecutionTimeline({ progress }: { progress: OrderExecutionProgre
           <span>
             {progress.status === "CONNECTING"
               ? "Preparing the local wallet session for this test environment."
-              : "Binding the selected package, route, limit, and collateral cap to one demo authorization."}
+              : "Binding the selected package, route, limit, and collateral cap to one signed authorization."}
           </span>
         </div>
       ) : null}
