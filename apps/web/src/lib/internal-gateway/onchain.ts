@@ -273,6 +273,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       ...this.snapshot,
       wallet: { status: "CONNECTED", address, chainId: setryn.chainId },
     });
+    await fetch("/api/internal/devnet/liquidity", { method: "POST" });
     await this.refreshAccount();
     await Promise.all([this.refreshOrders(), this.refreshActivity()]);
   }
