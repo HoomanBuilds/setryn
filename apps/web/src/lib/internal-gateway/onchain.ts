@@ -780,6 +780,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     }
     const executionPrice = Number(makerBookOrder.priceTicks) / 10;
     const packageSide = authorization.intent.packageSide;
+    const createdPositionSide: "LONG" | "SHORT" = order.side === 1 ? "LONG" : "SHORT";
     let lifecycleHash: Hex | null = null;
     if (authorization.intent.side === "EXIT") {
       if (!authorization.intent.closePositionId) throw new Error("CLOSE_POSITION_REQUIRED");
@@ -797,12 +798,12 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const position = {
       id: positionId,
       marketId: authorization.intent.marketId,
-      side: packageSide,
+      side: createdPositionSide,
       lots: filledLots,
       entryPrice: executionPrice,
       collateral:
         filledLots *
-        Number(packageSide === "LONG" ? setryn.maxLongDebitMinorPerLot : setryn.maxShortDebitMinorPerLot) /
+        Number(createdPositionSide === "LONG" ? setryn.maxLongDebitMinorPerLot : setryn.maxShortDebitMinorPerLot) /
         1_000_000,
       state: "ACTIVE" as const,
       createdAt: new Date().toISOString(),
@@ -833,7 +834,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       price: executionPrice,
       fees: Number(formatUnits(takerFeeMinor, 6)),
       realizedPnlUsd,
-      collateralReleasedUsd: closedPosition?.collateral,
+      collateralReleasedUsd: closedPosition ? closedPosition.collateral + position.collateral : undefined,
       guarantee: "Atomic onchain settlement",
       evidence: "DEVNET",
       createdAt: new Date().toISOString(),
@@ -1238,7 +1239,9 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       throw new Error(body.error ?? "RFQ_EXECUTION_FAILED");
     }
     const authorization = current.authorization;
+    const setryn = await this.runtime();
     const packageSide = authorization.intent.packageSide;
+    const createdPositionSide: "LONG" | "SHORT" = authorization.onchainOrder.side === 1 ? "LONG" : "SHORT";
     const filledLots = Number(body.fillLots);
     const executionPrice = Number(body.executionPriceTicks) / 10;
     let lifecycleHash: Hex | null = null;
@@ -1258,10 +1261,13 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const position = {
       id: body.positionId,
       marketId: authorization.intent.marketId,
-      side: packageSide,
+      side: createdPositionSide,
       lots: filledLots,
       entryPrice: executionPrice,
-      collateral: authorization.intent.collateralRequired,
+      collateral:
+        filledLots *
+        Number(createdPositionSide === "LONG" ? setryn.maxLongDebitMinorPerLot : setryn.maxShortDebitMinorPerLot) /
+        1_000_000,
       state: "ACTIVE" as const,
       createdAt: new Date().toISOString(),
     };
@@ -1288,7 +1294,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       price: executionPrice,
       fees: Number(formatUnits(BigInt(body.takerFeeMinor), 6)),
       realizedPnlUsd,
-      collateralReleasedUsd: closedPosition?.collateral,
+      collateralReleasedUsd: closedPosition ? closedPosition.collateral + position.collateral : undefined,
       guarantee: "Firm capacity, atomic onchain settlement",
       evidence: "DEVNET",
       createdAt: new Date().toISOString(),
