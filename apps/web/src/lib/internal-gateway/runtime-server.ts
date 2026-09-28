@@ -10,6 +10,7 @@ const ADDRESS_FIELDS = [
   "settlementToken",
   "marketAdapter",
   "collateralVault",
+  "fundedFeeEngine",
   "portfolioRiskEngine",
   "riskAdmissionBindingRegistry",
   "executionPolicyRegistry",
@@ -25,6 +26,7 @@ const HASH_FIELDS = [
   "marketId",
   "seriesId",
   "feeScheduleId",
+  "feeRecipientAccountId",
   "executionModeSetHash",
   "executionModeId",
   "enterActionId",
@@ -47,7 +49,7 @@ function localRpcUrl(): string {
 function validateRuntime(candidate: unknown): Omit<SetrynRuntime, "rpcUrl"> {
   if (!candidate || typeof candidate !== "object") throw new Error("INVALID_RUNTIME");
   const record = candidate as Record<string, unknown>;
-  if (record.schemaVersion !== 2 || record.chainId !== 31337 || typeof record.day !== "number") {
+  if (record.schemaVersion !== 3 || record.chainId !== 31337 || typeof record.day !== "number") {
     throw new Error("INVALID_RUNTIME");
   }
   for (const field of ADDRESS_FIELDS) {
@@ -55,6 +57,9 @@ function validateRuntime(candidate: unknown): Omit<SetrynRuntime, "rpcUrl"> {
   }
   for (const field of HASH_FIELDS) {
     if (typeof record[field] !== "string" || !HASH_PATTERN.test(record[field])) throw new Error("INVALID_RUNTIME");
+  }
+  if (typeof record.payoffTerms !== "string" || !/^0x(?:[0-9a-fA-F]{2})+$/.test(record.payoffTerms)) {
+    throw new Error("INVALID_RUNTIME");
   }
   return record as unknown as Omit<SetrynRuntime, "rpcUrl">;
 }

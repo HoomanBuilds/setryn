@@ -11,6 +11,7 @@ import {IAssetRegistry} from "../src/interfaces/IAssetRegistry.sol";
 import {IBenchmarkRegistry} from "../src/interfaces/IBenchmarkRegistry.sol";
 import {ICalendarRegistry} from "../src/interfaces/ICalendarRegistry.sol";
 import {IFeeScheduleRegistry} from "../src/interfaces/IFeeScheduleRegistry.sol";
+import {ICollateralVault} from "../src/interfaces/ICollateralVault.sol";
 import {IInstrumentRegistry} from "../src/interfaces/IInstrumentRegistry.sol";
 import {IMarketRegistry} from "../src/interfaces/IMarketRegistry.sol";
 import {IRiskDomainRegistry} from "../src/interfaces/IRiskDomainRegistry.sol";
@@ -22,6 +23,7 @@ import {AdapterDefinitionLib} from "../src/libraries/AdapterDefinitionLib.sol";
 import {CalendarDefinitionLib} from "../src/libraries/CalendarDefinitionLib.sol";
 import {BenchmarkDefinitionLib} from "../src/libraries/BenchmarkDefinitionLib.sol";
 import {FeeScheduleDefinitionLib} from "../src/libraries/FeeScheduleDefinitionLib.sol";
+import {FeeEngineLib} from "../src/libraries/FeeEngineLib.sol";
 import {InstrumentDefinitionLib} from "../src/libraries/InstrumentDefinitionLib.sol";
 import {MarketDefinitionLib} from "../src/libraries/MarketDefinitionLib.sol";
 import {RiskDomainDefinitionLib} from "../src/libraries/RiskDomainDefinitionLib.sol";
@@ -29,18 +31,23 @@ import {SeriesDefinitionLib} from "../src/libraries/SeriesDefinitionLib.sol";
 import {SessionDefinitionLib} from "../src/libraries/SessionDefinitionLib.sol";
 import {CappedForwardPayoffModule} from "../src/payoff/ProductionPayoffModules.sol";
 import {ExecutionPolicyRegistry} from "../src/policy/ExecutionPolicyRegistry.sol";
+import {FundedFeeEngine} from "../src/fees/FundedFeeEngine.sol";
 import {AdapterDefinition} from "../src/types/AdapterDefinition.sol";
 import {AssetDefinition} from "../src/types/AssetDefinition.sol";
 import {BenchmarkDefinition} from "../src/types/BenchmarkDefinition.sol";
 import {CalendarDay, CalendarDefinition} from "../src/types/CalendarDefinition.sol";
 import {AssetClass} from "../src/types/Enums.sol";
 import {FeeScheduleDefinition} from "../src/types/FeeScheduleDefinition.sol";
+import {FeeRecipient, FeeRecipientSet, FeeRule, FeeTier} from "../src/types/FeeEngineTypes.sol";
 import {
     AdapterId,
     AdapterKindId,
     AssetId,
     BenchmarkId,
     CalendarId,
+    AccountId,
+    FeeActionId,
+    FeeRemainderPolicyId,
     FeeScheduleId,
     InstrumentId,
     MarketId,
@@ -109,7 +116,8 @@ contract BootstrapSetrynDevnet is Script {
         CappedForwardPayoffModule payoffModule;
         ExecutionPolicyRegistry executionPolicy;
         ITradingSessionPolicy tradingSessionPolicy;
-        address collateralVault;
+        ICollateralVault collateralVault;
+        FundedFeeEngine fundedFeeEngine;
         address portfolioRiskEngine;
         address riskAdmissionBindingRegistry;
         address orderState;
@@ -133,6 +141,8 @@ contract BootstrapSetrynDevnet is Script {
         InstrumentId instrumentId;
         MarketId marketId;
         SeriesId seriesId;
+        AccountId feeRecipientAccountId;
+        bytes payoffTerms;
         uint32 day;
     }
 
@@ -169,11 +179,15 @@ contract BootstrapSetrynDevnet is Script {
         (runtime.calendarId, runtime.sessionId) = _registerCalendarAndSession(c, runtime.day, schedule);
         _registerSettlementBinding(c, runtime);
         runtime.benchmarkId = _registerBenchmark(c, runtime);
-        runtime.feeScheduleId = _registerFeeSchedule(c, runtime);
+        runtime.feeRecipientAccountId = c.collateralVault.createAccount(keccak256("SETRYN_PROTOCOL_FEES_DEVNET_V1"));
+        (FeeRule[] memory feeRules, FeeRecipientSet memory feeRecipients) =
+            _feeWitness(runtime.feeRecipientAccountId);
+        runtime.feeScheduleId = _registerFeeSchedule(c, runtime, feeRules, feeRecipients);
+        c.fundedFeeEngine.installScheduleWitness(runtime.feeScheduleId, VERSION, feeRules, feeRecipients);
         runtime.riskDomainId = _registerRiskDomain(c, runtime);
         runtime.instrumentId = _registerInstrument(c, runtime);
         runtime.marketId = _registerMarket(c, runtime);
-        runtime.seriesId = _registerSeries(c, runtime, schedule);
+        (runtime.seriesId, runtime.payoffTerms) = _registerSeries(c, runtime, schedule);
         c.executionPolicy.setExecutionMode(EXECUTION_MODE_SET, EXECUTION_MODE_PUBLIC_BOOK, true);
         c.executionPolicy.setOrderAction(OrderActionId.wrap(keccak256("SETRYN_ORDER_ACTION_ENTER_V1")), true);
         _publishSessionDay(c, runtime.sessionId, runtime.day, schedule);
@@ -342,15 +356,20 @@ contract BootstrapSetrynDevnet is Script {
         c.benchmarks.activateBenchmark(id, version);
     }
 
-    function _registerFeeSchedule(Contracts memory c, Runtime memory runtime) private returns (FeeScheduleId id) {
+    function _registerFeeSchedule(
+        Contracts memory c,
+        Runtime memory runtime,
+        FeeRule[] memory rules,
+        FeeRecipientSet memory recipients
+    ) private returns (FeeScheduleId id) {
         FeeScheduleDefinition memory definition = FeeScheduleDefinition({
             namespaceId: NAMESPACE,
             scheduleKey: keccak256("SETRYN_FEE_SCHEDULE_STANDARD_V1"),
             feeModelId: FeeScheduleDefinitionLib.FEE_MODEL_MAKER_TAKER,
             settlementAssetId: runtime.settlementAssetId,
             settlementAssetVersion: VERSION,
-            feeRulesHash: keccak256("SETRYN_FEE_RULES_STANDARD_V1"),
-            recipientsHash: keccak256("SETRYN_FEE_RECIPIENTS_DEVNET_V1"),
+            feeRulesHash: FeeEngineLib.hashRules(rules),
+            recipientsHash: FeeEngineLib.hashRecipients(recipients),
             maxChargeRatePpm: FeeRatePpm.wrap(10_000),
             maxRebateRatePpm: FeeRatePpm.wrap(5_000),
             maxFlatChargeBaseUnits: 10e6,
@@ -361,6 +380,47 @@ contract BootstrapSetrynDevnet is Script {
         (id, version) = c.fees.registerFeeSchedule(definition);
         _requireVersion("fee schedule", version);
         c.fees.activateFeeSchedule(id, version);
+    }
+
+    function _feeWitness(AccountId recipientAccountId)
+        private
+        pure
+        returns (FeeRule[] memory rules, FeeRecipientSet memory recipients)
+    {
+        rules = new FeeRule[](2);
+        rules[0] = FeeRule({
+            actionId: FeeScheduleDefinitionLib.FEE_ACTION_MAKER_FILL,
+            requiresOpenSchedule: true,
+            chargeRatePpm: FeeRatePpm.wrap(500),
+            rebateRatePpm: FeeRatePpm.wrap(0),
+            flatChargeMinor: 0,
+            flatRebateMinor: 0,
+            tiers: new FeeTier[](0)
+        });
+        rules[1] = FeeRule({
+            actionId: FeeScheduleDefinitionLib.FEE_ACTION_TAKER_FILL,
+            requiresOpenSchedule: true,
+            chargeRatePpm: FeeRatePpm.wrap(1_000),
+            rebateRatePpm: FeeRatePpm.wrap(0),
+            flatChargeMinor: 0,
+            flatRebateMinor: 0,
+            tiers: new FeeTier[](0)
+        });
+        if (FeeActionId.unwrap(rules[0].actionId) > FeeActionId.unwrap(rules[1].actionId)) {
+            FeeRule memory first = rules[0];
+            rules[0] = rules[1];
+            rules[1] = first;
+        }
+
+        FeeRecipient[] memory entries = new FeeRecipient[](1);
+        entries[0] = FeeRecipient({accountId: recipientAccountId, sharePpm: 1_000_000});
+        recipients = FeeRecipientSet({
+            remainderPolicyId: FeeRemainderPolicyId.wrap(
+                keccak256("SetrynFeeRemainderPolicyV1:DesignatedRecipient")
+            ),
+            remainderRecipientIndex: 0,
+            recipients: entries
+        });
     }
 
     function _registerRiskDomain(Contracts memory c, Runtime memory runtime) private returns (RiskDomainId id) {
@@ -453,7 +513,7 @@ contract BootstrapSetrynDevnet is Script {
 
     function _registerSeries(Contracts memory c, Runtime memory runtime, Schedule memory schedule)
         private
-        returns (SeriesId id)
+        returns (SeriesId id, bytes memory payoffTerms)
     {
         PayoffFixingRequirement[] memory requirements = new PayoffFixingRequirement[](1);
         requirements[0] = PayoffFixingRequirement({
@@ -482,6 +542,7 @@ contract BootstrapSetrynDevnet is Script {
             cashTickSizeMinor: TickSizeMinor.wrap(0)
         });
         StrategyCompileResult memory compiled = c.compiler.compileStrategy(input);
+        payoffTerms = compiled.canonicalTerms;
         SeriesDefinition memory definition = _seriesDefinition(runtime, schedule, compiled);
         SeriesQualificationData memory qualification = _qualification(runtime, definition, compiled.canonicalTerms);
         definition.payoffTermsHash = c.series.hashPayoffTerms(TERMS_SCHEMA, qualification.payoffTerms);
@@ -655,7 +716,8 @@ contract BootstrapSetrynDevnet is Script {
         c.payoffModule = CappedForwardPayoffModule(_dependency("SETRYN_CAPPED_FORWARD_PAYOFF_MODULE"));
         c.executionPolicy = ExecutionPolicyRegistry(_dependency("SETRYN_EXECUTION_POLICY_REGISTRY"));
         c.tradingSessionPolicy = ITradingSessionPolicy(_dependency("SETRYN_TRADING_SESSION_POLICY"));
-        c.collateralVault = _dependency("SETRYN_COLLATERAL_VAULT");
+        c.collateralVault = ICollateralVault(_dependency("SETRYN_COLLATERAL_VAULT"));
+        c.fundedFeeEngine = FundedFeeEngine(_dependency("SETRYN_FUNDED_FEE_ENGINE"));
         c.portfolioRiskEngine = _dependency("SETRYN_PORTFOLIO_RISK_ENGINE");
         c.riskAdmissionBindingRegistry = _dependency("SETRYN_RISK_ADMISSION_BINDING_REGISTRY");
         c.orderState = _dependency("SETRYN_ORDER_STATE");
@@ -674,7 +736,7 @@ contract BootstrapSetrynDevnet is Script {
 
     function _writeRuntime(Contracts memory c, Runtime memory runtime, address operator, string memory output) private {
         string memory objectKey = "setryn-runtime";
-        vm.serializeUint(objectKey, "schemaVersion", 2);
+        vm.serializeUint(objectKey, "schemaVersion", 3);
         vm.serializeUint(objectKey, "chainId", block.chainid);
         vm.serializeUint(objectKey, "day", runtime.day);
         vm.serializeAddress(objectKey, "operator", operator);
@@ -693,7 +755,8 @@ contract BootstrapSetrynDevnet is Script {
         vm.serializeAddress(objectKey, "seriesRegistry", address(c.series));
         vm.serializeAddress(objectKey, "canonicalStrategyCompiler", address(c.compiler));
         vm.serializeAddress(objectKey, "cappedForwardPayoffModule", address(c.payoffModule));
-        vm.serializeAddress(objectKey, "collateralVault", c.collateralVault);
+        vm.serializeAddress(objectKey, "collateralVault", address(c.collateralVault));
+        vm.serializeAddress(objectKey, "fundedFeeEngine", address(c.fundedFeeEngine));
         vm.serializeAddress(objectKey, "portfolioRiskEngine", c.portfolioRiskEngine);
         vm.serializeAddress(objectKey, "riskAdmissionBindingRegistry", c.riskAdmissionBindingRegistry);
         vm.serializeAddress(objectKey, "executionPolicyRegistry", address(c.executionPolicy));
@@ -710,12 +773,14 @@ contract BootstrapSetrynDevnet is Script {
         vm.serializeBytes32(objectKey, "sessionId", SessionId.unwrap(runtime.sessionId));
         vm.serializeBytes32(objectKey, "benchmarkId", BenchmarkId.unwrap(runtime.benchmarkId));
         vm.serializeBytes32(objectKey, "feeScheduleId", FeeScheduleId.unwrap(runtime.feeScheduleId));
+        vm.serializeBytes32(objectKey, "feeRecipientAccountId", AccountId.unwrap(runtime.feeRecipientAccountId));
         vm.serializeBytes32(objectKey, "riskDomainId", RiskDomainId.unwrap(runtime.riskDomainId));
         vm.serializeBytes32(objectKey, "instrumentId", InstrumentId.unwrap(runtime.instrumentId));
         vm.serializeBytes32(objectKey, "marketId", MarketId.unwrap(runtime.marketId));
         vm.serializeBytes32(objectKey, "seriesId", SeriesId.unwrap(runtime.seriesId));
         vm.serializeBytes32(objectKey, "executionModeSetHash", EXECUTION_MODE_SET);
         vm.serializeBytes32(objectKey, "executionModeId", EXECUTION_MODE_PUBLIC_BOOK);
+        vm.serializeBytes(objectKey, "payoffTerms", runtime.payoffTerms);
         string memory json = vm.serializeBytes32(
             objectKey,
             "enterActionId",

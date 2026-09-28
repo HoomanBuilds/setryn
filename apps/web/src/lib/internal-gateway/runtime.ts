@@ -9,6 +9,7 @@ export interface SetrynRuntime {
   settlementToken: Address;
   marketAdapter: Address;
   collateralVault: Address;
+  fundedFeeEngine: Address;
   portfolioRiskEngine: Address;
   riskAdmissionBindingRegistry: Address;
   executionPolicyRegistry: Address;
@@ -21,6 +22,8 @@ export interface SetrynRuntime {
   marketId: Hex;
   seriesId: Hex;
   feeScheduleId: Hex;
+  feeRecipientAccountId: Hex;
+  payoffTerms: Hex;
   executionModeSetHash: Hex;
   executionModeId: Hex;
   enterActionId: Hex;
