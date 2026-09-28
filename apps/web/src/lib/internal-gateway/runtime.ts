@@ -17,6 +17,9 @@ export interface SetrynRuntime {
   orderState: Address;
   atomicClearingEngine: Address;
   publicOrderBook: Address;
+  positionEngine: Address;
+  lifecyclePolicyValidator: Address;
+  signedLifecycleEngine: Address;
   settlementAssetId: Hex;
   riskDomainId: Hex;
   marketId: Hex;

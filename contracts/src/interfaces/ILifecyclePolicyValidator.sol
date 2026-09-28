@@ -17,4 +17,9 @@ interface ILifecyclePolicyValidator {
         LifecycleCollateralReplacement[] calldata collateralReplacements,
         LifecycleConsent[] calldata consents
     ) external view;
+    function derivePolicyContext(
+        LifecycleAction calldata action,
+        LifecyclePositionSnapshot[] calldata inputs,
+        LifecycleSuccessor[] calldata successors
+    ) external view returns (bytes32 policyContextHash, bytes32 packageBreakPermissionHash);
 }

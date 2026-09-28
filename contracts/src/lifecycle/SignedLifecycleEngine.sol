@@ -166,6 +166,48 @@ contract SignedLifecycleEngine is ISignedLifecycleEngine, AccessControlDefaultAd
         return _requireAction(actionId);
     }
 
+    function hashLifecycleInputs(LifecycleInput[] calldata inputs) external pure returns (bytes32) {
+        return LifecycleHashLib.hashInputs(inputs);
+    }
+
+    function hashLifecycleSuccessors(LifecycleSuccessor[] calldata successors) external pure returns (bytes32) {
+        return LifecycleHashLib.hashSuccessors(successors);
+    }
+
+    function hashLifecycleCollateralReplacements(LifecycleCollateralReplacement[] calldata collateralReplacements)
+        external
+        pure
+        returns (bytes32)
+    {
+        return LifecycleHashLib.hashCollateralReplacements(collateralReplacements);
+    }
+
+    function hashLifecycleParticipantSet(AccountId actorAccountId, LifecycleConsent[] calldata consents)
+        external
+        pure
+        returns (bytes32)
+    {
+        return LifecycleHashLib.hashParticipantSet(actorAccountId, consents);
+    }
+
+    function hashLifecycleConsentTerms(LifecycleConsent[] calldata consents) external pure returns (bytes32) {
+        return LifecycleHashLib.hashConsentTerms(consents);
+    }
+
+    function hashLifecycleAction(LifecycleAction calldata action)
+        external
+        view
+        returns (bytes32 actionHash, LifecycleActionId actionId, bytes32 digest)
+    {
+        actionHash = LifecycleHashLib.hashAction(action, block.chainid, address(this));
+        actionId = LifecycleHashLib.deriveActionId(actionHash);
+        digest = LifecycleHashLib.actionDigest(action, block.chainid, address(this));
+    }
+
+    function hashLifecycleConsent(LifecycleConsent calldata consent) external view returns (bytes32 digest) {
+        return LifecycleHashLib.consentDigest(consent, block.chainid, address(this));
+    }
+
     function _validateCommittedPayload(
         LifecycleAction calldata action,
         LifecycleInput[] calldata inputs,

@@ -65,6 +65,14 @@ contract LifecyclePolicyValidatorMock is ILifecyclePolicyValidator {
         LifecycleCollateralReplacement[] calldata,
         LifecycleConsent[] calldata
     ) external pure {}
+
+    function derivePolicyContext(
+        LifecycleAction calldata,
+        LifecyclePositionSnapshot[] calldata,
+        LifecycleSuccessor[] calldata
+    ) external pure returns (bytes32 policyContextHash, bytes32 packageBreakPermissionHash) {
+        return (keccak256("mock lifecycle policy"), keccak256("mock package break"));
+    }
 }
 
 contract LifecycleAtomicExecutorMock is ILifecycleAtomicExecutor {

@@ -278,6 +278,9 @@ mapfile -t bootstrap_addresses < <(
             "OrderState",
             "AtomicClearingEngine",
             "PublicOrderBook",
+            "PositionEngine",
+            "LifecyclePolicyValidator",
+            "SignedLifecycleEngine",
         ];
         for (const name of required) {
             const matches = deployments.filter((deployment) => deployment.name === name);
@@ -289,7 +292,7 @@ mapfile -t bootstrap_addresses < <(
     printf 'Deployment manifest does not contain the complete devnet bootstrap dependency graph.\n' >&2
     exit 1
 }
-if [[ "${#bootstrap_addresses[@]}" -ne 22 ]]; then
+if [[ "${#bootstrap_addresses[@]}" -ne 25 ]]; then
     printf 'Deployment manifest returned an invalid devnet bootstrap dependency set.\n' >&2
     exit 1
 fi
@@ -316,6 +319,9 @@ export SETRYN_TRADING_SESSION_POLICY="${bootstrap_addresses[18]}"
 export SETRYN_ORDER_STATE="${bootstrap_addresses[19]}"
 export SETRYN_ATOMIC_CLEARING_ENGINE="${bootstrap_addresses[20]}"
 export SETRYN_PUBLIC_ORDER_BOOK="${bootstrap_addresses[21]}"
+export SETRYN_POSITION_ENGINE="${bootstrap_addresses[22]}"
+export SETRYN_LIFECYCLE_POLICY_VALIDATOR="${bootstrap_addresses[23]}"
+export SETRYN_SIGNED_LIFECYCLE_ENGINE="${bootstrap_addresses[24]}"
 export SETRYN_RUNTIME_OUTPUT="$deployment_directory/runtime.tmp.json"
 
 forge script "$repository_root/contracts/script/BootstrapSetrynDevnet.s.sol:BootstrapSetrynDevnet" \

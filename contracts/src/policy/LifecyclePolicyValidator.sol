@@ -126,6 +126,50 @@ contract LifecyclePolicyValidator is ILifecyclePolicyValidator {
         }
     }
 
+    function derivePolicyContext(
+        LifecycleAction calldata action,
+        LifecyclePositionSnapshot[] calldata inputs,
+        LifecycleSuccessor[] calldata successors
+    ) external view returns (bytes32 policyContextHash, bytes32 packageBreakPermissionHash) {
+        if (inputs.length == 0 || inputs.length > MAXIMUM_POSITIONS || successors.length > MAXIMUM_POSITIONS) {
+            revert PositionBoundExceeded();
+        }
+        bytes32 dependencyRoot;
+        bytes32 payoffVectorRoot;
+        bytes32 inputPackageRoot;
+        bytes32 successorPackageRoot;
+        for (uint256 i; i < inputs.length; ++i) {
+            (bytes32 dependencyLeaf, bytes32 payoffLeaf, bytes32 packageLeaf) = _validateInput(action, inputs[i]);
+            dependencyRoot = keccak256(abi.encode(dependencyRoot, dependencyLeaf));
+            payoffVectorRoot = keccak256(abi.encode(payoffVectorRoot, payoffLeaf));
+            if (packageLeaf != bytes32(0)) inputPackageRoot = keccak256(abi.encode(inputPackageRoot, packageLeaf));
+        }
+        for (uint256 i; i < successors.length; ++i) {
+            (bytes32 dependencyLeaf, bytes32 payoffLeaf) = _validateSuccessor(action, successors[i]);
+            dependencyRoot = keccak256(abi.encode(dependencyRoot, dependencyLeaf));
+            payoffVectorRoot = keccak256(abi.encode(payoffVectorRoot, payoffLeaf));
+            if (successors[i].packageProvenanceHash != bytes32(0)) {
+                successorPackageRoot = keccak256(abi.encode(successorPackageRoot, successors[i].packageProvenanceHash));
+            }
+        }
+        packageBreakPermissionHash =
+            keccak256(abi.encode(PACKAGE_BREAK_TYPEHASH, uint8(action.kind), inputPackageRoot, successorPackageRoot));
+        policyContextHash = keccak256(
+            abi.encode(
+                POLICY_CONTEXT_TYPEHASH,
+                uint8(action.kind),
+                dependencyRoot,
+                payoffVectorRoot,
+                action.riskDomainId,
+                action.riskDomainVersion,
+                action.feeScheduleId,
+                action.feeScheduleVersion,
+                action.breaksPackageProvenance,
+                action.packageBreakPermissionHash
+            )
+        );
+    }
+
     function _validateInput(LifecycleAction calldata action, LifecyclePositionSnapshot calldata input)
         private
         view

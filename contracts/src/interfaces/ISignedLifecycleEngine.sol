@@ -10,6 +10,7 @@ import {
     LifecycleInput,
     LifecycleSuccessor
 } from "../types/LifecycleTypes.sol";
+import {AccountId} from "../types/Identifiers.sol";
 
 interface ISignedLifecycleEngine {
     event LifecycleActionAuthorized(
@@ -67,4 +68,20 @@ interface ISignedLifecycleEngine {
     function cancelAction(LifecycleActionId actionId, bytes32 reason) external;
     function expireAction(LifecycleAction calldata action) external;
     function getAction(LifecycleActionId actionId) external view returns (LifecycleActionRecord memory record);
+    function hashLifecycleInputs(LifecycleInput[] calldata inputs) external pure returns (bytes32);
+    function hashLifecycleSuccessors(LifecycleSuccessor[] calldata successors) external pure returns (bytes32);
+    function hashLifecycleCollateralReplacements(LifecycleCollateralReplacement[] calldata collateralReplacements)
+        external
+        pure
+        returns (bytes32);
+    function hashLifecycleParticipantSet(AccountId actorAccountId, LifecycleConsent[] calldata consents)
+        external
+        pure
+        returns (bytes32);
+    function hashLifecycleConsentTerms(LifecycleConsent[] calldata consents) external pure returns (bytes32);
+    function hashLifecycleAction(LifecycleAction calldata action)
+        external
+        view
+        returns (bytes32 actionHash, LifecycleActionId actionId, bytes32 digest);
+    function hashLifecycleConsent(LifecycleConsent calldata consent) external view returns (bytes32 digest);
 }

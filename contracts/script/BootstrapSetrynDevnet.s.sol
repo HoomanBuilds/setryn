@@ -123,6 +123,9 @@ contract BootstrapSetrynDevnet is Script {
         address orderState;
         address atomicClearingEngine;
         address publicOrderBook;
+        address positionEngine;
+        address lifecyclePolicyValidator;
+        address signedLifecycleEngine;
     }
 
     struct Runtime {
@@ -737,6 +740,9 @@ contract BootstrapSetrynDevnet is Script {
         c.orderState = _dependency("SETRYN_ORDER_STATE");
         c.atomicClearingEngine = _dependency("SETRYN_ATOMIC_CLEARING_ENGINE");
         c.publicOrderBook = _dependency("SETRYN_PUBLIC_ORDER_BOOK");
+        c.positionEngine = _dependency("SETRYN_POSITION_ENGINE");
+        c.lifecyclePolicyValidator = _dependency("SETRYN_LIFECYCLE_POLICY_VALIDATOR");
+        c.signedLifecycleEngine = _dependency("SETRYN_SIGNED_LIFECYCLE_ENGINE");
     }
 
     function _dependency(string memory name) private view returns (address dependency) {
@@ -750,7 +756,7 @@ contract BootstrapSetrynDevnet is Script {
 
     function _writeRuntime(Contracts memory c, Runtime memory runtime, address operator, string memory output) private {
         string memory objectKey = "setryn-runtime";
-        vm.serializeUint(objectKey, "schemaVersion", 4);
+        vm.serializeUint(objectKey, "schemaVersion", 5);
         vm.serializeUint(objectKey, "chainId", block.chainid);
         vm.serializeUint(objectKey, "day", runtime.day);
         vm.serializeAddress(objectKey, "operator", operator);
@@ -778,6 +784,9 @@ contract BootstrapSetrynDevnet is Script {
         vm.serializeAddress(objectKey, "orderState", c.orderState);
         vm.serializeAddress(objectKey, "atomicClearingEngine", c.atomicClearingEngine);
         vm.serializeAddress(objectKey, "publicOrderBook", c.publicOrderBook);
+        vm.serializeAddress(objectKey, "positionEngine", c.positionEngine);
+        vm.serializeAddress(objectKey, "lifecyclePolicyValidator", c.lifecyclePolicyValidator);
+        vm.serializeAddress(objectKey, "signedLifecycleEngine", c.signedLifecycleEngine);
         vm.serializeBytes32(objectKey, "baseAssetId", AssetId.unwrap(runtime.baseAssetId));
         vm.serializeBytes32(objectKey, "settlementAssetId", AssetId.unwrap(runtime.settlementAssetId));
         vm.serializeBytes32(objectKey, "benchmarkAdapterId", AdapterId.unwrap(runtime.benchmarkAdapterId));
