@@ -64,7 +64,7 @@ contract PrivateRfqValidationGate is IPrivateRfqValidationGate, PolicyGateBase {
         ) revert InvalidRfqPolicy();
         PackageLeg[] memory legs = _legs(request, new PackageLeg[](0));
         ExecutionPolicyLib.ResolvedTarget memory resolved = _validateTarget(
-            request, legs, quote.sidePolicy == RfqSidePolicy.BuyOnly ? quote.bidPriceTicks : quote.askPriceTicks, true
+            request, legs, quote.sidePolicy == RfqSidePolicy.BuyOnly ? quote.askPriceTicks : quote.bidPriceTicks, true
         );
         if (
             RiskDomainId.unwrap(resolved.riskDomainId) != RiskDomainId.unwrap(quote.riskDomainId)
@@ -111,7 +111,7 @@ contract PrivateRfqValidationGate is IPrivateRfqValidationGate, PolicyGateBase {
         ) revert InvalidRfqPolicy();
         PackageLeg[] memory legs = _legs(request, new PackageLeg[](0));
         _validateTarget(
-            request, legs, quote.sidePolicy == RfqSidePolicy.BuyOnly ? quote.bidPriceTicks : quote.askPriceTicks, true
+            request, legs, quote.sidePolicy == RfqSidePolicy.BuyOnly ? quote.askPriceTicks : quote.bidPriceTicks, true
         );
     }
 
