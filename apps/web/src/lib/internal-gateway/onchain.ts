@@ -1194,13 +1194,15 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   async cancelRfq(requestId: string): Promise<RfqRequest> {
     const { setryn, address, walletClient, publicClient } = await this.connected();
     const current = this.snapshot.rfqRequests.find((request) => request.id === requestId);
-    if (!current || current.state !== "OPEN") throw new Error("RFQ_NOT_OPEN");
+    if (!current || (current.state !== "OPEN" && current.state !== "SELECTED")) throw new Error("RFQ_NOT_OPEN");
+    const expired = Date.parse(current.expiresAt) <= Date.now();
+    if (current.state === "SELECTED" && !expired) throw new Error("RFQ_SELECTION_LOCKED");
     const hash = await walletClient.writeContract({
       account: address,
       chain: this.chain(setryn),
       address: setryn.privateRfqBook,
       abi: privateRfqBookAbi,
-      functionName: "cancelRfq",
+      functionName: expired ? "expireRfq" : "cancelRfq",
       args: [requestId as Hex],
     });
     await publicClient.waitForTransactionReceipt({ hash });

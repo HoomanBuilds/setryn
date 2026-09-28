@@ -229,10 +229,15 @@ export function RfqQuotePanel({
         <div className="grid grid-cols-2 gap-2 px-3 py-3">
           <button
             type="button"
+            disabled={!selectedExpired}
             onClick={() => onCancelRfq?.()}
-            className="focus-ring h-11 rounded-md border border-line text-sm text-dim transition-colors hover:border-line-strong hover:text-ink lg:h-9"
+            className={`h-11 rounded-md border border-line text-sm lg:h-9 ${
+              selectedExpired
+                ? "focus-ring text-dim transition-colors hover:border-line-strong hover:text-ink"
+                : "cursor-not-allowed bg-inset text-faint"
+            }`}
           >
-            Cancel request
+            {selectedExpired ? "Expire request" : "Selection locked"}
           </button>
           <button
             type="button"
@@ -244,7 +249,7 @@ export function RfqQuotePanel({
                 : "bg-brand text-app hover:brightness-105"
             }`}
           >
-            Authorize selected quote
+            Execute selected quote
           </button>
         </div>
       </div>
