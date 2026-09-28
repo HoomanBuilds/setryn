@@ -171,6 +171,9 @@ export function buildPreview(
           `Quantity exceeds the selected package lots (${closePosition.lots} lots). Reduce quantity to close within the active package.`,
         );
       }
+      if (requestedLots !== closePosition.lots) {
+        blockers.push("Devnet lifecycle exit currently requires the complete position quantity.");
+      }
       if (state.side !== closePosition.side) {
         blockers.push("Ticket side does not match the selected position side. Reselect the position.");
       }

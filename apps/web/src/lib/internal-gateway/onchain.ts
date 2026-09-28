@@ -11,6 +11,7 @@ import {
   maxUint256,
   parseUnits,
   parseEventLogs,
+  parseAbi,
   stringToHex,
   type Address,
   type EIP1193Provider,
@@ -58,6 +59,73 @@ const BOOK_ID_TYPEHASH = keccak256(
     "SetrynDirectBookV1(uint256 chainId,address book,address orderState,uint8 targetKind,bytes32 targetId,uint32 targetVersion,bytes32 executionModeId,bytes32 settlementAssetId,uint32 settlementAssetVersion,bytes32 feeScheduleId,uint32 feeScheduleVersion,bytes32 packageLegsHash)",
   ),
 );
+
+const lifecycleInputStruct = "struct LifecycleInput { bytes32 positionId; bytes32 expectedImmutableHash; bytes32 expectedLifecycleHash; uint128 expectedPositionLots; uint128 actionLots; }";
+const lifecycleSuccessorStruct = "struct LifecycleSuccessor { bytes32 successorKey; bytes32 seriesId; uint32 seriesVersion; bytes32 longAccountId; bytes32 shortAccountId; bytes32 riskDomainId; uint32 riskDomainVersion; bytes32 collateralId; uint128 lots; int128 entryPriceTicks; bytes32 economicsHash; bytes32 packageProvenanceHash; uint128 longTerminalLiabilityBaseUnits; uint128 shortTerminalLiabilityBaseUnits; }";
+const lifecycleReplacementStruct = "struct LifecycleCollateralReplacement { bytes32 accountId; bytes32 collateralId; uint128 terminalLiabilityBaseUnits; }";
+const lifecycleConsentStruct = "struct LifecycleConsent { bytes32 actionId; bytes32 accountId; address signer; uint256 nonce; uint64 deadline; uint128 maximumLiabilityIncreaseBaseUnits; uint128 maximumCollateralIncreaseBaseUnits; bool allowsPackageBreak; bytes32 salt; }";
+const lifecycleActionStruct = "struct LifecycleAction { uint8 kind; address actor; bytes32 actorAccountId; bytes32 policyContextHash; bytes32 inputsHash; bytes32 successorsHash; bytes32 collateralReplacementsHash; bytes32 participantSetHash; bytes32 consentsHash; bytes32 riskDomainId; uint32 riskDomainVersion; bytes32 feeScheduleId; uint32 feeScheduleVersion; bytes32 economicTransitionHash; bytes32 compressionPlanId; bool breaksPackageProvenance; bytes32 packageBreakPermissionHash; uint128 actorMaximumLiabilityIncreaseBaseUnits; uint128 actorMaximumCollateralIncreaseBaseUnits; uint16 inputCount; uint16 successorCount; uint16 participantCount; uint64 deadline; uint256 nonce; address permittedExecutor; bytes32 salt; }";
+const lifecycleSnapshotStruct = "struct LifecyclePositionSnapshot { bytes32 positionId; bytes32 immutableHash; bytes32 lifecycleHash; bytes32 seriesId; uint32 seriesVersion; bytes32 longAccountId; bytes32 shortAccountId; bytes32 riskDomainId; uint32 riskDomainVersion; bytes32 feeScheduleId; uint32 feeScheduleVersion; bytes32 collateralId; uint128 positionLots; uint128 remainingExerciseLots; int128 entryPriceTicks; bytes32 economicsHash; bytes32 packageProvenanceHash; bytes32 exercisePolicyId; uint8 exerciseState; uint128 automaticExerciseThresholdMinor; uint64 expiryAt; uint64 exerciseOpensAt; uint64 exerciseCutoffAt; uint64 lapseEligibleAt; uint128 longTerminalLiabilityBaseUnits; uint128 shortTerminalLiabilityBaseUnits; }";
+
+const positionLifecycleAbi = parseAbi([
+  lifecycleSnapshotStruct,
+  "function getLifecyclePosition(bytes32 positionId) view returns (LifecyclePositionSnapshot snapshot)",
+  "function positionStatus(bytes32 positionId) view returns (uint8)",
+]);
+const lifecyclePolicyAbi = parseAbi([
+  lifecycleActionStruct,
+  lifecycleSnapshotStruct,
+  lifecycleSuccessorStruct,
+  "function derivePolicyContext(LifecycleAction action, LifecyclePositionSnapshot[] inputs, LifecycleSuccessor[] successors) view returns (bytes32 policyContextHash, bytes32 packageBreakPermissionHash)",
+]);
+const signedLifecycleAbi = parseAbi([
+  lifecycleActionStruct,
+  lifecycleInputStruct,
+  lifecycleSuccessorStruct,
+  lifecycleReplacementStruct,
+  lifecycleConsentStruct,
+  "function hashLifecycleInputs(LifecycleInput[] inputs) pure returns (bytes32)",
+  "function hashLifecycleSuccessors(LifecycleSuccessor[] successors) pure returns (bytes32)",
+  "function hashLifecycleCollateralReplacements(LifecycleCollateralReplacement[] replacements) pure returns (bytes32)",
+  "function hashLifecycleParticipantSet(bytes32 actorAccountId, LifecycleConsent[] consents) pure returns (bytes32)",
+  "function hashLifecycleConsentTerms(LifecycleConsent[] consents) pure returns (bytes32)",
+  "function hashLifecycleAction(LifecycleAction action) view returns (bytes32 actionHash, bytes32 actionId, bytes32 digest)",
+  "function authorizeAction(LifecycleAction action, LifecycleInput[] inputs, LifecycleSuccessor[] successors, LifecycleCollateralReplacement[] collateralReplacements, LifecycleConsent[] consents, bytes[] consentSignatures, bytes actorSignature) returns (bytes32 actionId)",
+  "function executeAction(LifecycleAction action, LifecycleInput[] inputs, LifecycleSuccessor[] successors, LifecycleCollateralReplacement[] collateralReplacements, LifecycleConsent[] consents) returns (bytes32 outcomeHash)",
+]);
+
+const lifecycleActionTypes = {
+  SetrynLifecycleActionV1: [
+    { name: "kind", type: "uint8" },
+    { name: "actor", type: "address" },
+    { name: "actorAccountId", type: "bytes32" },
+    { name: "policyContextHash", type: "bytes32" },
+    { name: "inputsHash", type: "bytes32" },
+    { name: "successorsHash", type: "bytes32" },
+    { name: "collateralReplacementsHash", type: "bytes32" },
+    { name: "participantSetHash", type: "bytes32" },
+    { name: "consentsHash", type: "bytes32" },
+    { name: "riskDomainId", type: "bytes32" },
+    { name: "riskDomainVersion", type: "uint32" },
+    { name: "feeScheduleId", type: "bytes32" },
+    { name: "feeScheduleVersion", type: "uint32" },
+    { name: "economicTransitionHash", type: "bytes32" },
+    { name: "compressionPlanId", type: "bytes32" },
+    { name: "breaksPackageProvenance", type: "bool" },
+    { name: "packageBreakPermissionHash", type: "bytes32" },
+    { name: "actorMaximumLiabilityIncreaseBaseUnits", type: "uint128" },
+    { name: "actorMaximumCollateralIncreaseBaseUnits", type: "uint128" },
+    { name: "inputCount", type: "uint16" },
+    { name: "successorCount", type: "uint16" },
+    { name: "participantCount", type: "uint16" },
+    { name: "deadline", type: "uint64" },
+    { name: "nonce", type: "uint256" },
+    { name: "permittedExecutor", type: "address" },
+    { name: "salt", type: "bytes32" },
+    { name: "chainId", type: "uint256" },
+    { name: "engine", type: "address" },
+  ],
+} as const;
 
 const vaultAbi = [
   {
@@ -380,13 +448,20 @@ export class OnchainTradingGateway implements InternalTradingGateway {
 
   async authorizeOrder(intent: PackageOrderIntent): Promise<SignedOrderAuthorization> {
     const { setryn, address, walletClient, publicClient } = await this.connected();
-    if (intent.side !== "ENTER") throw new Error("ONCHAIN_EXIT_FLOW_NOT_READY");
     if (intent.marketId !== PRIMARY_MARKET_ID) throw new Error("MARKET_NOT_ONCHAIN_ENABLED");
     if (intent.recipient.toLowerCase() !== address.toLowerCase()) throw new Error("RECIPIENT_MISMATCH");
     if (intent.marketId !== PRIMARY_MARKET_ID || intent.packageCode !== PRIMARY_MARKET_ID) {
       throw new Error("UNSUPPORTED_ONCHAIN_MARKET");
     }
     if (!Number.isInteger(intent.lots) || intent.lots < 1 || intent.lots > 10) throw new Error("INVALID_LOTS");
+    if (intent.side === "EXIT") {
+      const closing = this.snapshot.positions.find((position) => position.id === intent.closePositionId);
+      if (!closing) throw new Error("CLOSE_POSITION_NOT_FOUND");
+      if (closing.marketId !== intent.marketId || closing.side !== intent.packageSide) {
+        throw new Error("CLOSE_POSITION_MISMATCH");
+      }
+      if (closing.lots !== intent.lots) throw new Error("FULL_POSITION_EXIT_REQUIRED");
+    }
     if (!Number.isFinite(intent.limitPrice)) throw new Error("INVALID_LIMIT_PRICE");
     if (!["GTC", "GTD", "IOC", "FOK"].includes(intent.timeInForce)) throw new Error("INVALID_TIME_IN_FORCE");
     const action = executableAction(intent.side, intent.packageSide);
@@ -689,6 +764,20 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     }
     const executionPrice = Number(makerBookOrder.priceTicks) / 10;
     const packageSide = authorization.intent.packageSide;
+    let lifecycleHash: Hex | null = null;
+    if (authorization.intent.side === "EXIT") {
+      if (!authorization.intent.closePositionId) throw new Error("CLOSE_POSITION_REQUIRED");
+      onUpdate({
+        step: "POSITION_UPDATED",
+        label: "Close hedge filled",
+        detail: "The opposite-side fill is complete. Releasing both position liabilities.",
+        transactionHash: matchHash,
+      });
+      lifecycleHash = await this.completeFullExit(
+        authorization.intent.closePositionId as Hex,
+        positionId,
+      );
+    }
     const position = {
       id: positionId,
       marketId: authorization.intent.marketId,
@@ -705,6 +794,13 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const takerFeeMinor = ledgerEvents.find(
       (event) => event.args.fillId === fillId && event.args.kind === 3,
     )?.args.amount ?? BigInt(0);
+    const closedPosition = authorization.intent.side === "EXIT"
+      ? this.snapshot.positions.find((candidate) => candidate.id === authorization.intent.closePositionId) ?? null
+      : null;
+    const realizedPnlUsd = closedPosition
+      ? (closedPosition.side === "LONG" ? executionPrice - closedPosition.entryPrice : closedPosition.entryPrice - executionPrice) *
+        authorization.intent.contractMultiplier * filledLots
+      : undefined;
     const receipt: ExecutionReceipt = {
       id: fillId,
       orderHash: authorization.orderHash,
@@ -720,19 +816,21 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       cancelledLots: order.timeInForce === 3 || order.timeInForce === 4 ? requestedLots - filledLots : 0,
       price: executionPrice,
       fees: Number(formatUnits(takerFeeMinor, 6)),
+      realizedPnlUsd,
+      collateralReleasedUsd: closedPosition?.collateral,
       guarantee: "Atomic onchain settlement",
       evidence: "DEVNET",
       createdAt: new Date().toISOString(),
     };
     const result: PackageExecutionResult = {
       fillId,
-      outcome: "OPENED",
+      outcome: authorization.intent.side === "EXIT" ? "CLOSED" : "OPENED",
       requestedLots,
       filledLots,
       cancelledLots: receipt.cancelledLots,
-      position,
-      closedPositionId: null,
-      closedLots: 0,
+      position: authorization.intent.side === "EXIT" ? null : position,
+      closedPositionId: authorization.intent.side === "EXIT" ? authorization.intent.closePositionId : null,
+      closedLots: authorization.intent.side === "EXIT" ? filledLots : 0,
       receipt,
     };
     const updates: SubmissionUpdate[] = [
@@ -740,13 +838,17 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       { step: "SUBMITTED", label: "Order registered", detail: "Signed order registered onchain.", transactionHash: registrationHash },
       { step: "INCLUDED", label: "Match included", detail: "Best public liquidity cleared atomically.", transactionHash: matchHash },
       { step: "FILLED", label: "Package filled", detail: `${filledLots} lots filled at ${executionPrice}.`, transactionHash: matchHash },
-      { step: "POSITION_CREATED", label: "Position created", detail: `Position ${positionId} is active.`, transactionHash: matchHash },
+      authorization.intent.side === "EXIT"
+        ? { step: "POSITION_CLOSED", label: "Position closed", detail: "Original and close-fill positions were fully unwound onchain.", transactionHash: lifecycleHash ?? matchHash }
+        : { step: "POSITION_CREATED", label: "Position created", detail: `Position ${positionId} is active.`, transactionHash: matchHash },
       { step: "RECEIPT_READY", label: "Receipt ready", detail: `Fill ${fillId} is verifiable onchain.`, transactionHash: matchHash },
     ];
     const execution = { id: fillId, orderHash: authorization.orderHash, updates, result, createdAt: receipt.createdAt };
     this.publish({
       ...this.snapshot,
-      positions: [...this.snapshot.positions, position],
+      positions: authorization.intent.side === "EXIT"
+        ? this.snapshot.positions.filter((candidate) => candidate.id !== authorization.intent.closePositionId)
+        : [...this.snapshot.positions, position],
       receipts: [...this.snapshot.receipts, receipt],
       executions: [...this.snapshot.executions, execution],
     });
@@ -1123,6 +1225,20 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const packageSide = authorization.intent.packageSide;
     const filledLots = Number(body.fillLots);
     const executionPrice = Number(body.executionPriceTicks) / 10;
+    let lifecycleHash: Hex | null = null;
+    if (authorization.intent.side === "EXIT") {
+      if (!authorization.intent.closePositionId) throw new Error("CLOSE_POSITION_REQUIRED");
+      onUpdate({
+        step: "POSITION_UPDATED",
+        label: "Close hedge filled",
+        detail: "The private close fill is complete. Releasing both position liabilities.",
+        transactionHash: body.transactionHash,
+      });
+      lifecycleHash = await this.completeFullExit(
+        authorization.intent.closePositionId as Hex,
+        body.positionId as Hex,
+      );
+    }
     const position = {
       id: body.positionId,
       marketId: authorization.intent.marketId,
@@ -1133,6 +1249,13 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       state: "ACTIVE" as const,
       createdAt: new Date().toISOString(),
     };
+    const closedPosition = authorization.intent.side === "EXIT"
+      ? this.snapshot.positions.find((candidate) => candidate.id === authorization.intent.closePositionId) ?? null
+      : null;
+    const realizedPnlUsd = closedPosition
+      ? (closedPosition.side === "LONG" ? executionPrice - closedPosition.entryPrice : closedPosition.entryPrice - executionPrice) *
+        authorization.intent.contractMultiplier * filledLots
+      : undefined;
     const receipt: ExecutionReceipt = {
       id: body.fillId,
       orderHash: authorization.orderHash,
@@ -1148,19 +1271,21 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       cancelledLots: authorization.intent.lots - filledLots,
       price: executionPrice,
       fees: Number(formatUnits(BigInt(body.takerFeeMinor), 6)),
+      realizedPnlUsd,
+      collateralReleasedUsd: closedPosition?.collateral,
       guarantee: "Firm capacity, atomic onchain settlement",
       evidence: "DEVNET",
       createdAt: new Date().toISOString(),
     };
     const result: PackageExecutionResult = {
       fillId: body.fillId,
-      outcome: "OPENED",
+      outcome: authorization.intent.side === "EXIT" ? "CLOSED" : "OPENED",
       requestedLots: authorization.intent.lots,
       filledLots,
       cancelledLots: receipt.cancelledLots,
-      position,
-      closedPositionId: null,
-      closedLots: 0,
+      position: authorization.intent.side === "EXIT" ? null : position,
+      closedPositionId: authorization.intent.side === "EXIT" ? authorization.intent.closePositionId : null,
+      closedLots: authorization.intent.side === "EXIT" ? filledLots : 0,
       receipt,
     };
     const updates: SubmissionUpdate[] = [
@@ -1168,7 +1293,9 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       { step: "SUBMITTED", label: "Private handoff submitted", detail: "The RFQ entered private channel clearing." },
       { step: "INCLUDED", label: "Handoff included", detail: "The RFQ handoff cleared atomically.", transactionHash: body.transactionHash },
       { step: "FILLED", label: "Package filled", detail: `${filledLots} lots filled at ${executionPrice}.`, transactionHash: body.transactionHash },
-      { step: "POSITION_CREATED", label: "Position created", detail: `Position ${body.positionId} is active.`, transactionHash: body.transactionHash },
+      authorization.intent.side === "EXIT"
+        ? { step: "POSITION_CLOSED", label: "Position closed", detail: "Original and close-fill positions were fully unwound onchain.", transactionHash: lifecycleHash ?? body.transactionHash }
+        : { step: "POSITION_CREATED", label: "Position created", detail: `Position ${body.positionId} is active.`, transactionHash: body.transactionHash },
       { step: "RECEIPT_READY", label: "Receipt ready", detail: `Fill ${body.fillId} is verifiable onchain.`, transactionHash: body.transactionHash },
     ];
     for (const update of updates.slice(2)) onUpdate(update);
@@ -1182,7 +1309,9 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     };
     this.publish({
       ...this.snapshot,
-      positions: [...this.snapshot.positions, position],
+      positions: authorization.intent.side === "EXIT"
+        ? this.snapshot.positions.filter((candidate) => candidate.id !== authorization.intent.closePositionId)
+        : [...this.snapshot.positions, position],
       receipts: [...this.snapshot.receipts, receipt],
       executions: [...this.snapshot.executions, execution],
       rfqRequests: this.snapshot.rfqRequests.map((request) => request.id === requestId ? executed : request),
@@ -1582,6 +1711,13 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         functionName: "getFill",
         args: [fillId],
       });
+      const positionStatus = await this.publicClient.readContract({
+        address: this.setryn.positionEngine,
+        abi: positionLifecycleAbi,
+        functionName: "positionStatus",
+        args: [positionId],
+      });
+      const positionLive = positionStatus === 1;
       const [makerRecord, takerRecord] = await Promise.all([
         this.publicClient.readContract({
           address: this.setryn.orderState,
@@ -1653,10 +1789,12 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         { step: "SUBMITTED", label: "Order registered", detail: "Signed order registered onchain." },
         { step: "INCLUDED", label: "Match included", detail: `${receipt.routeLabel} cleared atomically.`, transactionHash: positionEvent.transactionHash },
         { step: "FILLED", label: "Package filled", detail: `${filledLots} lots filled at ${price}.`, transactionHash: positionEvent.transactionHash },
-        { step: "POSITION_CREATED", label: "Position created", detail: `Position ${positionId} is active.`, transactionHash: positionEvent.transactionHash },
+        positionLive
+          ? { step: "POSITION_CREATED", label: "Position created", detail: `Position ${positionId} is active.`, transactionHash: positionEvent.transactionHash }
+          : { step: "POSITION_CLOSED", label: "Position closed", detail: `Position ${positionId} reached a terminal lifecycle state.`, transactionHash: positionEvent.transactionHash },
         { step: "RECEIPT_READY", label: "Receipt ready", detail: `Fill ${fillId} is verifiable onchain.`, transactionHash: positionEvent.transactionHash },
       ];
-      positions.push(position);
+      if (positionLive) positions.push(position);
       receipts.push(receipt);
       executions.push({
         id: fillId,
@@ -1664,13 +1802,13 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         updates,
         result: {
           fillId,
-          outcome: "OPENED",
+          outcome: positionLive ? "OPENED" : "CLOSED",
           requestedLots,
           filledLots,
           cancelledLots,
-          position,
-          closedPositionId: null,
-          closedLots: 0,
+          position: positionLive ? position : null,
+          closedPositionId: positionLive ? null : positionId,
+          closedLots: positionLive ? 0 : filledLots,
           receipt,
         },
         createdAt,
@@ -1972,6 +2110,159 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     });
     const releaseReceipt = await publicClient.waitForTransactionReceipt({ hash: releaseHash });
     if (releaseReceipt.status !== "success") throw new Error("RISK_RELEASE_FAILED");
+  }
+
+  private async completeFullExit(sourcePositionId: Hex, closePositionId: Hex): Promise<Hex> {
+    const { setryn, address, walletClient, publicClient } = await this.connected();
+    const actorAccountId = await this.accountId(address);
+    const snapshots = await Promise.all(
+      [sourcePositionId, closePositionId].map((positionId) =>
+        publicClient.readContract({
+          address: setryn.positionEngine,
+          abi: positionLifecycleAbi,
+          functionName: "getLifecyclePosition",
+          args: [positionId],
+        }),
+      ),
+    );
+    snapshots.sort((left, right) => left.positionId.toLowerCase().localeCompare(right.positionId.toLowerCase()));
+    if (snapshots.some((snapshot) => snapshot.positionLots === BigInt(0))) throw new Error("EMPTY_EXIT_POSITION");
+    if (snapshots[0].positionLots !== snapshots[1].positionLots) throw new Error("EXIT_QUANTITY_MISMATCH");
+    if (snapshots.some((snapshot) => snapshot.packageProvenanceHash !== EMPTY_ID)) {
+      throw new Error("PACKAGE_COMPRESSION_EXIT_REQUIRED");
+    }
+    const participantAccounts = [...new Set(
+      snapshots.flatMap((snapshot) => [snapshot.longAccountId.toLowerCase(), snapshot.shortAccountId.toLowerCase()]),
+    )];
+    if (participantAccounts.length !== 2 || !participantAccounts.includes(actorAccountId.toLowerCase())) {
+      throw new Error("EXIT_PARTICIPANT_MISMATCH");
+    }
+    const makerAccountId = participantAccounts.find((accountId) => accountId !== actorAccountId.toLowerCase()) as Hex;
+    const inputs = snapshots.map((snapshot) => ({
+      positionId: snapshot.positionId,
+      expectedImmutableHash: snapshot.immutableHash,
+      expectedLifecycleHash: snapshot.lifecycleHash,
+      expectedPositionLots: snapshot.positionLots,
+      actionLots: snapshot.positionLots,
+    }));
+    const replacements = participantAccounts
+      .sort((left, right) => left.localeCompare(right))
+      .map((accountId) => ({
+        accountId: accountId as Hex,
+        collateralId: snapshots[0].collateralId,
+        terminalLiabilityBaseUnits: BigInt(0),
+      }));
+    const block = await publicClient.getBlock();
+    const deadline = block.timestamp + BigInt(240);
+    const nonce = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(crypto.getRandomValues(new Uint32Array(1))[0]);
+    const consentNonce = nonce + BigInt(1);
+    const salt = keccak256(stringToHex(`${address}:${sourcePositionId}:${closePositionId}:${nonce}`));
+    const consentSalt = keccak256(stringToHex(`${setryn.operator}:${sourcePositionId}:${closePositionId}:${consentNonce}`));
+    const consentBase = {
+      actionId: EMPTY_ID,
+      accountId: makerAccountId,
+      signer: setryn.operator,
+      nonce: consentNonce,
+      deadline,
+      maximumLiabilityIncreaseBaseUnits: BigInt(0),
+      maximumCollateralIncreaseBaseUnits: BigInt(0),
+      allowsPackageBreak: false,
+      salt: consentSalt,
+    } as const;
+    const [inputsHash, successorsHash, collateralReplacementsHash, participantSetHash, consentsHash] =
+      await Promise.all([
+        publicClient.readContract({ address: setryn.signedLifecycleEngine, abi: signedLifecycleAbi, functionName: "hashLifecycleInputs", args: [inputs] }),
+        publicClient.readContract({ address: setryn.signedLifecycleEngine, abi: signedLifecycleAbi, functionName: "hashLifecycleSuccessors", args: [[]] }),
+        publicClient.readContract({ address: setryn.signedLifecycleEngine, abi: signedLifecycleAbi, functionName: "hashLifecycleCollateralReplacements", args: [replacements] }),
+        publicClient.readContract({ address: setryn.signedLifecycleEngine, abi: signedLifecycleAbi, functionName: "hashLifecycleParticipantSet", args: [actorAccountId, [consentBase]] }),
+        publicClient.readContract({ address: setryn.signedLifecycleEngine, abi: signedLifecycleAbi, functionName: "hashLifecycleConsentTerms", args: [[consentBase]] }),
+      ]);
+    let action = {
+      kind: 4,
+      actor: address,
+      actorAccountId,
+      policyContextHash: EMPTY_ID,
+      inputsHash,
+      successorsHash,
+      collateralReplacementsHash,
+      participantSetHash,
+      consentsHash,
+      riskDomainId: snapshots[0].riskDomainId,
+      riskDomainVersion: snapshots[0].riskDomainVersion,
+      feeScheduleId: snapshots[0].feeScheduleId,
+      feeScheduleVersion: snapshots[0].feeScheduleVersion,
+      economicTransitionHash: EMPTY_ID,
+      compressionPlanId: EMPTY_ID,
+      breaksPackageProvenance: false,
+      packageBreakPermissionHash: EMPTY_ID,
+      actorMaximumLiabilityIncreaseBaseUnits: BigInt(0),
+      actorMaximumCollateralIncreaseBaseUnits: BigInt(0),
+      inputCount: inputs.length,
+      successorCount: 0,
+      participantCount: 2,
+      deadline,
+      nonce,
+      permittedExecutor: address,
+      salt,
+    } as const;
+    const [policyContextHash] = await publicClient.readContract({
+      address: setryn.lifecyclePolicyValidator,
+      abi: lifecyclePolicyAbi,
+      functionName: "derivePolicyContext",
+      args: [action, snapshots, []],
+    });
+    action = { ...action, policyContextHash };
+    const [, actionId] = await publicClient.readContract({
+      address: setryn.signedLifecycleEngine,
+      abi: signedLifecycleAbi,
+      functionName: "hashLifecycleAction",
+      args: [action],
+    });
+    const consent = { ...consentBase, actionId };
+    const consentResponse = await fetch("/api/internal/devnet/lifecycle-consent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actionId,
+        accountId: makerAccountId,
+        nonce: consentNonce.toString(),
+        deadline: deadline.toString(),
+        salt: consentSalt,
+        allowsPackageBreak: false,
+      }),
+    });
+    const consentResult = (await consentResponse.json()) as { signature?: Hex; error?: string };
+    if (!consentResponse.ok || !consentResult.signature) {
+      throw new Error(consentResult.error ?? "MAKER_LIFECYCLE_CONSENT_FAILED");
+    }
+    const actorSignature = await walletClient.signTypedData({
+      account: address,
+      domain: { name: "Setryn", version: "1", chainId: setryn.chainId, verifyingContract: setryn.signedLifecycleEngine },
+      types: lifecycleActionTypes,
+      primaryType: "SetrynLifecycleActionV1",
+      message: { ...action, chainId: BigInt(setryn.chainId), engine: setryn.signedLifecycleEngine },
+    });
+    const authorizationHash = await walletClient.writeContract({
+      account: address,
+      chain: this.chain(setryn),
+      address: setryn.signedLifecycleEngine,
+      abi: signedLifecycleAbi,
+      functionName: "authorizeAction",
+      args: [action, inputs, [], replacements, [consent], [consentResult.signature], actorSignature],
+    });
+    const authorizationReceipt = await publicClient.waitForTransactionReceipt({ hash: authorizationHash });
+    if (authorizationReceipt.status !== "success") throw new Error("EXIT_AUTHORIZATION_FAILED");
+    const executionHash = await walletClient.writeContract({
+      account: address,
+      chain: this.chain(setryn),
+      address: setryn.signedLifecycleEngine,
+      abi: signedLifecycleAbi,
+      functionName: "executeAction",
+      args: [action, inputs, [], replacements, [consent]],
+    });
+    const executionReceipt = await publicClient.waitForTransactionReceipt({ hash: executionHash });
+    if (executionReceipt.status !== "success") throw new Error("EXIT_EXECUTION_FAILED");
+    return executionHash;
   }
 
   private async cancelUnmatchedOrder(authorization: SignedOrderAuthorization): Promise<void> {
