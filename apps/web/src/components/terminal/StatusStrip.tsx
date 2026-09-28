@@ -11,7 +11,7 @@ export function StatusStrip() {
         <Info size={13} aria-hidden="true" className="shrink-0" />
         <span className="truncate md:hidden">{snapshot.environment.label}. Mainnet writes disabled.</span>
         <span className="hidden truncate md:inline">
-          {snapshot.environment.label} data and clearing are simulated in this browser. Mainnet writes are disabled.
+          {snapshot.environment.label}: collateral and public orders settle onchain. Market observations use the development feed. Mainnet writes are disabled.
         </span>
       </p>
     </div>

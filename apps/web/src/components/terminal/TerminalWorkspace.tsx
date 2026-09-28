@@ -24,7 +24,6 @@ import {
   type TicketState,
 } from "@/lib/terminal/economics";
 import { parseHandoff, type HandoffContext } from "@/lib/terminal/handoff";
-import { LIFECYCLE_STRATEGIES } from "@/lib/lifecycle/fixtures";
 import { tradeHref } from "@/lib/terminal/markets";
 import type { BookRow, ConsoleTabId, PackageMarket } from "@/lib/terminal/types";
 import type { OrderExecutionProgress } from "@/lib/internal-gateway/types";
@@ -39,17 +38,17 @@ const MOBILE_TABS = [
 ];
 
 function executionError(error: unknown): string {
-  if (!(error instanceof Error)) return "The demo runtime could not complete this package order.";
+  if (!(error instanceof Error)) return "The trading runtime could not complete this package order.";
   if (error.message === "CONNECT_WALLET") return "Connect a wallet before authorizing this package.";
   if (error.message === "INSUFFICIENT_AVAILABLE_COLLATERAL") {
     return "Available collateral plus released collateral no longer covers the fee cap.";
   }
   if (error.message === "AUTHORIZATION_EXPIRED") return "The authorization expired before submission. Review and try again.";
   if (error.message === "SIGNER_MISMATCH") return "The active wallet does not match the package authorization.";
-  if (error.message === "MAINNET_WRITE_DISABLED") return "Mainnet writes are disabled by the Setryn demo runtime.";
+  if (error.message === "MAINNET_WRITE_DISABLED") return "Mainnet writes are disabled by the current Setryn environment.";
   if (error.message === "CLOSE_POSITION_REQUIRED") return "Select an active package position to close.";
   if (error.message === "CLOSE_POSITION_FORBIDDEN_FOR_ENTRY") return "Entry orders cannot reference a position to close.";
-  if (error.message === "POSITION_NOT_FOUND") return "The selected position is no longer active in this demo session.";
+  if (error.message === "POSITION_NOT_FOUND") return "The selected position is no longer active in this account.";
   if (error.message === "POSITION_MARKET_MISMATCH") return "The selected position does not belong to this market.";
   if (error.message === "INVALID_CLOSE_LOTS") return "Enter a close quantity above zero.";
   if (error.message === "CLOSE_LOTS_EXCEEDS_POSITION") return "Quantity exceeds the selected package lots. Reduce quantity to close within the active package.";
@@ -124,7 +123,7 @@ function executionError(error: unknown): string {
   if (error.message === "RESTING_ORDER_NOT_WORKING") {
     return "The working order is no longer working.";
   }
-  return "The demo runtime did not reach a final package outcome. No completion is claimed.";
+  return "The trading runtime did not reach a final package outcome. No completion is claimed.";
 }
 
 function initialTicket(market: PackageMarket, handoff?: HandoffContext): TicketState {
@@ -456,13 +455,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       }
       return null;
     }
-    const isStaticExample = LIFECYCLE_STRATEGIES.some(
-      (strategy) => strategy.id === handoff.lifecycleId,
-    );
-    if (isStaticExample) {
-      return `Lifecycle handoff ${handoff.lifecycleId} refers to a static example, not an active demo position. Open a runtime position first.`;
-    }
-    return `Lifecycle handoff ${handoff.lifecycleId} refers to an unavailable runtime position. It may be closed or from another session.`;
+    return `Lifecycle handoff ${handoff.lifecycleId} is not an active position for the connected account.`;
   }, [gatewaySnapshot.positions, handoff.intent, handoff.lifecycleId, handoff.present, liveMarket.id]);
 
   const effectiveHandoff = useMemo<HandoffContext>(

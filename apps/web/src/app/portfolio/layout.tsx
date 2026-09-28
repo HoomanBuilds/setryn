@@ -20,14 +20,13 @@ export default function PortfolioLayout({ children }: { children: ReactNode }) {
           <MetaLine
             items={[
               snapshot.account.label,
-              `${portfolio.runtimePositions.length} runtime package${portfolio.runtimePositions.length === 1 ? "" : "s"}`,
-              "reference observations",
+              `${portfolio.runtimePositions.length} active package${portfolio.runtimePositions.length === 1 ? "" : "s"}`,
               runtimeObservationLabel(snapshot),
             ]}
           />
         </span>
         <span className="min-w-0 truncate text-xs text-faint xl:hidden">
-          {`${snapshot.environment.label} / ${portfolio.runtimePositions.length} runtime packages`}
+          {`${snapshot.environment.label} / ${portfolio.runtimePositions.length} active packages`}
         </span>
       </div>
 

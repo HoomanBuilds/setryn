@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { EmptyState, SOURCE_LABEL, SourceMark, Tabs, tone } from "@/components/terminal/primitives";
-import { CONSOLE, CONSOLE_TABS } from "@/lib/terminal/console";
+import { CONSOLE_TABS } from "@/lib/terminal/console";
 import {
   formatDuration,
   formatLots,
@@ -17,6 +17,7 @@ import { findMarket, packageLabel } from "@/lib/terminal/markets";
 import { strategyPnl } from "@/lib/portfolio/model";
 import type {
   ConsoleTabId,
+  ConsoleData,
   FillRecord,
   LiquiditySource,
   PackageMarket,
@@ -199,18 +200,16 @@ export function ConsolePanel({
   const keep = <T extends { marketId: string }>(rows: T[]) =>
     scoped ? rows.filter((row) => row.marketId === market.id) : rows;
 
-  const runtimeStrategyIds = new Set(runtimeStrategies.map((strategy) => strategy.id));
-  const strategies = keep([...runtimeStrategies, ...CONSOLE.strategies]);
+  const strategies = keep(runtimeStrategies);
   const runtimeRestingOrderRows = keep(runtimeRestingOrders);
-  const orders = keep(CONSOLE.orders);
-  const rfqs = keep(CONSOLE.rfqs);
-  const fills = keep([...runtimeFillRows, ...CONSOLE.fills]);
-  const recovery = keep(CONSOLE.recovery);
-  const receipts = keep([...runtimeReceiptRows, ...CONSOLE.receipts]);
+  const rfqs = keep<ConsoleData["rfqs"][number]>([]);
+  const fills = keep(runtimeFillRows);
+  const recovery = keep<ConsoleData["recovery"][number]>([]);
+  const receipts = keep(runtimeReceiptRows);
 
   const counts: Record<ConsoleTabId, number> = {
     strategies: strategies.length,
-    orders: runtimeRestingOrderRows.length + orders.length,
+    orders: runtimeRestingOrderRows.length,
     rfqs: rfqs.length,
     fills: fills.length,
     recovery: recovery.length,
@@ -220,7 +219,7 @@ export function ConsolePanel({
   const empty = (
     <EmptyState>
       <span>
-        {`No ${tab} for ${market.name} in this preview set. `}
+        {`No ${tab} for ${market.name} in the connected account. `}
         <button
           type="button"
           onClick={() => onScopedChange(false)}
@@ -276,9 +275,7 @@ export function ConsolePanel({
               ]}
             >
               {strategies.map((row) => {
-                const rowMarket = runtimeStrategyIds.has(row.id)
-                  ? resolveRuntimeConsoleMarket(markets, row.marketId)
-                  : findMarket(row.marketId);
+                const rowMarket = resolveRuntimeConsoleMarket(markets, row.marketId);
                 const unit = priceUnitSuffix(rowMarket.priceUnit);
                 const pnl = strategyPnl(row);
                 return (
@@ -307,7 +304,7 @@ export function ConsolePanel({
         ) : null}
 
         {tab === "orders" ? (
-          runtimeRestingOrderRows.length + orders.length === 0 ? (
+          runtimeRestingOrderRows.length === 0 ? (
             empty
           ) : (
             <Table
@@ -345,22 +342,22 @@ export function ConsolePanel({
                 const latestReceipt = order.receiptId ?? "unavailable";
                 const detail =
                   order.state === "FILLED"
-                    ? `LOCAL_DEMO filled order. Receipt ${latestReceipt}.`
+                    ? `Filled onchain. Receipt ${latestReceipt}.`
                     : order.state === "PARTIALLY_FILLED"
                       ? `${formatLots(remainingLots)} lots working. Latest receipt ${latestReceipt}.`
                       : order.state === "CANCELLED"
                         ? filledLots > 1e-9
-                          ? `LOCAL_DEMO cancelled order. ${formatLots(filledLots)} lots filled. Latest receipt ${latestReceipt}.`
-                          : "LOCAL_DEMO cancelled order. No fill, receipt, or position."
+                          ? `Cancelled onchain after ${formatLots(filledLots)} lots filled. Latest receipt ${latestReceipt}.`
+                          : "Cancelled onchain without a fill."
                         : order.state === "EXPIRED"
                           ? filledLots > 1e-9
-                            ? `LOCAL_DEMO expired order. ${formatLots(filledLots)} lots filled. Latest receipt ${latestReceipt}.`
-                            : "LOCAL_DEMO expired order. No fill, receipt, or position."
+                            ? `Expired after ${formatLots(filledLots)} lots filled. Latest receipt ${latestReceipt}.`
+                            : "Expired without a fill."
                           : order.state === "REPLACED"
                             ? `Replaced by ${order.replacedByOrderId ?? "unknown"}. New queue priority.`
                             : order.replacesOrderId
                               ? `Replaces ${order.replacesOrderId}. New queue priority.`
-                              : "LOCAL_DEMO resting order. No fill, receipt, or position.";
+                              : `Resting onchain with ${formatLots(remainingLots)} lots available.`;
                 return (
                   <Tr key={order.id} highlight={!scoped && order.marketId === market.id}>
                     <td className={`${TD} tnum font-mono whitespace-nowrap text-faint`}>{order.id}</td>
@@ -411,25 +408,6 @@ export function ConsolePanel({
                   </Tr>
                 );
               })}
-              {orders.map((row) => (
-                <Tr key={row.id} highlight={!scoped && row.marketId === market.id}>
-                  <td className={`${TD} tnum font-mono whitespace-nowrap text-faint`}>{row.id}</td>
-                  <td className={`${TD} whitespace-nowrap text-ink`}>{row.package}</td>
-                  <td className={`${TD} whitespace-nowrap text-dim`}>
-                    {row.side === "ENTER" ? "Enter" : "Exit"}
-                  </td>
-                  <td className={NUM}>
-                    {`${formatLots(row.filledLots)} / ${formatLots(row.lots)}`}
-                  </td>
-                  <td className={NUM}>{row.limit}</td>
-                  <td className={`${TD} tnum font-mono whitespace-nowrap text-dim`}>{row.tif}</td>
-                  <td className={`${TD} whitespace-nowrap text-dim`}>{row.route}</td>
-                  <td className={`${TD} whitespace-nowrap`}>
-                    <State value={row.state} />
-                  </td>
-                  <td className={`${TD} text-faint`}>{row.detail}</td>
-                </Tr>
-              ))}
             </Table>
           )
         ) : null}

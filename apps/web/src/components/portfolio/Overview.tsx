@@ -130,7 +130,7 @@ function RuntimeHealth({ portfolio }: { portfolio: ReturnType<typeof portfolioRu
           </div>
         </div>
       </Panel>
-      <Panel title="Runtime PnL" note="Marks are simulated, not oracle observations">
+      <Panel title="Account PnL" note="Marked against the current development market feed">
         <table className={TABLE}>
           <tbody className="divide-y divide-line-soft">
             {COMPONENTS.map((component) => {
@@ -161,25 +161,22 @@ export function OverviewView() {
       <div className="flex min-w-0 flex-col lg:min-h-0 lg:flex-1 lg:flex-row lg:overflow-hidden">
         <section className="scroll-thin flex min-w-0 flex-1 flex-col lg:overflow-y-auto">
           <Panel
-            title="Runtime packages"
-            note="Created through this browser session"
+            title="Active packages"
+            note="Reconstructed from the connected account"
             aside={<Link href="/portfolio/positions" className="focus-ring text-xs text-dim hover:text-ink">Full book</Link>}
           >
             <div className="scroll-thin overflow-x-auto"><PositionRows positions={portfolio.runtimePositions} /></div>
           </Panel>
-          <Panel title="Reference package observations" note="Simulated market and attribution data, separate from account equity">
-            <div className="scroll-thin overflow-x-auto"><PositionRows positions={portfolio.referencePositions.slice(0, 4)} /></div>
-          </Panel>
           <PlaneFooter>
-            <Aggregate label="Runtime gross" value={formatCompactUsd(portfolio.runtimeGross)} />
-            <Aggregate label="Runtime net" value={formatSignedUsd(portfolio.runtimeNet, 0)} valueTone={tone(portfolio.runtimeNet)} />
-            <Aggregate label="Reference PnL" value={formatSignedUsd(portfolio.referencePnl.total, 0)} valueTone={tone(portfolio.referencePnl.total)} />
+            <Aggregate label="Gross exposure" value={formatCompactUsd(portfolio.runtimeGross)} />
+            <Aggregate label="Net exposure" value={formatSignedUsd(portfolio.runtimeNet, 0)} valueTone={tone(portfolio.runtimeNet)} />
+            <Aggregate label="Account PnL" value={formatSignedUsd(portfolio.runtimePnl.total, 0)} valueTone={tone(portfolio.runtimePnl.total)} />
           </PlaneFooter>
         </section>
         <RuntimeHealth portfolio={portfolio} />
       </div>
       <PlaneNote>
-        Runtime account values come from the local execution gateway. Reference observations are retained for market analysis and are not withdrawable balances or live settlement data.
+        Balances and reservations are read from the local onchain account. Position marks use the current development market feed and are not oracle settlement values.
       </PlaneNote>
     </div>
   );

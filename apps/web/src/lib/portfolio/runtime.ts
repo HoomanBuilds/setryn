@@ -142,8 +142,8 @@ function runtimePosition(
     nextEvent: "Lifecycle monitoring is configured in the package terminal.",
     href,
     exitHref: runtimeExitHref(href, execution.id, execution.lots),
-    source: "RUNTIME_SIMULATION",
-    provenance: `${snapshot.environment.label} clearing simulation`,
+    source: "ONCHAIN_RUNTIME",
+    provenance: `${snapshot.environment.label} account state`,
     receiptId: receipt?.id,
   };
 }
@@ -184,15 +184,7 @@ export interface RuntimePortfolio {
 
 export function portfolioRuntime(snapshot: GatewaySnapshot, markets: readonly PackageMarket[]): RuntimePortfolio {
   const runtimePositions = snapshot.positions.map((position) => runtimePosition(position, snapshot, markets));
-  const positions = [
-    ...runtimePositions,
-    ...POSITIONS.map((position) => ({
-      ...position,
-      exitHref: undefined,
-      source: "REFERENCE_OBSERVATION" as const,
-      provenance: "Preview market observation",
-    })),
-  ];
+  const positions = runtimePositions;
   const maintenanceMargin = sum(runtimePositions.map((position) => position.maintenanceMargin));
   const initialMargin = sum(runtimePositions.map((position) => position.initialMargin));
   const account: AccountSummary = {
@@ -231,7 +223,7 @@ export function portfolioRuntime(snapshot: GatewaySnapshot, markets: readonly Pa
     account,
     accountLabel: `${snapshot.account.label} / ${snapshot.account.riskDomain}`,
     runtimePositions,
-    referencePositions: positions.filter((position) => position.source === "REFERENCE_OBSERVATION"),
+    referencePositions: [],
     positions,
     runtimePnl: runtimePnl(runtimePositions),
     referencePnl: PORTFOLIO_PNL,
@@ -252,11 +244,11 @@ export function portfolioRuntime(snapshot: GatewaySnapshot, markets: readonly Pa
 }
 
 export function positionOrigin(position: Position): string {
-  return position.source === "RUNTIME_SIMULATION" ? "Runtime simulation" : "Reference observation";
+  return position.source === "ONCHAIN_RUNTIME" ? "Onchain account" : "Reference observation";
 }
 
 export function runtimeObservationLabel(snapshot: GatewaySnapshot): string {
-  return `${snapshot.environment.label} / ${snapshot.environment.evidence.toLowerCase()} evidence / current browser session`;
+  return `${snapshot.environment.label} / ${snapshot.environment.evidence.toLowerCase()} evidence / onchain account state`;
 }
 
 export function groupPortfolioPositions(positions: Position[], by: GroupBy): PositionGroup[] {
@@ -264,7 +256,7 @@ export function groupPortfolioPositions(positions: Position[], by: GroupBy): Pos
     STRATEGY: (position) => ({
       id: position.market.strategyKind,
       label: position.market.strategyLabel,
-      detail: position.source === "RUNTIME_SIMULATION" ? "runtime package" : "reference observation",
+      detail: position.source === "ONCHAIN_RUNTIME" ? "account package" : "reference observation",
     }),
     UNDERLYING: (position) => ({
       id: position.market.underlying,

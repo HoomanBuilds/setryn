@@ -262,7 +262,7 @@ export function PositionDetail({
         <div className="flex items-baseline justify-between gap-3">
           <SectionLabel>PnL attribution</SectionLabel>
           <span className="truncate text-xs text-off">
-            {position.source === "RUNTIME_SIMULATION" ? "Runtime mark estimate" : "Reference observation"}
+            {position.source === "ONCHAIN_RUNTIME" ? "Development feed mark" : "Reference observation"}
           </span>
         </div>
         <div className="mt-1">

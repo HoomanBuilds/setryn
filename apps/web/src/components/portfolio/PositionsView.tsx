@@ -9,7 +9,7 @@ import { PositionDetail } from "@/components/portfolio/PositionDetail";
 import { PositionsList, PositionsTable } from "@/components/portfolio/PositionsTable";
 import { Aggregate, PlaneFooter } from "@/components/portfolio/panels";
 import { SectionLabel, Segmented, tone } from "@/components/terminal/primitives";
-import { formatCompactUsd, formatSignedCompactUsd, formatSignedUsd } from "@/lib/terminal/format";
+import { formatCompactUsd, formatSignedCompactUsd } from "@/lib/terminal/format";
 import { GROUP_OPTIONS } from "@/lib/portfolio/model";
 import { groupPortfolioPositions, portfolioRuntime } from "@/lib/portfolio/runtime";
 import type { GroupBy } from "@/lib/portfolio/types";
@@ -28,7 +28,7 @@ export function PositionsView() {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      <ControlRow note={`${portfolio.runtimePositions.length} runtime / ${portfolio.referencePositions.length} reference`}>
+      <ControlRow note={`${portfolio.runtimePositions.length} active account package${portfolio.runtimePositions.length === 1 ? "" : "s"}`}>
         <span className="hidden shrink-0 lg:block"><Segmented options={GROUP_OPTIONS} value={groupBy} onChange={setGroupBy} label="Group positions by" /></span>
         <span className="min-w-0 flex-1 lg:hidden"><DimensionSelect id="portfolio-group" label="Group" value={groupBy} options={GROUP_OPTIONS} onChange={setGroupBy} /></span>
       </ControlRow>
@@ -36,13 +36,12 @@ export function PositionsView() {
         <div className="scroll-thin flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
           <div className="hidden min-w-0 shrink-0 lg:block"><PositionsTable groups={groups} selectedId={selectedId} onSelect={toggle} detailId={DETAIL_ID} /></div>
           <div className="shrink-0 lg:hidden">
-            <PositionsList groups={groups} selectedId={selectedId} onSelect={toggle} renderDetail={(position) => <PositionDetail position={position} portfolioPnl={position.source === "RUNTIME_SIMULATION" ? portfolio.runtimePnl : portfolio.referencePnl} binding={portfolio.reference.binding} variant="inline" />} />
+            <PositionsList groups={groups} selectedId={selectedId} onSelect={toggle} renderDetail={(position) => <PositionDetail position={position} portfolioPnl={portfolio.runtimePnl} binding={portfolio.reference.binding} variant="inline" />} />
           </div>
           <PlaneFooter>
-            <Aggregate label="Runtime packages" value={String(portfolio.runtimePositions.length)} />
-            <Aggregate label="Runtime gross" value={formatCompactUsd(portfolio.runtimeGross)} />
-            <Aggregate label="Runtime net" value={formatSignedCompactUsd(portfolio.runtimeNet)} valueTone={tone(portfolio.runtimeNet)} />
-            <Aggregate label="Reference PnL" value={formatSignedUsd(portfolio.referencePnl.total, 0)} valueTone={tone(portfolio.referencePnl.total)} />
+            <Aggregate label="Active packages" value={String(portfolio.runtimePositions.length)} />
+            <Aggregate label="Gross exposure" value={formatCompactUsd(portfolio.runtimeGross)} />
+            <Aggregate label="Net exposure" value={formatSignedCompactUsd(portfolio.runtimeNet)} valueTone={tone(portfolio.runtimeNet)} />
           </PlaneFooter>
         </div>
         {selected ? (
@@ -51,7 +50,7 @@ export function PositionsView() {
               <SectionLabel>Position detail</SectionLabel>
               <button type="button" onClick={() => setSelectedId(null)} aria-label="Close position detail" className="focus-ring grid h-7 w-7 shrink-0 place-items-center rounded-sm text-faint hover:text-ink"><X size={14} aria-hidden="true" /></button>
             </div>
-            <PositionDetail position={selected} portfolioPnl={selected.source === "RUNTIME_SIMULATION" ? portfolio.runtimePnl : portfolio.referencePnl} binding={portfolio.reference.binding} />
+            <PositionDetail position={selected} portfolioPnl={portfolio.runtimePnl} binding={portfolio.reference.binding} />
           </aside>
         ) : null}
       </div>
