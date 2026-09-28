@@ -93,6 +93,26 @@ contract RiskAdmissionBindingRegistryTest is Test {
         assertEq(uint8(riskEngine.getAdmission(admissionId).status), uint8(RiskAdmissionStatus.Released));
     }
 
+    function test_OrderVerifyingContractCanBeBoundExactlyOnce() public {
+        RiskAdmissionBindingRegistry unbound =
+            new RiskAdmissionBindingRegistry(IPortfolioRiskEngine(address(riskEngine)), address(0));
+
+        unbound.bindOrderVerifyingContract(address(registry));
+
+        assertEq(unbound.orderVerifyingContract(), address(registry));
+        vm.expectRevert(RiskAdmissionBindingRegistry.OrderVerifyingContractAlreadyBound.selector);
+        unbound.bindOrderVerifyingContract(address(registry));
+    }
+
+    function test_OnlyDeploymentAuthorityCanBindOrderVerifyingContract() public {
+        RiskAdmissionBindingRegistry unbound =
+            new RiskAdmissionBindingRegistry(IPortfolioRiskEngine(address(riskEngine)), address(0));
+
+        vm.prank(signer);
+        vm.expectRevert(RiskAdmissionBindingRegistry.UnauthorizedBindingAuthority.selector);
+        unbound.bindOrderVerifyingContract(address(registry));
+    }
+
     function _order(AccountId accountId) private view returns (PublicOrder memory) {
         return PublicOrder({
             signer: signer,

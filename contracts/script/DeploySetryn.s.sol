@@ -8,9 +8,12 @@ import {
 
 import {CollateralVault} from "../src/collateral/CollateralVault.sol";
 import {CanonicalStrategyCompiler} from "../src/compiler/CanonicalStrategyCompiler.sol";
+import {DevnetSequencerUptimeFeed} from "../src/devnet/DevnetSequencerUptimeFeed.sol";
 import {OperationalAdapterExecutor} from "../src/adapters/operational/OperationalAdapterExecutor.sol";
+import {AtomicClearingEngine} from "../src/execution/AtomicClearingEngine.sol";
 import {FundedFeeEngine} from "../src/fees/FundedFeeEngine.sol";
 import {FixingEngine} from "../src/fixing/FixingEngine.sol";
+import {ISequencerUptimeFeed} from "../src/interfaces/ISequencerUptimeFeed.sol";
 import {IAdapterRegistry} from "../src/interfaces/IAdapterRegistry.sol";
 import {IAssetRegistry} from "../src/interfaces/IAssetRegistry.sol";
 import {IBenchmarkRegistry} from "../src/interfaces/IBenchmarkRegistry.sol";
@@ -38,6 +41,15 @@ import {SessionRegistry} from "../src/registry/SessionRegistry.sol";
 import {SettlementAssetRegistry} from "../src/registry/SettlementAssetRegistry.sol";
 import {PositionEngine} from "../src/position/PositionEngine.sol";
 import {PortfolioRiskEngine} from "../src/risk/PortfolioRiskEngine.sol";
+import {PublicOrderBook} from "../src/book/PublicOrderBook.sol";
+import {OrderState} from "../src/orders/OrderState.sol";
+import {ClearingAdmissionGate} from "../src/policy/ClearingAdmissionGate.sol";
+import {ExecutionPolicyRegistry} from "../src/policy/ExecutionPolicyRegistry.sol";
+import {OrderValidationGate} from "../src/policy/OrderValidationGate.sol";
+import {PackageWitnessRegistry} from "../src/policy/PackageWitnessRegistry.sol";
+import {PublicBookEligibilityGate} from "../src/policy/PublicBookEligibilityGate.sol";
+import {RiskAdmissionBindingRegistry} from "../src/policy/RiskAdmissionBindingRegistry.sol";
+import {TradingSessionPolicy} from "../src/policy/TradingSessionPolicy.sol";
 import {CashSettlementCoordinator} from "../src/settlement/CashSettlementCoordinator.sol";
 import {PositionLifecycleExecutor} from "../src/lifecycle/PositionLifecycleExecutor.sol";
 import {SignedLifecycleEngine} from "../src/lifecycle/SignedLifecycleEngine.sol";
@@ -62,6 +74,7 @@ import {
     RateForwardPayoffModule,
     WindowAverageScalarPayoffModule
 } from "../src/payoff/ProductionPayoffModules.sol";
+import {WindowKindId} from "../src/types/Identifiers.sol";
 
 contract DeploySetryn is Script {
     uint256 private constant ARBITRUM_ONE_CHAIN_ID = 42161;
@@ -80,6 +93,7 @@ contract DeploySetryn is Script {
     error PrincipalSeparationRequired(address governanceAdmin, address operationalPrincipal);
     error Uint48EnvironmentValueOutOfRange(string name, uint256 value);
     error Uint64EnvironmentValueOutOfRange(string name, uint256 value);
+    error InvalidSequencerUptimeFeed(address feed);
 
     struct Deployment {
         AssetRegistry assetRegistry;
@@ -100,6 +114,17 @@ contract DeploySetryn is Script {
         FixingEngine fixingEngine;
         FundedFeeEngine fundedFeeEngine;
         PortfolioRiskEngine portfolioRiskEngine;
+        ISequencerUptimeFeed sequencerUptimeFeed;
+        ExecutionPolicyRegistry executionPolicyRegistry;
+        TradingSessionPolicy tradingSessionPolicy;
+        PackageWitnessRegistry packageWitnessRegistry;
+        RiskAdmissionBindingRegistry riskAdmissionBindingRegistry;
+        OrderValidationGate orderValidationGate;
+        OrderState orderState;
+        ClearingAdmissionGate clearingAdmissionGate;
+        AtomicClearingEngine atomicClearingEngine;
+        PublicBookEligibilityGate publicBookEligibilityGate;
+        PublicOrderBook publicOrderBook;
         PositionLifecycleExecutor positionLifecycleExecutor;
         AccountPolicyAuthority accountPolicyAuthority;
         LifecyclePolicyValidator lifecyclePolicyValidator;
@@ -153,6 +178,8 @@ contract DeploySetryn is Script {
         uint64 maximumRiskObservationAge = _envUint64("SETRYN_MAXIMUM_RISK_OBSERVATION_AGE", 5 minutes);
         uint64 operationalReadGas = _envUint64("SETRYN_OPERATIONAL_READ_GAS", 500_000);
         uint64 operationalExecutionGas = _envUint64("SETRYN_OPERATIONAL_EXECUTION_GAS", 800_000);
+        uint64 maximumOrderLifetime = _envUint64("SETRYN_MAXIMUM_ORDER_LIFETIME", 30 days);
+        uint64 sequencerRecoveryGrace = _envUint64("SETRYN_SEQUENCER_RECOVERY_GRACE", 1 hours);
         bytes32 deploymentId = vm.envBytes32("SETRYN_DEPLOYMENT_ID");
 
         vm.startBroadcast(deployer);
@@ -236,6 +263,59 @@ contract DeploySetryn is Script {
             IPositionEngine(address(deployment.positionEngine)),
             maximumRiskAdapterGas,
             maximumRiskObservationAge
+        );
+        deployment.sequencerUptimeFeed = _deployOrResolveSequencerFeed(environment);
+        deployment.executionPolicyRegistry = new ExecutionPolicyRegistry(defaultAdminDelay, initialAdmin);
+        deployment.tradingSessionPolicy = new TradingSessionPolicy(
+            ISessionRegistry(address(deployment.sessionRegistry)),
+            deployment.sequencerUptimeFeed,
+            WindowKindId.wrap(keccak256("SETRYN_SESSION_TRADING")),
+            WindowKindId.wrap(keccak256("SETRYN_SESSION_MAINTENANCE")),
+            sequencerRecoveryGrace
+        );
+        deployment.packageWitnessRegistry = new PackageWitnessRegistry(deployment.packageRegistry);
+        deployment.riskAdmissionBindingRegistry =
+            new RiskAdmissionBindingRegistry(deployment.portfolioRiskEngine, address(0));
+        deployment.orderValidationGate = new OrderValidationGate(
+            deployment.seriesRegistry,
+            deployment.packageRegistry,
+            deployment.executionPolicyRegistry,
+            deployment.tradingSessionPolicy,
+            deployment.packageWitnessRegistry,
+            deployment.riskAdmissionBindingRegistry
+        );
+        deployment.orderState =
+            new OrderState(defaultAdminDelay, initialAdmin, deployment.orderValidationGate, maximumOrderLifetime);
+        deployment.riskAdmissionBindingRegistry.bindOrderVerifyingContract(address(deployment.orderState));
+        deployment.clearingAdmissionGate = new ClearingAdmissionGate(
+            deployment.seriesRegistry,
+            deployment.packageRegistry,
+            deployment.executionPolicyRegistry,
+            deployment.tradingSessionPolicy,
+            deployment.packageWitnessRegistry,
+            deployment.riskAdmissionBindingRegistry
+        );
+        deployment.atomicClearingEngine = new AtomicClearingEngine(
+            defaultAdminDelay,
+            initialAdmin,
+            deployment.orderState,
+            deployment.seriesRegistry,
+            deployment.packageRegistry,
+            deployment.positionEngine,
+            deployment.collateralVault,
+            deployment.clearingAdmissionGate,
+            deployment.fundedFeeEngine
+        );
+        deployment.publicBookEligibilityGate = new PublicBookEligibilityGate(
+            deployment.orderState,
+            deployment.seriesRegistry,
+            deployment.packageRegistry,
+            deployment.executionPolicyRegistry,
+            deployment.tradingSessionPolicy,
+            deployment.packageWitnessRegistry
+        );
+        deployment.publicOrderBook = new PublicOrderBook(
+            deployment.orderState, deployment.atomicClearingEngine, deployment.publicBookEligibilityGate
         );
         deployment.positionLifecycleExecutor = new PositionLifecycleExecutor(
             defaultAdminDelay,
@@ -337,6 +417,28 @@ contract DeploySetryn is Script {
         address lifecycleWitnessStager
     ) private {
         _wireRegistryRoles(deployment, bootstrapAdmin, governanceOperator);
+        deployment.executionPolicyRegistry
+            .grantRole(deployment.executionPolicyRegistry.POLICY_ADMIN_ROLE(), governanceOperator);
+        deployment.orderState
+            .grantRole(deployment.orderState.ORDER_CONSUMER_ROLE(), address(deployment.atomicClearingEngine));
+        deployment.atomicClearingEngine
+            .grantRole(deployment.atomicClearingEngine.MATCH_EXECUTOR_ROLE(), address(deployment.publicOrderBook));
+        deployment.atomicClearingEngine
+            .grantRole(deployment.atomicClearingEngine.MATCH_EXECUTOR_ROLE(), governanceOperator);
+        deployment.positionEngine
+            .grantRole(deployment.positionEngine.CLEARING_ENGINE_ROLE(), address(deployment.atomicClearingEngine));
+        deployment.collateralVault
+            .grantRole(deployment.collateralVault.COLLATERAL_LOCKER_ROLE(), address(deployment.atomicClearingEngine));
+        deployment.collateralVault
+            .grantRole(deployment.collateralVault.COLLATERAL_SETTLER_ROLE(), address(deployment.atomicClearingEngine));
+        deployment.fundedFeeEngine
+            .grantRole(deployment.fundedFeeEngine.FEE_ACTION_CONSUMER_ROLE(), address(deployment.atomicClearingEngine));
+        deployment.portfolioRiskEngine
+            .grantRole(deployment.portfolioRiskEngine.RISK_CONSUMER_ROLE(), address(deployment.atomicClearingEngine));
+        deployment.publicOrderBook.grantRole(deployment.publicOrderBook.DEFAULT_ADMIN_ROLE(), governanceAdmin);
+        deployment.publicOrderBook.grantRole(deployment.publicOrderBook.ROUTE_RESERVER_ROLE(), governanceOperator);
+        deployment.publicOrderBook.revokeRole(deployment.publicOrderBook.ROUTE_RESERVER_ROLE(), bootstrapAdmin);
+        deployment.publicOrderBook.revokeRole(deployment.publicOrderBook.DEFAULT_ADMIN_ROLE(), bootstrapAdmin);
         deployment.collateralVault
             .grantRole(deployment.collateralVault.COLLATERAL_LOCKER_ROLE(), address(deployment.positionEngine));
         deployment.collateralVault
@@ -486,6 +588,9 @@ contract DeploySetryn is Script {
         d.privacyCommitmentRegistry.revokeRole(d.privacyCommitmentRegistry.POLICY_QUALIFIER_ROLE(), bootstrap);
         d.privacyCommitmentRegistry.revokeRole(d.privacyCommitmentRegistry.POLICY_ACTIVATOR_ROLE(), bootstrap);
         d.privacyCommitmentRegistry.revokeRole(d.privacyCommitmentRegistry.EPOCH_KEY_PUBLISHER_ROLE(), bootstrap);
+        d.executionPolicyRegistry.revokeRole(d.executionPolicyRegistry.POLICY_ADMIN_ROLE(), bootstrap);
+        d.orderState.revokeRole(d.orderState.ORDER_CONSUMER_ROLE(), bootstrap);
+        d.atomicClearingEngine.revokeRole(d.atomicClearingEngine.MATCH_EXECUTOR_ROLE(), bootstrap);
     }
 
     function _beginAdminTransfers(Deployment memory d, address governanceAdmin) private {
@@ -509,6 +614,9 @@ contract DeploySetryn is Script {
         _beginAdminTransfer(address(d.signedLifecycleEngine), governanceAdmin);
         _beginAdminTransfer(address(d.compressionCoordinator), governanceAdmin);
         _beginAdminTransfer(address(d.privacyCommitmentRegistry), governanceAdmin);
+        _beginAdminTransfer(address(d.executionPolicyRegistry), governanceAdmin);
+        _beginAdminTransfer(address(d.orderState), governanceAdmin);
+        _beginAdminTransfer(address(d.atomicClearingEngine), governanceAdmin);
     }
 
     function _beginAdminTransfer(address target, address governanceAdmin) private {
@@ -580,6 +688,17 @@ contract DeploySetryn is Script {
         }
     }
 
+    function _deployOrResolveSequencerFeed(string memory environment) private returns (ISequencerUptimeFeed feed) {
+        if (keccak256(bytes(environment)) == LOCAL_ENVIRONMENT) {
+            return ISequencerUptimeFeed(address(new DevnetSequencerUptimeFeed()));
+        }
+        address configuredFeed = vm.envAddress("SETRYN_SEQUENCER_UPTIME_FEED");
+        if (configuredFeed == address(0) || configuredFeed.code.length == 0) {
+            revert InvalidSequencerUptimeFeed(configuredFeed);
+        }
+        return ISequencerUptimeFeed(configuredFeed);
+    }
+
     function _requireAllowedTarget(string memory environment) private view {
         if (block.chainid == ARBITRUM_ONE_CHAIN_ID) {
             revert ArbitrumOneDeploymentDisabled();
@@ -646,6 +765,17 @@ contract DeploySetryn is Script {
         console2.log("FixingEngine", address(deployment.fixingEngine));
         console2.log("FundedFeeEngine", address(deployment.fundedFeeEngine));
         console2.log("PortfolioRiskEngine", address(deployment.portfolioRiskEngine));
+        console2.log("SequencerUptimeFeed", address(deployment.sequencerUptimeFeed));
+        console2.log("ExecutionPolicyRegistry", address(deployment.executionPolicyRegistry));
+        console2.log("TradingSessionPolicy", address(deployment.tradingSessionPolicy));
+        console2.log("PackageWitnessRegistry", address(deployment.packageWitnessRegistry));
+        console2.log("RiskAdmissionBindingRegistry", address(deployment.riskAdmissionBindingRegistry));
+        console2.log("OrderValidationGate", address(deployment.orderValidationGate));
+        console2.log("OrderState", address(deployment.orderState));
+        console2.log("ClearingAdmissionGate", address(deployment.clearingAdmissionGate));
+        console2.log("AtomicClearingEngine", address(deployment.atomicClearingEngine));
+        console2.log("PublicBookEligibilityGate", address(deployment.publicBookEligibilityGate));
+        console2.log("PublicOrderBook", address(deployment.publicOrderBook));
         console2.log("PositionLifecycleExecutor", address(deployment.positionLifecycleExecutor));
         console2.log("AccountPolicyAuthority", address(deployment.accountPolicyAuthority));
         console2.log("LifecyclePolicyValidator", address(deployment.lifecyclePolicyValidator));

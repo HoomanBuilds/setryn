@@ -7,6 +7,8 @@ import {PublicOrder} from "../types/OrderTypes.sol";
 import {RiskAdmissionCancellation, RiskAdmissionId} from "../types/RiskTypes.sol";
 
 interface IRiskAdmissionBindingRegistry {
+    function bindOrderVerifyingContract(address verifyingContract) external;
+    function orderVerifyingContract() external view returns (address);
     function bindOrderRisk(PublicOrder calldata order, RiskAdmissionId admissionId) external returns (bytes32 orderHash);
     function admissionForOrder(bytes32 orderHash) external view returns (RiskAdmissionId admissionId);
     function admissionBinding(bytes32 orderHash) external view returns (RiskAdmissionId admissionId, bytes32 resultHash);

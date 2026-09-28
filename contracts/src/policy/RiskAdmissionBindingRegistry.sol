@@ -17,7 +17,8 @@ contract RiskAdmissionBindingRegistry is IRiskAdmissionBindingRegistry {
     );
 
     IPortfolioRiskEngine public immutable riskEngine;
-    address public immutable orderVerifyingContract;
+    address public immutable bindingAuthority;
+    address public orderVerifyingContract;
 
     mapping(bytes32 orderHash => RiskAdmissionId admissionId) private _orderAdmissions;
     mapping(RiskAdmissionId admissionId => bytes32 orderHash) private _admissionOrders;
@@ -28,6 +29,8 @@ contract RiskAdmissionBindingRegistry is IRiskAdmissionBindingRegistry {
     error InvalidRiskBinding();
     error DuplicateRiskBinding();
     error InvalidCancellation();
+    error UnauthorizedBindingAuthority();
+    error OrderVerifyingContractAlreadyBound();
 
     event OrderRiskBound(
         bytes32 indexed orderHash, RiskAdmissionId indexed admissionId, bytes32 indexed accountId, address signer
@@ -38,20 +41,28 @@ contract RiskAdmissionBindingRegistry is IRiskAdmissionBindingRegistry {
         address indexed signer,
         bytes32 cancellationReference
     );
+    event OrderVerifyingContractBound(address indexed verifyingContract);
 
     constructor(IPortfolioRiskEngine riskEngine_, address orderVerifyingContract_) {
-        if (
-            address(riskEngine_) == address(0) || address(riskEngine_).code.length == 0
-                || orderVerifyingContract_ == address(0)
-        ) revert ZeroDependency();
+        if (address(riskEngine_) == address(0) || address(riskEngine_).code.length == 0) revert ZeroDependency();
         riskEngine = riskEngine_;
+        bindingAuthority = msg.sender;
         orderVerifyingContract = orderVerifyingContract_;
+    }
+
+    function bindOrderVerifyingContract(address verifyingContract) external {
+        if (msg.sender != bindingAuthority) revert UnauthorizedBindingAuthority();
+        if (orderVerifyingContract != address(0)) revert OrderVerifyingContractAlreadyBound();
+        if (verifyingContract == address(0) || verifyingContract.code.length == 0) revert ZeroDependency();
+        orderVerifyingContract = verifyingContract;
+        emit OrderVerifyingContractBound(verifyingContract);
     }
 
     function bindOrderRisk(PublicOrder calldata order, RiskAdmissionId admissionId)
         external
         returns (bytes32 orderHash)
     {
+        if (orderVerifyingContract == address(0)) revert ZeroDependency();
         if (msg.sender != order.signer || RiskAdmissionId.unwrap(admissionId) == bytes32(0)) {
             revert InvalidRiskBinding();
         }
