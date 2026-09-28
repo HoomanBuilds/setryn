@@ -128,7 +128,7 @@ export function RfqQuotePanel({
             onClick={() => onCancelRfq?.()}
             className="focus-ring h-11 w-full rounded-md border border-line text-sm text-dim transition-colors hover:border-line-strong hover:text-ink lg:h-9"
           >
-            Cancel request
+            Expire request
           </button>
         </div>
       </div>
@@ -158,10 +158,10 @@ export function RfqQuotePanel({
           <div className="px-3 pb-3">
             <button
               type="button"
-              onClick={() => onCancelRfq?.()}
-              className="focus-ring h-11 w-full rounded-md border border-line text-sm text-dim transition-colors hover:border-line-strong hover:text-ink lg:h-9"
+              disabled
+              className="h-11 w-full cursor-not-allowed rounded-md border border-line bg-inset text-sm text-faint lg:h-9"
             >
-              Cancel request
+              Selection locked
             </button>
           </div>
         </div>
@@ -229,15 +229,10 @@ export function RfqQuotePanel({
         <div className="grid grid-cols-2 gap-2 px-3 py-3">
           <button
             type="button"
-            disabled={!selectedExpired}
-            onClick={() => onCancelRfq?.()}
-            className={`h-11 rounded-md border border-line text-sm lg:h-9 ${
-              selectedExpired
-                ? "focus-ring text-dim transition-colors hover:border-line-strong hover:text-ink"
-                : "cursor-not-allowed bg-inset text-faint"
-            }`}
+            disabled
+            className="h-11 cursor-not-allowed rounded-md border border-line bg-inset text-sm text-faint lg:h-9"
           >
-            {selectedExpired ? "Expire request" : "Selection locked"}
+            {selectedExpired ? "Await request expiry" : "Selection locked"}
           </button>
           <button
             type="button"
