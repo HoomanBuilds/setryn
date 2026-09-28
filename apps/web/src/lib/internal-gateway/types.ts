@@ -68,6 +68,7 @@ export interface GatewaySnapshot {
   receipts: ExecutionReceipt[];
   executions: GatewayExecution[];
   restingOrders: RestingPackageOrder[];
+  publicBookMarketId: string | null;
   publicBookOrders: BookRow[];
   rfqRequests: RfqRequest[];
 }

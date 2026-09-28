@@ -207,6 +207,7 @@ function initialSnapshot(): GatewaySnapshot {
     receipts: [],
     executions: [],
     restingOrders: [],
+    publicBookMarketId: PRIMARY_MARKET_ID,
     publicBookOrders: [],
     rfqRequests: [],
   };
@@ -378,6 +379,9 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     if (intent.side !== "ENTER") throw new Error("ONCHAIN_EXIT_FLOW_NOT_READY");
     if (intent.marketId !== PRIMARY_MARKET_ID) throw new Error("MARKET_NOT_ONCHAIN_ENABLED");
     if (intent.recipient.toLowerCase() !== address.toLowerCase()) throw new Error("RECIPIENT_MISMATCH");
+    if (intent.marketId !== PRIMARY_MARKET_ID || intent.packageCode !== PRIMARY_MARKET_ID) {
+      throw new Error("UNSUPPORTED_ONCHAIN_MARKET");
+    }
     if (!Number.isInteger(intent.lots) || intent.lots < 1 || intent.lots > 10) throw new Error("INVALID_LOTS");
     if (!Number.isFinite(intent.limitPrice)) throw new Error("INVALID_LIMIT_PRICE");
     if (!["GTC", "GTD", "IOC", "FOK"].includes(intent.timeInForce)) throw new Error("INVALID_TIME_IN_FORCE");
@@ -1180,7 +1184,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     rows.sort((left, right) => left.side === right.side
       ? left.side === "BID" ? right.price - left.price : left.price - right.price
       : left.side === "ASK" ? -1 : 1);
-    this.publish({ ...this.snapshot, publicBookOrders: rows });
+    this.publish({ ...this.snapshot, publicBookMarketId: PRIMARY_MARKET_ID, publicBookOrders: rows });
   }
 
   private async refreshActivity(): Promise<void> {

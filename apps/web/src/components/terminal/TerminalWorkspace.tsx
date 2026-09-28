@@ -132,6 +132,9 @@ function executionError(error: unknown): string {
   if (error.message === "REMAINDER_PLACEMENT_FAILED") {
     return "The matched quantity cleared, but the remaining quantity could not be placed on the public book.";
   }
+  if (error.message === "UNSUPPORTED_ONCHAIN_MARKET") {
+    return "This market is a preview and is not activated in the current onchain environment.";
+  }
   return "The trading runtime did not reach a final package outcome. No completion is claimed.";
 }
 
@@ -446,8 +449,8 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   );
 
   const directBookOrders = useMemo<BookRow[]>(
-    () => gatewaySnapshot.publicBookOrders,
-    [gatewaySnapshot.publicBookOrders],
+    () => gatewaySnapshot.publicBookMarketId === liveMarket.id ? gatewaySnapshot.publicBookOrders : [],
+    [gatewaySnapshot.publicBookMarketId, gatewaySnapshot.publicBookOrders, liveMarket.id],
   );
 
   const selectedClosePosition = useMemo(
