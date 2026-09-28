@@ -207,6 +207,7 @@ function initialSnapshot(): GatewaySnapshot {
     receipts: [],
     executions: [],
     restingOrders: [],
+    publicBookOrders: [],
     rfqRequests: [],
   };
 }
@@ -226,6 +227,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   private walletClient: ReturnType<typeof createWalletClient> | null = null;
   private walletAddress: Address | null = null;
   private readonly authorizations = new Map<string, SignedOrderAuthorization>();
+  private pollingTimer: number | null = null;
+  private polling = false;
 
   getSnapshot = (): GatewaySnapshot => this.snapshot;
 
@@ -269,13 +272,14 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     this.walletClient = createWalletClient({ account: address, chain: this.chain(setryn), transport: custom(injected) });
     await this.fundNativeGas(address);
     this.bindProvider(injected);
+    this.startPolling();
     this.publish({
       ...this.snapshot,
       wallet: { status: "CONNECTED", address, chainId: setryn.chainId },
     });
     await fetch("/api/internal/devnet/liquidity", { method: "POST" });
     await this.refreshAccount();
-    await Promise.all([this.refreshOrders(), this.refreshActivity()]);
+    await Promise.all([this.refreshOrders(), this.refreshPublicBook(), this.refreshActivity()]);
   }
 
   async submitCollateralIntent(intent: CollateralIntent): Promise<CollateralIntentResult> {
@@ -737,7 +741,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       receipts: [...this.snapshot.receipts, receipt],
       executions: [...this.snapshot.executions, execution],
     });
-    await Promise.all([this.refreshAccount(), this.refreshOrders(), this.refreshActivity()]);
+    await Promise.all([this.refreshAccount(), this.refreshOrders(), this.refreshPublicBook(), this.refreshActivity()]);
     return result;
   }
 
@@ -807,7 +811,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       collateralRequired: authorization.intent.collateralRequired,
     };
     this.publish({ ...this.snapshot, restingOrders: [...this.snapshot.restingOrders, restingOrder] });
-    await this.refreshAccount();
+    await Promise.all([this.refreshAccount(), this.refreshPublicBook()]);
     return restingOrder;
   }
 
@@ -871,7 +875,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       ...this.snapshot,
       restingOrders: this.snapshot.restingOrders.map((order) => (order.id === orderId ? cancelled : order)),
     });
-    await this.refreshAccount();
+    await Promise.all([this.refreshAccount(), this.refreshPublicBook()]);
     return cancelled;
   }
 
@@ -1124,6 +1128,59 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     }
     orders.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
     this.publish({ ...this.snapshot, restingOrders: orders });
+  }
+
+  private async refreshPublicBook(): Promise<void> {
+    if (!this.setryn || !this.publicClient) return;
+    const bookId = this.deriveBookId(this.setryn);
+    const [events, block] = await Promise.all([
+      this.publicClient.getContractEvents({
+        address: this.setryn.publicOrderBook,
+        abi: publicOrderBookAbi,
+        eventName: "DirectOrderRested",
+        args: { bookId },
+        fromBlock: BigInt(0),
+        toBlock: "latest",
+      }),
+      this.publicClient.getBlock(),
+    ]);
+    const latestHashes = [...new Set(events.map((event) => event.args.orderHash).filter((value) => value != null))];
+    const rows = [] as GatewaySnapshot["publicBookOrders"];
+    for (const orderHash of latestHashes) {
+      const [bookOrder, orderRecord] = await Promise.all([
+        this.publicClient.readContract({
+          address: this.setryn.publicOrderBook,
+          abi: publicOrderBookAbi,
+          functionName: "getBookOrder",
+          args: [orderHash],
+        }),
+        this.publicClient.readContract({
+          address: this.setryn.orderState,
+          abi: orderStateAbi,
+          functionName: "getOrder",
+          args: [orderHash],
+        }),
+      ]);
+      if (
+        bookOrder.status !== 1 ||
+        (orderRecord.status !== 1 && orderRecord.status !== 2) ||
+        orderRecord.order.deadline <= block.timestamp
+      ) continue;
+      rows.push({
+        id: `onchain-${orderHash}`,
+        side: bookOrder.side === 1 ? "BID" : "ASK",
+        source: "DIRECT",
+        price: Number(bookOrder.priceTicks) / 10,
+        lots: Number(bookOrder.remainingLots),
+        firmness: "FIRM",
+        executable: true,
+        origin: "Setryn public book",
+      });
+    }
+    rows.sort((left, right) => left.side === right.side
+      ? left.side === "BID" ? right.price - left.price : left.price - right.price
+      : left.side === "ASK" ? -1 : 1);
+    this.publish({ ...this.snapshot, publicBookOrders: rows });
   }
 
   private async refreshActivity(): Promise<void> {
@@ -1441,6 +1498,25 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     if (!response.ok) throw new Error("DEVNET_GAS_FUNDING_FAILED");
   }
 
+  private startPolling(): void {
+    if (this.pollingTimer !== null) return;
+    this.pollingTimer = window.setInterval(() => {
+      if (this.polling || this.snapshot.wallet.status !== "CONNECTED") return;
+      this.polling = true;
+      void fetch("/api/internal/devnet/liquidity", { method: "POST" })
+        .then(() => Promise.all([
+          this.refreshAccount(),
+          this.refreshOrders(),
+          this.refreshPublicBook(),
+          this.refreshActivity(),
+        ]))
+        .catch(() => undefined)
+        .finally(() => {
+          this.polling = false;
+        });
+    }, 20_000);
+  }
+
   private bindProvider(provider: EIP1193Provider): void {
     const eventProvider = provider as EIP1193Provider & {
       on?: (event: string, listener: (value: unknown) => void) => void;
@@ -1465,7 +1541,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
           ...this.snapshot,
           wallet: { status: "CONNECTED", address, chainId: this.setryn.chainId },
         });
-        void Promise.all([this.refreshAccount(), this.refreshOrders()]);
+        void Promise.all([this.refreshAccount(), this.refreshOrders(), this.refreshPublicBook(), this.refreshActivity()]);
       }
     });
     eventProvider.on?.("chainChanged", (value) => {
@@ -1479,7 +1555,9 @@ export class OnchainTradingGateway implements InternalTradingGateway {
           chainId,
         },
       });
-      if (connected) void Promise.all([this.refreshAccount(), this.refreshOrders()]);
+      if (connected) {
+        void Promise.all([this.refreshAccount(), this.refreshOrders(), this.refreshPublicBook(), this.refreshActivity()]);
+      }
     });
   }
 

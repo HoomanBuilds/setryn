@@ -1,5 +1,5 @@
 import type { Intent, PackageSide, TimeInForce } from "@/lib/terminal/economics";
-import type { PackageMarket } from "@/lib/terminal/types";
+import type { BookRow, PackageMarket } from "@/lib/terminal/types";
 import type { OnchainPublicOrder } from "./protocol";
 
 export type WalletStatus = "DISCONNECTED" | "CONNECTING" | "CONNECTED" | "WRONG_NETWORK";
@@ -68,6 +68,7 @@ export interface GatewaySnapshot {
   receipts: ExecutionReceipt[];
   executions: GatewayExecution[];
   restingOrders: RestingPackageOrder[];
+  publicBookOrders: BookRow[];
   rfqRequests: RfqRequest[];
 }
 

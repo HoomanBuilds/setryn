@@ -207,6 +207,21 @@ export const riskEngineAbi = [
 export const publicOrderBookAbi = [
   {
     type: "event",
+    name: "DirectOrderRested",
+    inputs: [
+      { name: "bookId", type: "bytes32", indexed: true },
+      { name: "orderHash", type: "bytes32", indexed: true },
+      { name: "levelId", type: "bytes32", indexed: true },
+      { name: "side", type: "uint8", indexed: false },
+      { name: "priceTicks", type: "int128", indexed: false },
+      { name: "remainingLots", type: "uint128", indexed: false },
+      { name: "sequence", type: "uint64", indexed: false },
+      { name: "previousOrderHash", type: "bytes32", indexed: false },
+      { name: "liquidityKind", type: "uint8", indexed: false },
+    ],
+  },
+  {
+    type: "event",
     name: "DirectMatchExecuted",
     inputs: [
       { name: "bookId", type: "bytes32", indexed: true },
