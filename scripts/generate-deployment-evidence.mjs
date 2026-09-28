@@ -142,6 +142,41 @@ function artifactFor(contractName) {
   return readJson(resolve(repositoryRoot, artifactPathFor(contractName)));
 }
 
+function resolveCreateIdentity(transaction) {
+  if (transaction.contractName) return transaction;
+  const input = transaction.transaction?.input?.toLowerCase();
+  if (!input?.startsWith("0x")) throw new Error("Unidentified contract creation has no input bytecode.");
+  const exactMatches = [...phase2ContractNames].filter((contractName) => {
+    const creationCode = artifactFor(contractName).bytecode?.object?.toLowerCase();
+    return creationCode && creationCode !== "0x" && input.startsWith(creationCode);
+  });
+  if (exactMatches.length === 1) {
+    const creationCode = artifactFor(exactMatches[0]).bytecode.object.toLowerCase();
+    return {
+      ...transaction,
+      contractName: exactMatches[0],
+      arguments: [{encoding: "abi", data: `0x${input.slice(creationCode.length)}`}],
+    };
+  }
+  const selectorMatches = [...phase2ContractNames]
+    .map((contractName) => {
+      const selectors = Object.values(artifactFor(contractName).methodIdentifiers ?? {}).map((selector) =>
+        selector.toLowerCase(),
+      );
+      return {contractName, selectors, score: selectors.filter((selector) => input.includes(selector)).length};
+    })
+    .filter(({selectors, score}) => selectors.length >= 4 && score === selectors.length)
+    .sort((first, second) => second.score - first.score);
+  if (selectorMatches.length === 0 || selectorMatches[0].score === selectorMatches[1]?.score) {
+    throw new Error(`Unable to identify contract creation at ${transaction.contractAddress}.`);
+  }
+  return {
+    ...transaction,
+    contractName: selectorMatches[0].contractName,
+    arguments: [{encoding: "unavailable", deploymentInputHash: sha256(input)}],
+  };
+}
+
 function artifactPathFor(contractName) {
   const sourceName = contractName.endsWith("PayoffModule") ? "ProductionPayoffModules" : contractName;
   return `contracts/out/${sourceName}.sol/${contractName}.json`;
@@ -193,19 +228,16 @@ async function main() {
 
   const broadcastPath = resolve(repositoryRoot, options.broadcast);
   const broadcast = readJson(broadcastPath);
-  const creates = broadcast.transactions.filter(
-    (transaction) => transaction.transactionType === "CREATE" && transaction.contractName,
-  );
+  const creates = broadcast.transactions
+    .filter((transaction) => transaction.transactionType === "CREATE")
+    .map(resolveCreateIdentity);
   const receipts = receiptByHash(broadcast.receipts ?? []);
   if (creates.length === 0) {
     throw new Error("Broadcast artifact contains no contract creation transactions.");
   }
 
-  const blockNumbers = creates.map((transaction) => {
-    const receipt = receipts.get(transactionHash(transaction)?.toLowerCase());
-    if (!receipt?.blockNumber) {
-      throw new Error(`Missing receipt for ${transaction.contractName}.`);
-    }
+  const blockNumbers = (broadcast.receipts ?? []).map((receipt) => {
+    if (!receipt?.blockNumber) throw new Error("Broadcast receipt is missing its block number.");
     return Number.parseInt(receipt.blockNumber, 16);
   });
   const finalBlockNumber = Math.max(...blockNumbers);
@@ -284,7 +316,9 @@ async function main() {
 
     if (Array.isArray(transaction.arguments)) {
       contract.constructorArguments.forEach((argument, index) => {
-        argument.value = transaction.arguments[index] ?? argument.value;
+        if (typeof argument.value !== "string" || !argument.value.startsWith("$contracts.")) {
+          argument.value = transaction.arguments[index] ?? argument.value;
+        }
       });
       const argumentValues = new Map(contract.constructorArguments.map((argument) => [argument.name, argument.value]));
       contract.caps.forEach((cap) => {
@@ -341,11 +375,14 @@ async function main() {
     ["PackageRegistry", "PACKAGE_STATUS_MANAGER_ROLE", "SETRYN_PACKAGE_STATUS_MANAGER_ROLE"],
     ["PrivacyCommitmentRegistry", "POLICY_QUALIFIER_ROLE", "SETRYN_PRIVACY_POLICY_QUALIFIER_ROLE"],
     ["PrivacyCommitmentRegistry", "POLICY_ACTIVATOR_ROLE", "SETRYN_PRIVACY_POLICY_ACTIVATOR_ROLE"],
+    ["ExecutionPolicyRegistry", "POLICY_ADMIN_ROLE", "SETRYN_EXECUTION_POLICY_ADMIN_ROLE"],
   ].map(([contractName, role, label]) => ({contractName, role, label, member: principalValues.governanceOperator}));
   const roleChecks = [
     ...operatorRoles,
     {contractName: "CollateralVault", role: "COLLATERAL_LOCKER_ROLE", label: "SETRYN_COLLATERAL_LOCKER_ROLE", memberContract: "PositionEngine"},
+    {contractName: "CollateralVault", role: "COLLATERAL_LOCKER_ROLE", label: "SETRYN_COLLATERAL_LOCKER_ROLE", memberContract: "AtomicClearingEngine"},
     {contractName: "CollateralVault", role: "COLLATERAL_SETTLER_ROLE", label: "SETRYN_COLLATERAL_SETTLER_ROLE", memberContract: "FundedFeeEngine"},
+    {contractName: "CollateralVault", role: "COLLATERAL_SETTLER_ROLE", label: "SETRYN_COLLATERAL_SETTLER_ROLE", memberContract: "AtomicClearingEngine"},
     {contractName: "CollateralVault", role: "TERMINAL_RESERVATION_CREATOR_ROLE", label: "SETRYN_TERMINAL_RESERVATION_CREATOR_ROLE", memberContract: "PositionEngine"},
     {contractName: "CollateralVault", role: "TERMINAL_RESERVATION_RESOLVER_ROLE", label: "SETRYN_TERMINAL_RESERVATION_RESOLVER_ROLE", memberContract: "CashSettlementCoordinator"},
     {contractName: "CollateralVault", role: "TERMINAL_RESERVATION_RESOLVER_ROLE", label: "SETRYN_TERMINAL_RESERVATION_RESOLVER_ROLE", memberContract: "PositionLifecycleExecutor"},
@@ -355,7 +392,10 @@ async function main() {
     {contractName: "PositionEngine", role: "FIXING_ENGINE_ROLE", label: "SETRYN_FIXING_ENGINE_ROLE", memberContract: "CashSettlementCoordinator"},
     {contractName: "PositionEngine", role: "LIFECYCLE_ENGINE_ROLE", label: "SETRYN_LIFECYCLE_ENGINE_ROLE", memberContract: "PositionLifecycleExecutor"},
     {contractName: "PositionEngine", role: "DEFAULT_ENGINE_ROLE", label: "SETRYN_DEFAULT_ENGINE_ROLE", memberContract: "PositionLifecycleExecutor"},
+    {contractName: "PositionEngine", role: "CLEARING_ENGINE_ROLE", label: "SETRYN_CLEARING_ENGINE_ROLE", memberContract: "AtomicClearingEngine"},
     {contractName: "FundedFeeEngine", role: "FEE_ACTION_CONSUMER_ROLE", label: "SETRYN_FEE_ACTION_CONSUMER_ROLE", memberContract: "CashSettlementCoordinator"},
+    {contractName: "FundedFeeEngine", role: "FEE_ACTION_CONSUMER_ROLE", label: "SETRYN_FEE_ACTION_CONSUMER_ROLE", memberContract: "AtomicClearingEngine"},
+    {contractName: "PortfolioRiskEngine", role: "RISK_CONSUMER_ROLE", label: "SETRYN_RISK_CONSUMER_ROLE", memberContract: "AtomicClearingEngine"},
     {contractName: "PortfolioRiskEngine", role: "EXPOSURE_REDUCER_ROLE", label: "SETRYN_EXPOSURE_REDUCER_ROLE", memberContract: "PositionLifecycleExecutor"},
     {contractName: "PortfolioRiskEngine", role: "EXPOSURE_REDUCER_ROLE", label: "SETRYN_EXPOSURE_REDUCER_ROLE", memberContract: "CashSettlementCoordinator"},
     {contractName: "PortfolioRiskEngine", role: "EXPOSURE_REDUCER_ROLE", label: "SETRYN_EXPOSURE_REDUCER_ROLE", memberContract: "DefaultProcessEngine"},
@@ -366,13 +406,14 @@ async function main() {
     {contractName: "SignedLifecycleEngine", role: "LIFECYCLE_GUARDIAN_ROLE", label: "SETRYN_LIFECYCLE_GUARDIAN_ROLE", member: principalValues.guardian},
     {contractName: "CompressionCoordinator", role: "COMPRESSION_GUARDIAN_ROLE", label: "SETRYN_COMPRESSION_GUARDIAN_ROLE", member: principalValues.guardian},
     {contractName: "PrivacyCommitmentRegistry", role: "EPOCH_KEY_PUBLISHER_ROLE", label: "SETRYN_PRIVACY_EPOCH_KEY_PUBLISHER_ROLE", member: principalValues.privacyKeyPublisher},
+    {contractName: "OrderState", role: "ORDER_CONSUMER_ROLE", label: "SETRYN_ORDER_CONSUMER_ROLE", memberContract: "AtomicClearingEngine"},
+    {contractName: "AtomicClearingEngine", role: "MATCH_EXECUTOR_ROLE", label: "SETRYN_MATCH_EXECUTOR_ROLE", memberContract: "PublicOrderBook"},
+    {contractName: "PublicOrderBook", role: "ROUTE_RESERVER_ROLE", label: "SETRYN_BOOK_ROUTE_RESERVER_ROLE", member: principalValues.governanceOperator},
   ];
   const verifiedRoles = [];
   for (const check of roleChecks) verifiedRoles.push(await verifyRole(rpcUrl, addresses, blockTag, check, bootstrap));
   for (const check of [
-    ["PositionEngine", "CLEARING_ENGINE_ROLE", "SETRYN_CLEARING_ENGINE_ROLE"],
     ["PositionEngine", "FUNDING_REQUESTER_ROLE", "SETRYN_POSITION_FUNDING_REQUESTER_ROLE"],
-    ["PortfolioRiskEngine", "RISK_CONSUMER_ROLE", "SETRYN_RISK_CONSUMER_ROLE"],
   ]) {
     const [contractName, role, label] = check;
     const target = addresses.get(contractName);
@@ -394,6 +435,7 @@ async function main() {
     "SeriesRegistry", "CollateralVault", "PackageRegistry", "PositionEngine", "FundedFeeEngine",
     "PortfolioRiskEngine", "PositionLifecycleExecutor", "SignedLifecycleEngine", "CompressionCoordinator",
     "PrivacyCommitmentRegistry",
+    "ExecutionPolicyRegistry", "OrderState", "AtomicClearingEngine",
   ];
   const pendingAdmins = [];
   for (const contractName of adminContracts) {

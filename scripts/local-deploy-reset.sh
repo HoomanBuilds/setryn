@@ -153,7 +153,7 @@ if port_is_occupied; then
 fi
 rm -f "$state_file" "$log_file" "$deployment_directory/manifest.json"
 
-anvil --silent --host "$rpc_bind_host" --port "$rpc_port" --chain-id "$chain_id" --state "$state_file" >"$log_file" 2>&1 &
+anvil --silent --disable-code-size-limit --host "$rpc_bind_host" --port "$rpc_port" --chain-id "$chain_id" --state "$state_file" >"$log_file" 2>&1 &
 anvil_pid=$!
 trap cleanup_failed_start ERR INT TERM
 
@@ -197,18 +197,42 @@ if [[ "$observed_chain_id" != "$chain_id" ]]; then
 fi
 
 accounts_json="$(cast rpc eth_accounts --rpc-url "$rpc_url")"
-deployer_address="$(ACCOUNTS_JSON="$accounts_json" node -e 'const accounts = JSON.parse(process.env.ACCOUNTS_JSON); if (!accounts[0]) process.exit(1); process.stdout.write(accounts[0]);')"
+mapfile -t local_accounts < <(
+    ACCOUNTS_JSON="$accounts_json" node -e '
+        const accounts = JSON.parse(process.env.ACCOUNTS_JSON);
+        if (accounts.length < 7 || new Set(accounts.slice(0, 7).map((account) => account.toLowerCase())).size !== 7) process.exit(1);
+        process.stdout.write(`${accounts.slice(0, 7).join("\n")}\n`);
+    '
+) || {
+    printf 'Local Anvil must expose at least seven distinct unlocked accounts.\n' >&2
+    exit 1
+}
+if [[ "${#local_accounts[@]}" -ne 7 ]]; then
+    printf 'Local Anvil returned an invalid principal set.\n' >&2
+    exit 1
+fi
 
-SETRYN_DEPLOYMENT_ENVIRONMENT=local \
-SETRYN_DEPLOYER_ADDRESS="$deployer_address" \
-SETRYN_INITIAL_ADMIN="$deployer_address" \
-SETRYN_EVALUATION_GAS_HARD_CAP=2000000 \
-SETRYN_DEPLOYMENT_ID=0x6c6f63616c2d73657472796e2d7068617365320000000000000000000000000000 \
-forge script script/DeploySetryn.s.sol:DeploySetryn \
+deployer_address="${local_accounts[0]}"
+export SETRYN_DEPLOYMENT_ENVIRONMENT=local
+export SETRYN_DEPLOYER_ADDRESS="$deployer_address"
+export SETRYN_INITIAL_ADMIN="$deployer_address"
+export SETRYN_GOVERNANCE_ADMIN="${local_accounts[1]}"
+export SETRYN_GOVERNANCE_OPERATOR="${local_accounts[2]}"
+export SETRYN_GUARDIAN="${local_accounts[3]}"
+export SETRYN_EXCESS_RECOVERY_OPERATOR="${local_accounts[4]}"
+export SETRYN_PRIVACY_KEY_PUBLISHER="${local_accounts[5]}"
+export SETRYN_LIFECYCLE_WITNESS_STAGER="${local_accounts[6]}"
+export SETRYN_EVALUATION_GAS_HARD_CAP=2000000
+export SETRYN_DEPLOYMENT_ID=0xd008df4e26809366bea8099013ff60a895a26d818a8604d326067034ed7a7c93
+
+forge script "$repository_root/contracts/script/DeploySetryn.s.sol:DeploySetryn" \
     --root "$repository_root/contracts" \
     --rpc-url "$rpc_url" \
     --sender "$deployer_address" \
     --unlocked \
+    --disable-code-size-limit \
+    --non-interactive \
+    --slow \
     --broadcast
 
 node "$repository_root/scripts/generate-deployment-evidence.mjs" \

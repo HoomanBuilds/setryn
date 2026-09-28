@@ -10,6 +10,8 @@ Public release-candidate network: Arbitrum Sepolia
 
 Current build phase: Phase 3, full application and operator platform
 
+Current deployment status: the production-shaped public order graph deploys locally with separated principals and generated evidence. The local chain currently uses an explicit development-only code-size override. Arbitrum Sepolia remains blocked until the oversized Solidity contracts are modularized below the EIP-170 runtime limit. Browser preview state is legacy scaffolding and is not an accepted platform execution path.
+
 Detailed references:
 
 - [Mainnet-equivalent build plan](setryn-mainnet-equivalent-build-plan.md)
