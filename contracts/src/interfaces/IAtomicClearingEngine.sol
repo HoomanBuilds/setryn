@@ -17,7 +17,7 @@ import {
     PackageClearingRequest,
     SeriesClearingRequest
 } from "../types/ClearingTypes.sol";
-import {AccountId, CollateralLockId, FillId, PositionId} from "../types/Identifiers.sol";
+import {AccountId, CollateralLockId, FeeActionId, FillId, PositionId} from "../types/Identifiers.sol";
 import {IPortfolioRiskEngine} from "./IPortfolioRiskEngine.sol";
 
 interface IAtomicClearingEngine {
@@ -58,6 +58,21 @@ interface IAtomicClearingEngine {
         uint128 cumulativeLots,
         address requester
     );
+    event OrderFeeFundingReserved(
+        bytes32 indexed orderHash,
+        bytes32 indexed consumptionId,
+        FeeActionId indexed actionId,
+        CollateralLockId lockId,
+        uint128 amount,
+        uint64 expiry,
+        address requester
+    );
+    event OrderFeeFundingReleased(
+        bytes32 indexed orderHash,
+        bytes32 indexed consumptionId,
+        CollateralLockId indexed lockId,
+        address requester
+    );
     event ClearingChannelActivated(
         ClearingChannelKind indexed channelKind, address indexed adapter, bytes32 indexed capabilityHash
     );
@@ -84,6 +99,9 @@ interface IAtomicClearingEngine {
     error UnauthorizedFundingCaller(bytes32 orderHash, address caller);
     error InvalidFundingPurpose(bytes32 purpose);
     error InvalidFundingCumulativeLots(uint128 filled, uint128 cumulative, uint128 total);
+    error InvalidFeeFundingAction(FeeActionId actionId);
+    error FeeFundingAboveOrderMaximum(uint128 maximum, uint128 actual);
+    error FeeRebateFundingUnsupported(uint128 rebateAmount);
     error UnsupportedClearingChannel(ClearingChannelKind channelKind);
     error ClearingChannelAlreadyActivated(ClearingChannelKind channelKind);
     error ClearingChannelSourceMismatch(address expected, address actual);
@@ -110,6 +128,14 @@ interface IAtomicClearingEngine {
         external
         returns (CollateralLockId lockId);
     function releaseOrderFunding(bytes32 orderHash, uint128 cumulativeLots, bytes32 purpose) external;
+    function reserveOrderFeeFunding(
+        bytes32 orderHash,
+        bytes32 parentActionId,
+        FeeActionId actionId,
+        uint32 actionOrdinal,
+        uint128 notionalMinor
+    ) external returns (bytes32 consumptionId, CollateralLockId lockId, uint128 chargeMinor);
+    function releaseOrderFeeFunding(bytes32 orderHash, bytes32 consumptionId) external;
     function getFill(FillId fillId) external view returns (FillRecord memory);
     function fillPositions(FillId fillId) external view returns (PositionId[] memory);
     function deriveFundingReference(bytes32 orderHash, uint128 cumulativeLots, bytes32 purpose)

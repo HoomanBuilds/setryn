@@ -44,7 +44,7 @@ import {
     SeriesClearingRequest
 } from "../types/ClearingTypes.sol";
 import {LockStatus, Side} from "../types/Enums.sol";
-import {FeeActionRequest, FeeActionResult} from "../types/FeeEngineTypes.sol";
+import {FeeActionRequest, FeeActionResult, FeeComputation} from "../types/FeeEngineTypes.sol";
 import {FeeScheduleVersion} from "../types/FeeScheduleDefinition.sol";
 import {
     AccountId,
@@ -496,6 +496,70 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         CollateralLockId lockId = _collateralVault.deriveLockId(address(this), fundingReference);
         _collateralVault.releaseLock(lockId);
         emit OrderFundingReleased(orderHash, purpose, lockId, cumulativeLots, msg.sender);
+    }
+
+    function reserveOrderFeeFunding(
+        bytes32 orderHash,
+        bytes32 parentActionId,
+        FeeActionId actionId,
+        uint32 actionOrdinal,
+        uint128 notionalMinor
+    ) external nonReentrant returns (bytes32 consumptionId, CollateralLockId lockId, uint128 chargeMinor) {
+        OrderRecord memory record = _orderState.getOrder(orderHash);
+        if (msg.sender != record.order.signer) revert UnauthorizedFundingCaller(orderHash, msg.sender);
+        if (record.status != OrderStatus.Open && record.status != OrderStatus.PartiallyFilled) {
+            revert OrderTargetMismatch();
+        }
+        if (
+            FeeActionId.unwrap(actionId) != FeeActionId.unwrap(FeeScheduleDefinitionLib.FEE_ACTION_MAKER_FILL)
+                && FeeActionId.unwrap(actionId) != FeeActionId.unwrap(FeeScheduleDefinitionLib.FEE_ACTION_TAKER_FILL)
+        ) revert InvalidFeeFundingAction(actionId);
+
+        FeeComputation memory computation = _fundedFeeEngine.previewFeeAction(
+            record.order.feeScheduleId, record.order.feeScheduleVersion, actionId, notionalMinor, 0
+        );
+        if (computation.chargeMinor > record.order.maxFeeMinor) {
+            revert FeeFundingAboveOrderMaximum(record.order.maxFeeMinor, computation.chargeMinor);
+        }
+        if (computation.rebateMinor != 0) revert FeeRebateFundingUnsupported(computation.rebateMinor);
+
+        consumptionId = _fundedFeeEngine.deriveConsumptionId(
+            parentActionId,
+            record.order.feeScheduleId,
+            record.order.feeScheduleVersion,
+            actionId,
+            record.order.accountId,
+            record.order.accountId,
+            actionOrdinal
+        );
+        chargeMinor = computation.chargeMinor;
+        if (chargeMinor == 0) return (consumptionId, CollateralLockId.wrap(bytes32(0)), 0);
+
+        (AssetId assetId, uint32 bindingVersion) = _settlementBinding(record);
+        bytes32 fundingReference =
+            _fundedFeeEngine.deriveFundingReference(consumptionId, _fundedFeeEngine.CHARGE_FUNDING_PURPOSE());
+        lockId = _collateralVault.createLock(
+            fundingReference,
+            record.order.accountId,
+            assetId,
+            bindingVersion,
+            chargeMinor,
+            record.order.deadline,
+            address(_fundedFeeEngine)
+        );
+        emit OrderFeeFundingReserved(
+            orderHash, consumptionId, actionId, lockId, chargeMinor, record.order.deadline, msg.sender
+        );
+    }
+
+    function releaseOrderFeeFunding(bytes32 orderHash, bytes32 consumptionId) external nonReentrant {
+        OrderRecord memory record = _orderState.getOrder(orderHash);
+        if (msg.sender != record.order.signer) revert UnauthorizedFundingCaller(orderHash, msg.sender);
+        bytes32 fundingReference =
+            _fundedFeeEngine.deriveFundingReference(consumptionId, _fundedFeeEngine.CHARGE_FUNDING_PURPOSE());
+        CollateralLockId lockId = _collateralVault.deriveLockId(address(this), fundingReference);
+        _collateralVault.releaseLock(lockId);
+        emit OrderFeeFundingReleased(orderHash, consumptionId, lockId, msg.sender);
     }
 
     function getFill(FillId fillId) external view returns (FillRecord memory record) {

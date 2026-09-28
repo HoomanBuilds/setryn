@@ -14,6 +14,9 @@ import {
 import {AccountId, CollateralLockId, FeeActionId, FeeScheduleId} from "../types/Identifiers.sol";
 
 interface IFundedFeeEngine {
+    function CHARGE_FUNDING_PURPOSE() external view returns (bytes32);
+    function BUDGET_FUNDING_PURPOSE() external view returns (bytes32);
+
     event FeeWitnessInstalled(
         FeeScheduleId indexed feeScheduleId,
         uint32 indexed feeScheduleVersion,
