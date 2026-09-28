@@ -4,6 +4,7 @@ import type {
   ExecutionPosition,
   ExecutionReceipt,
   FirmRfqQuote,
+  GatewayAccount,
   GatewayExecution,
   GatewaySnapshot,
   InternalTradingGateway,
@@ -190,6 +191,86 @@ function isValidGtdPair(
 }
 
 const RESTING_TOL = 1e-9;
+const MONEY_TOL = 1e-6;
+
+function toCents(value: number): number {
+  const quantized = Math.round(value * 100) / 100;
+  return quantized === 0 ? 0 : quantized;
+}
+
+function executedAmount(total: number, filledLots: number, requestedLots: number): number {
+  if (
+    !Number.isFinite(total) ||
+    total < 0 ||
+    !Number.isFinite(filledLots) ||
+    filledLots <= 0 ||
+    !Number.isFinite(requestedLots) ||
+    requestedLots <= 0 ||
+    filledLots - requestedLots > RESTING_TOL
+  ) {
+    throw new Error("INVALID_LEDGER");
+  }
+  if (requestedLots - filledLots <= RESTING_TOL) return toCents(total);
+  return toCents(total * (filledLots / requestedLots));
+}
+
+function deriveReserved(
+  positions: readonly ExecutionPosition[],
+  orders: readonly RestingPackageOrder[],
+): number {
+  let total = 0;
+  for (const position of positions) {
+    if (
+      typeof position.collateral === "number" &&
+      Number.isFinite(position.collateral) &&
+      position.collateral > 0
+    ) {
+      total += position.collateral;
+    }
+  }
+  for (const order of orders) {
+    if (!isLiveRestingState(order.state)) continue;
+    if (order.side !== "ENTER") continue;
+    total += restingRemainingReservation(order);
+  }
+  return toCents(total);
+}
+
+function buildCoherentAccount(
+  base: GatewayAccount,
+  posted: number,
+  positions: readonly ExecutionPosition[],
+  orders: readonly RestingPackageOrder[],
+): GatewayAccount {
+  const cleanPosted = toCents(posted);
+  if (!Number.isFinite(cleanPosted) || cleanPosted < -MONEY_TOL) {
+    throw new Error("INVALID_LEDGER");
+  }
+  const safePosted = cleanPosted < 0 ? 0 : cleanPosted;
+  const reserved = deriveReserved(positions, orders);
+  if (!Number.isFinite(reserved) || reserved < -MONEY_TOL) {
+    throw new Error("INVALID_LEDGER");
+  }
+  const safeReserved = reserved < 0 ? 0 : reserved;
+  if (safeReserved - safePosted > MONEY_TOL) {
+    throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
+  }
+  const eligible = safePosted;
+  const available = toCents(eligible - safeReserved);
+  if (!Number.isFinite(available) || available < -MONEY_TOL) {
+    throw new Error("INVALID_LEDGER");
+  }
+  const safeAvailable = available < 0 ? 0 : available;
+  if (eligible - safePosted > MONEY_TOL) throw new Error("INVALID_LEDGER");
+  return {
+    ...base,
+    posted: safePosted,
+    eligible,
+    reserved: safeReserved,
+    available: safeAvailable,
+    equity: safePosted,
+  };
+}
 
 function isLiveRestingState(state: unknown): boolean {
   return state === "WORKING" || state === "PARTIALLY_FILLED";
@@ -396,10 +477,10 @@ function initialSnapshot(): GatewaySnapshot {
       riskDomain: "Crypto carry domain",
       collateralAsset: "USDC",
       posted: 378_000,
-      eligible: 351_080,
-      reserved: 305_560,
-      available: 45_520,
-      equity: 386_240,
+      eligible: 378_000,
+      reserved: 0,
+      available: 378_000,
+      equity: 378_000,
     },
     positions: [],
     receipts: [],
@@ -1076,9 +1157,40 @@ function restoreSnapshot(): GatewaySnapshot {
           };
         })
       : [];
+    const storedAccount = (snapshot as { account?: unknown }).account as
+      | Partial<GatewayAccount>
+      | undefined;
+    const fallback = initialSnapshot();
+    const baseAccount: GatewayAccount = {
+      id:
+        typeof storedAccount?.id === "string" && storedAccount.id.length > 0
+          ? storedAccount.id
+          : fallback.account.id,
+      label:
+        typeof storedAccount?.label === "string" && storedAccount.label.length > 0
+          ? storedAccount.label
+          : fallback.account.label,
+      riskDomain:
+        typeof storedAccount?.riskDomain === "string" && storedAccount.riskDomain.length > 0
+          ? storedAccount.riskDomain
+          : fallback.account.riskDomain,
+      collateralAsset: "USDC",
+      posted: fallback.account.posted,
+      eligible: fallback.account.posted,
+      reserved: 0,
+      available: fallback.account.posted,
+      equity: fallback.account.posted,
+    };
+    const storedPosted = storedAccount?.posted;
+    const sanePosted =
+      typeof storedPosted === "number" && Number.isFinite(storedPosted) && storedPosted >= 0
+        ? toCents(storedPosted)
+        : fallback.account.posted;
+    const account = buildCoherentAccount(baseAccount, sanePosted, positions, restingOrders);
     return {
       ...snapshot,
       wallet: { status: "DISCONNECTED", address: null, chainId: null },
+      account,
       positions,
       receipts,
       executions,
@@ -1133,23 +1245,31 @@ export class DemoTradingGateway implements InternalTradingGateway {
     this.assertWritableEnvironment();
     if (this.snapshot.wallet.status !== "CONNECTED") throw new Error("CONNECT_WALLET");
     if (!Number.isFinite(intent.amount) || intent.amount <= 0) throw new Error("INVALID_AMOUNT");
-    if (intent.kind === "WITHDRAW" && intent.amount > this.snapshot.account.available) {
+    const amount = toCents(intent.amount);
+    if (!(amount > 0)) throw new Error("INVALID_AMOUNT");
+    const coherent = buildCoherentAccount(
+      this.snapshot.account,
+      this.snapshot.account.posted,
+      this.snapshot.positions,
+      this.snapshot.restingOrders,
+    );
+    if (intent.kind === "WITHDRAW" && amount - coherent.available > MONEY_TOL) {
       throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
     }
-    await wait(450);
     const direction = intent.kind === "DEPOSIT" ? 1 : -1;
-    const account = this.snapshot.account;
+    const nextPosted = toCents(coherent.posted + direction * amount);
+    const account = buildCoherentAccount(
+      this.snapshot.account,
+      nextPosted,
+      this.snapshot.positions,
+      this.snapshot.restingOrders,
+    );
+    await wait(450);
     this.publish({
       ...this.snapshot,
-      account: {
-        ...account,
-        posted: account.posted + direction * intent.amount,
-        eligible: account.eligible + direction * intent.amount,
-        available: account.available + direction * intent.amount,
-        equity: account.equity + direction * intent.amount,
-      },
+      account,
     });
-    return { intentId: identifier("COL"), kind: intent.kind, amount: intent.amount, status: "COMPLETED" };
+    return { intentId: identifier("COL"), kind: intent.kind, amount, status: "COMPLETED" };
   }
 
   async authorizeOrder(intent: PackageOrderIntent): Promise<SignedOrderAuthorization> {
@@ -1212,23 +1332,58 @@ export class DemoTradingGateway implements InternalTradingGateway {
         if (intent.lots - target.lots > 1e-9) throw new Error("CLOSE_LOTS_EXCEEDS_POSITION");
         if (intent.fillLots - target.lots > 1e-9) throw new Error("CLOSE_LOTS_EXCEEDS_POSITION");
         const fillForExit = intent.fillLots;
-        const releasable =
-          target.lots > 0 ? (target.collateral * fillForExit) / target.lots : 0;
+        const releasable = toCents(
+          target.lots > 0 ? (target.collateral * fillForExit) / target.lots : 0,
+        );
         const multiplier = intent.contractMultiplier;
         const direction = target.side === "SHORT" ? -1 : 1;
-        const realizedPnl =
-          (intent.executionPrice - target.entryPrice) * fillForExit * multiplier * direction;
-        const closeResult = releasable + realizedPnl - intent.feeCap;
-        if (this.snapshot.account.available + closeResult < -1e-9) {
+        const realizedPnl = toCents(
+          (intent.executionPrice - target.entryPrice) * fillForExit * multiplier * direction,
+        );
+        const exitFee = executedAmount(intent.feeCap, fillForExit, intent.lots);
+        const nextPosted = toCents(this.snapshot.account.posted + realizedPnl - exitFee);
+        const exitIsFullAuth = fillForExit >= target.lots - 1e-9;
+        const nextPositionsAuth = (() => {
+          const remainingLots = target.lots - fillForExit;
+          const remainingCollateral = toCents(Math.max(0, target.collateral - releasable));
+          if (exitIsFullAuth || remainingLots <= 1e-9) {
+            return this.snapshot.positions.filter((position) => position.id !== target.id);
+          }
+          return this.snapshot.positions.map((position) =>
+            position.id === target.id
+              ? { ...position, lots: remainingLots, collateral: remainingCollateral }
+              : position,
+          );
+        })();
+        try {
+          buildCoherentAccount(
+            this.snapshot.account,
+            nextPosted,
+            nextPositionsAuth,
+            this.snapshot.restingOrders,
+          );
+        } catch {
           throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
         }
       } else {
         if (!Number.isFinite(intent.lots) || intent.lots <= 0) throw new Error("INVALID_LOTS");
-        const newRequirement = intent.collateralRequired + intent.feeCap;
-        if (!Number.isFinite(newRequirement) || newRequirement < 0) {
+        const collateral = toCents(intent.collateralRequired);
+        const fee = toCents(intent.feeCap);
+        if (!Number.isFinite(collateral) || collateral < 0) {
           throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
         }
-        if (newRequirement - restingRemainingReservation(oldOrder) > this.snapshot.account.available + 1e-9) {
+        if (!Number.isFinite(fee) || fee < 0) {
+          throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
+        }
+        const coherent = buildCoherentAccount(
+          this.snapshot.account,
+          this.snapshot.account.posted,
+          this.snapshot.positions,
+          this.snapshot.restingOrders,
+        );
+        const newRequirement = toCents(collateral + fee);
+        const released = toCents(restingRemainingReservation(oldOrder));
+        if (newRequirement - released - coherent.available > MONEY_TOL) {
           throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
         }
       }
@@ -1261,18 +1416,51 @@ export class DemoTradingGateway implements InternalTradingGateway {
       if (intent.lots - target.lots > 1e-9) throw new Error("CLOSE_LOTS_EXCEEDS_POSITION");
       if (intent.fillLots - target.lots > 1e-9) throw new Error("CLOSE_LOTS_EXCEEDS_POSITION");
       const fillForExit = intent.fillLots;
-      const releasable =
-        target.lots > 0 ? (target.collateral * fillForExit) / target.lots : 0;
+      const releasable = toCents(
+        target.lots > 0 ? (target.collateral * fillForExit) / target.lots : 0,
+      );
       const multiplier = intent.contractMultiplier;
       const direction = target.side === "SHORT" ? -1 : 1;
-      const realizedPnl =
-        (intent.executionPrice - target.entryPrice) * fillForExit * multiplier * direction;
-      const closeResult = releasable + realizedPnl - intent.feeCap;
-      if (this.snapshot.account.available + closeResult < -1e-9) {
+      const realizedPnl = toCents(
+        (intent.executionPrice - target.entryPrice) * fillForExit * multiplier * direction,
+      );
+      const exitFee = executedAmount(intent.feeCap, fillForExit, intent.lots);
+      const nextPosted = toCents(this.snapshot.account.posted + realizedPnl - exitFee);
+      const exitIsFullAuth = fillForExit >= target.lots - 1e-9;
+      const nextPositionsAuth = (() => {
+        const remainingLots = target.lots - fillForExit;
+        const remainingCollateral = toCents(Math.max(0, target.collateral - releasable));
+        if (exitIsFullAuth || remainingLots <= 1e-9) {
+          return this.snapshot.positions.filter((position) => position.id !== target.id);
+        }
+        return this.snapshot.positions.map((position) =>
+          position.id === target.id
+            ? { ...position, lots: remainingLots, collateral: remainingCollateral }
+            : position,
+        );
+      })();
+      try {
+        buildCoherentAccount(
+          this.snapshot.account,
+          nextPosted,
+          nextPositionsAuth,
+          this.snapshot.restingOrders,
+        );
+      } catch {
         throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
       }
-    } else if (intent.collateralRequired + intent.feeCap > this.snapshot.account.available) {
-      throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
+    } else {
+      const collateral = executedAmount(intent.collateralRequired, intent.fillLots, intent.lots);
+      const fee = executedAmount(intent.feeCap, intent.fillLots, intent.lots);
+      const coherent = buildCoherentAccount(
+        this.snapshot.account,
+        this.snapshot.account.posted,
+        this.snapshot.positions,
+        this.snapshot.restingOrders,
+      );
+      if (collateral + fee - coherent.available > MONEY_TOL) {
+        throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
+      }
     }
     validateIntentExpiry(intent);
     await wait(300);
@@ -1315,7 +1503,17 @@ export class DemoTradingGateway implements InternalTradingGateway {
     const requestedLots = intent.lots;
     const filledLots = intent.fillLots;
     const cancelledLots = Math.max(0, requestedLots - filledLots);
+    const settledFee = executedAmount(intent.feeCap, filledLots, requestedLots);
+    const settledEntryCollateral = isExit
+      ? 0
+      : executedAmount(intent.collateralRequired, filledLots, requestedLots);
 
+    const coherentView = buildCoherentAccount(
+      this.snapshot.account,
+      this.snapshot.account.posted,
+      this.snapshot.positions,
+      this.snapshot.restingOrders,
+    );
     let exitTargetId: string | null = null;
     let exitCloseLots = 0;
     let exitRelease = 0;
@@ -1334,16 +1532,48 @@ export class DemoTradingGateway implements InternalTradingGateway {
       if (intent.lots - target.lots > 1e-9) throw new Error("CLOSE_LOTS_EXCEEDS_POSITION");
       exitTargetId = target.id;
       exitCloseLots = filledLots;
-      exitRelease = target.lots > 0 ? (target.collateral * filledLots) / target.lots : 0;
+      exitRelease = toCents(target.lots > 0 ? (target.collateral * filledLots) / target.lots : 0);
       const multiplier = intent.contractMultiplier;
       const direction = target.side === "SHORT" ? -1 : 1;
-      exitRealizedPnl =
-        (intent.executionPrice - target.entryPrice) * filledLots * multiplier * direction;
+      exitRealizedPnl = toCents(
+        (intent.executionPrice - target.entryPrice) * filledLots * multiplier * direction,
+      );
       exitIsFull = filledLots >= target.lots - 1e-9;
-      const closeResult = exitRelease + exitRealizedPnl - intent.feeCap;
-      if (this.snapshot.account.available + closeResult < -1e-9) {
+      const nextPosted = toCents(coherentView.posted + exitRealizedPnl - settledFee);
+      const nextPositions = (() => {
+        const remainingLots = target.lots - exitCloseLots;
+        const remainingCollateral = toCents(Math.max(0, target.collateral - exitRelease));
+        if (exitIsFull || remainingLots <= 1e-9) {
+          return this.snapshot.positions.filter((position) => position.id !== target.id);
+        }
+        return this.snapshot.positions.map((position) =>
+          position.id === target.id
+            ? { ...position, lots: remainingLots, collateral: remainingCollateral }
+            : position,
+        );
+      })();
+      buildCoherentAccount(this.snapshot.account, nextPosted, nextPositions, this.snapshot.restingOrders);
+    } else {
+      if (settledEntryCollateral + settledFee - coherentView.available > MONEY_TOL) {
         throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
       }
+      const nextPosted = toCents(coherentView.posted - settledFee);
+      const previewPosition: ExecutionPosition = {
+        id: "preview",
+        marketId: intent.marketId,
+        side: intent.packageSide,
+        lots: filledLots,
+        entryPrice: intent.executionPrice,
+        collateral: settledEntryCollateral,
+        state: "ACTIVE",
+        createdAt: new Date().toISOString(),
+      };
+      buildCoherentAccount(
+        this.snapshot.account,
+        nextPosted,
+        [...this.snapshot.positions, previewPosition],
+        this.snapshot.restingOrders,
+      );
     }
 
     const transactionHash = digest(`${authorization.orderHash}:transaction`);
@@ -1381,7 +1611,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
             {
               step: "IOC_CANCELLED" as const,
               label: "Remainder cancelled",
-              detail: `Cancelled ${cancelledLots} lots; no receipt or position was created for the unfilled quantity.`,
+              detail: `Cancelled ${cancelledLots} lots; the unfilled quantity incurred no fee or collateral lock.`,
             },
           ]
         : []),
@@ -1396,6 +1626,8 @@ export class DemoTradingGateway implements InternalTradingGateway {
 
     const fillId = identifier("FIL");
     const receiptId = identifier("RCP");
+    const settledRelease = toCents(exitRelease);
+    const settledPnl = toCents(exitRealizedPnl);
     const receipt: ExecutionReceipt = {
       id: receiptId,
       orderHash: authorization.orderHash,
@@ -1410,9 +1642,9 @@ export class DemoTradingGateway implements InternalTradingGateway {
       filledLots,
       cancelledLots,
       price: intent.executionPrice,
-      fees: intent.feeCap,
-      realizedPnlUsd: isExit ? exitRealizedPnl : 0,
-      collateralReleasedUsd: isExit ? exitRelease : 0,
+      fees: settledFee,
+      realizedPnlUsd: isExit ? settledPnl : 0,
+      collateralReleasedUsd: isExit ? settledRelease : 0,
       guarantee: intent.settlementGuarantee,
       evidence: this.snapshot.environment.evidence,
       createdAt: new Date().toISOString(),
@@ -1421,35 +1653,49 @@ export class DemoTradingGateway implements InternalTradingGateway {
     if (isExit) {
       const target = this.snapshot.positions.find((position) => position.id === exitTargetId);
       if (!target) throw new Error("POSITION_NOT_FOUND");
+      const freshRelease = toCents(
+        target.lots > 0 ? (target.collateral * exitCloseLots) / target.lots : 0,
+      );
+      const multiplier = intent.contractMultiplier;
+      const direction = target.side === "SHORT" ? -1 : 1;
+      const freshPnl = toCents(
+        (intent.executionPrice - target.entryPrice) * exitCloseLots * multiplier * direction,
+      );
+      const freshIsFull = exitCloseLots >= target.lots - 1e-9;
       const remainingLots = target.lots - exitCloseLots;
-      const remainingCollateral = Math.max(0, target.collateral - exitRelease);
+      const remainingCollateral = toCents(Math.max(0, target.collateral - freshRelease));
       const updatedPosition =
-        exitIsFull || remainingLots <= 1e-9
+        freshIsFull || remainingLots <= 1e-9
           ? null
           : {
               ...target,
               lots: remainingLots,
               collateral: remainingCollateral,
             };
-      const closeResult = exitRelease + exitRealizedPnl - intent.feeCap;
-      const nextAvailable = this.snapshot.account.available + closeResult;
-      if (nextAvailable < -1e-9) throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
+      const nextPositions =
+        updatedPosition === null
+          ? this.snapshot.positions.filter((position) => position.id !== target.id)
+          : this.snapshot.positions.map((position) =>
+              position.id === target.id ? updatedPosition : position,
+            );
+      const nextPosted = toCents(this.snapshot.account.posted + freshPnl - settledFee);
+      const account = buildCoherentAccount(
+        this.snapshot.account,
+        nextPosted,
+        nextPositions,
+        this.snapshot.restingOrders,
+      );
+      const settledReceipt: ExecutionReceipt = {
+        ...receipt,
+        fees: settledFee,
+        realizedPnlUsd: freshPnl,
+        collateralReleasedUsd: freshRelease,
+      };
       this.publish({
         ...this.snapshot,
-        account: {
-          ...this.snapshot.account,
-          reserved: Math.max(0, this.snapshot.account.reserved - exitRelease),
-          available: nextAvailable,
-          eligible: this.snapshot.account.eligible + closeResult,
-          equity: this.snapshot.account.equity + closeResult,
-        },
-        positions:
-          updatedPosition === null
-            ? this.snapshot.positions.filter((position) => position.id !== target.id)
-            : this.snapshot.positions.map((position) =>
-                position.id === target.id ? updatedPosition : position,
-              ),
-        receipts: [receipt, ...this.snapshot.receipts],
+        account,
+        positions: nextPositions,
+        receipts: [settledReceipt, ...this.snapshot.receipts],
       });
       const receiptUpdate = {
         step: "RECEIPT_READY" as const,
@@ -1467,7 +1713,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
         position: updatedPosition,
         closedPositionId: target.id,
         closedLots: exitCloseLots,
-        receipt,
+        receipt: settledReceipt,
       };
       this.publish({
         ...this.snapshot,
@@ -1477,7 +1723,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
             orderHash: authorization.orderHash,
             updates: journal,
             result,
-            createdAt: receipt.createdAt,
+            createdAt: settledReceipt.createdAt,
           },
           ...this.snapshot.executions,
         ],
@@ -1486,26 +1732,39 @@ export class DemoTradingGateway implements InternalTradingGateway {
     }
 
     const positionId = identifier("STR");
+    const coherentAfterWait = buildCoherentAccount(
+      this.snapshot.account,
+      this.snapshot.account.posted,
+      this.snapshot.positions,
+      this.snapshot.restingOrders,
+    );
+    if (settledEntryCollateral + settledFee - coherentAfterWait.available > MONEY_TOL) {
+      throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
+    }
     const position: PackageExecutionResult["position"] = {
       id: positionId,
       marketId: intent.marketId,
       side: intent.packageSide,
       lots: filledLots,
       entryPrice: intent.executionPrice,
-      collateral: intent.collateralRequired,
+      collateral: settledEntryCollateral,
       state: "ACTIVE" as const,
       createdAt: receipt.createdAt,
     };
+    const nextPosted = toCents(this.snapshot.account.posted - settledFee);
+    const nextPositions = position
+      ? [position, ...this.snapshot.positions]
+      : [...this.snapshot.positions];
+    const account = buildCoherentAccount(
+      this.snapshot.account,
+      nextPosted,
+      nextPositions,
+      this.snapshot.restingOrders,
+    );
     this.publish({
       ...this.snapshot,
-      account: {
-        ...this.snapshot.account,
-        reserved:
-          this.snapshot.account.reserved + intent.collateralRequired + intent.feeCap,
-        available:
-          this.snapshot.account.available - intent.collateralRequired - intent.feeCap,
-      },
-      positions: position ? [position, ...this.snapshot.positions] : [...this.snapshot.positions],
+      account,
+      positions: nextPositions,
       receipts: [receipt, ...this.snapshot.receipts],
     });
     const receiptUpdate = {
@@ -1573,6 +1832,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
     }
 
     let reservation = 0;
+    let feeCap = 0;
     if (isExit) {
       if (!intent.closePositionId) throw new Error("CLOSE_POSITION_REQUIRED");
       if (intent.collateralRequired !== 0) throw new Error("EXIT_REQUIRES_ZERO_COLLATERAL");
@@ -1585,14 +1845,27 @@ export class DemoTradingGateway implements InternalTradingGateway {
       if (!Number.isFinite(intent.lots) || intent.lots <= 0) throw new Error("INVALID_CLOSE_LOTS");
       if (intent.lots - target.lots > 1e-9) throw new Error("CLOSE_LOTS_EXCEEDS_POSITION");
       reservation = 0;
+      feeCap = toCents(intent.feeCap);
+      if (!Number.isFinite(feeCap) || feeCap < 0) throw new Error("INVALID_LEDGER");
     } else {
-      if (intent.collateralRequired + intent.feeCap > this.snapshot.account.available) {
+      const collateral = toCents(intent.collateralRequired);
+      feeCap = toCents(intent.feeCap);
+      if (!Number.isFinite(collateral) || collateral < 0) throw new Error("INVALID_LEDGER");
+      if (!Number.isFinite(feeCap) || feeCap < 0) throw new Error("INVALID_LEDGER");
+      const coherent = buildCoherentAccount(
+        this.snapshot.account,
+        this.snapshot.account.posted,
+        this.snapshot.positions,
+        this.snapshot.restingOrders,
+      );
+      if (collateral + feeCap - coherent.available > MONEY_TOL) {
         throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
       }
-      reservation = intent.collateralRequired + intent.feeCap;
+      reservation = toCents(collateral + feeCap);
     }
 
     const createdAt = new Date().toISOString();
+    const quantizedCollateral = isExit ? 0 : toCents(intent.collateralRequired);
     const order: RestingPackageOrder = {
       id: identifier("ORD"),
       orderHash: authorization.orderHash,
@@ -1611,8 +1884,8 @@ export class DemoTradingGateway implements InternalTradingGateway {
       expiresAt: intent.expiresAt,
       collateralReservation: reservation,
       remainingCollateralReservation: reservation,
-      feeCap: intent.feeCap,
-      remainingFeeCap: intent.feeCap,
+      feeCap,
+      remainingFeeCap: feeCap,
       fillIds: [],
       receiptIds: [],
       closePositionId: intent.closePositionId,
@@ -1624,27 +1897,23 @@ export class DemoTradingGateway implements InternalTradingGateway {
       settlementGuarantee: intent.settlementGuarantee,
       disclosure: intent.disclosure,
       recipient: intent.recipient,
-      collateralRequired: isExit ? 0 : intent.collateralRequired,
+      collateralRequired: quantizedCollateral,
     };
     const existingOrders = Array.isArray(this.snapshot.restingOrders)
       ? this.snapshot.restingOrders
       : [];
-    if (isExit) {
-      this.publish({
-        ...this.snapshot,
-        restingOrders: [order, ...existingOrders],
-      });
-    } else {
-      this.publish({
-        ...this.snapshot,
-        account: {
-          ...this.snapshot.account,
-          reserved: this.snapshot.account.reserved + reservation,
-          available: this.snapshot.account.available - reservation,
-        },
-        restingOrders: [order, ...existingOrders],
-      });
-    }
+    const nextOrders = [order, ...existingOrders];
+    const account = buildCoherentAccount(
+      this.snapshot.account,
+      this.snapshot.account.posted,
+      this.snapshot.positions,
+      nextOrders,
+    );
+    this.publish({
+      ...this.snapshot,
+      account,
+      restingOrders: nextOrders,
+    });
     return order;
   }
 
@@ -1706,6 +1975,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
       throw new Error("CLOSE_POSITION_FORBIDDEN_FOR_ENTRY");
     }
     let newReservation = 0;
+    let newFeeCap = 0;
     if (isExit) {
       if (!intent.closePositionId) throw new Error("CLOSE_POSITION_REQUIRED");
       if (intent.collateralRequired !== 0) throw new Error("EXIT_REQUIRES_ZERO_COLLATERAL");
@@ -1717,15 +1987,29 @@ export class DemoTradingGateway implements InternalTradingGateway {
       if (intent.packageSide !== target.side) throw new Error("PACKAGE_SIDE_MISMATCH");
       if (!Number.isFinite(intent.lots) || intent.lots <= 0) throw new Error("INVALID_CLOSE_LOTS");
       if (intent.lots - target.lots > 1e-9) throw new Error("CLOSE_LOTS_EXCEEDS_POSITION");
+      newFeeCap = toCents(intent.feeCap);
+      if (!Number.isFinite(newFeeCap) || newFeeCap < 0) throw new Error("INVALID_LEDGER");
       newReservation = 0;
     } else {
       if (!Number.isFinite(intent.lots) || intent.lots <= 0) throw new Error("INVALID_LOTS");
-      newReservation = intent.collateralRequired + intent.feeCap;
-      if (!Number.isFinite(newReservation) || newReservation < 0) {
+      const newCollateral = toCents(intent.collateralRequired);
+      newFeeCap = toCents(intent.feeCap);
+      if (!Number.isFinite(newCollateral) || newCollateral < 0) {
         throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
       }
-      const delta = newReservation - restingRemainingReservation(oldOrder);
-      if (delta > this.snapshot.account.available + 1e-9) {
+      if (!Number.isFinite(newFeeCap) || newFeeCap < 0) {
+        throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
+      }
+      newReservation = toCents(newCollateral + newFeeCap);
+      const coherent = buildCoherentAccount(
+        this.snapshot.account,
+        this.snapshot.account.posted,
+        this.snapshot.positions,
+        this.snapshot.restingOrders,
+      );
+      const released = toCents(restingRemainingReservation(oldOrder));
+      const delta = toCents(newReservation - released);
+      if (delta - coherent.available > MONEY_TOL) {
         throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
       }
     }
@@ -1749,8 +2033,8 @@ export class DemoTradingGateway implements InternalTradingGateway {
       expiresAt: intent.expiresAt,
       collateralReservation: newReservation,
       remainingCollateralReservation: newReservation,
-      feeCap: intent.feeCap,
-      remainingFeeCap: intent.feeCap,
+      feeCap: newFeeCap,
+      remainingFeeCap: newFeeCap,
       fillIds: [],
       receiptIds: [],
       closePositionId: intent.closePositionId,
@@ -1762,7 +2046,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
       settlementGuarantee: intent.settlementGuarantee,
       disclosure: intent.disclosure,
       recipient: intent.recipient,
-      collateralRequired: isExit ? 0 : intent.collateralRequired,
+      collateralRequired: isExit ? 0 : toCents(intent.collateralRequired),
     };
     const replaced: RestingPackageOrder = {
       ...oldOrder,
@@ -1772,23 +2056,21 @@ export class DemoTradingGateway implements InternalTradingGateway {
       remainingCollateralReservation: 0,
       remainingFeeCap: 0,
     };
-    if (isExit) {
-      this.publish({
-        ...this.snapshot,
-        restingOrders: [newOrder, ...existingOrders.map((order) => (order.id === oldOrderId ? replaced : order))],
-      });
-    } else {
-      const delta = newReservation - restingRemainingReservation(oldOrder);
-      this.publish({
-        ...this.snapshot,
-        account: {
-          ...this.snapshot.account,
-          reserved: this.snapshot.account.reserved + delta,
-          available: this.snapshot.account.available - delta,
-        },
-        restingOrders: [newOrder, ...existingOrders.map((order) => (order.id === oldOrderId ? replaced : order))],
-      });
-    }
+    const nextOrders = [
+      newOrder,
+      ...existingOrders.map((order) => (order.id === oldOrderId ? replaced : order)),
+    ];
+    const account = buildCoherentAccount(
+      this.snapshot.account,
+      this.snapshot.account.posted,
+      this.snapshot.positions,
+      nextOrders,
+    );
+    this.publish({
+      ...this.snapshot,
+      account,
+      restingOrders: nextOrders,
+    });
     return newOrder;
   }
 
@@ -1808,20 +2090,17 @@ export class DemoTradingGateway implements InternalTradingGateway {
       remainingCollateralReservation: 0,
       remainingFeeCap: 0,
     };
-    const isExit = target.side === "EXIT";
-    let account = this.snapshot.account;
-    if (!isExit) {
-      const reservation = restingRemainingReservation(target);
-      account = {
-        ...account,
-        reserved: Math.max(0, account.reserved - reservation),
-        available: account.available + reservation,
-      };
-    }
+    const nextOrders = existingOrders.map((order) => (order.id === orderId ? cancelled : order));
+    const account = buildCoherentAccount(
+      this.snapshot.account,
+      this.snapshot.account.posted,
+      this.snapshot.positions,
+      nextOrders,
+    );
     this.publish({
       ...this.snapshot,
       account,
-      restingOrders: existingOrders.map((order) => (order.id === orderId ? cancelled : order)),
+      restingOrders: nextOrders,
     });
     return cancelled;
   }
@@ -1904,22 +2183,24 @@ export class DemoTradingGateway implements InternalTradingGateway {
       remainingCollateralReservation: 0,
       remainingFeeCap: 0,
     };
-    const isExit = order.side === "EXIT";
-    let account = this.snapshot.account;
-    if (!isExit) {
-      const reservation = restingRemainingReservation(order);
-      account = {
-        ...account,
-        reserved: Math.max(0, account.reserved - reservation),
-        available: account.available + reservation,
-      };
+    const nextOrders = this.snapshot.restingOrders.map((candidate) =>
+      candidate.id === orderId ? expired : candidate,
+    );
+    let account: GatewayAccount;
+    try {
+      account = buildCoherentAccount(
+        this.snapshot.account,
+        this.snapshot.account.posted,
+        this.snapshot.positions,
+        nextOrders,
+      );
+    } catch {
+      return null;
     }
     this.publish({
       ...this.snapshot,
       account,
-      restingOrders: this.snapshot.restingOrders.map((candidate) =>
-        candidate.id === orderId ? expired : candidate,
-      ),
+      restingOrders: nextOrders,
     });
     return expired;
   }
@@ -2038,10 +2319,13 @@ export class DemoTradingGateway implements InternalTradingGateway {
     if (split.trancheFee + split.trancheCollateral - remainingRes > RESTING_TOL) return null;
     const newFilled = isFinal ? order.lots : filledSoFar + executedLots;
     const newRemaining = isFinal ? 0 : Math.max(0, orderRemaining - executedLots);
-    const newRemainingFee = isFinal ? 0 : Math.max(0, remainingFee - split.trancheFee);
+    const trancheFee = toCents(split.trancheFee);
+    const trancheCollateral = toCents(split.trancheCollateral);
+    if (trancheFee < 0 || trancheCollateral < 0) return null;
+    const newRemainingFee = isFinal ? 0 : toCents(Math.max(0, remainingFee - trancheFee));
     const newRemainingRes = isFinal
       ? 0
-      : Math.max(0, remainingRes - split.trancheFee - split.trancheCollateral);
+      : toCents(Math.max(0, remainingRes - trancheFee - trancheCollateral));
     if (Math.abs(newFilled + newRemaining - order.lots) > RESTING_TOL) return null;
     const now = new Date().toISOString();
     const fillId = identifier("FIL");
@@ -2061,7 +2345,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
       filledLots: executedLots,
       cancelledLots: 0,
       price: fillPrice,
-      fees: split.trancheFee,
+      fees: trancheFee,
       realizedPnlUsd: 0,
       collateralReleasedUsd: 0,
       guarantee: settlementGuarantee,
@@ -2074,7 +2358,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
       side: order.packageSide,
       lots: executedLots,
       entryPrice: fillPrice,
-      collateral: split.trancheCollateral,
+      collateral: trancheCollateral,
       state: "ACTIVE",
       createdAt: now,
     };
@@ -2110,9 +2394,25 @@ export class DemoTradingGateway implements InternalTradingGateway {
       fillId,
       receiptId,
     };
+    const nextPositions = [position, ...this.snapshot.positions];
+    const nextOrders = this.snapshot.restingOrders.map((candidate) =>
+      candidate.id === order.id ? updated : candidate,
+    );
+    let account: GatewayAccount;
+    try {
+      account = buildCoherentAccount(
+        this.snapshot.account,
+        toCents(this.snapshot.account.posted - trancheFee),
+        nextPositions,
+        nextOrders,
+      );
+    } catch {
+      return null;
+    }
     this.publish({
       ...this.snapshot,
-      positions: [position, ...this.snapshot.positions],
+      account,
+      positions: nextPositions,
       receipts: [receipt, ...this.snapshot.receipts],
       executions: [
         {
@@ -2124,9 +2424,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
         },
         ...this.snapshot.executions,
       ],
-      restingOrders: this.snapshot.restingOrders.map((candidate) =>
-        candidate.id === order.id ? updated : candidate,
-      ),
+      restingOrders: nextOrders,
     });
     return { order: updated, trancheLots: executedLots };
   }
@@ -2166,19 +2464,19 @@ export class DemoTradingGateway implements InternalTradingGateway {
     const orderFinal = executedLots >= orderRemaining - RESTING_TOL;
     const split = splitTrancheAmounts(0, remainingFee, executedLots, orderRemaining, orderFinal);
     if (!split) return null;
-    const trancheFee = split.trancheFee;
-    if (!Number.isFinite(trancheFee) || trancheFee < 0) return null;
-    if (trancheFee - remainingFee > RESTING_TOL) return null;
-    const release = target.lots > 0 ? (target.collateral * executedLots) / target.lots : 0;
+    const rawTrancheFee = split.trancheFee;
+    if (!Number.isFinite(rawTrancheFee) || rawTrancheFee < 0) return null;
+    if (rawTrancheFee - remainingFee > RESTING_TOL) return null;
+    const trancheFee = toCents(rawTrancheFee);
+    const release = toCents(target.lots > 0 ? (target.collateral * executedLots) / target.lots : 0);
     const direction = target.side === "SHORT" ? -1 : 1;
-    const realizedPnl =
-      (fillPrice - target.entryPrice) * executedLots * contractMultiplier * direction;
+    const realizedPnl = toCents(
+      (fillPrice - target.entryPrice) * executedLots * contractMultiplier * direction,
+    );
     if (!Number.isFinite(release) || !Number.isFinite(realizedPnl)) return null;
-    const closeResult = release + realizedPnl - trancheFee;
-    if (this.snapshot.account.available + closeResult < -1e-9) return null;
     const positionClosed = executedLots >= target.lots - RESTING_TOL;
     const targetRemainingLots = positionClosed ? 0 : target.lots - executedLots;
-    const remainingCollateral = Math.max(0, target.collateral - release);
+    const remainingCollateral = toCents(Math.max(0, target.collateral - release));
     const updatedPosition =
       positionClosed || targetRemainingLots <= RESTING_TOL
         ? null
@@ -2189,7 +2487,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
           };
     const newFilled = orderFinal ? order.lots : filledSoFar + executedLots;
     const newRemaining = orderFinal ? 0 : Math.max(0, orderRemaining - executedLots);
-    const newRemainingFee = orderFinal ? 0 : Math.max(0, remainingFee - trancheFee);
+    const newRemainingFee = orderFinal ? 0 : toCents(Math.max(0, remainingFee - trancheFee));
     if (Math.abs(newFilled + newRemaining - order.lots) > RESTING_TOL) return null;
     const now = new Date().toISOString();
     const fillId = identifier("FIL");
@@ -2267,26 +2565,33 @@ export class DemoTradingGateway implements InternalTradingGateway {
       result,
       createdAt: now,
     };
+    const nextPositions =
+      updatedPosition === null
+        ? this.snapshot.positions.filter((position) => position.id !== target.id)
+        : this.snapshot.positions.map((position) =>
+            position.id === target.id ? updatedPosition : position,
+          );
+    const nextOrders = this.snapshot.restingOrders.map((candidate) =>
+      candidate.id === order.id ? updated : candidate,
+    );
+    let account: GatewayAccount;
+    try {
+      account = buildCoherentAccount(
+        this.snapshot.account,
+        toCents(this.snapshot.account.posted + realizedPnl - trancheFee),
+        nextPositions,
+        nextOrders,
+      );
+    } catch {
+      return null;
+    }
     this.publish({
       ...this.snapshot,
-      account: {
-        ...this.snapshot.account,
-        reserved: Math.max(0, this.snapshot.account.reserved - release),
-        available: this.snapshot.account.available + closeResult,
-        eligible: this.snapshot.account.eligible + closeResult,
-        equity: this.snapshot.account.equity + closeResult,
-      },
-      positions:
-        updatedPosition === null
-          ? this.snapshot.positions.filter((position) => position.id !== target.id)
-          : this.snapshot.positions.map((position) =>
-              position.id === target.id ? updatedPosition : position,
-            ),
+      account,
+      positions: nextPositions,
       receipts: [receipt, ...this.snapshot.receipts],
       executions: [execution, ...this.snapshot.executions],
-      restingOrders: this.snapshot.restingOrders.map((candidate) =>
-        candidate.id === order.id ? updated : candidate,
-      ),
+      restingOrders: nextOrders,
     });
     return { order: updated, trancheLots: executedLots };
   }
