@@ -715,13 +715,13 @@ function StageArea({
         </p>
         {preview.rests ? (
           <p className="px-3 pb-2 text-xs leading-snug text-dim">
-            This limit does not cross, so it will rest locally as a working order. No
+            This limit does not cross, so it will rest on the devnet book as a working order. No
             fill, receipt, or position is created.
           </p>
         ) : null}
         <p className="border-t border-line px-3 py-2 text-xs leading-snug text-faint">
-          Local demo only. The next action simulates authorization and clearing in this browser.
-          It cannot submit to Arbitrum Sepolia or mainnet.
+          The next action signs and submits to the local production-parity chain. It never submits
+          to Arbitrum Sepolia or mainnet.
         </p>
         <div className="grid grid-cols-2 gap-2 px-3 py-2">
           <button

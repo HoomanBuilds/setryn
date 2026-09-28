@@ -423,12 +423,12 @@ export function ActivityWorkspace() {
               label="Attempt ledger"
               action={
                 <div className="flex items-center gap-2">
-                  <span className="hidden text-xs text-faint md:block">Local browser demo export, not Arbitrum accounting</span>
+                  <span className="hidden text-xs text-faint md:block">Local devnet export, not Arbitrum accounting</span>
                   <button
                     type="button"
                     onClick={handleExportLocalCsv}
                     disabled={exportDisabled}
-                    title="Local browser demo export, not Arbitrum accounting"
+                    title="Local devnet export, not Arbitrum accounting"
                     className="focus-ring inline-flex h-7 items-center rounded-md border border-line px-2 text-xs text-dim transition-colors hover:border-line-strong hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Export local CSV

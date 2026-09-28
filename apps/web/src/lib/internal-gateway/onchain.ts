@@ -21,12 +21,17 @@ import type { PackageMarket } from "@/lib/terminal/types";
 import {
   orderStateAbi,
   atomicClearingAbi,
+  privateRfqBookAbi,
+  privateRfqRequestTypedData,
   publicOrderBookAbi,
   publicOrderTypedData,
+  rfqSelectionTypedData,
   riskBindingAbi,
   riskEngineAbi,
   serializePublicOrder,
   type OnchainPublicOrder,
+  type OnchainPrivateRfqRequest,
+  type OnchainRfqSelection,
 } from "./protocol";
 import { loadSetrynRuntime, type SetrynRuntime } from "./runtime";
 import type {
@@ -375,7 +380,6 @@ export class OnchainTradingGateway implements InternalTradingGateway {
 
   async authorizeOrder(intent: PackageOrderIntent): Promise<SignedOrderAuthorization> {
     const { setryn, address, walletClient, publicClient } = await this.connected();
-    if (intent.disclosure !== "PUBLIC") throw new Error("ONCHAIN_RFQ_FLOW_NOT_READY");
     if (intent.side !== "ENTER") throw new Error("ONCHAIN_EXIT_FLOW_NOT_READY");
     if (intent.marketId !== PRIMARY_MARKET_ID) throw new Error("MARKET_NOT_ONCHAIN_ENABLED");
     if (intent.recipient.toLowerCase() !== address.toLowerCase()) throw new Error("RECIPIENT_MISMATCH");
@@ -447,7 +451,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       priceTicks,
       timeInForce,
       deadline,
-      executionModeId: setryn.executionModeId,
+      executionModeId:
+        intent.disclosure === "PRIVATE_RFQ" ? setryn.privateRfqExecutionModeId : setryn.executionModeId,
       feeScheduleId: setryn.feeScheduleId,
       feeScheduleVersion: 1,
       maxFeeMinor: feeMinor > BigInt(0) ? feeMinor : BigInt(1),
@@ -887,16 +892,210 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     return this.snapshot.restingOrders;
   }
 
-  async requestRfq(_authorization: SignedOrderAuthorization): Promise<RfqRequest> {
-    throw new Error("ONCHAIN_RFQ_FLOW_NOT_READY");
+  async requestRfq(authorization: SignedOrderAuthorization): Promise<RfqRequest> {
+    const { setryn, address, walletClient, publicClient } = await this.connected();
+    if (authorization.intent.disclosure !== "PRIVATE_RFQ") throw new Error("PRIVATE_RFQ_AUTHORIZATION_REQUIRED");
+    if (authorization.signer.toLowerCase() !== address.toLowerCase()) throw new Error("SIGNER_MISMATCH");
+    const order = authorization.onchainOrder;
+    const registrationHash = await walletClient.writeContract({
+      account: address,
+      chain: this.chain(setryn),
+      address: setryn.orderState,
+      abi: orderStateAbi,
+      functionName: "registerSignedOrder",
+      args: [order, authorization.signature as Hex],
+    });
+    const registrationReceipt = await publicClient.waitForTransactionReceipt({ hash: registrationHash });
+    if (registrationReceipt.status !== "success") throw new Error("ORDER_REGISTRATION_FAILED");
+
+    const nonce = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(crypto.getRandomValues(new Uint32Array(1))[0]);
+    const request: OnchainPrivateRfqRequest = {
+      taker: address,
+      takerAccountId: order.accountId,
+      takerOrderHash: authorization.orderHash as Hex,
+      targetKind: 1,
+      seriesId: setryn.seriesId,
+      packageId: EMPTY_ID,
+      targetVersion: 1,
+      hasPackageLegCommitment: false,
+      packageLegsHash: EMPTY_ID,
+      sidePolicy: order.side === 1 ? 1 : 2,
+      lots: order.lots,
+      allowPartialFills: order.allowPartialFills,
+      minimumFillLots: order.minimumFillLots,
+      remainderPolicy: order.remainderPolicy,
+      feeScheduleId: setryn.feeScheduleId,
+      feeScheduleVersion: 1,
+      maxFeeMinor: order.maxFeeMinor,
+      riskDomainId: setryn.riskDomainId,
+      riskDomainVersion: 1,
+      privacyModeId: setryn.privateRfqPrivacyModeId,
+      executionModeId: setryn.privateRfqExecutionModeId,
+      disclosurePolicyHash: setryn.privateRfqDisclosurePolicyHash,
+      eligibleMakerSetHash: setryn.privateRfqEligibleMakerSetHash,
+      deadline: order.deadline,
+      permittedExecutor: setryn.atomicClearingEngine,
+      nonce,
+      salt: keccak256(stringToHex(`${authorization.orderHash}:${nonce}:rfq`)),
+    };
+    const signature = await walletClient.signTypedData({
+      account: address,
+      domain: { name: "Setryn", version: "1", chainId: setryn.chainId, verifyingContract: setryn.privateRfqBook },
+      types: privateRfqRequestTypedData,
+      primaryType: "PrivateRfqRequest",
+      message: request,
+    });
+    const rfqId = await publicClient.readContract({
+      address: setryn.privateRfqBook,
+      abi: privateRfqBookAbi,
+      functionName: "hashRequest",
+      args: [request],
+    });
+    const registerHash = await walletClient.writeContract({
+      account: address,
+      chain: this.chain(setryn),
+      address: setryn.privateRfqBook,
+      abi: privateRfqBookAbi,
+      functionName: "registerRequest",
+      args: [request, [], signature],
+    });
+    await publicClient.waitForTransactionReceipt({ hash: registerHash });
+    const openHash = await walletClient.writeContract({
+      account: address,
+      chain: this.chain(setryn),
+      address: setryn.privateRfqBook,
+      abi: privateRfqBookAbi,
+      functionName: "openCollection",
+      args: [rfqId],
+    });
+    await publicClient.waitForTransactionReceipt({ hash: openHash });
+    const quoteResponse = await fetch("/api/internal/devnet/rfq-quote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rfqId }),
+    });
+    const quoteBody = (await quoteResponse.json()) as {
+      quoteId?: string;
+      packagePrice?: number;
+      feeCap?: number;
+      capacityLots?: number;
+      expiresAt?: string;
+    };
+    if (!quoteResponse.ok || !quoteBody.quoteId || !quoteBody.expiresAt) throw new Error("RFQ_QUOTE_FAILED");
+    const created: RfqRequest = {
+      id: rfqId,
+      authorization,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Number(request.deadline) * 1000).toISOString(),
+      state: "OPEN",
+      selectedQuoteId: null,
+      receiptId: null,
+      quotes: [{
+        id: quoteBody.quoteId,
+        solverLabel: "Setryn Devnet MM",
+        packagePrice: quoteBody.packagePrice ?? authorization.intent.executionPrice,
+        feeCap: quoteBody.feeCap ?? authorization.intent.feeCap,
+        capacityLots: quoteBody.capacityLots ?? authorization.intent.lots,
+        expiresAt: quoteBody.expiresAt,
+        settlementGuarantee: "Firm capacity, atomic onchain settlement",
+        provenance: "SEEDED_SOLVER",
+      }],
+    };
+    this.publish({ ...this.snapshot, rfqRequests: [...this.snapshot.rfqRequests, created] });
+    return created;
   }
 
-  async selectRfqQuote(_requestId: string, _quoteId: string): Promise<RfqRequest> {
-    throw new Error("ONCHAIN_RFQ_FLOW_NOT_READY");
+  async selectRfqQuote(requestId: string, quoteId: string): Promise<RfqRequest> {
+    const { setryn, address, walletClient, publicClient } = await this.connected();
+    const current = this.snapshot.rfqRequests.find((request) => request.id === requestId);
+    if (!current || current.state !== "OPEN") throw new Error("RFQ_NOT_OPEN");
+    if (!current.quotes.some((quote) => quote.id === quoteId)) throw new Error("RFQ_QUOTE_NOT_FOUND");
+    const block = await publicClient.getBlock();
+    const deadline = block.timestamp + BigInt(90) < BigInt(Math.floor(Date.parse(current.expiresAt) / 1000))
+      ? block.timestamp + BigInt(90)
+      : BigInt(Math.floor(Date.parse(current.expiresAt) / 1000));
+    const nonce = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(crypto.getRandomValues(new Uint32Array(1))[0]);
+    const selection: OnchainRfqSelection = {
+      rfqId: requestId as Hex,
+      quoteId: quoteId as Hex,
+      taker: address,
+      executor: setryn.atomicClearingEngine,
+      nonce,
+      deadline,
+      salt: keccak256(stringToHex(`${requestId}:${quoteId}:${nonce}`)),
+    };
+    const signature = await walletClient.signTypedData({
+      account: address,
+      domain: { name: "Setryn", version: "1", chainId: setryn.chainId, verifyingContract: setryn.privateRfqBook },
+      types: rfqSelectionTypedData,
+      primaryType: "RfqSelectionAuthorization",
+      message: selection,
+    });
+    const selectionHash = await walletClient.writeContract({
+      account: address,
+      chain: this.chain(setryn),
+      address: setryn.privateRfqBook,
+      abi: privateRfqBookAbi,
+      functionName: "lockSelection",
+      args: [selection, signature],
+    });
+    await publicClient.waitForTransactionReceipt({ hash: selectionHash });
+    const capacityHash = await walletClient.writeContract({
+      account: address,
+      chain: this.chain(setryn),
+      address: setryn.privateRfqBook,
+      abi: privateRfqBookAbi,
+      functionName: "confirmSelectedCapacity",
+      args: [requestId as Hex],
+    });
+    await publicClient.waitForTransactionReceipt({ hash: capacityHash });
+    const authorizationHash = await walletClient.writeContract({
+      account: address,
+      chain: this.chain(setryn),
+      address: setryn.privateRfqBook,
+      abi: privateRfqBookAbi,
+      functionName: "authorizeSubmission",
+      args: [requestId as Hex],
+    });
+    await publicClient.waitForTransactionReceipt({ hash: authorizationHash });
+    const submissionHash = await walletClient.writeContract({
+      account: address,
+      chain: this.chain(setryn),
+      address: setryn.privateRfqBook,
+      abi: privateRfqBookAbi,
+      functionName: "submitSelectedRfq",
+      args: [requestId as Hex, keccak256(stringToHex(`${requestId}:submitted`))],
+    });
+    const submissionReceipt = await publicClient.waitForTransactionReceipt({ hash: submissionHash });
+    if (submissionReceipt.status !== "success") throw new Error("RFQ_SELECTION_FAILED");
+    const selected = { ...current, state: "SELECTED" as const, selectedQuoteId: quoteId };
+    this.publish({
+      ...this.snapshot,
+      rfqRequests: this.snapshot.rfqRequests.map((request) => request.id === requestId ? selected : request),
+    });
+    return selected;
   }
 
-  async cancelRfq(_requestId: string): Promise<RfqRequest> {
-    throw new Error("ONCHAIN_RFQ_FLOW_NOT_READY");
+  async cancelRfq(requestId: string): Promise<RfqRequest> {
+    const { setryn, address, walletClient, publicClient } = await this.connected();
+    const current = this.snapshot.rfqRequests.find((request) => request.id === requestId);
+    if (!current || current.state !== "OPEN") throw new Error("RFQ_NOT_OPEN");
+    const hash = await walletClient.writeContract({
+      account: address,
+      chain: this.chain(setryn),
+      address: setryn.privateRfqBook,
+      abi: privateRfqBookAbi,
+      functionName: "cancelRfq",
+      args: [requestId as Hex],
+    });
+    await publicClient.waitForTransactionReceipt({ hash });
+    await this.releaseRiskReservation(current.authorization);
+    const cancelled = { ...current, state: "CANCELLED" as const };
+    this.publish({
+      ...this.snapshot,
+      rfqRequests: this.snapshot.rfqRequests.map((request) => request.id === requestId ? cancelled : request),
+    });
+    return cancelled;
   }
 
   async completeRfq(_requestId: string, _receiptId: string): Promise<RfqRequest> {

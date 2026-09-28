@@ -88,6 +88,11 @@ contract BootstrapSetrynDevnet is Script {
     bytes32 private constant NAMESPACE = keccak256("SETRYN_GENESIS_MARKETS_V1");
     bytes32 private constant EXECUTION_MODE_SET = keccak256("SETRYN_EXECUTION_MODE_SET_GENESIS_V1");
     bytes32 private constant EXECUTION_MODE_PUBLIC_BOOK = keccak256("SETRYN_EXECUTION_MODE_PUBLIC_BOOK_V1");
+    bytes32 private constant EXECUTION_MODE_PRIVATE_RFQ = keccak256("SETRYN_EXECUTION_MODE_PRIVATE_RFQ_V1");
+    bytes32 private constant PRIVACY_MODE_POLICY = keccak256("SETRYN_POLICY_PRIVACY_MODE");
+    bytes32 private constant DISCLOSURE_POLICY = keccak256("SETRYN_POLICY_DISCLOSURE");
+    bytes32 private constant PRIVACY_MODE_BLIND = keccak256("SETRYN_PRIVACY_MODE_BLIND_V1");
+    bytes32 private constant DISCLOSURE_BLIND_QUALIFIED = keccak256("SETRYN_DISCLOSURE_BLIND_QUALIFIED_V1");
     bytes32 private constant BENCHMARK_INTERFACE = keccak256("SETRYN_FIXING_OBSERVATION_INTERFACE_V1");
     bytes32 private constant BENCHMARK_CAPABILITY = keccak256("SETRYN_DEVNET_FIXING_CAPABILITY_V1");
     bytes32 private constant RISK_INTERFACE = keccak256("SETRYN_PORTFOLIO_RISK_INTERFACE_V1");
@@ -201,6 +206,9 @@ contract BootstrapSetrynDevnet is Script {
             runtime.maxShortDebitMinorPerLot
         ) = _registerSeries(c, runtime, schedule);
         c.executionPolicy.setExecutionMode(EXECUTION_MODE_SET, EXECUTION_MODE_PUBLIC_BOOK, true);
+        c.executionPolicy.setExecutionMode(EXECUTION_MODE_SET, EXECUTION_MODE_PRIVATE_RFQ, true);
+        c.executionPolicy.setPolicyTag(PRIVACY_MODE_POLICY, PRIVACY_MODE_BLIND, true);
+        c.executionPolicy.setPolicyTag(DISCLOSURE_POLICY, DISCLOSURE_BLIND_QUALIFIED, true);
         c.executionPolicy.setOrderAction(OrderActionId.wrap(keccak256("SETRYN_ORDER_ACTION_ENTER_V1")), true);
         _publishSessionDay(c, runtime.sessionId, runtime.day, schedule);
         vm.stopBroadcast();
@@ -760,7 +768,7 @@ contract BootstrapSetrynDevnet is Script {
 
     function _writeRuntime(Contracts memory c, Runtime memory runtime, address operator, string memory output) private {
         string memory objectKey = "setryn-runtime";
-        vm.serializeUint(objectKey, "schemaVersion", 6);
+        vm.serializeUint(objectKey, "schemaVersion", 7);
         vm.serializeUint(objectKey, "chainId", block.chainid);
         vm.serializeUint(objectKey, "day", runtime.day);
         vm.serializeAddress(objectKey, "operator", operator);
@@ -811,6 +819,14 @@ contract BootstrapSetrynDevnet is Script {
         vm.serializeBytes32(objectKey, "seriesId", SeriesId.unwrap(runtime.seriesId));
         vm.serializeBytes32(objectKey, "executionModeSetHash", EXECUTION_MODE_SET);
         vm.serializeBytes32(objectKey, "executionModeId", EXECUTION_MODE_PUBLIC_BOOK);
+        vm.serializeBytes32(objectKey, "privateRfqExecutionModeId", EXECUTION_MODE_PRIVATE_RFQ);
+        vm.serializeBytes32(objectKey, "privateRfqPrivacyModeId", PRIVACY_MODE_BLIND);
+        vm.serializeBytes32(objectKey, "privateRfqDisclosurePolicyHash", DISCLOSURE_BLIND_QUALIFIED);
+        vm.serializeBytes32(
+            objectKey,
+            "privateRfqEligibleMakerSetHash",
+            keccak256(bytes.concat(keccak256(abi.encode(operator))))
+        );
         vm.serializeBytes(objectKey, "payoffTerms", runtime.payoffTerms);
         string memory json = vm.serializeBytes32(
             objectKey,

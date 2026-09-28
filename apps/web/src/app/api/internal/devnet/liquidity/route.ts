@@ -207,22 +207,24 @@ export async function POST(request: Request) {
       });
       await publicClient.waitForTransactionReceipt({ hash: depositHash });
     }
-    const lockApproved = await publicClient.readContract({
-      address: setryn.collateralVault,
-      abi: vaultAbi,
-      functionName: "isLockOperator",
-      args: [accountId, setryn.atomicClearingEngine],
-    });
-    if (!lockApproved) {
-      const lockHash = await walletClient.writeContract({
-        account: maker,
-        chain: null,
+    for (const operator of [setryn.atomicClearingEngine, setryn.positionEngine]) {
+      const lockApproved = await publicClient.readContract({
         address: setryn.collateralVault,
         abi: vaultAbi,
-        functionName: "setLockOperator",
-        args: [accountId, setryn.atomicClearingEngine, true],
+        functionName: "isLockOperator",
+        args: [accountId, operator],
       });
-      await publicClient.waitForTransactionReceipt({ hash: lockHash });
+      if (!lockApproved) {
+        const lockHash = await walletClient.writeContract({
+          account: maker,
+          chain: null,
+          address: setryn.collateralVault,
+          abi: vaultAbi,
+          functionName: "setLockOperator",
+          args: [accountId, operator, true],
+        });
+        await publicClient.waitForTransactionReceipt({ hash: lockHash });
+      }
     }
 
     const block = await publicClient.getBlock();

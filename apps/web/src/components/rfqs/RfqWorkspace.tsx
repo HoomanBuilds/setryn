@@ -222,7 +222,7 @@ export function RfqWorkspace() {
             <SectionLabel>RFQ ledger</SectionLabel>
             <h1 className="mt-2 text-xl font-medium text-ink">Private RFQ requests</h1>
             <p className="mt-1 max-w-2xl text-sm leading-relaxed text-dim">
-              Private solver requests from this browser demo, with every firm quote comparison.
+              Private solver requests with firm, capacity-backed quote comparisons.
               Active requests resume in their market terminal. Receipts exist only for executed
               requests.
             </p>
@@ -237,8 +237,8 @@ export function RfqWorkspace() {
         </div>
 
         <p className="mt-4 border border-line bg-panel px-3 py-2.5 text-xs leading-relaxed text-faint">
-          Local demo only. Requests, quotes, and receipts live in this browser session and are never
-          broadcast to Arbitrum. This page never creates a request and offers no maker controls.
+          Requests and selected quotes are committed to the local production-parity chain. Nothing
+          on this page submits to Arbitrum Sepolia or mainnet.
         </p>
 
         <section aria-label="Active requests" className="mt-6">

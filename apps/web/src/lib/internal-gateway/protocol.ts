@@ -76,6 +76,182 @@ export const publicOrderTypedData = {
   PublicOrder: publicOrderComponents,
 } as const;
 
+export interface OnchainPrivateRfqRequest {
+  taker: Address;
+  takerAccountId: Hex;
+  takerOrderHash: Hex;
+  targetKind: 1 | 2;
+  seriesId: Hex;
+  packageId: Hex;
+  targetVersion: number;
+  hasPackageLegCommitment: boolean;
+  packageLegsHash: Hex;
+  sidePolicy: 1 | 2 | 3;
+  lots: bigint;
+  allowPartialFills: boolean;
+  minimumFillLots: bigint;
+  remainderPolicy: 1 | 2;
+  feeScheduleId: Hex;
+  feeScheduleVersion: number;
+  maxFeeMinor: bigint;
+  riskDomainId: Hex;
+  riskDomainVersion: number;
+  privacyModeId: Hex;
+  executionModeId: Hex;
+  disclosurePolicyHash: Hex;
+  eligibleMakerSetHash: Hex;
+  deadline: bigint;
+  permittedExecutor: Address;
+  nonce: bigint;
+  salt: Hex;
+}
+
+export interface OnchainMakerQuote {
+  rfqId: Hex;
+  maker: Address;
+  makerAccountId: Hex;
+  takerAccountId: Hex;
+  makerOrderHash: Hex;
+  targetKind: 1 | 2;
+  seriesId: Hex;
+  packageId: Hex;
+  targetVersion: number;
+  hasPackageLegCommitment: boolean;
+  packageLegsHash: Hex;
+  sidePolicy: 1 | 2 | 3;
+  lots: bigint;
+  allowPartialFills: boolean;
+  minimumFillLots: bigint;
+  remainderPolicy: 1 | 2;
+  bidPriceTicks: bigint;
+  askPriceTicks: bigint;
+  feeScheduleId: Hex;
+  feeScheduleVersion: number;
+  maxFeeMinor: bigint;
+  riskDomainId: Hex;
+  riskDomainVersion: number;
+  collateralAssetId: Hex;
+  collateralBindingVersion: number;
+  maximumLiability: bigint;
+  privacyModeId: Hex;
+  executionModeId: Hex;
+  disclosurePolicyHash: Hex;
+  eligibleMakerSetHash: Hex;
+  deadline: bigint;
+  capacityExpiry: bigint;
+  permittedExecutor: Address;
+  nonce: bigint;
+  salt: Hex;
+}
+
+export interface OnchainRfqSelection {
+  rfqId: Hex;
+  quoteId: Hex;
+  taker: Address;
+  executor: Address;
+  nonce: bigint;
+  deadline: bigint;
+  salt: Hex;
+}
+
+export const privateRfqRequestComponents = [
+  { name: "taker", type: "address" },
+  { name: "takerAccountId", type: "bytes32" },
+  { name: "takerOrderHash", type: "bytes32" },
+  { name: "targetKind", type: "uint8" },
+  { name: "seriesId", type: "bytes32" },
+  { name: "packageId", type: "bytes32" },
+  { name: "targetVersion", type: "uint32" },
+  { name: "hasPackageLegCommitment", type: "bool" },
+  { name: "packageLegsHash", type: "bytes32" },
+  { name: "sidePolicy", type: "uint8" },
+  { name: "lots", type: "uint128" },
+  { name: "allowPartialFills", type: "bool" },
+  { name: "minimumFillLots", type: "uint128" },
+  { name: "remainderPolicy", type: "uint8" },
+  { name: "feeScheduleId", type: "bytes32" },
+  { name: "feeScheduleVersion", type: "uint32" },
+  { name: "maxFeeMinor", type: "uint128" },
+  { name: "riskDomainId", type: "bytes32" },
+  { name: "riskDomainVersion", type: "uint32" },
+  { name: "privacyModeId", type: "bytes32" },
+  { name: "executionModeId", type: "bytes32" },
+  { name: "disclosurePolicyHash", type: "bytes32" },
+  { name: "eligibleMakerSetHash", type: "bytes32" },
+  { name: "deadline", type: "uint64" },
+  { name: "permittedExecutor", type: "address" },
+  { name: "nonce", type: "uint256" },
+  { name: "salt", type: "bytes32" },
+] as const;
+
+export const makerQuoteComponents = [
+  { name: "rfqId", type: "bytes32" },
+  { name: "maker", type: "address" },
+  { name: "makerAccountId", type: "bytes32" },
+  { name: "takerAccountId", type: "bytes32" },
+  { name: "makerOrderHash", type: "bytes32" },
+  { name: "targetKind", type: "uint8" },
+  { name: "seriesId", type: "bytes32" },
+  { name: "packageId", type: "bytes32" },
+  { name: "targetVersion", type: "uint32" },
+  { name: "hasPackageLegCommitment", type: "bool" },
+  { name: "packageLegsHash", type: "bytes32" },
+  { name: "sidePolicy", type: "uint8" },
+  { name: "lots", type: "uint128" },
+  { name: "allowPartialFills", type: "bool" },
+  { name: "minimumFillLots", type: "uint128" },
+  { name: "remainderPolicy", type: "uint8" },
+  { name: "bidPriceTicks", type: "int128" },
+  { name: "askPriceTicks", type: "int128" },
+  { name: "feeScheduleId", type: "bytes32" },
+  { name: "feeScheduleVersion", type: "uint32" },
+  { name: "maxFeeMinor", type: "uint128" },
+  { name: "riskDomainId", type: "bytes32" },
+  { name: "riskDomainVersion", type: "uint32" },
+  { name: "collateralAssetId", type: "bytes32" },
+  { name: "collateralBindingVersion", type: "uint32" },
+  { name: "maximumLiability", type: "uint128" },
+  { name: "privacyModeId", type: "bytes32" },
+  { name: "executionModeId", type: "bytes32" },
+  { name: "disclosurePolicyHash", type: "bytes32" },
+  { name: "eligibleMakerSetHash", type: "bytes32" },
+  { name: "deadline", type: "uint64" },
+  { name: "capacityExpiry", type: "uint64" },
+  { name: "permittedExecutor", type: "address" },
+  { name: "nonce", type: "uint256" },
+  { name: "salt", type: "bytes32" },
+] as const;
+
+export const rfqSelectionComponents = [
+  { name: "rfqId", type: "bytes32" },
+  { name: "quoteId", type: "bytes32" },
+  { name: "taker", type: "address" },
+  { name: "executor", type: "address" },
+  { name: "nonce", type: "uint256" },
+  { name: "deadline", type: "uint64" },
+  { name: "salt", type: "bytes32" },
+] as const;
+
+export const privateRfqRequestTypedData = { PrivateRfqRequest: privateRfqRequestComponents } as const;
+export const makerQuoteTypedData = { MakerQuote: makerQuoteComponents } as const;
+export const rfqSelectionTypedData = { RfqSelectionAuthorization: rfqSelectionComponents } as const;
+
+export const privateRfqBookAbi = [
+  { type: "function", name: "hashRequest", stateMutability: "view", inputs: [{ name: "request", type: "tuple", components: privateRfqRequestComponents }], outputs: [{ name: "rfqId", type: "bytes32" }] },
+  { type: "function", name: "hashQuote", stateMutability: "view", inputs: [{ name: "quote", type: "tuple", components: makerQuoteComponents }], outputs: [{ name: "quoteId", type: "bytes32" }] },
+  { type: "function", name: "registerRequest", stateMutability: "nonpayable", inputs: [{ name: "request", type: "tuple", components: privateRfqRequestComponents }, { name: "packageLegs", type: "tuple[]", components: [{ name: "seriesId", type: "bytes32" }, { name: "seriesVersion", type: "uint32" }, { name: "ratio", type: "int32" }] }, { name: "signature", type: "bytes" }], outputs: [{ name: "rfqId", type: "bytes32" }] },
+  { type: "function", name: "openCollection", stateMutability: "nonpayable", inputs: [{ name: "rfqId", type: "bytes32" }], outputs: [] },
+  { type: "function", name: "submitQuote", stateMutability: "nonpayable", inputs: [{ name: "quote", type: "tuple", components: makerQuoteComponents }, { name: "eligibleMakerProof", type: "bytes32[]" }, { name: "signature", type: "bytes" }], outputs: [{ name: "quoteId", type: "bytes32" }] },
+  { type: "function", name: "reserveQuoteCapacity", stateMutability: "nonpayable", inputs: [{ name: "quoteId", type: "bytes32" }], outputs: [{ name: "lockId", type: "bytes32" }] },
+  { type: "function", name: "lockSelection", stateMutability: "nonpayable", inputs: [{ name: "selection", type: "tuple", components: rfqSelectionComponents }, { name: "signature", type: "bytes" }], outputs: [] },
+  { type: "function", name: "confirmSelectedCapacity", stateMutability: "nonpayable", inputs: [{ name: "rfqId", type: "bytes32" }], outputs: [] },
+  { type: "function", name: "authorizeSubmission", stateMutability: "nonpayable", inputs: [{ name: "rfqId", type: "bytes32" }], outputs: [] },
+  { type: "function", name: "submitSelectedRfq", stateMutability: "nonpayable", inputs: [{ name: "rfqId", type: "bytes32" }, { name: "submissionReference", type: "bytes32" }], outputs: [] },
+  { type: "function", name: "cancelRfq", stateMutability: "nonpayable", inputs: [{ name: "rfqId", type: "bytes32" }], outputs: [] },
+  { type: "function", name: "getRfq", stateMutability: "view", inputs: [{ name: "rfqId", type: "bytes32" }], outputs: [{ name: "record", type: "tuple", components: [{ name: "request", type: "tuple", components: privateRfqRequestComponents }, { name: "selectedQuoteId", type: "bytes32" }, { name: "status", type: "uint8" }, { name: "cumulativeFilledLots", type: "uint128" }, { name: "registeredAt", type: "uint64" }] }] },
+  { type: "function", name: "getQuote", stateMutability: "view", inputs: [{ name: "quoteId", type: "bytes32" }], outputs: [{ name: "record", type: "tuple", components: [{ name: "quote", type: "tuple", components: makerQuoteComponents }, { name: "status", type: "uint8" }, { name: "cumulativeFilledLots", type: "uint128" }, { name: "offeredAt", type: "uint64" }] }] },
+] as const;
+
 export const orderStateAbi = [
   {
     type: "event",

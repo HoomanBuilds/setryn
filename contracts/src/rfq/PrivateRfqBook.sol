@@ -296,7 +296,7 @@ contract PrivateRfqBook is
     function authorizeSubmission(RfqId rfqId) external nonReentrant {
         RfqRecord storage rfq = _requireRfq(rfqId);
         if (rfq.status != RfqStatus.CapacityReserved) revert InvalidRfqState(rfqId, rfq.status);
-        _requireExecutor(rfq, rfqId);
+        _requireTakerOrExecutor(rfq, rfqId);
         _requireRfqLive(rfqId, rfq.request.deadline);
         _setRfqStatus(rfqId, rfq, RfqStatus.Authorized);
     }
@@ -305,7 +305,7 @@ contract PrivateRfqBook is
         if (submissionReference == bytes32(0)) revert ZeroReference();
         RfqRecord storage rfq = _requireRfq(rfqId);
         if (rfq.status != RfqStatus.Authorized) revert InvalidRfqState(rfqId, rfq.status);
-        _requireExecutor(rfq, rfqId);
+        _requireTakerOrExecutor(rfq, rfqId);
         _requireRfqLive(rfqId, rfq.request.deadline);
         _setRfqStatus(rfqId, rfq, RfqStatus.Submitted);
         emit RfqSubmitted(rfqId, rfq.selectedQuoteId, submissionReference);
@@ -917,6 +917,13 @@ contract PrivateRfqBook is
     function _requireExecutor(RfqRecord storage record, RfqId rfqId) private view {
         address expected = _effectiveExecutor(record.request);
         if (msg.sender != expected) revert UnauthorizedRfqActor(rfqId, expected, msg.sender);
+    }
+
+    function _requireTakerOrExecutor(RfqRecord storage record, RfqId rfqId) private view {
+        address expected = _effectiveExecutor(record.request);
+        if (msg.sender != record.request.taker && msg.sender != expected) {
+            revert UnauthorizedRfqActor(rfqId, expected, msg.sender);
+        }
     }
 
     function _effectiveExecutor(PrivateRfqRequest storage request) private view returns (address) {

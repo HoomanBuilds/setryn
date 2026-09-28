@@ -52,7 +52,7 @@ export function ExecutionTimeline({ progress }: { progress: OrderExecutionProgre
           {partial && filled !== null && remaining !== null ? (
             <p className="mt-1 text-dim">{`${formatLots(filled)} of ${formatLots(restingOrder?.lots ?? 0)} lots filled. ${formatLots(remaining)} lots working${latestReceipt ? `. Latest receipt ${latestReceipt}` : ""}.`}</p>
           ) : (
-            <p className="mt-1 text-faint">No fill, receipt, or position. Local demo only.</p>
+            <p className="mt-1 text-faint">No fill, receipt, or position has been created.</p>
           )}
           {orderId ? (
             <p className="tnum mt-1 font-mono text-ink">{orderId}</p>

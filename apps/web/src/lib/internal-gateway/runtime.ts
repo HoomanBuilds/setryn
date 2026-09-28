@@ -33,6 +33,10 @@ export interface SetrynRuntime {
   maxShortDebitMinorPerLot: number;
   executionModeSetHash: Hex;
   executionModeId: Hex;
+  privateRfqExecutionModeId: Hex;
+  privateRfqPrivacyModeId: Hex;
+  privateRfqDisclosurePolicyHash: Hex;
+  privateRfqEligibleMakerSetHash: Hex;
   enterActionId: Hex;
 }
 

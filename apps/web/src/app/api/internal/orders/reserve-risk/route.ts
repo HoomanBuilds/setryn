@@ -144,7 +144,9 @@ export async function POST(request: Request) {
       order.seriesId.toLowerCase() !== setryn.seriesId.toLowerCase() ||
       order.packageId !== ZERO_ID ||
       order.feeScheduleId.toLowerCase() !== setryn.feeScheduleId.toLowerCase() ||
-      order.executionModeId.toLowerCase() !== setryn.executionModeId.toLowerCase() ||
+      ![setryn.executionModeId.toLowerCase(), setryn.privateRfqExecutionModeId.toLowerCase()].includes(
+        order.executionModeId.toLowerCase(),
+      ) ||
       order.actionId.toLowerCase() !== setryn.enterActionId.toLowerCase() ||
       order.permittedExecutor.toLowerCase() !== setryn.atomicClearingEngine.toLowerCase()
     ) {
