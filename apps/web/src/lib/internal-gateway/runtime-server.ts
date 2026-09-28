@@ -49,7 +49,7 @@ function localRpcUrl(): string {
 function validateRuntime(candidate: unknown): Omit<SetrynRuntime, "rpcUrl"> {
   if (!candidate || typeof candidate !== "object") throw new Error("INVALID_RUNTIME");
   const record = candidate as Record<string, unknown>;
-  if (record.schemaVersion !== 3 || record.chainId !== 31337 || typeof record.day !== "number") {
+  if (record.schemaVersion !== 4 || record.chainId !== 31337 || typeof record.day !== "number") {
     throw new Error("INVALID_RUNTIME");
   }
   for (const field of ADDRESS_FIELDS) {
@@ -59,6 +59,14 @@ function validateRuntime(candidate: unknown): Omit<SetrynRuntime, "rpcUrl"> {
     if (typeof record[field] !== "string" || !HASH_PATTERN.test(record[field])) throw new Error("INVALID_RUNTIME");
   }
   if (typeof record.payoffTerms !== "string" || !/^0x(?:[0-9a-fA-F]{2})+$/.test(record.payoffTerms)) {
+    throw new Error("INVALID_RUNTIME");
+  }
+  if (
+    !Number.isSafeInteger(record.maxLongDebitMinorPerLot) ||
+    Number(record.maxLongDebitMinorPerLot) <= 0 ||
+    !Number.isSafeInteger(record.maxShortDebitMinorPerLot) ||
+    Number(record.maxShortDebitMinorPerLot) <= 0
+  ) {
     throw new Error("INVALID_RUNTIME");
   }
   return record as unknown as Omit<SetrynRuntime, "rpcUrl">;

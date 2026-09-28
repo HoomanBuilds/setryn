@@ -143,6 +143,8 @@ contract BootstrapSetrynDevnet is Script {
         SeriesId seriesId;
         AccountId feeRecipientAccountId;
         bytes payoffTerms;
+        uint128 maxLongDebitMinorPerLot;
+        uint128 maxShortDebitMinorPerLot;
         uint32 day;
     }
 
@@ -187,7 +189,12 @@ contract BootstrapSetrynDevnet is Script {
         runtime.riskDomainId = _registerRiskDomain(c, runtime);
         runtime.instrumentId = _registerInstrument(c, runtime);
         runtime.marketId = _registerMarket(c, runtime);
-        (runtime.seriesId, runtime.payoffTerms) = _registerSeries(c, runtime, schedule);
+        (
+            runtime.seriesId,
+            runtime.payoffTerms,
+            runtime.maxLongDebitMinorPerLot,
+            runtime.maxShortDebitMinorPerLot
+        ) = _registerSeries(c, runtime, schedule);
         c.executionPolicy.setExecutionMode(EXECUTION_MODE_SET, EXECUTION_MODE_PUBLIC_BOOK, true);
         c.executionPolicy.setOrderAction(OrderActionId.wrap(keccak256("SETRYN_ORDER_ACTION_ENTER_V1")), true);
         _publishSessionDay(c, runtime.sessionId, runtime.day, schedule);
@@ -496,7 +503,7 @@ contract BootstrapSetrynDevnet is Script {
             feeScheduleId: runtime.feeScheduleId,
             feeScheduleVersion: VERSION,
             quoteUnitId: MarketDefinitionLib.QUOTE_UNIT_SETTLEMENT_MINOR_PER_LOT,
-            tickSizeMinor: TickSizeMinor.wrap(1),
+            tickSizeMinor: TickSizeMinor.wrap(100_000),
             lotStep: Lots.wrap(1),
             minOrderLots: Lots.wrap(1),
             maxOrderLots: Lots.wrap(10),
@@ -513,7 +520,12 @@ contract BootstrapSetrynDevnet is Script {
 
     function _registerSeries(Contracts memory c, Runtime memory runtime, Schedule memory schedule)
         private
-        returns (SeriesId id, bytes memory payoffTerms)
+        returns (
+            SeriesId id,
+            bytes memory payoffTerms,
+            uint128 maxLongDebitMinorPerLot,
+            uint128 maxShortDebitMinorPerLot
+        )
     {
         PayoffFixingRequirement[] memory requirements = new PayoffFixingRequirement[](1);
         requirements[0] = PayoffFixingRequirement({
@@ -532,8 +544,8 @@ contract BootstrapSetrynDevnet is Script {
             premiumMinorPerLot: 0,
             multiplierNumerator: 1e6,
             multiplierDenominator: 1e8,
-            minimumTransferMinorPerLot: -100_000e6,
-            maximumTransferMinorPerLot: 100_000e6,
+            minimumTransferMinorPerLot: -1_000e6,
+            maximumTransferMinorPerLot: 1_000e6,
             disruptionTransferMinorPerLot: 0,
             fixingRequirements: requirements,
             previewFixings: new CanonicalFixing[](0),
@@ -543,6 +555,8 @@ contract BootstrapSetrynDevnet is Script {
         });
         StrategyCompileResult memory compiled = c.compiler.compileStrategy(input);
         payoffTerms = compiled.canonicalTerms;
+        maxLongDebitMinorPerLot = compiled.maxLongDebitMinorPerLot;
+        maxShortDebitMinorPerLot = compiled.maxShortDebitMinorPerLot;
         SeriesDefinition memory definition = _seriesDefinition(runtime, schedule, compiled);
         SeriesQualificationData memory qualification = _qualification(runtime, definition, compiled.canonicalTerms);
         definition.payoffTermsHash = c.series.hashPayoffTerms(TERMS_SCHEMA, qualification.payoffTerms);
@@ -736,7 +750,7 @@ contract BootstrapSetrynDevnet is Script {
 
     function _writeRuntime(Contracts memory c, Runtime memory runtime, address operator, string memory output) private {
         string memory objectKey = "setryn-runtime";
-        vm.serializeUint(objectKey, "schemaVersion", 3);
+        vm.serializeUint(objectKey, "schemaVersion", 4);
         vm.serializeUint(objectKey, "chainId", block.chainid);
         vm.serializeUint(objectKey, "day", runtime.day);
         vm.serializeAddress(objectKey, "operator", operator);
@@ -774,6 +788,8 @@ contract BootstrapSetrynDevnet is Script {
         vm.serializeBytes32(objectKey, "benchmarkId", BenchmarkId.unwrap(runtime.benchmarkId));
         vm.serializeBytes32(objectKey, "feeScheduleId", FeeScheduleId.unwrap(runtime.feeScheduleId));
         vm.serializeBytes32(objectKey, "feeRecipientAccountId", AccountId.unwrap(runtime.feeRecipientAccountId));
+        vm.serializeUint(objectKey, "maxLongDebitMinorPerLot", runtime.maxLongDebitMinorPerLot);
+        vm.serializeUint(objectKey, "maxShortDebitMinorPerLot", runtime.maxShortDebitMinorPerLot);
         vm.serializeBytes32(objectKey, "riskDomainId", RiskDomainId.unwrap(runtime.riskDomainId));
         vm.serializeBytes32(objectKey, "instrumentId", InstrumentId.unwrap(runtime.instrumentId));
         vm.serializeBytes32(objectKey, "marketId", MarketId.unwrap(runtime.marketId));

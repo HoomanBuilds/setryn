@@ -32,8 +32,6 @@ const REQUEST_TYPEHASH = keccak256(
 );
 const ADMISSION_ID_TYPEHASH = keccak256(stringToHex("SetrynRiskAdmissionIdV1"));
 const ZERO_ID = `0x${"0".repeat(64)}` as Hex;
-const OPEN_INTEREST_PER_LOT = BigInt(25_000_000_000);
-const TERMINAL_LIABILITY_PER_LOT = BigInt(1_950_000_000);
 
 const vaultAbi = [
   {
@@ -194,8 +192,11 @@ export async function POST(request: Request) {
       return Response.json({ error: "Risk reservation deadline is outside the live window" }, { status: 400 });
     }
 
-    const openInterest = order.lots * OPEN_INTEREST_PER_LOT;
-    const terminalLiability = order.lots * TERMINAL_LIABILITY_PER_LOT;
+    const openInterest = order.lots;
+    const liabilityPerLot = BigInt(
+      order.side === 1 ? setryn.maxLongDebitMinorPerLot : setryn.maxShortDebitMinorPerLot,
+    );
+    const terminalLiability = order.lots * liabilityPerLot;
     const positionId = keccak256(
       encodeAbiParameters(
         [

@@ -24,6 +24,8 @@ export interface SetrynRuntime {
   feeScheduleId: Hex;
   feeRecipientAccountId: Hex;
   payoffTerms: Hex;
+  maxLongDebitMinorPerLot: number;
+  maxShortDebitMinorPerLot: number;
   executionModeSetHash: Hex;
   executionModeId: Hex;
   enterActionId: Hex;
