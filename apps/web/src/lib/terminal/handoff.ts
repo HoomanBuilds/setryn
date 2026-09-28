@@ -141,7 +141,7 @@ export function parseHandoff(query: { get(name: string): string | null; toString
   const hedgeRaw = safeGet(query, "hedge");
   const hedgeBreak = hedgeRaw !== null && hedgeRaw.trim().toLowerCase() === "break";
   const hasLeg = legRaw !== null || legIdRaw !== null;
-  const blockedReason = hedgeBreak || hasLeg ? "Direct leg orders cannot be represented by the package terminal." : null;
+  const blockedReason = hedgeBreak || hasLeg ? "Direct-leg orders are unsupported in the package terminal." : null;
   return {
     present: true,
     key,
