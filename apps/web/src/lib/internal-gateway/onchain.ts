@@ -461,6 +461,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         throw new Error("CLOSE_POSITION_MISMATCH");
       }
       if (closing.lots !== intent.lots) throw new Error("FULL_POSITION_EXIT_REQUIRED");
+      if (intent.timeInForce !== "FOK") throw new Error("EXIT_REQUIRES_FOK");
     }
     if (!Number.isFinite(intent.limitPrice)) throw new Error("INVALID_LIMIT_PRICE");
     if (!["GTC", "GTD", "IOC", "FOK"].includes(intent.timeInForce)) throw new Error("INVALID_TIME_IN_FORCE");
@@ -644,12 +645,27 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       args: [levelId],
     });
     const makerOrderHash = level.headOrderHash;
-    const makerBookOrder = await publicClient.readContract({
-      address: setryn.publicOrderBook,
-      abi: publicOrderBookAbi,
-      functionName: "getBookOrder",
-      args: [makerOrderHash],
-    });
+    const [makerBookOrder, makerOrderRecord] = await Promise.all([
+      publicClient.readContract({
+        address: setryn.publicOrderBook,
+        abi: publicOrderBookAbi,
+        functionName: "getBookOrder",
+        args: [makerOrderHash],
+      }),
+      publicClient.readContract({
+        address: setryn.orderState,
+        abi: orderStateAbi,
+        functionName: "getOrder",
+        args: [makerOrderHash],
+      }),
+    ]);
+    if (
+      authorization.intent.side === "EXIT" &&
+      makerOrderRecord.order.signer.toLowerCase() !== setryn.operator.toLowerCase()
+    ) {
+      await this.cancelUnmatchedOrder(authorization);
+      throw new Error("EXIT_REQUIRES_DEVNET_MAKER");
+    }
     const crosses = order.side === 1 ? order.priceTicks >= makerBookOrder.priceTicks : order.priceTicks <= makerBookOrder.priceTicks;
     if (!crosses) {
       await this.cancelUnmatchedOrder(authorization);
@@ -2115,6 +2131,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   private async completeFullExit(sourcePositionId: Hex, closePositionId: Hex): Promise<Hex> {
     const { setryn, address, walletClient, publicClient } = await this.connected();
     const actorAccountId = await this.accountId(address);
+    if (sourcePositionId.toLowerCase() === closePositionId.toLowerCase()) throw new Error("DUPLICATE_EXIT_POSITION");
     const snapshots = await Promise.all(
       [sourcePositionId, closePositionId].map((positionId) =>
         publicClient.readContract({

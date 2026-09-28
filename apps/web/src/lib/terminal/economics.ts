@@ -174,6 +174,9 @@ export function buildPreview(
       if (requestedLots !== closePosition.lots) {
         blockers.push("Devnet lifecycle exit currently requires the complete position quantity.");
       }
+      if (state.tif !== "FOK") {
+        blockers.push("A lifecycle exit uses FOK so a partial close cannot leave an unmatched hedge.");
+      }
       if (state.side !== closePosition.side) {
         blockers.push("Ticket side does not match the selected position side. Reselect the position.");
       }

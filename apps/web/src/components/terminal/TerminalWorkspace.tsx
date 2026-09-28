@@ -53,6 +53,11 @@ function executionError(error: unknown): string {
   if (error.message === "INVALID_CLOSE_LOTS") return "Enter a close quantity above zero.";
   if (error.message === "CLOSE_LOTS_EXCEEDS_POSITION") return "Quantity exceeds the selected package lots. Reduce quantity to close within the active package.";
   if (error.message === "EXIT_REQUIRES_ZERO_COLLATERAL") return "Exits require no new collateral. Review the ticket and try again.";
+  if (error.message === "FULL_POSITION_EXIT_REQUIRED") return "Select the complete open quantity for this lifecycle exit.";
+  if (error.message === "EXIT_REQUIRES_FOK") return "Lifecycle exits require fill-or-kill execution.";
+  if (error.message === "EXIT_REQUIRES_DEVNET_MAKER") return "The close must use the qualified devnet maker that owns the original counterparty position.";
+  if (error.message === "EXIT_QUANTITY_MISMATCH") return "The close fill does not exactly offset the original position. Both positions remain visible for recovery.";
+  if (error.message === "EXIT_PARTICIPANT_MISMATCH") return "The close fill changed the counterparty set and cannot use the direct unwind path.";
   if (error.message === "RFQ_NOT_FOUND") return "The RFQ request is no longer available. Confirm the ticket again for a fresh quote.";
   if (error.message === "RFQ_NOT_OPEN") return "The RFQ request is no longer open. Confirm the ticket again for a fresh quote.";
   if (error.message === "RFQ_NOT_SELECTED") return "The RFQ request is no longer selected. Confirm the ticket again for a fresh quote.";
@@ -546,6 +551,10 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
           }
         }
         const next = { ...current, ...safePatch };
+        if (safePatch.intent === "EXIT") {
+          next.tif = "FOK";
+          next.expiresAt = null;
+        }
         if (next.tif !== "GTD") {
           next.expiresAt = null;
         } else if (
