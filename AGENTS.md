@@ -8,7 +8,7 @@
 - Accumulate bounded implementation slices within the active phase. Review and run the phase verification gate only after the phase deliverables are complete.
 - Keep phase-gate reviews targeted to the surfaces changed during that phase. Do not repeat broad checks after individual slices or perform broad audits unless explicitly requested.
 - Even when tests and review are deferred, do not call a contract phase implementation-complete until the production Solidity sources compile with the pinned deployment profile.
-- Never spend funds or write to mainnet during development. Use testnet, devnet, fixtures, or read-only mainnet research.
+- Never deploy, transact, configure live execution, spend funds, or perform any write against mainnet unless the user explicitly authorizes mainnet work. Use testnet, devnet, fixtures, or read-only mainnet research by default.
 - Preview market movement must come from one coherent feed so marks, quotes, books, routes, and charts do not contradict each other.
 - Build the complete user trading platform before public developer products. Internal schemas, generated bindings, indexing, and application data services may be built when the platform consumes them, but public APIs, external SDKs, webhooks, widgets, and partner tooling belong after the core user product.
 - Treat code under `inspiration/` as reference material, never as a runtime dependency or source of truth.
