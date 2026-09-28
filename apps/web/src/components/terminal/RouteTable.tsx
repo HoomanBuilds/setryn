@@ -26,12 +26,14 @@ export function RouteTable({
   privateRfq,
   selectedId,
   onSelect,
+  amendmentMode = false,
 }: {
   market: PackageMarket;
   action: ExecutableAction;
   privateRfq: boolean;
   selectedId: string | null;
   onSelect: (routeId: string) => void;
+  amendmentMode?: boolean;
 }) {
   const usable = market.routes.filter((route) => !route.requiresPrivate || privateRfq);
   const best = usable.length
@@ -65,7 +67,7 @@ export function RouteTable({
         className="divide-y divide-line border-y border-line"
       >
         {market.routes.map((route) => {
-          const blocked = route.requiresPrivate && !privateRfq;
+          const blocked = amendmentMode ? route.requiresPrivate : route.requiresPrivate && !privateRfq;
           const selected = route.id === selectedId;
           const price = routePrice(route, action);
           const guarantee = GUARANTEE_COPY[route.guarantee];
@@ -108,7 +110,9 @@ export function RouteTable({
 
               <span className="mt-1 block pl-[21px] text-xs leading-snug text-faint">
                 {blocked
-                  ? "Turn on private RFQ to request this route."
+                  ? amendmentMode && route.requiresPrivate
+                    ? "Solver RFQ routes cannot rest as replacements."
+                    : "Turn on private RFQ to request this route."
                   : `${formatNumber(feeBps(route), 1)} bp fees / ${guarantee.label} / ${formatLots(route.availableLots)} lots / ${route.etaLabel}`}
               </span>
             </button>

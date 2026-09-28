@@ -99,6 +99,7 @@ export interface PackageOrderIntent {
   feeCap: number;
   collateralRequired: number;
   closePositionId: string | null;
+  replacesOrderId: string | null;
   recipient: string;
   disclosure: "PUBLIC" | "PRIVATE_RFQ";
   settlementGuarantee: string;
@@ -106,7 +107,7 @@ export interface PackageOrderIntent {
 
 export type OrderType = "MARKET" | "LIMIT";
 
-export type RestingOrderState = "WORKING" | "CANCELLED" | "FILLED";
+export type RestingOrderState = "WORKING" | "CANCELLED" | "FILLED" | "REPLACED";
 
 export interface RestingPackageOrder {
   id: string;
@@ -124,6 +125,9 @@ export interface RestingPackageOrder {
   collateralReservation: number;
   feeCap: number;
   closePositionId: string | null;
+  replacesOrderId: string | null;
+  replacedByOrderId?: string | null;
+  replacedAt?: string;
   createdAt: string;
   cancelledAt?: string;
   state: RestingOrderState;
@@ -245,6 +249,10 @@ export interface InternalTradingGateway {
     onUpdate: (update: SubmissionUpdate) => void,
   ): Promise<PackageExecutionResult>;
   placeRestingOrder(authorization: SignedOrderAuthorization): Promise<RestingPackageOrder>;
+  replaceRestingOrder(
+    oldOrderId: string,
+    authorization: SignedOrderAuthorization,
+  ): Promise<RestingPackageOrder>;
   cancelRestingOrder(orderId: string): Promise<RestingPackageOrder>;
   reconcileRestingOrders(markets: readonly PackageMarket[]): RestingPackageOrder[];
   requestRfq(authorization: SignedOrderAuthorization): Promise<RfqRequest>;

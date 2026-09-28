@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useGatewaySnapshot, useInternalGateway } from "@/components/gateway/InternalGatewayProvider";
 import { usePreviewBoard, usePreviewMarket } from "@/components/terminal/PreviewMarketProvider";
@@ -73,6 +73,31 @@ function executionError(error: unknown): string {
   if (error.message === "PACKAGE_SIDE_MISMATCH") {
     return "The ticket side does not match the selected position side. Reselect the position.";
   }
+  if (error.message === "INVALID_LOTS") return "Enter a package quantity above zero.";
+  if (error.message === "REPLACEMENT_ORDER_NOT_FOUND") {
+    return "The order to replace is no longer available.";
+  }
+  if (error.message === "REPLACEMENT_ORDER_NOT_WORKING") {
+    return "The order to replace is no longer working. Amendment discarded.";
+  }
+  if (error.message === "REPLACEMENT_MISMATCH") {
+    return "Amendment must keep account, market, package, intent, side, and close position.";
+  }
+  if (error.message === "REPLACEMENT_REQUIRES_LIMIT_GTC") {
+    return "Amendment requires a limit GTC order.";
+  }
+  if (error.message === "REPLACEMENT_ID_MISMATCH") {
+    return "Replacement reference does not match the selected order.";
+  }
+  if (error.message === "REPLACE_FLOW_REQUIRED") {
+    return "Replacement orders require the amend flow.";
+  }
+  if (error.message === "RESTING_ORDER_NOT_FOUND") {
+    return "The working order is no longer available.";
+  }
+  if (error.message === "RESTING_ORDER_NOT_WORKING") {
+    return "The working order is no longer working.";
+  }
   return "The demo runtime did not reach a final package outcome. No completion is claimed.";
 }
 
@@ -129,6 +154,9 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   const [pricedMarketId, setPricedMarketId] = useState(market.id);
   const [appliedHandoffKey, setAppliedHandoffKey] = useState(handoff.key);
   const [appliedRfqKey, setAppliedRfqKey] = useState<string | null>(null);
+  const [amendmentOrderId, setAmendmentOrderId] = useState<string | null>(null);
+  const [amendmentError, setAmendmentError] = useState<string | null>(null);
+  const replacementInFlightRef = useRef<string | null>(null);
 
   /* Shared coherent preview feed: one tick drives every market, so the
      terminal never owns a page-local interval or stream. */
@@ -146,6 +174,8 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     setStage({ kind: "IDLE" });
     setExecution({ status: "IDLE", updates: [] });
     setRfqError(null);
+    setAmendmentOrderId(null);
+    setAmendmentError(null);
     setLoadedExecutionMarketId(null);
     setConsoleScoped(true);
   } else if (appliedHandoffKey !== handoff.key) {
@@ -155,6 +185,8 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     setStage({ kind: "IDLE" });
     setExecution({ status: "IDLE", updates: [] });
     setRfqError(null);
+    setAmendmentOrderId(null);
+    setAmendmentError(null);
     setLoadedExecutionMarketId(null);
   }
 
@@ -173,6 +205,20 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   useEffect(() => {
     gateway.reconcileRestingOrders(markets);
   }, [gateway, markets]);
+
+  useEffect(() => {
+    if (!amendmentOrderId) return;
+    if (replacementInFlightRef.current === amendmentOrderId) return;
+    const target = gatewaySnapshot.restingOrders.find(
+      (candidate) => candidate.id === amendmentOrderId,
+    );
+    if (target && target.state === "WORKING") return;
+    setAmendmentOrderId(null);
+    setStage({ kind: "IDLE" });
+    setExecution({ status: "IDLE", updates: [] });
+    setRfqError(null);
+    setAmendmentError("The amended order is no longer working. Amendment discarded.");
+  }, [amendmentOrderId, gatewaySnapshot.restingOrders]);
 
   useEffect(() => {
     if (stage.kind !== "RESTING") return;
@@ -376,6 +422,10 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     [liveMarket, ticket, route, selectedClosePosition],
   );
 
+  const amendmentOrder = amendmentOrderId
+    ? (gatewaySnapshot.restingOrders.find((candidate) => candidate.id === amendmentOrderId) ?? null)
+    : null;
+
   const maxLots = useMemo(() => {
     const byCapacity = route ? route.availableLots : liveMarket.firmDepthLots;
     if (ticket.intent === "EXIT") {
@@ -386,11 +436,15 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     const feePerLot =
       (liveMarket.notionalPerLot * ((route?.protocolFeeBps ?? 2.5) + (route?.counterpartyFeeBps ?? 0))) /
       10_000;
+    const creditedAvailable =
+      amendmentOrder && amendmentOrder.side === "ENTER"
+        ? gatewaySnapshot.account.available + amendmentOrder.collateralReservation
+        : gatewaySnapshot.account.available;
     const byCollateral = Math.floor(
-      gatewaySnapshot.account.available / (liveMarket.collateralPerLot * multiple + feePerLot),
+      creditedAvailable / (liveMarket.collateralPerLot * multiple + feePerLot),
     );
     return Math.max(1, Math.min(byCollateral, byCapacity));
-  }, [gatewaySnapshot.account.available, liveMarket, route, selectedClosePosition, ticket.intent]);
+  }, [amendmentOrder, gatewaySnapshot.account.available, liveMarket, route, selectedClosePosition, ticket.intent]);
 
   const selectMarket = useCallback((next: PackageMarket) => router.push(tradeHref(next)), [router]);
 
@@ -399,10 +453,26 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       setStage({ kind: "IDLE" });
       setExecution({ status: "IDLE", updates: [] });
       setRfqError(null);
+      setAmendmentError(null);
+      const amending = amendmentOrderId != null;
       const positionsNow = gatewaySnapshot.positions;
       setTicket((current) => {
-        const next = { ...current, ...patch };
-        if (patch.privateRfq === false && current.routeId === "SOLVER_RFQ") {
+        let safePatch: Partial<TicketState> = patch;
+        if (amending) {
+          safePatch = {
+            ...(patch.lotsInput !== undefined ? { lotsInput: patch.lotsInput } : null),
+            ...(patch.limitInput !== undefined ? { limitInput: patch.limitInput } : null),
+          };
+          if (patch.routeId !== undefined) {
+            const candidate =
+              liveMarket.routes.find((route) => route.id === patch.routeId) ?? null;
+            if (!candidate?.requiresPrivate) {
+              safePatch = { ...safePatch, routeId: patch.routeId };
+            }
+          }
+        }
+        const next = { ...current, ...safePatch };
+        if (!amending && safePatch.privateRfq === false && current.routeId === "SOLVER_RFQ") {
           next.routeId = null;
         }
         if (next.intent === "ENTER") {
@@ -414,16 +484,16 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
             next.side = matched.side;
           }
         }
-        if (patch.side !== undefined && !isPackageSide(patch.side)) {
+        if (safePatch.side !== undefined && !isPackageSide(safePatch.side)) {
           next.side = current.side;
         }
         /* Changing entry direction, intent, close position, or route reprices
            onto what that route can execute, without touching other inputs. */
         const reprice =
-          patch.routeId !== undefined ||
-          patch.intent !== undefined ||
-          patch.side !== undefined ||
-          patch.closePositionId !== undefined ||
+          safePatch.routeId !== undefined ||
+          safePatch.intent !== undefined ||
+          safePatch.side !== undefined ||
+          safePatch.closePositionId !== undefined ||
           next.routeId !== current.routeId ||
           next.intent !== current.intent ||
           next.side !== current.side ||
@@ -439,15 +509,17 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         return next;
       });
     },
-    [gatewaySnapshot.positions, liveMarket],
+    [amendmentOrderId, gatewaySnapshot.positions, liveMarket],
   );
 
   const selectBookRow = useCallback(
     (row: BookRow) => {
       setStage({ kind: "IDLE" });
       setRfqError(null);
+      setAmendmentError(null);
+      const amending = amendmentOrderId != null;
       setTicket((current) => {
-        if (current.intent === "ENTER") {
+        if (current.intent === "ENTER" && !amending) {
           return {
             ...current,
             side: row.side === "ASK" ? ("LONG" as PackageSide) : ("SHORT" as PackageSide),
@@ -460,7 +532,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         };
       });
     },
-    [liveMarket.priceDecimals],
+    [amendmentOrderId, liveMarket.priceDecimals],
   );
 
   const openTicket = useCallback(
@@ -484,8 +556,19 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     if (stage.kind !== "COMPILED" || !route) return;
     const reference = stage.reference;
     const shouldRest = preview.rests;
+    const replacingId = amendmentOrderId;
+    if (replacingId && route.requiresPrivate) {
+      const message = "Solver RFQ routes cannot rest as replacements. Select a public book route.";
+      setExecution((current) => ({ ...current, status: "FAILED", error: message }));
+      setStage({ kind: "FAILED", reference, message });
+      return;
+    }
+    if (replacingId) {
+      replacementInFlightRef.current = replacingId;
+    }
     try {
       setRfqError(null);
+      setAmendmentError(null);
       if (gateway.getSnapshot().wallet.status !== "CONNECTED") {
         setStage({ kind: "EXECUTING", reference });
         setExecution({ status: "CONNECTING", updates: [] });
@@ -517,10 +600,23 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         feeCap: preview.totalFees,
         collateralRequired: isExit ? 0 : preview.totalCollateral,
         closePositionId: isExit ? ticket.closePositionId : null,
+        replacesOrderId: replacingId,
         recipient: signer ?? "",
         disclosure: ticket.privateRfq ? "PRIVATE_RFQ" : "PUBLIC",
         settlementGuarantee: preview.settlementGuarantee,
       });
+
+      if (replacingId) {
+        const replacement = await gateway.replaceRestingOrder(replacingId, authorization);
+        setAmendmentOrderId(null);
+        setAmendmentError(null);
+        setExecution({ status: "RESTING", updates: [], authorization, restingOrder: replacement });
+        setStage({ kind: "RESTING", reference, orderId: replacement.id });
+        setConsoleTab("orders");
+        setConsoleScoped(true);
+        replacementInFlightRef.current = null;
+        return;
+      }
 
       if (route.requiresPrivate && ticket.privateRfq) {
         const request = await gateway.requestRfq(authorization);
@@ -553,10 +649,23 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       setConsoleScoped(true);
     } catch (error) {
       const message = executionError(error);
+      if (
+        replacingId &&
+        error instanceof Error &&
+        (error.message === "REPLACEMENT_ORDER_NOT_FOUND" ||
+          error.message === "REPLACEMENT_ORDER_NOT_WORKING")
+      ) {
+        setAmendmentOrderId(null);
+        setAmendmentError("The amended order is no longer working. Amendment discarded.");
+      }
       setExecution((current) => ({ ...current, status: "FAILED", error: message }));
       setStage({ kind: "FAILED", reference, message });
+    } finally {
+      if (replacingId) {
+        replacementInFlightRef.current = null;
+      }
     }
-  }, [gateway, liveMarket, preview, route, selectedClosePosition, stage, ticket]);
+  }, [amendmentOrderId, gateway, liveMarket, preview, route, selectedClosePosition, stage, ticket]);
 
   useEffect(() => {
     if (ticket.intent !== "EXIT") return;
@@ -586,7 +695,45 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     setStage({ kind: "IDLE" });
     setExecution({ status: "IDLE", updates: [] });
     setRfqError(null);
+    setAmendmentError(null);
   }, []);
+
+  const onDiscardAmendment = useCallback(() => {
+    setAmendmentOrderId(null);
+    setAmendmentError(null);
+    setStage({ kind: "IDLE" });
+    setExecution({ status: "IDLE", updates: [] });
+    setRfqError(null);
+  }, []);
+
+  const onAmendConsoleRestingOrder = useCallback(
+    (orderId: string) => {
+      const target = gatewaySnapshot.restingOrders.find((candidate) => candidate.id === orderId);
+      if (!target || target.state !== "WORKING" || target.marketId !== liveMarket.id) return;
+      if (target.timeInForce !== "GTC") return;
+      const targetRoute = liveMarket.routes.find((candidate) => candidate.id === target.routeId) ?? null;
+      const initialRouteId = targetRoute && !targetRoute.requiresPrivate ? targetRoute.id : null;
+      setTicket({
+        intent: target.side,
+        side: isPackageSide(target.packageSide) ? target.packageSide : "LONG",
+        orderType: "LIMIT",
+        lotsInput: String(target.lots),
+        limitInput: target.limitPrice.toFixed(liveMarket.priceDecimals),
+        tif: "GTC",
+        privateRfq: target.disclosure === "PRIVATE_RFQ",
+        routeId: initialRouteId,
+        closePositionId: target.side === "EXIT" ? target.closePositionId : null,
+      });
+      setAmendmentOrderId(target.id);
+      setAmendmentError(null);
+      setStage({ kind: "IDLE" });
+      setExecution({ status: "IDLE", updates: [] });
+      setRfqError(null);
+      setConsoleTab("orders");
+      setMobileTab("order");
+    },
+    [gatewaySnapshot.restingOrders, liveMarket],
+  );
 
   const cancelRestingOrderById = useCallback(
     (orderId: string) => gateway.cancelRestingOrder(orderId),
@@ -695,6 +842,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         ...baseIntent,
         executionPrice: currentQuote.packagePrice,
         feeCap: currentQuote.feeCap,
+        replacesOrderId: null,
       });
       setExecution({ status: "SUBMITTING", updates: [], authorization });
       const result = await gateway.submitAuthorizedOrder(authorization, (update) => {
@@ -796,6 +944,14 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
               {rfqError}
             </p>
           ) : null}
+          {stage.kind === "IDLE" && !rfqError && amendmentError ? (
+            <p
+              role="alert"
+              className="shrink-0 border-b border-line bg-down-soft px-4 py-2 text-xs leading-snug text-down"
+            >
+              {amendmentError}
+            </p>
+          ) : null}
           <OrderTicket
             market={liveMarket}
             state={ticket}
@@ -808,6 +964,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
             maxLots={maxLots}
             handoff={effectiveHandoff}
             closePositions={eligibleClosePositions}
+            amendment={amendmentOrderId ? { orderId: amendmentOrderId } : null}
             onChange={patchTicket}
             onStage={onStage}
             onConfirm={onConfirm}
@@ -816,6 +973,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
             onCancelRfq={onCancelRfq}
             onCancelResting={onCancelResting}
             onReset={onReset}
+            onDiscardAmendment={onDiscardAmendment}
           />
         </div>
 
@@ -837,6 +995,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
             runtimeRestingOrders={gatewaySnapshot.restingOrders}
             runtimeExecutions={gatewaySnapshot.executions}
             onCancelRestingOrder={onCancelConsoleRestingOrder}
+            onAmendRestingOrder={onAmendConsoleRestingOrder}
           />
         </div>
       </main>

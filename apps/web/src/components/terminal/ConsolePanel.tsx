@@ -127,6 +127,7 @@ export function ConsolePanel({
   runtimeRestingOrders = [],
   runtimeExecutions = [],
   onCancelRestingOrder,
+  onAmendRestingOrder,
 }: {
   market: PackageMarket;
   markets: readonly PackageMarket[];
@@ -139,6 +140,7 @@ export function ConsolePanel({
   runtimeRestingOrders?: RestingPackageOrder[];
   runtimeExecutions?: GatewayExecution[];
   onCancelRestingOrder?: (orderId: string) => void;
+  onAmendRestingOrder?: (orderId: string) => void;
 }) {
   const runtimeStrategies: StrategyRecord[] = runtimePositions.map((position) => ({
     id: position.id,
@@ -314,13 +316,21 @@ export function ConsolePanel({
                 const rowMarket = resolveRuntimeConsoleMarket(markets, order.marketId);
                 const unit = priceUnitSuffix(rowMarket.priceUnit);
                 const cancellable = order.state === "WORKING" && onCancelRestingOrder;
+                const amendable =
+                  order.state === "WORKING" &&
+                  order.marketId === market.id &&
+                  onAmendRestingOrder;
                 const filledLots = order.state === "FILLED" ? order.lots : 0;
                 const detail =
                   order.state === "FILLED"
                     ? `LOCAL_DEMO filled order. Receipt ${order.receiptId ?? "unavailable"}.`
                     : order.state === "CANCELLED"
                       ? "LOCAL_DEMO cancelled order. No fill, receipt, or position."
-                      : "LOCAL_DEMO resting order. No fill, receipt, or position.";
+                      : order.state === "REPLACED"
+                        ? `Replaced by ${order.replacedByOrderId ?? "unknown"}. New queue priority.`
+                        : order.replacesOrderId
+                          ? `Replaces ${order.replacesOrderId}. New queue priority.`
+                          : "LOCAL_DEMO resting order. No fill, receipt, or position.";
                 return (
                   <Tr key={order.id} highlight={!scoped && order.marketId === market.id}>
                     <td className={`${TD} tnum font-mono whitespace-nowrap text-faint`}>{order.id}</td>
@@ -344,16 +354,28 @@ export function ConsolePanel({
                     <td className={`${TD} text-faint`}>
                       <span className="flex items-start justify-between gap-2">
                         <span>{detail}</span>
-                        {cancellable ? (
-                          <button
-                            type="button"
-                            aria-label={`Cancel ${order.id}`}
-                            onClick={() => onCancelRestingOrder?.(order.id)}
-                            className="focus-ring shrink-0 rounded-sm border border-line px-1.5 py-0.5 text-[11px] text-dim transition-colors hover:text-ink"
-                          >
-                            Cancel
-                          </button>
-                        ) : null}
+                        <span className="flex shrink-0 items-center gap-1.5">
+                          {amendable ? (
+                            <button
+                              type="button"
+                              aria-label={`Amend ${order.id}`}
+                              onClick={() => onAmendRestingOrder?.(order.id)}
+                              className="focus-ring shrink-0 rounded-sm border border-line px-1.5 py-0.5 text-[11px] text-dim transition-colors hover:text-ink"
+                            >
+                              Amend
+                            </button>
+                          ) : null}
+                          {cancellable ? (
+                            <button
+                              type="button"
+                              aria-label={`Cancel ${order.id}`}
+                              onClick={() => onCancelRestingOrder?.(order.id)}
+                              className="focus-ring shrink-0 rounded-sm border border-line px-1.5 py-0.5 text-[11px] text-dim transition-colors hover:text-ink"
+                            >
+                              Cancel
+                            </button>
+                          ) : null}
+                        </span>
                       </span>
                     </td>
                   </Tr>

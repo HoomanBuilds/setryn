@@ -116,6 +116,7 @@ export function OrderTicket({
   closePositions,
   rfqRequest,
   rfqError,
+  amendment,
   onChange,
   onStage,
   onConfirm,
@@ -124,6 +125,7 @@ export function OrderTicket({
   onSelectRfqQuote,
   onExecuteRfqQuote,
   onCancelRfq,
+  onDiscardAmendment,
 }: {
   market: PackageMarket;
   state: TicketState;
@@ -136,6 +138,7 @@ export function OrderTicket({
   closePositions: ExecutionPosition[];
   rfqRequest?: RfqRequest | null;
   rfqError?: string | null;
+  amendment?: { orderId: string } | null;
   onChange: (patch: Partial<TicketState>) => void;
   onStage: () => void;
   onConfirm: () => void;
@@ -144,13 +147,26 @@ export function OrderTicket({
   onSelectRfqQuote?: (quoteId: string) => void;
   onExecuteRfqQuote?: () => void;
   onCancelRfq?: () => void;
+  onDiscardAmendment?: () => void;
 }) {
   const unit = priceUnitSuffix(market.priceUnit);
   const action = preview.action;
   const bestPrice = bestReferencePrice(market, action);
   const bestLabel = action === "BUY" ? "best offer" : "best bid";
   const externalBlock = handoff.blockedReason;
-  const blockers = externalBlock ? [...preview.blockers, externalBlock] : preview.blockers;
+  const isAmending = amendment != null;
+  const amendmentCrosses = isAmending && preview.marketable;
+  const amendmentPrivateRoute = isAmending && (route?.requiresPrivate ?? false);
+  const blockers = [
+    ...preview.blockers,
+    ...(externalBlock ? [externalBlock] : []),
+    ...(amendmentCrosses
+      ? ["Amendment price crosses. Discard amendment and submit a normal immediate order."]
+      : []),
+    ...(amendmentPrivateRoute
+      ? ["Solver RFQ routes cannot rest as replacements. Select a public book route."]
+      : []),
+  ];
   const invalid = blockers.length > 0;
   const blocked = invalid || preview.routeMissing;
   const locked = execution.status === "CONNECTING" || execution.status === "AUTHORIZING" || execution.status === "SUBMITTING" || stage.kind === "RESTING" || execution.status === "RESTING" || stage.kind === "RFQ" || stage.kind === "RFQ_SELECTED";
@@ -221,12 +237,27 @@ export function OrderTicket({
             </div>
           </div>
         ) : null}
+        {amendment ? (
+          <div className="flex items-center justify-between gap-2 rounded-md border border-line bg-raised px-3 py-2">
+            <span className="tnum min-w-0 truncate font-mono text-[11px] text-dim">
+              {`Amend ${amendment.orderId}. Cancel and replace. Queue resets.`}
+            </span>
+            <button
+              type="button"
+              onClick={() => onDiscardAmendment?.()}
+              className="focus-ring shrink-0 rounded-sm border border-line px-1.5 py-0.5 text-[11px] text-dim transition-colors hover:text-ink"
+            >
+              Discard
+            </button>
+          </div>
+        ) : null}
         <Segmented
           options={INTENTS}
           value={state.intent}
           onChange={(intent) => onChange({ intent })}
           label="Package intent"
           tone="direction"
+          disabled={isAmending}
         />
 
         {!isExit ? (
@@ -237,6 +268,7 @@ export function OrderTicket({
             label="Package side"
             size="sm"
             tone="direction"
+            disabled={isAmending}
           />
         ) : null}
 
@@ -253,10 +285,11 @@ export function OrderTicket({
             <select
               id="ticket-close"
               value={state.closePositionId ?? ""}
+              disabled={isAmending}
               onChange={(event) =>
                 onChange({ closePositionId: event.target.value || null })
               }
-              className="focus-ring tnum h-9 w-full rounded-md border border-line bg-inset px-2 font-mono text-xs text-ink"
+              className="focus-ring tnum h-9 w-full rounded-md border border-line bg-inset px-2 font-mono text-xs text-ink disabled:cursor-not-allowed disabled:opacity-65"
             >
               <option value="">Select a package position</option>
               {closePositions.map((position) => (
@@ -285,6 +318,7 @@ export function OrderTicket({
           onChange={(orderType) => onChange({ orderType })}
           label="Order type"
           size="sm"
+          disabled={isAmending}
         />
 
         <div>
@@ -379,6 +413,7 @@ export function OrderTicket({
             onChange={(tif) => onChange({ tif })}
             label="Time in force"
             size="sm"
+            disabled={isAmending}
           />
         </div>
 
@@ -387,6 +422,7 @@ export function OrderTicket({
           onChange={(privateRfq) => onChange({ privateRfq })}
           label="Private RFQ"
           title={RFQ_TITLE}
+          disabled={isAmending}
           icon={<Lock size={13} aria-hidden="true" className="shrink-0 text-faint" />}
         />
 
@@ -396,6 +432,7 @@ export function OrderTicket({
           privateRfq={state.privateRfq}
           selectedId={state.routeId}
           onSelect={(routeId) => onChange({ routeId })}
+          amendmentMode={isAmending}
         />
 
         <TicketEconomics market={market} preview={preview} route={route} intent={state.intent} />
@@ -428,6 +465,7 @@ export function OrderTicket({
           routeMissing={preview.routeMissing}
           rfqRequest={rfqRequest ?? null}
           rfqError={rfqError ?? null}
+          amendment={amendment ?? null}
           onStage={onStage}
           onConfirm={onConfirm}
           onCancelResting={onCancelResting}
@@ -462,6 +500,7 @@ function StageArea({
   routeMissing,
   rfqRequest,
   rfqError,
+  amendment,
   onStage,
   onConfirm,
   onCancelResting,
@@ -481,6 +520,7 @@ function StageArea({
   routeMissing: boolean;
   rfqRequest?: RfqRequest | null;
   rfqError?: string | null;
+  amendment?: { orderId: string } | null;
   onStage: () => void;
   onConfirm: () => void;
   onCancelResting: () => void;
@@ -525,7 +565,7 @@ function StageArea({
   }
 
   if (stage.kind === "COMPILED") {
-    const requiresRfq = (route?.requiresPrivate ?? false) && state.privateRfq;
+    const requiresRfq = amendment ? false : (route?.requiresPrivate ?? false) && state.privateRfq;
     const sideLabel = preview.packageSide === "LONG" ? "Long" : "Short";
     const actionLabel = preview.action === "BUY" ? "Buy" : "Sell";
     return (
@@ -551,6 +591,8 @@ function StageArea({
             value={`${formatNumber(preview.limitPrice, market.priceDecimals)} ${unit}`}
           />
           <PayloadRow label="Route" value={route?.label ?? "none"} />
+          {amendment ? <PayloadRow label="Replaced order" value={amendment.orderId} /> : null}
+          {amendment ? <PayloadRow label="Queue priority" value="Resets on replacement" /> : null}
           <PayloadRow
             label={state.intent === "EXIT" ? "New collateral" : "Collateral"}
             value={state.intent === "EXIT" ? "No new collateral" : formatUsd(preview.totalCollateral, 2)}
@@ -585,7 +627,13 @@ function StageArea({
             onClick={onConfirm}
             className="focus-ring h-11 rounded-md bg-brand text-sm font-semibold text-app transition-colors hover:brightness-105 lg:h-9"
           >
-            {requiresRfq ? "Request firm quotes" : preview.rests ? "Authorize and rest demo" : "Authorize and execute demo"}
+            {amendment
+              ? "Authorize replacement"
+              : requiresRfq
+                ? "Request firm quotes"
+                : preview.rests
+                  ? "Authorize and rest demo"
+                  : "Authorize and execute demo"}
           </button>
         </div>
       </div>

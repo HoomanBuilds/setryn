@@ -233,6 +233,7 @@ export function Segmented<T extends string>({
   label,
   size = "md",
   tone = "neutral",
+  disabled = false,
 }: {
   options: { value: T; label: string; title?: string }[];
   value: T;
@@ -240,12 +241,14 @@ export function Segmented<T extends string>({
   label: string;
   size?: "sm" | "md";
   tone?: "neutral" | "direction";
+  disabled?: boolean;
 }) {
   return (
     <div
       role="radiogroup"
       aria-label={label}
-      className="grid gap-1 rounded-md bg-inset p-1"
+      aria-disabled={disabled || undefined}
+      className={`grid gap-1 rounded-md bg-inset p-1 ${disabled ? "opacity-65" : ""}`}
       style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
     >
       {options.map((option, index) => {
@@ -262,11 +265,13 @@ export function Segmented<T extends string>({
             type="button"
             role="radio"
             aria-checked={selected}
+            aria-disabled={disabled || undefined}
+            disabled={disabled}
             title={option.title}
             onClick={() => onChange(option.value)}
             className={`focus-ring truncate rounded-sm px-2 font-medium transition-colors ${
               size === "sm" ? "h-9 text-xs lg:h-7" : "h-11 text-sm lg:h-8"
-            } ${selected ? directional : "text-faint hover:text-dim"}`}
+            } ${selected ? directional : "text-faint hover:text-dim"} ${disabled ? "cursor-not-allowed" : ""}`}
           >
             {option.label}
           </button>
@@ -283,6 +288,7 @@ export function CheckRow({
   description,
   icon,
   title,
+  disabled = false,
 }: {
   checked: boolean;
   onChange: (next: boolean) => void;
@@ -290,15 +296,18 @@ export function CheckRow({
   description?: string;
   icon?: ReactNode;
   title?: string;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-disabled={disabled || undefined}
+      disabled={disabled}
       title={title}
       onClick={() => onChange(!checked)}
-      className="focus-ring flex w-full items-center gap-2.5 rounded-md px-1 py-2 text-left transition-colors hover:bg-raised"
+      className={`focus-ring flex w-full items-center gap-2.5 rounded-md px-1 py-2 text-left transition-colors hover:bg-raised ${disabled ? "cursor-not-allowed opacity-65 hover:bg-transparent" : ""}`}
     >
       <span
         aria-hidden="true"

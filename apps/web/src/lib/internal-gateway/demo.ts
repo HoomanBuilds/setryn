@@ -114,7 +114,7 @@ function restoreSnapshot(): GatewaySnapshot {
       receipts.push({ ...(candidate as ExecutionReceipt), packageSide: rawSide });
     }
     const rawRestingOrders = (snapshot as { restingOrders?: unknown }).restingOrders;
-    const restingOrders: RestingPackageOrder[] = Array.isArray(rawRestingOrders)
+    const normalizedRestingOrders: RestingPackageOrder[] = Array.isArray(rawRestingOrders)
       ? rawRestingOrders
           .filter((order): order is RestingPackageOrder => {
             if (!order || typeof order !== "object") return false;
@@ -145,7 +145,8 @@ function restoreSnapshot(): GatewaySnapshot {
           if (
             candidate.state !== "WORKING" &&
             candidate.state !== "CANCELLED" &&
-            candidate.state !== "FILLED"
+            candidate.state !== "FILLED" &&
+            candidate.state !== "REPLACED"
           ) {
             return false;
           }
@@ -188,6 +189,42 @@ function restoreSnapshot(): GatewaySnapshot {
           ) {
             return false;
           }
+          const replacesOrderId = (candidate as { replacesOrderId?: unknown }).replacesOrderId;
+          if (
+            replacesOrderId !== undefined &&
+            replacesOrderId !== null &&
+            (typeof replacesOrderId !== "string" || replacesOrderId.length === 0)
+          ) {
+            return false;
+          }
+          const replacedByOrderId = (candidate as { replacedByOrderId?: unknown }).replacedByOrderId;
+          if (
+            replacedByOrderId !== undefined &&
+            replacedByOrderId !== null &&
+            (typeof replacedByOrderId !== "string" || replacedByOrderId.length === 0)
+          ) {
+            return false;
+          }
+          const replacedAt = (candidate as { replacedAt?: unknown }).replacedAt;
+          if (
+            replacedAt !== undefined &&
+            replacedAt !== null &&
+            (typeof replacedAt !== "string" || !Number.isFinite(Date.parse(replacedAt)))
+          ) {
+            return false;
+          }
+          if (candidate.state === "REPLACED") {
+            if (
+              typeof replacedByOrderId !== "string" ||
+              replacedByOrderId.length === 0 ||
+              typeof replacedAt !== "string" ||
+              !Number.isFinite(Date.parse(replacedAt))
+            ) {
+              return false;
+            }
+          } else if (replacedAt != null || replacedByOrderId != null) {
+            return false;
+          }
           if (candidate.state === "FILLED") {
             return (
               typeof candidate.filledAt === "string" &&
@@ -202,10 +239,37 @@ function restoreSnapshot(): GatewaySnapshot {
         })
           .map((order) => {
             const typed = order as RestingPackageOrder & { packageSide?: unknown };
-            if (typed.packageSide === undefined) return { ...typed, packageSide: "LONG" as const };
-            return typed as RestingPackageOrder;
+            const withSide =
+              typed.packageSide === undefined
+                ? { ...typed, packageSide: "LONG" as const }
+                : (typed as RestingPackageOrder);
+            if ((withSide as { replacesOrderId?: unknown }).replacesOrderId === undefined) {
+              return { ...withSide, replacesOrderId: null as string | null };
+            }
+            return withSide as RestingPackageOrder;
           })
       : [];
+    const restingById = new Map(normalizedRestingOrders.map((order) => [order.id, order]));
+    const restingOrders: RestingPackageOrder[] = normalizedRestingOrders.filter((order) => {
+      const replacesId = order.replacesOrderId ?? null;
+      const isReplaced = order.state === "REPLACED";
+      if (!isReplaced && replacesId == null) return true;
+      if (isReplaced) {
+        const nextId = order.replacedByOrderId ?? null;
+        if (typeof nextId !== "string" || nextId.length === 0) return false;
+        const next = restingById.get(nextId);
+        if (!next) return false;
+        if ((next.replacesOrderId ?? null) !== order.id) return false;
+      }
+      if (replacesId != null) {
+        if (typeof replacesId !== "string" || replacesId.length === 0) return false;
+        const prev = restingById.get(replacesId);
+        if (!prev) return false;
+        if (prev.state !== "REPLACED") return false;
+        if ((prev.replacedByOrderId ?? null) !== order.id) return false;
+      }
+      return true;
+    });
     const rawExecutions = Array.isArray(snapshot.executions) ? snapshot.executions : [];
     const executions: GatewayExecution[] = [];
     for (const execution of rawExecutions) {
@@ -292,8 +356,15 @@ function restoreSnapshot(): GatewaySnapshot {
           if (!authorization.intent || typeof authorization.intent !== "object") return false;
           const intentCandidate = authorization.intent as Partial<PackageOrderIntent> & {
             packageSide?: unknown;
+            replacesOrderId?: unknown;
           };
           if (intentCandidate.packageSide !== undefined && !isPackageSide(intentCandidate.packageSide)) {
+            return false;
+          }
+          if (
+            intentCandidate.replacesOrderId !== undefined &&
+            intentCandidate.replacesOrderId !== null
+          ) {
             return false;
           }
           if (!Array.isArray(candidate.quotes) || candidate.quotes.length < 2) return false;
@@ -372,10 +443,14 @@ function restoreSnapshot(): GatewaySnapshot {
         .map((request) => {
           const typed = request as RfqRequest;
           const intent = typed.authorization.intent as PackageOrderIntent & { packageSide?: unknown };
-          const migratedIntent =
+          const withSide =
             intent.packageSide === undefined
               ? { ...intent, packageSide: "LONG" as const }
               : intent;
+          const migratedIntent =
+            (withSide as { replacesOrderId?: unknown }).replacesOrderId === undefined
+              ? { ...withSide, replacesOrderId: null as string | null }
+              : withSide;
           return {
             ...typed,
             authorization: { ...typed.authorization, intent: migratedIntent },
@@ -475,6 +550,80 @@ export class DemoTradingGateway implements InternalTradingGateway {
     if (!isPackageSide(intent.packageSide)) throw new Error("INVALID_PACKAGE_SIDE");
     const signer = this.snapshot.wallet.address;
     if (!signer || this.snapshot.wallet.status !== "CONNECTED") throw new Error("CONNECT_WALLET");
+    const replacesOrderId =
+      (intent as { replacesOrderId?: unknown }).replacesOrderId ?? null;
+    if (replacesOrderId != null) {
+      if (typeof replacesOrderId !== "string" || replacesOrderId.length === 0) {
+        throw new Error("REPLACEMENT_ORDER_NOT_FOUND");
+      }
+      const oldOrder = this.snapshot.restingOrders.find((order) => order.id === replacesOrderId);
+      if (!oldOrder) throw new Error("REPLACEMENT_ORDER_NOT_FOUND");
+      if (oldOrder.state !== "WORKING") throw new Error("REPLACEMENT_ORDER_NOT_WORKING");
+      if (intent.orderType !== "LIMIT" || intent.timeInForce !== "GTC") {
+        throw new Error("REPLACEMENT_REQUIRES_LIMIT_GTC");
+      }
+      if (
+        intent.accountId !== oldOrder.accountId ||
+        intent.marketId !== oldOrder.marketId ||
+        intent.packageCode !== oldOrder.packageCode ||
+        intent.side !== oldOrder.side ||
+        intent.packageSide !== oldOrder.packageSide ||
+        (intent.closePositionId ?? null) !== (oldOrder.closePositionId ?? null)
+      ) {
+        throw new Error("REPLACEMENT_MISMATCH");
+      }
+      if (intent.disclosure !== oldOrder.disclosure) {
+        throw new Error("REPLACEMENT_MISMATCH");
+      }
+      if (oldOrder.side === "EXIT" && oldOrder.collateralReservation !== 0) {
+        throw new Error("REPLACEMENT_MISMATCH");
+      }
+      if (intent.side === "ENTER" && intent.closePositionId != null) {
+        throw new Error("CLOSE_POSITION_FORBIDDEN_FOR_ENTRY");
+      }
+      if (intent.side === "EXIT") {
+        if (!intent.closePositionId) throw new Error("CLOSE_POSITION_REQUIRED");
+        if (intent.collateralRequired !== 0) throw new Error("EXIT_REQUIRES_ZERO_COLLATERAL");
+        const target = this.snapshot.positions.find(
+          (position) => position.id === intent.closePositionId,
+        );
+        if (!target) throw new Error("POSITION_NOT_FOUND");
+        if (target.marketId !== intent.marketId) throw new Error("POSITION_MARKET_MISMATCH");
+        if (intent.packageSide !== target.side) throw new Error("PACKAGE_SIDE_MISMATCH");
+        if (!Number.isFinite(intent.lots) || intent.lots <= 0) throw new Error("INVALID_CLOSE_LOTS");
+        if (intent.lots - target.lots > 1e-9) throw new Error("CLOSE_LOTS_EXCEEDS_POSITION");
+        const releasable =
+          target.lots > 0 ? (target.collateral * intent.lots) / target.lots : 0;
+        const multiplier = intent.contractMultiplier;
+        const direction = target.side === "SHORT" ? -1 : 1;
+        const realizedPnl =
+          (intent.executionPrice - target.entryPrice) * intent.lots * multiplier * direction;
+        const closeResult = releasable + realizedPnl - intent.feeCap;
+        if (this.snapshot.account.available + closeResult < -1e-9) {
+          throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
+        }
+      } else {
+        if (!Number.isFinite(intent.lots) || intent.lots <= 0) throw new Error("INVALID_LOTS");
+        const newRequirement = intent.collateralRequired + intent.feeCap;
+        if (!Number.isFinite(newRequirement) || newRequirement < 0) {
+          throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
+        }
+        if (newRequirement - oldOrder.collateralReservation > this.snapshot.account.available + 1e-9) {
+          throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
+        }
+      }
+      await wait(300);
+      const nonce = crypto.randomUUID();
+      const orderHash = digest(JSON.stringify({ ...intent, nonce, chainId: this.snapshot.environment.chainId }));
+      return {
+        orderHash,
+        signature: `demo:${digest(`${orderHash}:${signer}`)}`,
+        signer,
+        nonce,
+        deadline: new Date(Date.now() + 15 * 60_000).toISOString(),
+        intent,
+      };
+    }
     if (intent.side === "ENTER" && intent.closePositionId != null) {
       throw new Error("CLOSE_POSITION_FORBIDDEN_FOR_ENTRY");
     }
@@ -520,6 +669,9 @@ export class DemoTradingGateway implements InternalTradingGateway {
     onUpdate: (update: SubmissionUpdate) => void,
   ): Promise<PackageExecutionResult> {
     this.assertWritableEnvironment();
+    if ((authorization.intent as { replacesOrderId?: unknown }).replacesOrderId != null) {
+      throw new Error("REPLACE_FLOW_REQUIRED");
+    }
     if (
       !Number.isFinite(authorization.intent.contractMultiplier) ||
       authorization.intent.contractMultiplier <= 0
@@ -746,6 +898,9 @@ export class DemoTradingGateway implements InternalTradingGateway {
     authorization: SignedOrderAuthorization,
   ): Promise<RestingPackageOrder> {
     this.assertWritableEnvironment();
+    if ((authorization.intent as { replacesOrderId?: unknown }).replacesOrderId != null) {
+      throw new Error("REPLACE_FLOW_REQUIRED");
+    }
     if (
       !Number.isFinite(authorization.intent.contractMultiplier) ||
       authorization.intent.contractMultiplier <= 0
@@ -804,6 +959,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
       collateralReservation: reservation,
       feeCap: intent.feeCap,
       closePositionId: intent.closePositionId,
+      replacesOrderId: null,
       createdAt,
       state: "WORKING",
       orderType: intent.orderType,
@@ -833,6 +989,133 @@ export class DemoTradingGateway implements InternalTradingGateway {
       });
     }
     return order;
+  }
+
+  async replaceRestingOrder(
+    oldOrderId: string,
+    authorization: SignedOrderAuthorization,
+  ): Promise<RestingPackageOrder> {
+    this.assertWritableEnvironment();
+    if (
+      !Number.isFinite(authorization.intent.contractMultiplier) ||
+      authorization.intent.contractMultiplier <= 0
+    ) {
+      throw new Error("INVALID_CONTRACT_MULTIPLIER");
+    }
+    if (authorization.signer !== this.snapshot.wallet.address) throw new Error("SIGNER_MISMATCH");
+    if (Date.parse(authorization.deadline) <= Date.now()) throw new Error("AUTHORIZATION_EXPIRED");
+    const intent = authorization.intent;
+    const replacesOrderId = (intent as { replacesOrderId?: unknown }).replacesOrderId;
+    if (typeof replacesOrderId !== "string" || replacesOrderId.length === 0) {
+      throw new Error("REPLACEMENT_ID_MISMATCH");
+    }
+    if (replacesOrderId !== oldOrderId) throw new Error("REPLACEMENT_ID_MISMATCH");
+    if (!isPackageSide(intent.packageSide)) throw new Error("INVALID_PACKAGE_SIDE");
+    if (intent.orderType !== "LIMIT" || intent.timeInForce !== "GTC") {
+      throw new Error("REPLACEMENT_REQUIRES_LIMIT_GTC");
+    }
+    const existingOrders = Array.isArray(this.snapshot.restingOrders)
+      ? this.snapshot.restingOrders
+      : [];
+    const oldOrder = existingOrders.find((order) => order.id === oldOrderId);
+    if (!oldOrder) throw new Error("REPLACEMENT_ORDER_NOT_FOUND");
+    if (oldOrder.state !== "WORKING") throw new Error("REPLACEMENT_ORDER_NOT_WORKING");
+    if (
+      intent.accountId !== oldOrder.accountId ||
+      intent.marketId !== oldOrder.marketId ||
+      intent.packageCode !== oldOrder.packageCode ||
+      intent.side !== oldOrder.side ||
+      intent.packageSide !== oldOrder.packageSide ||
+      (intent.closePositionId ?? null) !== (oldOrder.closePositionId ?? null)
+    ) {
+      throw new Error("REPLACEMENT_MISMATCH");
+    }
+    if (intent.disclosure !== oldOrder.disclosure) {
+      throw new Error("REPLACEMENT_MISMATCH");
+    }
+    if (oldOrder.side === "EXIT" && oldOrder.collateralReservation !== 0) {
+      throw new Error("REPLACEMENT_MISMATCH");
+    }
+    const isExit = intent.side === "EXIT";
+    if (!isExit && intent.closePositionId != null) {
+      throw new Error("CLOSE_POSITION_FORBIDDEN_FOR_ENTRY");
+    }
+    let newReservation = 0;
+    if (isExit) {
+      if (!intent.closePositionId) throw new Error("CLOSE_POSITION_REQUIRED");
+      if (intent.collateralRequired !== 0) throw new Error("EXIT_REQUIRES_ZERO_COLLATERAL");
+      const target = this.snapshot.positions.find(
+        (position) => position.id === intent.closePositionId,
+      );
+      if (!target) throw new Error("POSITION_NOT_FOUND");
+      if (target.marketId !== intent.marketId) throw new Error("POSITION_MARKET_MISMATCH");
+      if (intent.packageSide !== target.side) throw new Error("PACKAGE_SIDE_MISMATCH");
+      if (!Number.isFinite(intent.lots) || intent.lots <= 0) throw new Error("INVALID_CLOSE_LOTS");
+      if (intent.lots - target.lots > 1e-9) throw new Error("CLOSE_LOTS_EXCEEDS_POSITION");
+      newReservation = 0;
+    } else {
+      if (!Number.isFinite(intent.lots) || intent.lots <= 0) throw new Error("INVALID_LOTS");
+      newReservation = intent.collateralRequired + intent.feeCap;
+      if (!Number.isFinite(newReservation) || newReservation < 0) {
+        throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
+      }
+      const delta = newReservation - oldOrder.collateralReservation;
+      if (delta > this.snapshot.account.available + 1e-9) {
+        throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
+      }
+    }
+    const now = new Date().toISOString();
+    const newId = identifier("ORD");
+    const newOrder: RestingPackageOrder = {
+      id: newId,
+      orderHash: authorization.orderHash,
+      accountId: intent.accountId,
+      marketId: intent.marketId,
+      packageCode: intent.packageCode,
+      routeId: intent.routeId,
+      routeLabel: intent.routeLabel,
+      side: intent.side,
+      packageSide: intent.packageSide,
+      lots: intent.lots,
+      limitPrice: intent.limitPrice,
+      timeInForce: intent.timeInForce,
+      collateralReservation: newReservation,
+      feeCap: intent.feeCap,
+      closePositionId: intent.closePositionId,
+      replacesOrderId: oldOrderId,
+      createdAt: now,
+      state: "WORKING",
+      orderType: intent.orderType,
+      contractMultiplier: intent.contractMultiplier,
+      settlementGuarantee: intent.settlementGuarantee,
+      disclosure: intent.disclosure,
+      recipient: intent.recipient,
+      collateralRequired: isExit ? 0 : intent.collateralRequired,
+    };
+    const replaced: RestingPackageOrder = {
+      ...oldOrder,
+      state: "REPLACED",
+      replacedAt: now,
+      replacedByOrderId: newId,
+    };
+    if (isExit) {
+      this.publish({
+        ...this.snapshot,
+        restingOrders: [newOrder, ...existingOrders.map((order) => (order.id === oldOrderId ? replaced : order))],
+      });
+    } else {
+      const delta = newReservation - oldOrder.collateralReservation;
+      this.publish({
+        ...this.snapshot,
+        account: {
+          ...this.snapshot.account,
+          reserved: this.snapshot.account.reserved + delta,
+          available: this.snapshot.account.available - delta,
+        },
+        restingOrders: [newOrder, ...existingOrders.map((order) => (order.id === oldOrderId ? replaced : order))],
+      });
+    }
+    return newOrder;
   }
 
   async cancelRestingOrder(orderId: string): Promise<RestingPackageOrder> {
@@ -1154,6 +1437,9 @@ export class DemoTradingGateway implements InternalTradingGateway {
 
   async requestRfq(authorization: SignedOrderAuthorization): Promise<RfqRequest> {
     this.assertWritableEnvironment();
+    if ((authorization.intent as { replacesOrderId?: unknown }).replacesOrderId != null) {
+      throw new Error("REPLACE_FLOW_REQUIRED");
+    }
     if (
       !Number.isFinite(authorization.intent.contractMultiplier) ||
       authorization.intent.contractMultiplier <= 0
