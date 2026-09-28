@@ -78,6 +78,18 @@ export const publicOrderTypedData = {
 
 export const orderStateAbi = [
   {
+    type: "event",
+    name: "OrderRegistered",
+    inputs: [
+      { name: "orderHash", type: "bytes32", indexed: true },
+      { name: "signer", type: "address", indexed: true },
+      { name: "nonce", type: "uint256", indexed: true },
+      { name: "order", type: "tuple", indexed: false, components: publicOrderComponents },
+      { name: "registeredAt", type: "uint64", indexed: false },
+      { name: "initialStatus", type: "uint8", indexed: false },
+    ],
+  },
+  {
     type: "function",
     name: "hashOrder",
     stateMutability: "view",
@@ -100,6 +112,24 @@ export const orderStateAbi = [
     stateMutability: "nonpayable",
     inputs: [{ name: "orderHash", type: "bytes32" }],
     outputs: [],
+  },
+  {
+    type: "function",
+    name: "getOrder",
+    stateMutability: "view",
+    inputs: [{ name: "orderHash", type: "bytes32" }],
+    outputs: [
+      {
+        name: "record",
+        type: "tuple",
+        components: [
+          { name: "order", type: "tuple", components: publicOrderComponents },
+          { name: "filledLots", type: "uint128" },
+          { name: "status", type: "uint8" },
+          { name: "registeredAt", type: "uint64" },
+        ],
+      },
+    ],
   },
 ] as const;
 
@@ -135,6 +165,42 @@ export const riskBindingAbi = [
       { name: "signature", type: "bytes" },
     ],
     outputs: [],
+  },
+  {
+    type: "function",
+    name: "admissionForOrder",
+    stateMutability: "view",
+    inputs: [{ name: "orderHash", type: "bytes32" }],
+    outputs: [{ name: "admissionId", type: "bytes32" }],
+  },
+] as const;
+
+export const riskEngineAbi = [
+  {
+    type: "function",
+    name: "getAdmission",
+    stateMutability: "view",
+    inputs: [{ name: "admissionId", type: "bytes32" }],
+    outputs: [
+      {
+        name: "admission",
+        type: "tuple",
+        components: [
+          { name: "requestHash", type: "bytes32" },
+          { name: "resultHash", type: "bytes32" },
+          { name: "reservedResultCommitment", type: "bytes32" },
+          { name: "accountId", type: "bytes32" },
+          { name: "riskDomainId", type: "bytes32" },
+          { name: "riskDomainVersion", type: "uint32" },
+          { name: "openInterestBaseUnits", type: "uint128" },
+          { name: "terminalLiabilityBaseUnits", type: "uint128" },
+          { name: "remainingOpenInterestBaseUnits", type: "uint128" },
+          { name: "remainingTerminalLiabilityBaseUnits", type: "uint128" },
+          { name: "deadline", type: "uint64" },
+          { name: "status", type: "uint8" },
+        ],
+      },
+    ],
   },
 ] as const;
 

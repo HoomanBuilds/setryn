@@ -22,6 +22,7 @@ import {
   publicOrderBookAbi,
   publicOrderTypedData,
   riskBindingAbi,
+  riskEngineAbi,
   serializePublicOrder,
   type OnchainPublicOrder,
 } from "./protocol";
@@ -250,6 +251,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       wallet: { status: "CONNECTED", address, chainId: setryn.chainId },
     });
     await this.refreshAccount();
+    await this.refreshOrders();
   }
 
   async submitCollateralIntent(intent: CollateralIntent): Promise<CollateralIntentResult> {
@@ -735,6 +737,135 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     });
   }
 
+  private async refreshOrders(): Promise<void> {
+    if (!this.setryn || !this.publicClient || !this.walletAddress) return;
+    const logs = await this.publicClient.getContractEvents({
+      address: this.setryn.orderState,
+      abi: orderStateAbi,
+      eventName: "OrderRegistered",
+      args: { signer: this.walletAddress },
+      fromBlock: BigInt(0),
+      toBlock: "latest",
+    });
+    const orders: RestingPackageOrder[] = [];
+    for (const log of logs) {
+      const orderHash = log.args.orderHash;
+      if (!orderHash) continue;
+      const record = await this.publicClient.readContract({
+        address: this.setryn.orderState,
+        abi: orderStateAbi,
+        functionName: "getOrder",
+        args: [orderHash],
+      });
+      if (record.order.seriesId.toLowerCase() !== this.setryn.seriesId.toLowerCase()) continue;
+      const admissionId = await this.publicClient.readContract({
+        address: this.setryn.riskAdmissionBindingRegistry,
+        abi: riskBindingAbi,
+        functionName: "admissionForOrder",
+        args: [orderHash],
+      });
+      const admission = admissionId === EMPTY_ID
+        ? null
+        : await this.publicClient.readContract({
+            address: this.setryn.portfolioRiskEngine,
+            abi: riskEngineAbi,
+            functionName: "getAdmission",
+            args: [admissionId],
+          });
+      const now = BigInt(Math.floor(Date.now() / 1000));
+      const state = this.restingState(record.status, record.order.deadline <= now);
+      const packageSide = record.order.side === 1 ? "LONG" : "SHORT";
+      const timeInForce = record.order.timeInForce === 2 ? "GTD" : "GTC";
+      const lots = Number(record.order.lots);
+      const filledLots = Number(record.filledLots);
+      const limitPrice = Number(record.order.priceTicks) / 10;
+      const collateralRequired = admission
+        ? Number(formatUnits(admission.terminalLiabilityBaseUnits, 6))
+        : 0;
+      const feeCap = Number(formatUnits(record.order.maxFeeMinor, 6));
+      const intent: PackageOrderIntent = {
+        accountId: record.order.accountId,
+        marketId: PRIMARY_MARKET_ID,
+        packageCode: PRIMARY_MARKET_ID,
+        routeId: "native-public-book",
+        routeLabel: "Native public book",
+        side: "ENTER",
+        packageSide,
+        lots,
+        fillLots: lots,
+        limitPrice,
+        executionPrice: limitPrice,
+        contractMultiplier: 2.5,
+        orderType: "LIMIT",
+        timeInForce,
+        expiresAt: new Date(Number(record.order.deadline) * 1000).toISOString(),
+        feeCap,
+        collateralRequired,
+        closePositionId: null,
+        replacesOrderId: null,
+        recipient: record.order.recipient,
+        disclosure: "PUBLIC",
+        settlementGuarantee: "Package atomic",
+      };
+      const authorization: SignedOrderAuthorization = {
+        orderHash,
+        signature: "0x",
+        signer: record.order.signer,
+        nonce: record.order.nonce.toString(),
+        deadline: new Date(Number(record.order.deadline) * 1000).toISOString(),
+        intent,
+        onchainOrder: record.order as OnchainPublicOrder,
+        riskAdmissionId: admissionId,
+      };
+      this.authorizations.set(orderHash.toLowerCase(), authorization);
+      orders.push({
+        id: orderHash,
+        orderHash,
+        accountId: record.order.accountId,
+        marketId: PRIMARY_MARKET_ID,
+        packageCode: PRIMARY_MARKET_ID,
+        routeId: intent.routeId,
+        routeLabel: intent.routeLabel,
+        side: "ENTER",
+        packageSide,
+        lots,
+        filledLots,
+        remainingLots: lots - filledLots,
+        limitPrice,
+        timeInForce,
+        expiresAt: intent.expiresAt,
+        collateralReservation: collateralRequired,
+        remainingCollateralReservation: state === "WORKING" || state === "PARTIALLY_FILLED" ? collateralRequired : 0,
+        feeCap,
+        remainingFeeCap: state === "WORKING" || state === "PARTIALLY_FILLED" ? feeCap : 0,
+        fillIds: [],
+        receiptIds: [],
+        closePositionId: null,
+        replacesOrderId: null,
+        createdAt: new Date(Number(record.registeredAt) * 1000).toISOString(),
+        state,
+        orderType: "LIMIT",
+        contractMultiplier: 2.5,
+        settlementGuarantee: intent.settlementGuarantee,
+        disclosure: "PUBLIC",
+        recipient: record.order.recipient,
+        collateralRequired,
+      });
+    }
+    orders.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    this.publish({ ...this.snapshot, restingOrders: orders });
+  }
+
+  private restingState(status: number, expired: boolean): RestingPackageOrder["state"] {
+    if ((status === 1 || status === 2) && expired) return "EXPIRED";
+    if (status === 1) return "WORKING";
+    if (status === 2) return "PARTIALLY_FILLED";
+    if (status === 3) return "FILLED";
+    if (status === 4) return "CANCELLED";
+    if (status === 5) return "EXPIRED";
+    return "CANCELLED";
+  }
+
   private toMinorUnits(value: number): bigint {
     if (!Number.isFinite(value) || value < 0) throw new Error("INVALID_MINOR_UNIT_AMOUNT");
     return parseUnits(value.toFixed(6), 6);
@@ -904,7 +1035,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
           ...this.snapshot,
           wallet: { status: "CONNECTED", address, chainId: this.setryn.chainId },
         });
-        void this.refreshAccount();
+        void Promise.all([this.refreshAccount(), this.refreshOrders()]);
       }
     });
     eventProvider.on?.("chainChanged", (value) => {
@@ -918,7 +1049,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
           chainId,
         },
       });
-      if (connected) void this.refreshAccount();
+      if (connected) void Promise.all([this.refreshAccount(), this.refreshOrders()]);
     });
   }
 
