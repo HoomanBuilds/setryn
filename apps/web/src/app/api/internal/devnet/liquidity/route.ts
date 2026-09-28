@@ -229,12 +229,42 @@ export async function POST(request: Request) {
     const bookId = deriveBookId(setryn);
     const created: Hex[] = [];
     for (const quote of [{ side: 1, priceTicks: BigInt(6110) }, { side: 2, priceTicks: BigInt(6130) }] as const) {
-      const bestLevel = await publicClient.readContract({
+      let bestLevel = await publicClient.readContract({
         address: setryn.publicOrderBook,
         abi: publicOrderBookAbi,
         functionName: "bestLevel",
         args: [bookId, quote.side],
       }).catch(() => ZERO_ID);
+      for (let attempt = 0; bestLevel !== ZERO_ID && attempt < 8; attempt += 1) {
+        const level = await publicClient.readContract({
+          address: setryn.publicOrderBook,
+          abi: publicOrderBookAbi,
+          functionName: "getPriceLevel",
+          args: [bestLevel],
+        });
+        const record = await publicClient.readContract({
+          address: setryn.orderState,
+          abi: orderStateAbi,
+          functionName: "getOrder",
+          args: [level.headOrderHash],
+        });
+        if ((record.status === 1 || record.status === 2) && record.order.deadline > block.timestamp) break;
+        const pruneHash = await walletClient.writeContract({
+          account: maker,
+          chain: null,
+          address: setryn.publicOrderBook,
+          abi: publicOrderBookAbi,
+          functionName: "pruneBest",
+          args: [bookId, quote.side, [level.headOrderHash]],
+        });
+        await publicClient.waitForTransactionReceipt({ hash: pruneHash });
+        bestLevel = await publicClient.readContract({
+          address: setryn.publicOrderBook,
+          abi: publicOrderBookAbi,
+          functionName: "bestLevel",
+          args: [bookId, quote.side],
+        });
+      }
       if (bestLevel !== ZERO_ID) continue;
       const nonce = block.timestamp * BigInt(10) + BigInt(quote.side);
       const order: OnchainPublicOrder = {

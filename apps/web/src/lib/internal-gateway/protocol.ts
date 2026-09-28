@@ -245,6 +245,17 @@ export const publicOrderBookAbi = [
   },
   {
     type: "function",
+    name: "pruneBest",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "bookId", type: "bytes32" },
+      { name: "side", type: "uint8" },
+      { name: "candidates", type: "bytes32[]" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
     name: "bestLevel",
     stateMutability: "view",
     inputs: [
