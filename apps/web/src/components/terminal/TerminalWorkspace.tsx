@@ -930,30 +930,18 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     }
     try {
       setStage({ kind: "EXECUTING", reference });
-      setExecution((current) => ({ ...current, status: "AUTHORIZING" }));
-      const baseIntent = currentRequest.authorization.intent;
-      const authorization = await gateway.authorizeOrder({
-        ...baseIntent,
-        executionPrice: currentQuote.packagePrice,
-        feeCap: currentQuote.feeCap,
-        fillLots: baseIntent.lots,
-        timeInForce: baseIntent.timeInForce,
-        expiresAt: null,
-        replacesOrderId: null,
+      setExecution({
+        status: "SUBMITTING",
+        updates: [],
+        authorization: currentRequest.authorization,
       });
-      setExecution({ status: "SUBMITTING", updates: [], authorization });
-      const result = await gateway.submitAuthorizedOrder(authorization, (update) => {
+      const result = await gateway.executeSelectedRfq(requestId, (update) => {
         setExecution((current) => ({
           ...current,
           status: "SUBMITTING",
           updates: [...current.updates, update],
         }));
       });
-      try {
-        await gateway.completeRfq(requestId, result.receipt.id);
-      } catch (completeError) {
-        setRfqError(executionError(completeError));
-      }
       setExecution((current) => ({ ...current, status: "COMPLETED", result }));
       setStage({ kind: "COMPLETED", reference, receiptId: result.receipt.id });
       setConsoleTab("strategies");

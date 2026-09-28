@@ -285,6 +285,10 @@ export interface InternalTradingGateway {
   reconcileRestingOrders(markets: readonly PackageMarket[]): RestingPackageOrder[];
   requestRfq(authorization: SignedOrderAuthorization): Promise<RfqRequest>;
   selectRfqQuote(requestId: string, quoteId: string): Promise<RfqRequest>;
+  executeSelectedRfq(
+    requestId: string,
+    onUpdate: (update: SubmissionUpdate) => void,
+  ): Promise<PackageExecutionResult>;
   cancelRfq(requestId: string): Promise<RfqRequest>;
   completeRfq(requestId: string, receiptId: string): Promise<RfqRequest>;
   submitLocalMakerQuote(requestId: string, input: LocalMakerQuoteInput): Promise<RfqRequest>;

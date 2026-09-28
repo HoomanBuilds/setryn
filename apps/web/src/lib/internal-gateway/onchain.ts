@@ -1076,6 +1076,121 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     return selected;
   }
 
+  async executeSelectedRfq(
+    requestId: string,
+    onUpdate: (update: SubmissionUpdate) => void,
+  ): Promise<PackageExecutionResult> {
+    const current = this.snapshot.rfqRequests.find((request) => request.id === requestId);
+    if (!current || current.state !== "SELECTED" || !current.selectedQuoteId) throw new Error("RFQ_NOT_SELECTED");
+    const quote = current.quotes.find((candidate) => candidate.id === current.selectedQuoteId);
+    if (!quote) throw new Error("RFQ_QUOTE_NOT_FOUND");
+    onUpdate({
+      step: "AUTHORIZED",
+      label: "RFQ authorized",
+      detail: "The selected firm quote and capacity reservation are locked onchain.",
+    });
+    onUpdate({
+      step: "SUBMITTED",
+      label: "Private handoff submitted",
+      detail: "The selected RFQ is being cleared through the private execution channel.",
+    });
+    const response = await fetch("/api/internal/devnet/rfq-execute", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rfqId: requestId }),
+    });
+    const body = (await response.json()) as {
+      fillId?: string;
+      positionId?: string;
+      transactionHash?: string;
+      executionPriceTicks?: string;
+      fillLots?: string;
+      takerFeeMinor?: string;
+      error?: string;
+    };
+    if (
+      !response.ok ||
+      !body.fillId ||
+      !body.positionId ||
+      !body.transactionHash ||
+      body.executionPriceTicks === undefined ||
+      body.fillLots === undefined ||
+      body.takerFeeMinor === undefined
+    ) {
+      throw new Error(body.error ?? "RFQ_EXECUTION_FAILED");
+    }
+    const authorization = current.authorization;
+    const packageSide = authorization.intent.packageSide;
+    const filledLots = Number(body.fillLots);
+    const executionPrice = Number(body.executionPriceTicks) / 10;
+    const position = {
+      id: body.positionId,
+      marketId: authorization.intent.marketId,
+      side: packageSide,
+      lots: filledLots,
+      entryPrice: executionPrice,
+      collateral: authorization.intent.collateralRequired,
+      state: "ACTIVE" as const,
+      createdAt: new Date().toISOString(),
+    };
+    const receipt: ExecutionReceipt = {
+      id: body.fillId,
+      orderHash: authorization.orderHash,
+      fillId: body.fillId,
+      transactionHash: body.transactionHash,
+      marketId: authorization.intent.marketId,
+      packageCode: authorization.intent.packageCode,
+      packageSide,
+      routeLabel: "Private firm RFQ",
+      lots: filledLots,
+      requestedLots: authorization.intent.lots,
+      filledLots,
+      cancelledLots: authorization.intent.lots - filledLots,
+      price: executionPrice,
+      fees: Number(formatUnits(BigInt(body.takerFeeMinor), 6)),
+      guarantee: "Firm capacity, atomic onchain settlement",
+      evidence: "DEVNET",
+      createdAt: new Date().toISOString(),
+    };
+    const result: PackageExecutionResult = {
+      fillId: body.fillId,
+      outcome: "OPENED",
+      requestedLots: authorization.intent.lots,
+      filledLots,
+      cancelledLots: receipt.cancelledLots,
+      position,
+      closedPositionId: null,
+      closedLots: 0,
+      receipt,
+    };
+    const updates: SubmissionUpdate[] = [
+      { step: "AUTHORIZED", label: "RFQ authorized", detail: "Selected quote and capacity were locked onchain." },
+      { step: "SUBMITTED", label: "Private handoff submitted", detail: "The RFQ entered private channel clearing." },
+      { step: "INCLUDED", label: "Handoff included", detail: "The RFQ handoff cleared atomically.", transactionHash: body.transactionHash },
+      { step: "FILLED", label: "Package filled", detail: `${filledLots} lots filled at ${executionPrice}.`, transactionHash: body.transactionHash },
+      { step: "POSITION_CREATED", label: "Position created", detail: `Position ${body.positionId} is active.`, transactionHash: body.transactionHash },
+      { step: "RECEIPT_READY", label: "Receipt ready", detail: `Fill ${body.fillId} is verifiable onchain.`, transactionHash: body.transactionHash },
+    ];
+    for (const update of updates.slice(2)) onUpdate(update);
+    const executed = { ...current, state: "EXECUTED" as const, receiptId: receipt.id };
+    const execution = {
+      id: body.fillId,
+      orderHash: authorization.orderHash,
+      updates,
+      result,
+      createdAt: receipt.createdAt,
+    };
+    this.publish({
+      ...this.snapshot,
+      positions: [...this.snapshot.positions, position],
+      receipts: [...this.snapshot.receipts, receipt],
+      executions: [...this.snapshot.executions, execution],
+      rfqRequests: this.snapshot.rfqRequests.map((request) => request.id === requestId ? executed : request),
+    });
+    await Promise.all([this.refreshAccount(), this.refreshOrders(), this.refreshActivity()]);
+    return result;
+  }
+
   async cancelRfq(requestId: string): Promise<RfqRequest> {
     const { setryn, address, walletClient, publicClient } = await this.connected();
     const current = this.snapshot.rfqRequests.find((request) => request.id === requestId);
