@@ -1,6 +1,6 @@
 # Setryn Product and Phase Overview
 
-Date: 2026-09-28
+Date: 2026-09-29
 
 Status: Canonical concise product overview
 
@@ -8,7 +8,7 @@ Production target: Arbitrum One
 
 Public release-candidate network: Arbitrum Sepolia
 
-Current build phase: Phase 3, full application and operator platform
+Current build phase: Phase 4, pinned mainnet-fork qualification
 
 Current deployment status: the production-shaped public order graph deploys locally with separated principals and generated evidence. The local chain currently uses an explicit development-only code-size override. Arbitrum Sepolia remains blocked until the oversized Solidity contracts are modularized below the EIP-170 runtime limit. Browser preview state is legacy scaffolding and is not an accepted platform execution path.
 
@@ -376,7 +376,7 @@ The item-level requirements, baseline, defining, and scale classifications, and 
 - **Phase 2 implementation is complete**: exchange contracts, collateral and risk controls, lifecycle and compression, fixing and settlement, private execution and evidence, adapters, governance wiring, deployment metadata, bindings, and event projections are implemented.
 - **Phase 2 verification is deferred**: it must not be described as verification-passed until its dedicated gate runs.
 
-### Active Phase 3 application work
+### Phase 3 application implementation complete
 
 The current first-party platform already contains production-shaped local flows for:
 
@@ -390,7 +390,7 @@ The current first-party platform already contains production-shaped local flows 
 - strategy handoffs, maker RFQ visibility, receipt inspection, and local accounting export;
 - organization control services and initial operator surfaces.
 
-These flows are not yet the final onchain release candidate. Fixture and local-runtime state must be replaced by contract transactions, indexed events, wallets, qualified market data, persistent services, and public Sepolia infrastructure as Phase 3 progresses.
+The primary local-devnet market now uses wallet signatures, contract transactions, contract-event restoration, firm maker capacity, signed private RFQs, and signed lifecycle exits. Reference markets, modeled analytics, and recorded operating scenarios remain visibly labeled and never count as executable evidence. The targeted Phase 3 verification gate remains deferred. Public persistence, public operators, qualified external market data, and Arbitrum Sepolia infrastructure belong to the Phase 5 release candidate.
 
 ## 19. Short phase plan
 
@@ -406,7 +406,7 @@ Build the monorepo, contracts project, web application, internal schemas, bindin
 
 Implement instruments, execution modes, positions, collateral, fees, portfolio risk, lifecycle, netting, compression, fixing, settlement, privacy, evidence, default, and recovery. Run its targeted verification gate before calling it verification-passed.
 
-### Phase 3: full application and operator platform - active
+### Phase 3: full application and operator platform - implementation complete, gate deferred
 
 Complete the user exchange, Protect flow, strategy studio, terminal, RFQs, portfolio, lifecycle, receipts, maker and solver systems, risk and operations consoles, internal data services, keepers, relays, monitoring, alerts, and runbooks. Replace local runtime flows with real contract and indexer integration.
 
