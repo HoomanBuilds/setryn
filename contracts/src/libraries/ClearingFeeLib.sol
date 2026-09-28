@@ -16,7 +16,7 @@ library ClearingFeeLib {
         AccountId payerAccountId,
         uint128 notionalMinor,
         uint128 signedMaximum,
-        ClearingFeeFunding calldata funding,
+        ClearingFeeFunding memory funding,
         uint32 ordinal
     ) internal pure returns (FeeActionRequest memory request) {
         request = FeeActionRequest({
@@ -38,7 +38,7 @@ library ClearingFeeLib {
 
     function validateResult(
         FeeActionResult memory result,
-        ClearingFeeFunding calldata funding,
+        ClearingFeeFunding memory funding,
         FeeScheduleId feeScheduleId,
         uint32 feeScheduleVersion,
         uint128 signedMaximum
