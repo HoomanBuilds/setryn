@@ -123,6 +123,15 @@ function executionError(error: unknown): string {
   if (error.message === "RESTING_ORDER_NOT_WORKING") {
     return "The working order is no longer working.";
   }
+  if (error.message === "NO_ONCHAIN_LIQUIDITY") return "No executable public-book liquidity is available at this price.";
+  if (error.message === "ORDER_NOT_MARKETABLE") return "The limit does not cross the best public-book price.";
+  if (error.message === "FOK_NOT_FILLED") return "The public book cannot fill the complete FOK quantity.";
+  if (error.message === "MAKER_RISK_ADMISSION_MISSING") return "The best maker quote no longer has valid risk capacity.";
+  if (error.message === "MATCH_FAILED") return "The public-book match reverted before a fill was created.";
+  if (error.message === "CLEARING_EVIDENCE_MISSING") return "The clearing transaction completed without the required fill evidence.";
+  if (error.message === "REMAINDER_PLACEMENT_FAILED") {
+    return "The matched quantity cleared, but the remaining quantity could not be placed on the public book.";
+  }
   return "The trading runtime did not reach a final package outcome. No completion is claimed.";
 }
 

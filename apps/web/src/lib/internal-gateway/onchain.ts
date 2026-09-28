@@ -10,6 +10,7 @@ import {
   keccak256,
   maxUint256,
   parseUnits,
+  parseEventLogs,
   stringToHex,
   type Address,
   type EIP1193Provider,
@@ -19,6 +20,7 @@ import { executableAction, limitCrosses } from "@/lib/terminal/economics";
 import type { PackageMarket } from "@/lib/terminal/types";
 import {
   orderStateAbi,
+  atomicClearingAbi,
   publicOrderBookAbi,
   publicOrderTypedData,
   riskBindingAbi,
@@ -373,13 +375,10 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     if (intent.recipient.toLowerCase() !== address.toLowerCase()) throw new Error("RECIPIENT_MISMATCH");
     if (!Number.isInteger(intent.lots) || intent.lots < 1 || intent.lots > 10) throw new Error("INVALID_LOTS");
     if (!Number.isFinite(intent.limitPrice)) throw new Error("INVALID_LIMIT_PRICE");
-    if (intent.orderType !== "LIMIT" || !["GTC", "GTD"].includes(intent.timeInForce)) {
-      throw new Error("ONCHAIN_AGGRESSIVE_ORDER_FLOW_NOT_READY");
-    }
+    if (!["GTC", "GTD", "IOC", "FOK"].includes(intent.timeInForce)) throw new Error("INVALID_TIME_IN_FORCE");
     const action = executableAction(intent.side, intent.packageSide);
-    if (limitCrosses(intent.limitPrice, intent.executionPrice, action)) {
-      throw new Error("ONCHAIN_AGGRESSIVE_ORDER_FLOW_NOT_READY");
-    }
+    const marketable = limitCrosses(intent.limitPrice, intent.executionPrice, action);
+    if (intent.orderType === "MARKET" && !marketable) throw new Error("ORDER_NOT_MARKETABLE");
 
     const accountId = await this.accountId(address);
     if (intent.accountId.toLowerCase() !== accountId.toLowerCase()) throw new Error("ACCOUNT_MISMATCH");
@@ -422,7 +421,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const int128Max = (BigInt(1) << BigInt(127)) - BigInt(1);
     if (priceTicks < int128Min || priceTicks > int128Max) throw new Error("INVALID_LIMIT_PRICE");
     const feeMinor = this.toMinorUnits(intent.feeCap);
-    const timeInForce = intent.timeInForce === "GTC" ? 1 : 2;
+    const timeInForce =
+      intent.timeInForce === "GTC" ? 1 : intent.timeInForce === "GTD" ? 2 : intent.timeInForce === "IOC" ? 3 : 4;
     const order: OnchainPublicOrder = {
       signer: address,
       accountId,
@@ -446,9 +446,9 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       permittedExecutor: setryn.atomicClearingEngine,
       nonce,
       salt,
-      allowPartialFills: true,
+      allowPartialFills: intent.timeInForce !== "FOK",
       minimumFillLots: BigInt(1),
-      remainderPolicy: 1,
+      remainderPolicy: intent.timeInForce === "IOC" || intent.timeInForce === "FOK" ? 2 : 1,
       postOnly: false,
       reduceOnly: false,
     };
@@ -510,10 +510,234 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   }
 
   async submitAuthorizedOrder(
-    _authorization: SignedOrderAuthorization,
-    _onUpdate: (update: SubmissionUpdate) => void,
+    authorization: SignedOrderAuthorization,
+    onUpdate: (update: SubmissionUpdate) => void,
   ): Promise<PackageExecutionResult> {
-    throw new Error("ONCHAIN_ORDER_FLOW_NOT_READY");
+    const { setryn, address, walletClient, publicClient } = await this.connected();
+    const order = authorization.onchainOrder;
+    if (!order || !authorization.riskAdmissionId) throw new Error("INVALID_ONCHAIN_AUTHORIZATION");
+    if (authorization.signer.toLowerCase() !== address.toLowerCase()) throw new Error("SIGNER_MISMATCH");
+
+    onUpdate({ step: "AUTHORIZED", label: "Order authorized", detail: "Signature and risk admission are bound." });
+    const registrationHash = await walletClient.writeContract({
+      account: address,
+      chain: this.chain(setryn),
+      address: setryn.orderState,
+      abi: orderStateAbi,
+      functionName: "registerSignedOrder",
+      args: [order, authorization.signature as Hex],
+    });
+    const registrationReceipt = await publicClient.waitForTransactionReceipt({ hash: registrationHash });
+    if (registrationReceipt.status !== "success") throw new Error("ORDER_REGISTRATION_FAILED");
+    onUpdate({
+      step: "SUBMITTED",
+      label: "Order registered",
+      detail: "The signed order is registered onchain and ready for matching.",
+      transactionHash: registrationHash,
+    });
+
+    const bookId = this.deriveBookId(setryn);
+    const makerSide = order.side === 1 ? 2 : 1;
+    const levelId = await publicClient.readContract({
+      address: setryn.publicOrderBook,
+      abi: publicOrderBookAbi,
+      functionName: "bestLevel",
+      args: [bookId, makerSide],
+    });
+    if (levelId === EMPTY_ID) {
+      await this.cancelUnmatchedOrder(authorization);
+      throw new Error("NO_ONCHAIN_LIQUIDITY");
+    }
+    const level = await publicClient.readContract({
+      address: setryn.publicOrderBook,
+      abi: publicOrderBookAbi,
+      functionName: "getPriceLevel",
+      args: [levelId],
+    });
+    const makerOrderHash = level.headOrderHash;
+    const makerBookOrder = await publicClient.readContract({
+      address: setryn.publicOrderBook,
+      abi: publicOrderBookAbi,
+      functionName: "getBookOrder",
+      args: [makerOrderHash],
+    });
+    const crosses = order.side === 1 ? order.priceTicks >= makerBookOrder.priceTicks : order.priceTicks <= makerBookOrder.priceTicks;
+    if (!crosses) {
+      await this.cancelUnmatchedOrder(authorization);
+      throw new Error("ORDER_NOT_MARKETABLE");
+    }
+    const fillLots = order.lots < makerBookOrder.remainingLots ? order.lots : makerBookOrder.remainingLots;
+    if (order.timeInForce === 4 && fillLots !== order.lots) {
+      await this.cancelUnmatchedOrder(authorization);
+      throw new Error("FOK_NOT_FILLED");
+    }
+
+    const makerAdmissionId = await publicClient.readContract({
+      address: setryn.riskAdmissionBindingRegistry,
+      abi: riskBindingAbi,
+      functionName: "admissionForOrder",
+      args: [makerOrderHash],
+    });
+    if (makerAdmissionId === EMPTY_ID) {
+      await this.cancelUnmatchedOrder(authorization);
+      throw new Error("MAKER_RISK_ADMISSION_MISSING");
+    }
+    const [takerAdmission, makerAdmission] = await Promise.all([
+      publicClient.readContract({
+        address: setryn.portfolioRiskEngine,
+        abi: riskEngineAbi,
+        functionName: "getAdmission",
+        args: [authorization.riskAdmissionId as Hex],
+      }),
+      publicClient.readContract({
+        address: setryn.portfolioRiskEngine,
+        abi: riskEngineAbi,
+        functionName: "getAdmission",
+        args: [makerAdmissionId],
+      }),
+    ]);
+    const takerIsLong = order.side === 1;
+    const zeroOrderFunding = { terminalLiabilityLockId: EMPTY_ID, considerationLockId: EMPTY_ID } as const;
+    const zeroFeeFunding = { consumptionId: EMPTY_ID, chargeLockId: EMPTY_ID, budgetLockId: EMPTY_ID } as const;
+    const proposal = {
+      matchData: {
+        takerOrderHash: authorization.orderHash as Hex,
+        makerOrderHash,
+        fillLots,
+        executionPriceTicks: makerBookOrder.priceTicks,
+        longAdmissionId: takerIsLong ? (authorization.riskAdmissionId as Hex) : makerAdmissionId,
+        longAdmissionResultHash: takerIsLong ? takerAdmission.resultHash : makerAdmission.resultHash,
+        shortAdmissionId: takerIsLong ? makerAdmissionId : (authorization.riskAdmissionId as Hex),
+        shortAdmissionResultHash: takerIsLong ? makerAdmission.resultHash : takerAdmission.resultHash,
+        takerFunding: zeroOrderFunding,
+        makerFunding: zeroOrderFunding,
+        takerFeeFunding: zeroFeeFunding,
+        makerFeeFunding: zeroFeeFunding,
+      },
+      payoffTerms: setryn.payoffTerms,
+      channelKind: 1,
+    } as const;
+    const matchHash = await walletClient.writeContract({
+      account: address,
+      chain: this.chain(setryn),
+      address: setryn.publicOrderBook,
+      abi: publicOrderBookAbi,
+      functionName: "matchSeries",
+      args: [bookId, [proposal]],
+    });
+    const matchReceipt = await publicClient.waitForTransactionReceipt({ hash: matchHash });
+    if (matchReceipt.status !== "success") throw new Error("MATCH_FAILED");
+    onUpdate({
+      step: "INCLUDED",
+      label: "Match included",
+      detail: "The public book cleared the best resting order atomically.",
+      transactionHash: matchHash,
+    });
+
+    const matchEvents = parseEventLogs({
+      abi: publicOrderBookAbi,
+      eventName: "DirectMatchExecuted",
+      logs: matchReceipt.logs,
+      strict: true,
+    });
+    const positionEvents = parseEventLogs({
+      abi: atomicClearingAbi,
+      eventName: "FillPositionCreated",
+      logs: matchReceipt.logs,
+      strict: true,
+    });
+    const ledgerEvents = parseEventLogs({
+      abi: atomicClearingAbi,
+      eventName: "FillLedgerEntry",
+      logs: matchReceipt.logs,
+      strict: true,
+    });
+    const fillId = matchEvents[0]?.args.fillId;
+    const positionId = positionEvents[0]?.args.positionId;
+    if (!fillId || !positionId) throw new Error("CLEARING_EVIDENCE_MISSING");
+    const filledLots = Number(fillLots);
+    const requestedLots = Number(order.lots);
+    const remainingLots = requestedLots - filledLots;
+    if (remainingLots > 0 && (order.timeInForce === 1 || order.timeInForce === 2)) {
+      const hint = await this.levelHint(bookId, order.side, order.priceTicks);
+      const placementHash = await walletClient.writeContract({
+        account: address,
+        chain: this.chain(setryn),
+        address: setryn.publicOrderBook,
+        abi: publicOrderBookAbi,
+        functionName: "placeSeriesOrder",
+        args: [authorization.orderHash as Hex, hint],
+      });
+      const placementReceipt = await publicClient.waitForTransactionReceipt({ hash: placementHash });
+      if (placementReceipt.status !== "success") throw new Error("REMAINDER_PLACEMENT_FAILED");
+    } else if (remainingLots > 0 && order.timeInForce === 3) {
+      await this.releaseRiskReservation(authorization);
+    }
+    const executionPrice = Number(makerBookOrder.priceTicks) / 10;
+    const packageSide = authorization.intent.packageSide;
+    const position = {
+      id: positionId,
+      marketId: authorization.intent.marketId,
+      side: packageSide,
+      lots: filledLots,
+      entryPrice: executionPrice,
+      collateral:
+        filledLots *
+        Number(packageSide === "LONG" ? setryn.maxLongDebitMinorPerLot : setryn.maxShortDebitMinorPerLot) /
+        1_000_000,
+      state: "ACTIVE" as const,
+      createdAt: new Date().toISOString(),
+    };
+    const takerFeeMinor = ledgerEvents.find(
+      (event) => event.args.fillId === fillId && event.args.kind === 3,
+    )?.args.amount ?? BigInt(0);
+    const receipt: ExecutionReceipt = {
+      id: fillId,
+      orderHash: authorization.orderHash,
+      fillId,
+      transactionHash: matchHash,
+      marketId: authorization.intent.marketId,
+      packageCode: authorization.intent.packageCode,
+      packageSide,
+      routeLabel: "Direct package book",
+      lots: filledLots,
+      requestedLots,
+      filledLots,
+      cancelledLots: order.timeInForce === 3 || order.timeInForce === 4 ? requestedLots - filledLots : 0,
+      price: executionPrice,
+      fees: Number(formatUnits(takerFeeMinor, 6)),
+      guarantee: "Atomic onchain settlement",
+      evidence: "DEVNET",
+      createdAt: new Date().toISOString(),
+    };
+    const result: PackageExecutionResult = {
+      fillId,
+      outcome: "OPENED",
+      requestedLots,
+      filledLots,
+      cancelledLots: receipt.cancelledLots,
+      position,
+      closedPositionId: null,
+      closedLots: 0,
+      receipt,
+    };
+    const updates: SubmissionUpdate[] = [
+      { step: "AUTHORIZED", label: "Order authorized", detail: "Signature and risk admission are bound." },
+      { step: "SUBMITTED", label: "Order registered", detail: "Signed order registered onchain.", transactionHash: registrationHash },
+      { step: "INCLUDED", label: "Match included", detail: "Best public liquidity cleared atomically.", transactionHash: matchHash },
+      { step: "FILLED", label: "Package filled", detail: `${filledLots} lots filled at ${executionPrice}.`, transactionHash: matchHash },
+      { step: "POSITION_CREATED", label: "Position created", detail: `Position ${positionId} is active.`, transactionHash: matchHash },
+      { step: "RECEIPT_READY", label: "Receipt ready", detail: `Fill ${fillId} is verifiable onchain.`, transactionHash: matchHash },
+    ];
+    const execution = { id: fillId, orderHash: authorization.orderHash, updates, result, createdAt: receipt.createdAt };
+    this.publish({
+      ...this.snapshot,
+      positions: [...this.snapshot.positions, position],
+      receipts: [...this.snapshot.receipts, receipt],
+      executions: [...this.snapshot.executions, execution],
+    });
+    await Promise.all([this.refreshAccount(), this.refreshOrders()]);
+    return result;
   }
 
   async placeRestingOrder(authorization: SignedOrderAuthorization): Promise<RestingPackageOrder> {
@@ -814,7 +1038,13 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       const now = BigInt(Math.floor(Date.now() / 1000));
       const state = this.restingState(record.status, record.order.deadline <= now);
       const packageSide = record.order.side === 1 ? "LONG" : "SHORT";
-      const timeInForce = record.order.timeInForce === 2 ? "GTD" : "GTC";
+      const timeInForce = record.order.timeInForce === 2
+        ? "GTD"
+        : record.order.timeInForce === 3
+          ? "IOC"
+          : record.order.timeInForce === 4
+            ? "FOK"
+            : "GTC";
       const lots = Number(record.order.lots);
       const filledLots = Number(record.filledLots);
       const limitPrice = Number(record.order.priceTicks) / 10;
@@ -1039,6 +1269,21 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     });
     const releaseReceipt = await publicClient.waitForTransactionReceipt({ hash: releaseHash });
     if (releaseReceipt.status !== "success") throw new Error("RISK_RELEASE_FAILED");
+  }
+
+  private async cancelUnmatchedOrder(authorization: SignedOrderAuthorization): Promise<void> {
+    const { setryn, address, walletClient, publicClient } = await this.connected();
+    const cancelHash = await walletClient.writeContract({
+      account: address,
+      chain: this.chain(setryn),
+      address: setryn.orderState,
+      abi: orderStateAbi,
+      functionName: "cancelOrder",
+      args: [authorization.orderHash as Hex],
+    });
+    const cancelReceipt = await publicClient.waitForTransactionReceipt({ hash: cancelHash });
+    if (cancelReceipt.status !== "success") throw new Error("ORDER_CANCELLATION_FAILED");
+    await this.releaseRiskReservation(authorization);
   }
 
   private async fundNativeGas(address: Address): Promise<void> {

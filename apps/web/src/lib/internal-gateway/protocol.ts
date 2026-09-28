@@ -206,6 +206,20 @@ export const riskEngineAbi = [
 
 export const publicOrderBookAbi = [
   {
+    type: "event",
+    name: "DirectMatchExecuted",
+    inputs: [
+      { name: "bookId", type: "bytes32", indexed: true },
+      { name: "fillId", type: "bytes32", indexed: true },
+      { name: "makerOrderHash", type: "bytes32", indexed: true },
+      { name: "takerOrderHash", type: "bytes32", indexed: false },
+      { name: "fillLots", type: "uint128", indexed: false },
+      { name: "executionPriceTicks", type: "int128", indexed: false },
+      { name: "makerSequence", type: "uint64", indexed: false },
+      { name: "liquidityKind", type: "uint8", indexed: false },
+    ],
+  },
+  {
     type: "function",
     name: "placeSeriesOrder",
     stateMutability: "nonpayable",
@@ -262,6 +276,126 @@ export const publicOrderBookAbi = [
           { name: "active", type: "bool" },
         ],
       },
+    ],
+  },
+  {
+    type: "function",
+    name: "getBookOrder",
+    stateMutability: "view",
+    inputs: [{ name: "orderHash", type: "bytes32" }],
+    outputs: [
+      {
+        name: "order",
+        type: "tuple",
+        components: [
+          { name: "bookId", type: "bytes32" },
+          { name: "orderHash", type: "bytes32" },
+          { name: "levelId", type: "bytes32" },
+          { name: "previousOrderHash", type: "bytes32" },
+          { name: "nextOrderHash", type: "bytes32" },
+          { name: "sequence", type: "uint64" },
+          { name: "remainingLots", type: "uint128" },
+          { name: "priceTicks", type: "int128" },
+          { name: "side", type: "uint8" },
+          { name: "status", type: "uint8" },
+        ],
+      },
+    ],
+  },
+  {
+    type: "function",
+    name: "matchSeries",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "bookId", type: "bytes32" },
+      {
+        name: "proposals",
+        type: "tuple[]",
+        components: [
+          {
+            name: "matchData",
+            type: "tuple",
+            components: [
+              { name: "takerOrderHash", type: "bytes32" },
+              { name: "makerOrderHash", type: "bytes32" },
+              { name: "fillLots", type: "uint128" },
+              { name: "executionPriceTicks", type: "int128" },
+              { name: "longAdmissionId", type: "bytes32" },
+              { name: "longAdmissionResultHash", type: "bytes32" },
+              { name: "shortAdmissionId", type: "bytes32" },
+              { name: "shortAdmissionResultHash", type: "bytes32" },
+              {
+                name: "takerFunding",
+                type: "tuple",
+                components: [
+                  { name: "terminalLiabilityLockId", type: "bytes32" },
+                  { name: "considerationLockId", type: "bytes32" },
+                ],
+              },
+              {
+                name: "makerFunding",
+                type: "tuple",
+                components: [
+                  { name: "terminalLiabilityLockId", type: "bytes32" },
+                  { name: "considerationLockId", type: "bytes32" },
+                ],
+              },
+              {
+                name: "takerFeeFunding",
+                type: "tuple",
+                components: [
+                  { name: "consumptionId", type: "bytes32" },
+                  { name: "chargeLockId", type: "bytes32" },
+                  { name: "budgetLockId", type: "bytes32" },
+                ],
+              },
+              {
+                name: "makerFeeFunding",
+                type: "tuple",
+                components: [
+                  { name: "consumptionId", type: "bytes32" },
+                  { name: "chargeLockId", type: "bytes32" },
+                  { name: "budgetLockId", type: "bytes32" },
+                ],
+              },
+            ],
+          },
+          { name: "payoffTerms", type: "bytes" },
+          { name: "channelKind", type: "uint8" },
+        ],
+      },
+    ],
+    outputs: [{ name: "fillIds", type: "bytes32[]" }],
+  },
+] as const;
+
+export const atomicClearingAbi = [
+  {
+    type: "event",
+    name: "FillLedgerEntry",
+    inputs: [
+      { name: "fillId", type: "bytes32", indexed: true },
+      { name: "kind", type: "uint8", indexed: true },
+      { name: "payerAccountId", type: "bytes32", indexed: true },
+      { name: "receiverAccountId", type: "bytes32", indexed: false },
+      { name: "amount", type: "uint128", indexed: false },
+      { name: "fundingReference", type: "bytes32", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "FillPositionCreated",
+    inputs: [
+      { name: "fillId", type: "bytes32", indexed: true },
+      { name: "positionId", type: "bytes32", indexed: true },
+      { name: "seriesId", type: "bytes32", indexed: true },
+      { name: "seriesVersion", type: "uint32", indexed: false },
+      { name: "ordinal", type: "uint16", indexed: false },
+      { name: "packageRatio", type: "int32", indexed: false },
+      { name: "lots", type: "uint128", indexed: false },
+      { name: "entryPriceTicks", type: "int128", indexed: false },
+      { name: "longReservationId", type: "bytes32", indexed: false },
+      { name: "shortReservationId", type: "bytes32", indexed: false },
     ],
   },
 ] as const;
