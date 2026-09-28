@@ -4,17 +4,17 @@ import type { PackageMarket } from "@/lib/terminal/types";
 export type WalletStatus = "DISCONNECTED" | "CONNECTING" | "CONNECTED" | "WRONG_NETWORK";
 
 export interface RuntimeEnvironment {
-  id: "LOCAL_DEMO" | "ARBITRUM_SEPOLIA";
+  id: "LOCAL_DEMO" | "LOCAL_DEVNET" | "ARBITRUM_SEPOLIA";
   label: string;
   chainId: number;
-  evidence: "DEMO" | "TESTNET";
+  evidence: "DEMO" | "DEVNET" | "TESTNET";
 }
 
 export interface GatewayAccount {
   id: string;
   label: string;
   riskDomain: string;
-  collateralAsset: "USDC";
+  collateralAsset: "USDC" | "sUSD";
   posted: number;
   eligible: number;
   reserved: number;
@@ -73,7 +73,7 @@ export interface GatewaySnapshot {
 export interface CollateralIntent {
   kind: "DEPOSIT" | "WITHDRAW";
   accountId: string;
-  asset: "USDC";
+  asset: "USDC" | "sUSD";
   amount: number;
   recipient: string;
 }

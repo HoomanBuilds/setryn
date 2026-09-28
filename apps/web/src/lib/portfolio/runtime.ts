@@ -218,7 +218,7 @@ export function portfolioRuntime(snapshot: GatewaySnapshot, markets: readonly Pa
         haircut: 0,
         reserved: snapshot.account.reserved,
         withdrawal: "IMMEDIATE",
-        withdrawalNote: "Local runtime intent. Wallet confirmation is simulated.",
+        withdrawalNote: "Available collateral withdraws from the onchain vault after wallet confirmation.",
         source: `${snapshot.environment.label} account ${snapshot.account.id}`,
       },
       eligible: snapshot.account.eligible,

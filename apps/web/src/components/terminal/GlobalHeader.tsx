@@ -90,7 +90,7 @@ function Mark() {
 function EnvironmentChip({ label, className = "" }: { label: string; className?: string }) {
   return (
     <span
-      title="Development simulation. Mainnet writes are disabled."
+      title="Local onchain devnet. Mainnet writes are disabled."
       className={`flex shrink-0 items-center gap-1.5 rounded-sm bg-raised px-2 py-1 text-xs whitespace-nowrap text-dim ${className}`}
     >
       <StatusDot ok />
@@ -153,7 +153,9 @@ export function GlobalHeader() {
         recipient: snapshot.wallet.address ?? "",
       });
       setCollateralAmount("");
-      setAccountMessage(`${result.kind === "DEPOSIT" ? "Deposited" : "Withdrew"} ${result.amount.toLocaleString()} USDC in the demo runtime.`);
+      setAccountMessage(
+        `${result.kind === "DEPOSIT" ? "Deposited" : "Withdrew"} ${result.amount.toLocaleString()} ${snapshot.account.collateralAsset} onchain.`,
+      );
     } catch (error) {
       setAccountMessage(
         error instanceof Error && error.message === "CONNECT_WALLET"

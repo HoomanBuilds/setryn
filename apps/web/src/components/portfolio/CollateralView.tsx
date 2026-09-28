@@ -14,7 +14,7 @@ export function CollateralView() {
   const portfolio = portfolioRuntime(snapshot, markets);
   const { account } = portfolio;
   const metrics: SummaryMetric[] = [
-    { label: "Posted", value: formatUsd(account.postedValue, 0), note: "runtime USDC" },
+    { label: "Posted", value: formatUsd(account.postedValue, 0), note: `onchain ${snapshot.account.collateralAsset}` },
     { label: "Eligible", value: formatUsd(account.eligible, 0), note: "no haircut in local runtime" },
     { label: "Reserved", value: formatUsd(account.reserved, 0), note: `${formatShare(account.marginUsage)} of eligible` },
     { label: "Available", value: formatUsd(account.available, 0), note: "free for package intents" },
@@ -24,7 +24,7 @@ export function CollateralView() {
       <SummaryStrip metrics={metrics} />
       <CollateralPanel className="shrink-0" lines={portfolio.collateralLines} eligible={account.eligible} reserved={account.reserved} available={account.available} />
       <PlaneNote>
-        {`This is ${snapshot.environment.label} simulation state. Deposit and withdrawal intents are available from the account control, but no real wallet, token transfer, or mainnet write occurs.`}
+        {`Balances are read from the ${snapshot.environment.label} collateral vault. Deposits and withdrawals require wallet transactions. Mainnet writes remain disabled.`}
       </PlaneNote>
     </div>
   );

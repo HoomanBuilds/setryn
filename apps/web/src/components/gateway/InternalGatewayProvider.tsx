@@ -1,14 +1,14 @@
 "use client";
 
 import { createContext, useContext, useRef, useSyncExternalStore, type ReactNode } from "react";
-import { DemoTradingGateway } from "@/lib/internal-gateway/demo";
+import { OnchainTradingGateway } from "@/lib/internal-gateway/onchain";
 import type { GatewaySnapshot, InternalTradingGateway } from "@/lib/internal-gateway/types";
 
 const GatewayContext = createContext<InternalTradingGateway | null>(null);
 
 export function InternalGatewayProvider({ children }: { children: ReactNode }) {
   const gateway = useRef<InternalTradingGateway | null>(null);
-  if (!gateway.current) gateway.current = new DemoTradingGateway();
+  if (!gateway.current) gateway.current = new OnchainTradingGateway();
   return <GatewayContext value={gateway.current}>{children}</GatewayContext>;
 }
 
