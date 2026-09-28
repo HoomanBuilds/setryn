@@ -274,7 +274,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       wallet: { status: "CONNECTED", address, chainId: setryn.chainId },
     });
     await this.refreshAccount();
-    await this.refreshOrders();
+    await Promise.all([this.refreshOrders(), this.refreshActivity()]);
   }
 
   async submitCollateralIntent(intent: CollateralIntent): Promise<CollateralIntentResult> {
@@ -736,7 +736,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       receipts: [...this.snapshot.receipts, receipt],
       executions: [...this.snapshot.executions, execution],
     });
-    await Promise.all([this.refreshAccount(), this.refreshOrders()]);
+    await Promise.all([this.refreshAccount(), this.refreshOrders(), this.refreshActivity()]);
     return result;
   }
 
@@ -1123,6 +1123,151 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     }
     orders.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
     this.publish({ ...this.snapshot, restingOrders: orders });
+  }
+
+  private async refreshActivity(): Promise<void> {
+    if (!this.setryn || !this.publicClient || !this.walletAddress) return;
+    const accountId = await this.accountId(this.walletAddress);
+    const [matches, positionEvents, ledgerEvents] = await Promise.all([
+      this.publicClient.getContractEvents({
+        address: this.setryn.publicOrderBook,
+        abi: publicOrderBookAbi,
+        eventName: "DirectMatchExecuted",
+        fromBlock: BigInt(0),
+        toBlock: "latest",
+      }),
+      this.publicClient.getContractEvents({
+        address: this.setryn.atomicClearingEngine,
+        abi: atomicClearingAbi,
+        eventName: "FillPositionCreated",
+        fromBlock: BigInt(0),
+        toBlock: "latest",
+      }),
+      this.publicClient.getContractEvents({
+        address: this.setryn.atomicClearingEngine,
+        abi: atomicClearingAbi,
+        eventName: "FillLedgerEntry",
+        fromBlock: BigInt(0),
+        toBlock: "latest",
+      }),
+    ]);
+    const positions = [] as GatewaySnapshot["positions"];
+    const receipts = [] as GatewaySnapshot["receipts"];
+    const executions = [] as GatewaySnapshot["executions"];
+    const blockTimes = new Map<bigint, string>();
+    for (const match of matches) {
+      const fillId = match.args.fillId;
+      const makerOrderHash = match.args.makerOrderHash;
+      const takerOrderHash = match.args.takerOrderHash;
+      if (!fillId || !makerOrderHash || !takerOrderHash) continue;
+      const [makerRecord, takerRecord] = await Promise.all([
+        this.publicClient.readContract({
+          address: this.setryn.orderState,
+          abi: orderStateAbi,
+          functionName: "getOrder",
+          args: [makerOrderHash],
+        }),
+        this.publicClient.readContract({
+          address: this.setryn.orderState,
+          abi: orderStateAbi,
+          functionName: "getOrder",
+          args: [takerOrderHash],
+        }),
+      ]);
+      const isTaker = takerRecord.order.accountId.toLowerCase() === accountId.toLowerCase();
+      const isMaker = makerRecord.order.accountId.toLowerCase() === accountId.toLowerCase();
+      if (!isTaker && !isMaker) continue;
+      const ownRecord = isTaker ? takerRecord : makerRecord;
+      const ownOrderHash = isTaker ? takerOrderHash : makerOrderHash;
+      const positionEvent = positionEvents.find((event) => event.args.fillId === fillId);
+      const positionId = positionEvent?.args.positionId;
+      if (!positionId) continue;
+      const filledLots = Number(match.args.fillLots ?? BigInt(0));
+      const requestedLots = isTaker ? Number(ownRecord.order.lots) : filledLots;
+      const packageSide: "LONG" | "SHORT" = ownRecord.order.side === 1 ? "LONG" : "SHORT";
+      const price = Number(match.args.executionPriceTicks ?? BigInt(0)) / 10;
+      const ownFeeKind = isTaker ? 3 : 2;
+      const feeMinor = ledgerEvents.find(
+        (event) =>
+          event.args.fillId === fillId &&
+          event.args.kind === ownFeeKind &&
+          event.args.payerAccountId?.toLowerCase() === accountId.toLowerCase(),
+      )?.args.amount ?? BigInt(0);
+      let createdAt = new Date().toISOString();
+      if (match.blockNumber != null) {
+        const cached = blockTimes.get(match.blockNumber);
+        if (cached) {
+          createdAt = cached;
+        } else {
+          const block = await this.publicClient.getBlock({ blockNumber: match.blockNumber });
+          createdAt = new Date(Number(block.timestamp) * 1000).toISOString();
+          blockTimes.set(match.blockNumber, createdAt);
+        }
+      }
+      const position = {
+        id: positionId,
+        marketId: PRIMARY_MARKET_ID,
+        side: packageSide,
+        lots: filledLots,
+        entryPrice: price,
+        collateral:
+          filledLots *
+          Number(packageSide === "LONG" ? this.setryn.maxLongDebitMinorPerLot : this.setryn.maxShortDebitMinorPerLot) /
+          1_000_000,
+        state: "ACTIVE" as const,
+        createdAt,
+      };
+      const cancelledLots = isTaker && (ownRecord.order.timeInForce === 3 || ownRecord.order.timeInForce === 4)
+        ? requestedLots - Number(ownRecord.filledLots)
+        : 0;
+      const receipt: ExecutionReceipt = {
+        id: fillId,
+        orderHash: ownOrderHash,
+        fillId,
+        transactionHash: match.transactionHash,
+        marketId: PRIMARY_MARKET_ID,
+        packageCode: PRIMARY_MARKET_ID,
+        packageSide,
+        routeLabel: "Direct package book",
+        lots: filledLots,
+        requestedLots,
+        filledLots,
+        cancelledLots,
+        price,
+        fees: Number(formatUnits(feeMinor, 6)),
+        guarantee: "Atomic onchain settlement",
+        evidence: "DEVNET",
+        createdAt,
+      };
+      const updates: SubmissionUpdate[] = [
+        { step: "AUTHORIZED", label: "Order authorized", detail: "Signature and risk admission were bound." },
+        { step: "SUBMITTED", label: "Order registered", detail: "Signed order registered onchain." },
+        { step: "INCLUDED", label: "Match included", detail: "Public liquidity cleared atomically.", transactionHash: match.transactionHash },
+        { step: "FILLED", label: "Package filled", detail: `${filledLots} lots filled at ${price}.`, transactionHash: match.transactionHash },
+        { step: "POSITION_CREATED", label: "Position created", detail: `Position ${positionId} is active.`, transactionHash: match.transactionHash },
+        { step: "RECEIPT_READY", label: "Receipt ready", detail: `Fill ${fillId} is verifiable onchain.`, transactionHash: match.transactionHash },
+      ];
+      positions.push(position);
+      receipts.push(receipt);
+      executions.push({
+        id: fillId,
+        orderHash: ownOrderHash,
+        updates,
+        result: {
+          fillId,
+          outcome: "OPENED",
+          requestedLots,
+          filledLots,
+          cancelledLots,
+          position,
+          closedPositionId: null,
+          closedLots: 0,
+          receipt,
+        },
+        createdAt,
+      });
+    }
+    this.publish({ ...this.snapshot, positions, receipts, executions });
   }
 
   private restingState(status: number, expired: boolean): RestingPackageOrder["state"] {
