@@ -168,4 +168,5 @@ interface IPrivateRfqBook {
     function getRfq(RfqId rfqId) external view returns (RfqRecord memory);
     function getQuote(MakerQuoteId quoteId) external view returns (MakerQuoteRecord memory);
     function getCapacity(MakerQuoteId quoteId) external view returns (FirmCapacityRecord memory);
+    function selectedHandoffCommitment(RfqId rfqId) external view returns (bytes32 commitment);
 }

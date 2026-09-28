@@ -18,6 +18,7 @@ import {
     SeriesClearingRequest
 } from "../types/ClearingTypes.sol";
 import {AccountId, CollateralLockId, FeeActionId, FillId, PositionId} from "../types/Identifiers.sol";
+import {Lots, PriceTicks} from "../types/Units.sol";
 import {IPortfolioRiskEngine} from "./IPortfolioRiskEngine.sol";
 
 interface IAtomicClearingEngine {
@@ -115,6 +116,13 @@ interface IAtomicClearingEngine {
     function clearPackageWithHandoff(PackageClearingRequest calldata request, ClearingHandoffClaim calldata claim)
         external
         returns (FillId fillId);
+    function previewSeriesFillId(
+        bytes32 takerOrderHash,
+        bytes32 makerOrderHash,
+        Lots fillLots,
+        PriceTicks executionPriceTicks,
+        bytes calldata payoffTerms
+    ) external view returns (FillId fillId);
     function activateClearingChannel(
         ClearingChannelKind channelKind,
         IClearingChannelHandoffAdapter adapter,

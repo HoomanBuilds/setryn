@@ -198,6 +198,28 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         return _clearSeries(request, verifiedClaim, source);
     }
 
+    function previewSeriesFillId(
+        bytes32 takerOrderHash,
+        bytes32 makerOrderHash,
+        Lots fillLots,
+        PriceTicks executionPriceTicks,
+        bytes calldata payoffTerms
+    ) external view returns (FillId fillId) {
+        OrderRecord memory taker = _orderState.getOrder(takerOrderHash);
+        OrderRecord memory maker = _orderState.getOrder(makerOrderHash);
+        return ClearingLib.deriveFillId(
+            block.chainid,
+            address(this),
+            takerOrderHash,
+            makerOrderHash,
+            Lots.wrap(Lots.unwrap(taker.filledLots) + Lots.unwrap(fillLots)),
+            Lots.wrap(Lots.unwrap(maker.filledLots) + Lots.unwrap(fillLots)),
+            fillLots,
+            executionPriceTicks,
+            keccak256(payoffTerms)
+        );
+    }
+
     function _clearSeries(
         SeriesClearingRequest calldata request,
         ClearingHandoffClaim memory channelClaim,
@@ -937,8 +959,7 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
     ) private returns (FeeActionResult memory result) {
         ClearingFeeFunding memory funding = suppliedFunding;
         if (
-            channelKind == ClearingChannelKind.Direct && funding.consumptionId == bytes32(0)
-                && CollateralLockId.unwrap(funding.chargeLockId) == bytes32(0)
+            funding.consumptionId == bytes32(0) && CollateralLockId.unwrap(funding.chargeLockId) == bytes32(0)
                 && CollateralLockId.unwrap(funding.budgetLockId) == bytes32(0)
         ) {
             funding = _reserveDirectFeeFunding(context, payerAccountId, actionId, notionalMinor, ordinal);
@@ -1055,10 +1076,7 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
             _requireNoFundingLock(orderHash, TERMINAL_LIABILITY_PURPOSE, directLockId);
             return;
         }
-        if (
-            channelKind == ClearingChannelKind.Direct && CollateralLockId.unwrap(directLockId) == bytes32(0)
-                && amount != 0
-        ) {
+        if (CollateralLockId.unwrap(directLockId) == bytes32(0) && amount != 0) {
             directLockId = _createDirectFundingLock(
                 orderHash,
                 Lots.unwrap(cumulativeLots),
@@ -1095,10 +1113,7 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
         Lots payerCumulative = takerPays ? context.takerCumulativeLots : context.makerCumulativeLots;
         AccountId payer = buyerPays ? context.buyerAccountId : context.sellerAccountId;
         AccountId receiver = buyerPays ? context.sellerAccountId : context.buyerAccountId;
-        if (
-            channelKind == ClearingChannelKind.Direct && CollateralLockId.unwrap(payerLock) == bytes32(0)
-                && magnitude != 0
-        ) {
+        if (CollateralLockId.unwrap(payerLock) == bytes32(0) && magnitude != 0) {
             payerLock = _createDirectFundingLock(
                 payerHash,
                 Lots.unwrap(payerCumulative),

@@ -724,6 +724,21 @@ contract PrivateRfqBook is
         return capacity;
     }
 
+    function selectedHandoffCommitment(RfqId rfqId) external view returns (bytes32 commitment) {
+        RfqRecord storage rfq = _requireRfq(rfqId);
+        MakerQuoteId quoteId = rfq.selectedQuoteId;
+        if (MakerQuoteId.unwrap(quoteId) == bytes32(0)) revert SelectionMismatch();
+        MakerQuoteRecord storage quote = _requireQuote(quoteId);
+        return keccak256(
+            abi.encode(
+                RfqId.unwrap(rfqId),
+                MakerQuoteId.unwrap(quoteId),
+                RfqHashLib.hashRequest(rfq.request),
+                RfqHashLib.hashQuote(quote.quote)
+            )
+        );
+    }
+
     function domainReserved(RiskDomainId riskDomainId, uint32 version) external view returns (uint256) {
         return _domainReserved[riskDomainId][version];
     }
