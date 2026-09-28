@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -23,6 +23,14 @@ import type {
 } from "@/lib/operations/types";
 
 type ViewId = "OVERVIEW" | "QUEUES" | "RECOVERY" | "POLICY" | "ALERTS";
+interface DevnetStatus {
+  environment: "LOCAL_DEVNET";
+  chainId: number;
+  blockNumber: string;
+  checkedAt: string;
+  healthy: boolean;
+  contracts: { label: string; address: string; healthy: boolean }[];
+}
 type Detail =
   | { kind: "DEPENDENCY"; id: string }
   | { kind: "QUEUE"; id: string }
@@ -127,6 +135,26 @@ function PolicyBoundary({ policy }: { policy: OperationsSnapshot["writePolicies"
           This screen is a browser fixture. It never invokes an operator runtime, wallet, RPC write, or mainnet deployment action.
         </div>
       </div>
+    </Surface>
+  );
+}
+
+function RuntimeStatus({ status }: { status: DevnetStatus | null }) {
+  return (
+    <Surface
+      label="Connected devnet runtime"
+      action={<span className="text-xs text-faint">{status ? `block ${status.blockNumber}` : "connecting"}</span>}
+    >
+      {status ? (
+        <div className="grid grid-cols-2 divide-x divide-y divide-line sm:grid-cols-4 sm:divide-y-0">
+          <div className="px-3 py-3"><p className="text-xs text-faint">Runtime</p><p className={`mt-1 text-sm ${status.healthy ? "text-up" : "text-down"}`}>{status.healthy ? "Healthy" : "Degraded"}</p></div>
+          <div className="px-3 py-3"><p className="text-xs text-faint">Chain</p><p className="mt-1 font-mono text-sm text-ink">Local {status.chainId}</p></div>
+          <div className="px-3 py-3"><p className="text-xs text-faint">Contracts</p><p className="mt-1 font-mono text-sm text-ink">{status.contracts.filter((item) => item.healthy).length}/{status.contracts.length}</p></div>
+          <div className="px-3 py-3"><p className="text-xs text-faint">Evidence</p><p className="mt-1 text-sm text-ink">Live RPC</p></div>
+        </div>
+      ) : (
+        <div className="px-3 py-4 text-xs text-dim">Waiting for the local protocol runtime.</div>
+      )}
     </Surface>
   );
 }
@@ -442,10 +470,31 @@ function DetailPane({ snapshot, detail }: { snapshot: OperationsSnapshot; detail
 
 export function OperationsConsole() {
   const [snapshot, setSnapshot] = useState<OperationsSnapshot>(OPERATIONS_FIXTURE);
+  const [devnetStatus, setDevnetStatus] = useState<DevnetStatus | null>(null);
   const [view, setView] = useState<ViewId>("OVERVIEW");
   const [environment, setEnvironment] = useState<OperationsEnvironment>("ARBITRUM_SEPOLIA");
   const [detail, setDetail] = useState<Detail | null>(null);
   const policy = snapshot.writePolicies.find((item) => item.environment === environment) ?? snapshot.writePolicies[0];
+
+  useEffect(() => {
+    let active = true;
+    const refresh = async () => {
+      try {
+        const response = await fetch("/api/internal/devnet/status", { cache: "no-store" });
+        if (!response.ok) throw new Error("DEVNET_STATUS_UNAVAILABLE");
+        const next = (await response.json()) as DevnetStatus;
+        if (active) setDevnetStatus(next);
+      } catch {
+        if (active) setDevnetStatus(null);
+      }
+    };
+    void refresh();
+    const interval = window.setInterval(refresh, 5_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, []);
 
   const appendJournal = (entry: Omit<OperationsJournalEntry, "id">) => {
     setSnapshot((current) => ({ ...current, journal: [{ ...entry, id: `LOCAL-${current.journal.length + 1}` }, ...current.journal] }));
@@ -483,7 +532,7 @@ export function OperationsConsole() {
         <div className="border-b border-line bg-inset px-3 py-2 lg:px-4"><div className="flex items-start gap-2 text-xs leading-relaxed text-dim"><CircleAlert size={14} aria-hidden="true" className="mt-0.5 shrink-0 text-brand" /><span>Evidence and freshness labels describe a recorded development fixture. New-risk controls never block terminal completion, unwind, collateral release, or evidence publication.</span></div></div>
         <div className="grid min-w-0 gap-3 p-3 lg:grid-cols-[minmax(0,1fr)_340px] lg:p-4">
           <div className="min-w-0 space-y-3">
-            {view === "OVERVIEW" ? <><DependencyTable snapshot={snapshot} detail={detail} onSelect={setDetail} /><div className="grid min-w-0 gap-3 xl:grid-cols-2"><IndexerTable snapshot={snapshot} /><AlertTable snapshot={snapshot} detail={detail} onSelect={setDetail} onAcknowledge={acknowledge} onResolve={resolve} /></div></> : panel}
+            {view === "OVERVIEW" ? <><RuntimeStatus status={devnetStatus} /><DependencyTable snapshot={snapshot} detail={detail} onSelect={setDetail} /><div className="grid min-w-0 gap-3 xl:grid-cols-2"><IndexerTable snapshot={snapshot} /><AlertTable snapshot={snapshot} detail={detail} onSelect={setDetail} onAcknowledge={acknowledge} onResolve={resolve} /></div></> : panel}
             {view === "RECOVERY" ? <Journal entries={snapshot.journal.filter((entry) => entry.subject.startsWith("RCV"))} /> : null}
             {view === "POLICY" ? <Journal entries={snapshot.journal.filter((entry) => entry.actor === "risk-policy" || entry.actor === "console-operator")} /> : null}
             {view === "ALERTS" ? <Journal entries={snapshot.journal.filter((entry) => entry.subject.startsWith("ALT"))} /> : null}
