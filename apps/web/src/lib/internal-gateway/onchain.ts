@@ -285,7 +285,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     });
     await fetch("/api/internal/devnet/liquidity", { method: "POST" });
     await this.refreshAccount();
-    await Promise.all([this.refreshOrders(), this.refreshPublicBook(), this.refreshActivity()]);
+    await Promise.all([this.refreshOrders(), this.refreshPublicBook(), this.refreshActivity(), this.refreshRfqs()]);
   }
 
   async submitCollateralIntent(intent: CollateralIntent): Promise<CollateralIntentResult> {
@@ -1630,6 +1630,154 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     this.publish({ ...this.snapshot, positions, receipts, executions });
   }
 
+  private async refreshRfqs(): Promise<void> {
+    if (!this.setryn || !this.publicClient || !this.walletAddress) return;
+    const committed = await this.publicClient.getContractEvents({
+      address: this.setryn.privateRfqBook,
+      abi: privateRfqBookAbi,
+      eventName: "PrivateRfqCommitted",
+      fromBlock: BigInt(0),
+      toBlock: "latest",
+    });
+    const requests: RfqRequest[] = [];
+    for (const event of committed) {
+      const rfqId = event.args.rfqId;
+      if (!rfqId) continue;
+      const rfq = await this.publicClient.readContract({
+        address: this.setryn.privateRfqBook,
+        abi: privateRfqBookAbi,
+        functionName: "getRfq",
+        args: [rfqId],
+      });
+      if (rfq.request.taker.toLowerCase() !== this.walletAddress.toLowerCase()) continue;
+      const orderRecord = await this.publicClient.readContract({
+        address: this.setryn.orderState,
+        abi: orderStateAbi,
+        functionName: "getOrder",
+        args: [rfq.request.takerOrderHash],
+      });
+      const admissionId = await this.publicClient.readContract({
+        address: this.setryn.riskAdmissionBindingRegistry,
+        abi: riskBindingAbi,
+        functionName: "admissionForOrder",
+        args: [rfq.request.takerOrderHash],
+      });
+      const admission = admissionId === EMPTY_ID
+        ? null
+        : await this.publicClient.readContract({
+            address: this.setryn.portfolioRiskEngine,
+            abi: riskEngineAbi,
+            functionName: "getAdmission",
+            args: [admissionId],
+          });
+      const quoteEvents = await this.publicClient.getContractEvents({
+        address: this.setryn.privateRfqBook,
+        abi: privateRfqBookAbi,
+        eventName: "MakerQuoteCommitted",
+        args: { rfqId },
+        fromBlock: BigInt(0),
+        toBlock: "latest",
+      });
+      const quotes = [] as RfqRequest["quotes"];
+      for (const quoteEvent of quoteEvents) {
+        const quoteId = quoteEvent.args.quoteId;
+        if (!quoteId) continue;
+        const quoteRecord = await this.publicClient.readContract({
+          address: this.setryn.privateRfqBook,
+          abi: privateRfqBookAbi,
+          functionName: "getQuote",
+          args: [quoteId],
+        });
+        const priceTicks = rfq.request.sidePolicy === 1
+          ? quoteRecord.quote.askPriceTicks
+          : quoteRecord.quote.bidPriceTicks;
+        quotes.push({
+          id: quoteId,
+          solverLabel: "Setryn Devnet MM",
+          packagePrice: Number(priceTicks) / 10,
+          feeCap: Number(formatUnits(quoteRecord.quote.maxFeeMinor, 6)),
+          capacityLots: Number(quoteRecord.quote.lots - quoteRecord.cumulativeFilledLots),
+          expiresAt: new Date(Number(quoteRecord.quote.deadline) * 1000).toISOString(),
+          settlementGuarantee: "Firm capacity, atomic onchain settlement",
+          provenance: "SEEDED_SOLVER",
+        });
+      }
+      const settled = rfq.status === 8
+        ? await this.publicClient.getContractEvents({
+            address: this.setryn.privateRfqBook,
+            abi: privateRfqBookAbi,
+            eventName: "RfqSettled",
+            args: { rfqId },
+            fromBlock: BigInt(0),
+            toBlock: "latest",
+          })
+        : [];
+      const packageSide = orderRecord.order.side === 1 ? "LONG" : "SHORT";
+      const timeInForce = orderRecord.order.timeInForce === 2
+        ? "GTD"
+        : orderRecord.order.timeInForce === 3
+          ? "IOC"
+          : orderRecord.order.timeInForce === 4
+            ? "FOK"
+            : "GTC";
+      const lots = Number(orderRecord.order.lots);
+      const limitPrice = Number(orderRecord.order.priceTicks) / 10;
+      const intent: PackageOrderIntent = {
+        accountId: orderRecord.order.accountId,
+        marketId: PRIMARY_MARKET_ID,
+        packageCode: PRIMARY_MARKET_ID,
+        routeId: "private-rfq",
+        routeLabel: "Private firm RFQ",
+        side: "ENTER",
+        packageSide,
+        lots,
+        fillLots: lots,
+        limitPrice,
+        executionPrice: limitPrice,
+        contractMultiplier: 2.5,
+        orderType: "LIMIT",
+        timeInForce,
+        expiresAt: new Date(Number(orderRecord.order.deadline) * 1000).toISOString(),
+        feeCap: Number(formatUnits(orderRecord.order.maxFeeMinor, 6)),
+        collateralRequired: admission ? Number(formatUnits(admission.terminalLiabilityBaseUnits, 6)) : 0,
+        closePositionId: null,
+        replacesOrderId: null,
+        recipient: orderRecord.order.recipient,
+        disclosure: "PRIVATE_RFQ",
+        settlementGuarantee: "Firm capacity, atomic onchain settlement",
+      };
+      const authorization: SignedOrderAuthorization = {
+        orderHash: rfq.request.takerOrderHash,
+        signature: "0x",
+        signer: orderRecord.order.signer,
+        nonce: orderRecord.order.nonce.toString(),
+        deadline: new Date(Number(orderRecord.order.deadline) * 1000).toISOString(),
+        intent,
+        onchainOrder: orderRecord.order as OnchainPublicOrder,
+        riskAdmissionId: admissionId,
+      };
+      const state: RfqRequest["state"] = rfq.status === 8
+        ? "EXECUTED"
+        : rfq.status >= 9
+          ? "CANCELLED"
+          : rfq.status >= 3
+            ? "SELECTED"
+            : "OPEN";
+      requests.push({
+        id: rfqId,
+        authorization,
+        createdAt: new Date(Number(rfq.registeredAt) * 1000).toISOString(),
+        expiresAt: new Date(Number(rfq.request.deadline) * 1000).toISOString(),
+        state,
+        selectedQuoteId: rfq.selectedQuoteId === EMPTY_ID ? null : rfq.selectedQuoteId,
+        receiptId: settled[settled.length - 1]?.args.settlementReference ?? null,
+        quotes,
+      });
+    }
+    requests.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    this.publish({ ...this.snapshot, rfqRequests: requests });
+  }
+
   private restingState(status: number, expired: boolean): RestingPackageOrder["state"] {
     if ((status === 1 || status === 2) && expired) return "EXPIRED";
     if (status === 1) return "WORKING";
@@ -1811,6 +1959,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
           this.refreshOrders(),
           this.refreshPublicBook(),
           this.refreshActivity(),
+          this.refreshRfqs(),
         ]))
         .catch(() => undefined)
         .finally(() => {
@@ -1843,7 +1992,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
           ...this.snapshot,
           wallet: { status: "CONNECTED", address, chainId: this.setryn.chainId },
         });
-        void Promise.all([this.refreshAccount(), this.refreshOrders(), this.refreshPublicBook(), this.refreshActivity()]);
+        void Promise.all([this.refreshAccount(), this.refreshOrders(), this.refreshPublicBook(), this.refreshActivity(), this.refreshRfqs()]);
       }
     });
     eventProvider.on?.("chainChanged", (value) => {
@@ -1858,7 +2007,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         },
       });
       if (connected) {
-        void Promise.all([this.refreshAccount(), this.refreshOrders(), this.refreshPublicBook(), this.refreshActivity()]);
+        void Promise.all([this.refreshAccount(), this.refreshOrders(), this.refreshPublicBook(), this.refreshActivity(), this.refreshRfqs()]);
       }
     });
   }
