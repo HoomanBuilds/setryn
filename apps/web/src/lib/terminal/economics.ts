@@ -4,7 +4,9 @@ export type Intent = "ENTER" | "EXIT";
 export type PackageSide = "LONG" | "SHORT";
 export type ExecutableAction = "BUY" | "SELL";
 export type OrderType = "MARKETABLE_LIMIT" | "LIMIT";
-export type TimeInForce = "GTC" | "IOC" | "FOK";
+export type TimeInForce = "GTC" | "GTD" | "IOC" | "FOK";
+
+export const GTD_MAX_MS = 30 * 24 * 60 * 60 * 1000;
 
 export interface TicketState {
   intent: Intent;
@@ -13,6 +15,7 @@ export interface TicketState {
   lotsInput: string;
   limitInput: string;
   tif: TimeInForce;
+  expiresAt: string | null;
   privateRfq: boolean;
   routeId: string | null;
   closePositionId: string | null;
@@ -25,6 +28,32 @@ export interface ClosePositionRef {
 
 export function isPackageSide(value: unknown): value is PackageSide {
   return value === "LONG" || value === "SHORT";
+}
+
+export function isRestingTimeInForce(tif: TimeInForce): boolean {
+  return tif === "GTC" || tif === "GTD";
+}
+
+export function defaultGtdExpiry(fromMs = Date.now()): string {
+  return new Date(fromMs + 60 * 60 * 1000).toISOString();
+}
+
+/** UI blocker for a GTD expiry. Null when the expiry is a finite future time within 30 days. */
+export function gtdExpiryBlocker(expiresAt: string | null, nowMs = Date.now()): string | null {
+  if (typeof expiresAt !== "string" || expiresAt.length === 0) {
+    return "Select a GTD expiry in the future within 30 days.";
+  }
+  const parsed = Date.parse(expiresAt);
+  if (!Number.isFinite(parsed)) {
+    return "Select a GTD expiry in the future within 30 days.";
+  }
+  if (parsed <= nowMs) {
+    return "GTD expiry must be in the future.";
+  }
+  if (parsed - nowMs > GTD_MAX_MS) {
+    return "GTD expiry cannot exceed 30 days.";
+  }
+  return null;
 }
 
 export function executableAction(intent: Intent, side: PackageSide): ExecutableAction {
@@ -109,7 +138,7 @@ export function buildPreview(
   const action = executableAction(state.intent, packageSide);
   const price = route ? routePrice(route, action) : bestReferencePrice(market, action);
   const marketable = limitCrosses(limitPrice, price, action);
-  const rests = state.orderType === "LIMIT" && !marketable && state.tif === "GTC";
+  const rests = state.orderType === "LIMIT" && !marketable && isRestingTimeInForce(state.tif);
   const effectivePrice = state.orderType === "LIMIT" && !marketable ? limitPrice : price;
 
   const protocolFeeBps = route?.protocolFeeBps ?? 2.5;
@@ -155,6 +184,16 @@ export function buildPreview(
     blockers.push(
       "A non-marketable limit with IOC or FOK cannot rest. Use GTC to rest the order or adjust the limit to cross.",
     );
+  }
+  if (state.tif === "GTD") {
+    if (state.orderType !== "LIMIT") {
+      blockers.push("GTD requires a limit order. Use limit to rest with expiry.");
+    } else {
+      const expiryBlocker = gtdExpiryBlocker(state.expiresAt);
+      if (expiryBlocker) blockers.push(expiryBlocker);
+    }
+  } else if (state.expiresAt !== null) {
+    blockers.push("Expiry applies only to GTD.");
   }
   if (state.tif === "FOK" && route && lots > route.availableLots) {
     blockers.push("Fill or kill cannot clear more than the reserved route capacity.");

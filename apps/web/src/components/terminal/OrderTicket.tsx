@@ -19,7 +19,7 @@ import type {
   TicketState,
   TimeInForce,
 } from "@/lib/terminal/economics";
-import { bestReferencePrice, executableAction } from "@/lib/terminal/economics";
+import { bestReferencePrice, defaultGtdExpiry, executableAction, GTD_MAX_MS } from "@/lib/terminal/economics";
 import { formatLots, formatNumber, formatUsd, priceUnitSuffix } from "@/lib/terminal/format";
 import type { HandoffContext } from "@/lib/terminal/handoff";
 import type { PackageMarket, RouteQuote } from "@/lib/terminal/types";
@@ -61,6 +61,11 @@ const TIFS: { value: TimeInForce; label: string; title: string }[] = [
     title: "Good till cancelled: rests in the package book until it fills or you cancel it.",
   },
   {
+    value: "GTD",
+    label: "GTD",
+    title: "Good till date: rests until the expiry, then expires without a fill.",
+  },
+  {
     value: "IOC",
     label: "IOC",
     title:
@@ -72,6 +77,28 @@ const TIFS: { value: TimeInForce; label: string; title: string }[] = [
     title: "Fill or kill: clears the full quantity in one match or executes nothing at all.",
   },
 ];
+
+const GTD_PRESETS: { label: string; minutes: number }[] = [
+  { label: "5m", minutes: 5 },
+  { label: "15m", minutes: 15 },
+  { label: "1h", minutes: 60 },
+  { label: "1d", minutes: 1440 },
+];
+
+function toLocalInputValue(iso: string | null): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function fromLocalInputValue(raw: string): string | null {
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
 
 const RFQ_TITLE =
   "Private RFQ: discloses the package only to invited solvers. Unlocks the solver route and keeps size off the public tape.";
@@ -157,6 +184,7 @@ export function OrderTicket({
   const isAmending = amendment != null;
   const amendmentCrosses = isAmending && preview.marketable;
   const amendmentPrivateRoute = isAmending && (route?.requiresPrivate ?? false);
+  const rfqGtdBlocked = (route?.requiresPrivate ?? false) && state.tif === "GTD";
   const blockers = [
     ...preview.blockers,
     ...(externalBlock ? [externalBlock] : []),
@@ -165,6 +193,11 @@ export function OrderTicket({
       : []),
     ...(amendmentPrivateRoute
       ? ["Solver RFQ routes cannot rest as replacements. Select a public book route."]
+      : []),
+    ...(rfqGtdBlocked
+      ? [
+          "Private RFQ has its own quote and request expiry, so GTD does not apply. Select GTC, IOC, or FOK to request firm quotes.",
+        ]
       : []),
   ];
   const invalid = blockers.length > 0;
@@ -410,11 +443,64 @@ export function OrderTicket({
           <Segmented
             options={TIFS}
             value={state.tif}
-            onChange={(tif) => onChange({ tif })}
+            onChange={(tif) =>
+              onChange(
+                tif === "GTD"
+                  ? {
+                      tif,
+                      expiresAt:
+                        state.expiresAt &&
+                        Number.isFinite(Date.parse(state.expiresAt)) &&
+                        Date.parse(state.expiresAt) > Date.now()
+                          ? state.expiresAt
+                          : defaultGtdExpiry(),
+                    }
+                  : { tif, expiresAt: null },
+              )
+            }
             label="Time in force"
             size="sm"
             disabled={isAmending}
           />
+          {state.tif === "GTD" ? (
+            <div className="mt-1.5 space-y-1.5">
+              <div className="grid grid-cols-4 gap-1.5">
+                {GTD_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() =>
+                      onChange({
+                        expiresAt: new Date(
+                          Date.now() + preset.minutes * 60 * 1000,
+                        ).toISOString(),
+                      })
+                    }
+                    className="focus-ring tnum h-9 rounded-md border border-line bg-raised font-mono text-xs text-dim transition-colors hover:border-line-strong hover:text-ink lg:h-7"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+              <div className={INPUT_SHELL}>
+                <label htmlFor="ticket-expiry" className="sr-only">
+                  GTD expiry
+                </label>
+                <input
+                  id="ticket-expiry"
+                  type="datetime-local"
+                  aria-label="GTD expiry"
+                  min={toLocalInputValue(new Date().toISOString())}
+                  max={toLocalInputValue(new Date(Date.now() + GTD_MAX_MS).toISOString())}
+                  value={toLocalInputValue(state.expiresAt)}
+                  onChange={(event) =>
+                    onChange({ expiresAt: fromLocalInputValue(event.target.value) })
+                  }
+                  className="tnum min-w-0 flex-1 bg-transparent font-mono text-xs text-ink outline-none"
+                />
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <CheckRow
@@ -591,6 +677,12 @@ function StageArea({
             value={`${formatNumber(preview.limitPrice, market.priceDecimals)} ${unit}`}
           />
           <PayloadRow label="Route" value={route?.label ?? "none"} />
+          {state.tif === "GTD" && state.expiresAt ? (
+            <PayloadRow
+              label="Expiry"
+              value={new Date(state.expiresAt).toLocaleString()}
+            />
+          ) : null}
           {amendment ? <PayloadRow label="Replaced order" value={amendment.orderId} /> : null}
           {amendment ? <PayloadRow label="Queue priority" value="Resets on replacement" /> : null}
           <PayloadRow

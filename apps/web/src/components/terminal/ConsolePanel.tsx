@@ -73,6 +73,18 @@ function sourceForRouteLabel(routeLabel: string): LiquiditySource {
   return "DIRECT";
 }
 
+function tifDisplay(order: RestingPackageOrder): { text: string; title?: string } {
+  if (order.timeInForce !== "GTD") return { text: order.timeInForce };
+  if (typeof order.expiresAt !== "string" || !Number.isFinite(Date.parse(order.expiresAt))) {
+    return { text: "GTD" };
+  }
+  const remainingMs = Date.parse(order.expiresAt) - Date.now();
+  const title = new Date(order.expiresAt).toLocaleString();
+  if (remainingMs <= 0) return { text: "GTD · expired", title };
+  const remainingSeconds = Math.ceil(remainingMs / 1000);
+  return { text: `GTD · ${formatDuration(remainingSeconds)} left`, title };
+}
+
 const TH = "px-3 py-2 text-left font-normal whitespace-nowrap";
 const TD = "px-3 py-2.5 align-top";
 const NUM = "tnum px-3 py-2.5 text-right align-top font-mono text-ink whitespace-nowrap";
@@ -321,12 +333,15 @@ export function ConsolePanel({
                   order.marketId === market.id &&
                   onAmendRestingOrder;
                 const filledLots = order.state === "FILLED" ? order.lots : 0;
+                const tif = tifDisplay(order);
                 const detail =
                   order.state === "FILLED"
                     ? `LOCAL_DEMO filled order. Receipt ${order.receiptId ?? "unavailable"}.`
                     : order.state === "CANCELLED"
                       ? "LOCAL_DEMO cancelled order. No fill, receipt, or position."
-                      : order.state === "REPLACED"
+                      : order.state === "EXPIRED"
+                        ? "LOCAL_DEMO expired order. No fill, receipt, or position."
+                        : order.state === "REPLACED"
                         ? `Replaced by ${order.replacedByOrderId ?? "unknown"}. New queue priority.`
                         : order.replacesOrderId
                           ? `Replaces ${order.replacesOrderId}. New queue priority.`
@@ -344,8 +359,8 @@ export function ConsolePanel({
                     <td className={NUM}>
                       {`${formatNumber(order.limitPrice, rowMarket.priceDecimals)} ${unit}`}
                     </td>
-                    <td className={`${TD} tnum font-mono whitespace-nowrap text-dim`}>
-                      {order.timeInForce}
+                    <td className={`${TD} tnum font-mono whitespace-nowrap text-dim`} title={tif.title}>
+                      {tif.text}
                     </td>
                     <td className={`${TD} whitespace-nowrap text-dim`}>{order.routeLabel}</td>
                     <td className={`${TD} whitespace-nowrap`}>

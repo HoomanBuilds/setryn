@@ -17,6 +17,7 @@ import type {
   SubmissionUpdate,
 } from "./types";
 import {
+  GTD_MAX_MS,
   GUARANTEE_COPY,
   executableAction,
   isPackageSide,
@@ -39,6 +40,45 @@ function digest(value: string): string {
     hash = Math.imul(hash, 16777619);
   }
   return `0x${(hash >>> 0).toString(16).padStart(8, "0").repeat(8)}`;
+}
+
+function isKnownTimeInForce(value: unknown): value is PackageOrderIntent["timeInForce"] {
+  return value === "GTC" || value === "GTD" || value === "IOC" || value === "FOK";
+}
+
+function validateIntentExpiry(intent: PackageOrderIntent, referenceMs = Date.now()) {
+  if (!isKnownTimeInForce(intent.timeInForce)) throw new Error("INVALID_TIME_IN_FORCE");
+  const expiresAt = (intent as { expiresAt?: unknown }).expiresAt ?? null;
+  if (intent.timeInForce === "GTD") {
+    if (intent.orderType !== "LIMIT") throw new Error("GTD_REQUIRES_LIMIT");
+    if (typeof expiresAt !== "string" || expiresAt.length === 0) {
+      throw new Error("GTD_EXPIRY_REQUIRED");
+    }
+    const parsed = Date.parse(expiresAt);
+    if (!Number.isFinite(parsed)) throw new Error("GTD_EXPIRY_REQUIRED");
+    if (parsed <= referenceMs) throw new Error("GTD_EXPIRY_PAST");
+    if (parsed - referenceMs > GTD_MAX_MS) throw new Error("GTD_EXPIRY_TOO_FAR");
+    return;
+  }
+  if (expiresAt !== null) throw new Error("EXPIRY_FORBIDDEN");
+}
+
+function isValidGtdPair(
+  timeInForce: unknown,
+  expiresAt: unknown,
+  createdAt: string,
+): boolean {
+  if (timeInForce === "GTC" || timeInForce === "IOC" || timeInForce === "FOK") {
+    return expiresAt === null || expiresAt === undefined;
+  }
+  if (timeInForce !== "GTD") return false;
+  if (typeof expiresAt !== "string" || expiresAt.length === 0) return false;
+  const parsed = Date.parse(expiresAt);
+  const created = Date.parse(createdAt);
+  if (!Number.isFinite(parsed) || !Number.isFinite(created)) return false;
+  if (parsed <= created) return false;
+  if (parsed - created > GTD_MAX_MS) return false;
+  return true;
 }
 
 function initialSnapshot(): GatewaySnapshot {
@@ -130,7 +170,7 @@ function restoreSnapshot(): GatewaySnapshot {
               (candidate.side !== "ENTER" && candidate.side !== "EXIT") ||
               typeof candidate.lots !== "number" ||
               typeof candidate.limitPrice !== "number" ||
-              candidate.timeInForce !== "GTC" ||
+              (candidate.timeInForce !== "GTC" && candidate.timeInForce !== "GTD") ||
               typeof candidate.collateralReservation !== "number" ||
               typeof candidate.feeCap !== "number" ||
               (candidate.closePositionId !== null &&
@@ -146,14 +186,30 @@ function restoreSnapshot(): GatewaySnapshot {
             candidate.state !== "WORKING" &&
             candidate.state !== "CANCELLED" &&
             candidate.state !== "FILLED" &&
-            candidate.state !== "REPLACED"
+            candidate.state !== "REPLACED" &&
+            candidate.state !== "EXPIRED"
           ) {
             return false;
           }
+          {
+            const rawExpiresAt = (candidate as { expiresAt?: unknown }).expiresAt;
+            if (candidate.timeInForce === "GTD") {
+              if (!isValidGtdPair(candidate.timeInForce, rawExpiresAt, candidate.createdAt)) {
+                return false;
+              }
+            } else if (rawExpiresAt !== null && rawExpiresAt !== undefined) {
+              return false;
+            }
+          }
+          {
+            const rawExpiredAt = (candidate as { expiredAt?: unknown }).expiredAt;
+            if (candidate.state !== "EXPIRED" && rawExpiredAt != null) {
+              return false;
+            }
+          }
           if (
             candidate.orderType !== undefined &&
-            candidate.orderType !== "LIMIT" &&
-            candidate.orderType !== "MARKET"
+            candidate.orderType !== "LIMIT"
           ) {
             return false;
           }
@@ -235,6 +291,28 @@ function restoreSnapshot(): GatewaySnapshot {
               candidate.receiptId.length > 0
             );
           }
+          if (candidate.state === "EXPIRED") {
+            const expiredAt = (candidate as { expiredAt?: unknown }).expiredAt;
+            const expiresAt = (candidate as { expiresAt?: unknown }).expiresAt;
+            if (typeof expiredAt !== "string" || !Number.isFinite(Date.parse(expiredAt))) {
+              return false;
+            }
+            if (typeof expiresAt !== "string" || !Number.isFinite(Date.parse(expiresAt))) {
+              return false;
+            }
+            if (Date.parse(expiredAt) < Date.parse(expiresAt)) return false;
+            if (
+              candidate.cancelledAt != null ||
+              candidate.filledAt != null ||
+              candidate.fillId != null ||
+              candidate.receiptId != null ||
+              (candidate as { replacedAt?: unknown }).replacedAt != null ||
+              (candidate as { replacedByOrderId?: unknown }).replacedByOrderId != null
+            ) {
+              return false;
+            }
+            return true;
+          }
           return true;
         })
           .map((order) => {
@@ -243,10 +321,14 @@ function restoreSnapshot(): GatewaySnapshot {
               typed.packageSide === undefined
                 ? { ...typed, packageSide: "LONG" as const }
                 : (typed as RestingPackageOrder);
-            if ((withSide as { replacesOrderId?: unknown }).replacesOrderId === undefined) {
-              return { ...withSide, replacesOrderId: null as string | null };
+            const withReplaces =
+              (withSide as { replacesOrderId?: unknown }).replacesOrderId === undefined
+                ? { ...withSide, replacesOrderId: null as string | null }
+                : (withSide as RestingPackageOrder);
+            if ((withReplaces as { expiresAt?: unknown }).expiresAt === undefined) {
+              return { ...withReplaces, expiresAt: null as string | null };
             }
-            return withSide as RestingPackageOrder;
+            return withReplaces as RestingPackageOrder;
           })
       : [];
     const restingById = new Map(normalizedRestingOrders.map((order) => [order.id, order]));
@@ -357,9 +439,24 @@ function restoreSnapshot(): GatewaySnapshot {
           const intentCandidate = authorization.intent as Partial<PackageOrderIntent> & {
             packageSide?: unknown;
             replacesOrderId?: unknown;
+            timeInForce?: unknown;
+            expiresAt?: unknown;
           };
           if (intentCandidate.packageSide !== undefined && !isPackageSide(intentCandidate.packageSide)) {
             return false;
+          }
+          if (
+            intentCandidate.timeInForce !== undefined &&
+            !isKnownTimeInForce(intentCandidate.timeInForce)
+          ) {
+            return false;
+          }
+          if (intentCandidate.timeInForce === "GTD") {
+            return false;
+          }
+          {
+            const rawExpiresAt = intentCandidate.expiresAt;
+            if (rawExpiresAt !== null && rawExpiresAt !== undefined) return false;
           }
           if (
             intentCandidate.replacesOrderId !== undefined &&
@@ -451,9 +548,13 @@ function restoreSnapshot(): GatewaySnapshot {
             (withSide as { replacesOrderId?: unknown }).replacesOrderId === undefined
               ? { ...withSide, replacesOrderId: null as string | null }
               : withSide;
+          const withExpiry =
+            (migratedIntent as { expiresAt?: unknown }).expiresAt === undefined
+              ? { ...migratedIntent, expiresAt: null as string | null }
+              : migratedIntent;
           return {
             ...typed,
-            authorization: { ...typed.authorization, intent: migratedIntent },
+            authorization: { ...typed.authorization, intent: withExpiry },
             quotes: typed.quotes.map((quote) => {
               const provenance = (quote as Partial<FirmRfqQuote>).provenance as
                 | RfqQuoteProvenance
@@ -559,9 +660,16 @@ export class DemoTradingGateway implements InternalTradingGateway {
       const oldOrder = this.snapshot.restingOrders.find((order) => order.id === replacesOrderId);
       if (!oldOrder) throw new Error("REPLACEMENT_ORDER_NOT_FOUND");
       if (oldOrder.state !== "WORKING") throw new Error("REPLACEMENT_ORDER_NOT_WORKING");
-      if (intent.orderType !== "LIMIT" || intent.timeInForce !== "GTC") {
+      if (
+        intent.orderType !== "LIMIT" ||
+        (intent.timeInForce !== "GTC" && intent.timeInForce !== "GTD")
+      ) {
         throw new Error("REPLACEMENT_REQUIRES_LIMIT_GTC");
       }
+      if (intent.timeInForce !== oldOrder.timeInForce) {
+        throw new Error("REPLACEMENT_TIF_MISMATCH");
+      }
+      validateIntentExpiry(intent);
       if (
         intent.accountId !== oldOrder.accountId ||
         intent.marketId !== oldOrder.marketId ||
@@ -651,6 +759,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
     } else if (intent.collateralRequired + intent.feeCap > this.snapshot.account.available) {
       throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
     }
+    validateIntentExpiry(intent);
     await wait(300);
     const nonce = crypto.randomUUID();
     const orderHash = digest(JSON.stringify({ ...intent, nonce, chainId: this.snapshot.environment.chainId }));
@@ -682,6 +791,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
     if (Date.parse(authorization.deadline) <= Date.now()) throw new Error("AUTHORIZATION_EXPIRED");
     const intent = authorization.intent;
     if (!isPackageSide(intent.packageSide)) throw new Error("INVALID_PACKAGE_SIDE");
+    validateIntentExpiry(intent);
     const isExit = intent.side === "EXIT";
     if (!isExit && intent.closePositionId != null) {
       throw new Error("CLOSE_POSITION_FORBIDDEN_FOR_ENTRY");
@@ -910,13 +1020,14 @@ export class DemoTradingGateway implements InternalTradingGateway {
     if (authorization.intent.orderType !== "LIMIT") {
       throw new Error("RESTING_ORDER_REQUIRES_LIMIT");
     }
-    if (authorization.intent.timeInForce !== "GTC") {
+    if (authorization.intent.timeInForce !== "GTC" && authorization.intent.timeInForce !== "GTD") {
       throw new Error("RESTING_ORDER_REQUIRES_GTC");
     }
     if (authorization.signer !== this.snapshot.wallet.address) throw new Error("SIGNER_MISMATCH");
     if (Date.parse(authorization.deadline) <= Date.now()) throw new Error("AUTHORIZATION_EXPIRED");
     const intent = authorization.intent;
     if (!isPackageSide(intent.packageSide)) throw new Error("INVALID_PACKAGE_SIDE");
+    validateIntentExpiry(intent);
     const isExit = intent.side === "EXIT";
     if (!isExit && intent.closePositionId != null) {
       throw new Error("CLOSE_POSITION_FORBIDDEN_FOR_ENTRY");
@@ -956,6 +1067,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
       lots: intent.lots,
       limitPrice: intent.limitPrice,
       timeInForce: intent.timeInForce,
+      expiresAt: intent.expiresAt,
       collateralReservation: reservation,
       feeCap: intent.feeCap,
       closePositionId: intent.closePositionId,
@@ -1011,7 +1123,10 @@ export class DemoTradingGateway implements InternalTradingGateway {
     }
     if (replacesOrderId !== oldOrderId) throw new Error("REPLACEMENT_ID_MISMATCH");
     if (!isPackageSide(intent.packageSide)) throw new Error("INVALID_PACKAGE_SIDE");
-    if (intent.orderType !== "LIMIT" || intent.timeInForce !== "GTC") {
+    if (
+      intent.orderType !== "LIMIT" ||
+      (intent.timeInForce !== "GTC" && intent.timeInForce !== "GTD")
+    ) {
       throw new Error("REPLACEMENT_REQUIRES_LIMIT_GTC");
     }
     const existingOrders = Array.isArray(this.snapshot.restingOrders)
@@ -1020,6 +1135,10 @@ export class DemoTradingGateway implements InternalTradingGateway {
     const oldOrder = existingOrders.find((order) => order.id === oldOrderId);
     if (!oldOrder) throw new Error("REPLACEMENT_ORDER_NOT_FOUND");
     if (oldOrder.state !== "WORKING") throw new Error("REPLACEMENT_ORDER_NOT_WORKING");
+    if (intent.timeInForce !== oldOrder.timeInForce) {
+      throw new Error("REPLACEMENT_TIF_MISMATCH");
+    }
+    validateIntentExpiry(intent);
     if (
       intent.accountId !== oldOrder.accountId ||
       intent.marketId !== oldOrder.marketId ||
@@ -1079,6 +1198,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
       lots: intent.lots,
       limitPrice: intent.limitPrice,
       timeInForce: intent.timeInForce,
+      expiresAt: intent.expiresAt,
       collateralReservation: newReservation,
       feeCap: intent.feeCap,
       closePositionId: intent.closePositionId,
@@ -1159,13 +1279,52 @@ export class DemoTradingGateway implements InternalTradingGateway {
     }
     const working = this.snapshot.restingOrders.filter((order) => order.state === "WORKING");
     if (working.length === 0) return [];
+    const expired: RestingPackageOrder[] = [];
+    for (const order of working) {
+      const completed = this.expireWorkingOrder(order.id);
+      if (completed) expired.push(completed);
+    }
     const remainingLotsByRoute = new Map<string, number>();
     const filled: RestingPackageOrder[] = [];
     for (const order of working) {
       const completed = this.fillWorkingOrder(order.id, markets, remainingLotsByRoute);
       if (completed) filled.push(completed);
     }
-    return filled;
+    return [...expired, ...filled];
+  }
+
+  private expireWorkingOrder(orderId: string): RestingPackageOrder | null {
+    const order = this.snapshot.restingOrders.find((candidate) => candidate.id === orderId);
+    if (!order || order.state !== "WORKING") return null;
+    if (order.timeInForce !== "GTD") return null;
+    if (typeof order.expiresAt !== "string") return null;
+    const parsed = Date.parse(order.expiresAt);
+    if (!Number.isFinite(parsed)) return null;
+    if (parsed > Date.now()) return null;
+    const expiredAt = new Date().toISOString();
+    const expired: RestingPackageOrder = {
+      ...order,
+      state: "EXPIRED",
+      expiredAt,
+    };
+    const isExit = order.side === "EXIT";
+    let account = this.snapshot.account;
+    if (!isExit) {
+      const reservation = order.collateralReservation;
+      account = {
+        ...account,
+        reserved: Math.max(0, account.reserved - reservation),
+        available: account.available + reservation,
+      };
+    }
+    this.publish({
+      ...this.snapshot,
+      account,
+      restingOrders: this.snapshot.restingOrders.map((candidate) =>
+        candidate.id === orderId ? expired : candidate,
+      ),
+    });
+    return expired;
   }
 
   private fillWorkingOrder(
@@ -1175,7 +1334,14 @@ export class DemoTradingGateway implements InternalTradingGateway {
   ): RestingPackageOrder | null {
     const order = this.snapshot.restingOrders.find((candidate) => candidate.id === orderId);
     if (!order || order.state !== "WORKING") return null;
-    if (order.timeInForce !== "GTC") return null;
+    if (order.timeInForce !== "GTC" && order.timeInForce !== "GTD") return null;
+    if (order.timeInForce === "GTD") {
+      if (typeof order.expiresAt !== "string") return null;
+      const parsed = Date.parse(order.expiresAt);
+      if (!Number.isFinite(parsed) || parsed <= Date.now()) return null;
+    } else if (order.expiresAt !== null && order.expiresAt !== undefined) {
+      return null;
+    }
     if (order.orderType !== undefined && order.orderType !== "LIMIT") return null;
     if (!Number.isFinite(order.lots) || order.lots <= 0) return null;
     if (!Number.isFinite(order.limitPrice)) return null;
@@ -1450,6 +1616,12 @@ export class DemoTradingGateway implements InternalTradingGateway {
     if (Date.parse(authorization.deadline) <= Date.now()) throw new Error("AUTHORIZATION_EXPIRED");
     const intent = authorization.intent;
     if (!isPackageSide(intent.packageSide)) throw new Error("INVALID_PACKAGE_SIDE");
+    if (intent.timeInForce === "GTD") {
+      throw new Error("EXPIRY_FORBIDDEN");
+    }
+    if ((intent as { expiresAt?: unknown }).expiresAt !== null) {
+      throw new Error("EXPIRY_FORBIDDEN");
+    }
     if (intent.disclosure !== "PRIVATE_RFQ") {
       throw new Error("RFQ_REQUIRES_PRIVATE_DISCLOSURE");
     }

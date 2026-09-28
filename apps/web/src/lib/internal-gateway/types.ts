@@ -96,6 +96,7 @@ export interface PackageOrderIntent {
   contractMultiplier: number;
   orderType: OrderType;
   timeInForce: TimeInForce;
+  expiresAt: string | null;
   feeCap: number;
   collateralRequired: number;
   closePositionId: string | null;
@@ -107,7 +108,7 @@ export interface PackageOrderIntent {
 
 export type OrderType = "MARKET" | "LIMIT";
 
-export type RestingOrderState = "WORKING" | "CANCELLED" | "FILLED" | "REPLACED";
+export type RestingOrderState = "WORKING" | "CANCELLED" | "FILLED" | "REPLACED" | "EXPIRED";
 
 export interface RestingPackageOrder {
   id: string;
@@ -122,6 +123,7 @@ export interface RestingPackageOrder {
   lots: number;
   limitPrice: number;
   timeInForce: TimeInForce;
+  expiresAt: string | null;
   collateralReservation: number;
   feeCap: number;
   closePositionId: string | null;
@@ -130,6 +132,7 @@ export interface RestingPackageOrder {
   replacedAt?: string;
   createdAt: string;
   cancelledAt?: string;
+  expiredAt?: string;
   state: RestingOrderState;
   orderType?: OrderType;
   contractMultiplier?: number;

@@ -13,6 +13,7 @@ import { Disclosure, Tabs } from "@/components/terminal/primitives";
 import {
   bestReferencePrice,
   buildPreview,
+  defaultGtdExpiry,
   executableAction,
   isPackageSide,
   previewReference,
@@ -84,10 +85,31 @@ function executionError(error: unknown): string {
     return "Amendment must keep account, market, package, intent, side, and close position.";
   }
   if (error.message === "REPLACEMENT_REQUIRES_LIMIT_GTC") {
-    return "Amendment requires a limit GTC order.";
+    return "Amendment requires a limit GTC or GTD order.";
+  }
+  if (error.message === "REPLACEMENT_TIF_MISMATCH") {
+    return "Amendment must keep the same time in force.";
   }
   if (error.message === "REPLACEMENT_ID_MISMATCH") {
     return "Replacement reference does not match the selected order.";
+  }
+  if (error.message === "GTD_EXPIRY_REQUIRED") {
+    return "Select a GTD expiry in the future within 30 days.";
+  }
+  if (error.message === "GTD_EXPIRY_PAST") {
+    return "GTD expiry must be in the future.";
+  }
+  if (error.message === "GTD_EXPIRY_TOO_FAR") {
+    return "GTD expiry cannot exceed 30 days.";
+  }
+  if (error.message === "GTD_REQUIRES_LIMIT") {
+    return "GTD requires a limit order.";
+  }
+  if (error.message === "EXPIRY_FORBIDDEN") {
+    return "Only GTD orders carry an expiry.";
+  }
+  if (error.message === "INVALID_TIME_IN_FORCE") {
+    return "The time in force is invalid.";
   }
   if (error.message === "REPLACE_FLOW_REQUIRED") {
     return "Replacement orders require the amend flow.";
@@ -112,6 +134,7 @@ function initialTicket(market: PackageMarket, handoff?: HandoffContext): TicketS
     lotsInput: handoff?.lots != null ? String(handoff.lots) : "10",
     limitInput: bestReferencePrice(market, action).toFixed(market.priceDecimals),
     tif: "GTC",
+    expiresAt: null,
     privateRfq: false,
     routeId: null,
     closePositionId:
@@ -312,6 +335,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       lotsInput: String(intent.lots),
       limitInput: intent.limitPrice.toFixed(market.priceDecimals),
       tif: intent.timeInForce,
+      expiresAt: null,
       privateRfq: true,
       routeId,
       closePositionId: intent.side === "EXIT" ? intent.closePositionId : null,
@@ -462,6 +486,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
           safePatch = {
             ...(patch.lotsInput !== undefined ? { lotsInput: patch.lotsInput } : null),
             ...(patch.limitInput !== undefined ? { limitInput: patch.limitInput } : null),
+            ...(patch.expiresAt !== undefined ? { expiresAt: patch.expiresAt } : null),
           };
           if (patch.routeId !== undefined) {
             const candidate =
@@ -472,6 +497,14 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
           }
         }
         const next = { ...current, ...safePatch };
+        if (next.tif !== "GTD") {
+          next.expiresAt = null;
+        } else if (
+          next.expiresAt == null ||
+          !Number.isFinite(Date.parse(next.expiresAt))
+        ) {
+          next.expiresAt = defaultGtdExpiry();
+        }
         if (!amending && safePatch.privateRfq === false && current.routeId === "SOLVER_RFQ") {
           next.routeId = null;
         }
@@ -597,6 +630,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         contractMultiplier: liveMarket.contractMultiplier,
         orderType: ticket.orderType === "LIMIT" ? "LIMIT" : "MARKET",
         timeInForce: ticket.tif,
+        expiresAt: ticket.expiresAt,
         feeCap: preview.totalFees,
         collateralRequired: isExit ? 0 : preview.totalCollateral,
         closePositionId: isExit ? ticket.closePositionId : null,
@@ -710,7 +744,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     (orderId: string) => {
       const target = gatewaySnapshot.restingOrders.find((candidate) => candidate.id === orderId);
       if (!target || target.state !== "WORKING" || target.marketId !== liveMarket.id) return;
-      if (target.timeInForce !== "GTC") return;
+      if (target.timeInForce !== "GTC" && target.timeInForce !== "GTD") return;
       const targetRoute = liveMarket.routes.find((candidate) => candidate.id === target.routeId) ?? null;
       const initialRouteId = targetRoute && !targetRoute.requiresPrivate ? targetRoute.id : null;
       setTicket({
@@ -719,7 +753,8 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         orderType: "LIMIT",
         lotsInput: String(target.lots),
         limitInput: target.limitPrice.toFixed(liveMarket.priceDecimals),
-        tif: "GTC",
+        tif: target.timeInForce,
+        expiresAt: target.timeInForce === "GTD" ? target.expiresAt : null,
         privateRfq: target.disclosure === "PRIVATE_RFQ",
         routeId: initialRouteId,
         closePositionId: target.side === "EXIT" ? target.closePositionId : null,
@@ -842,6 +877,8 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         ...baseIntent,
         executionPrice: currentQuote.packagePrice,
         feeCap: currentQuote.feeCap,
+        timeInForce: baseIntent.timeInForce,
+        expiresAt: null,
         replacesOrderId: null,
       });
       setExecution({ status: "SUBMITTING", updates: [], authorization });
