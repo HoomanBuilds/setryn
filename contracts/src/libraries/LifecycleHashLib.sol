@@ -28,7 +28,9 @@ library LifecycleHashLib {
     bytes32 internal constant COLLATERAL_TYPEHASH = keccak256(
         "SetrynLifecycleCollateralV1(bytes32 accountId,bytes32 collateralId,uint128 terminalLiabilityBaseUnits)"
     );
-    bytes32 internal constant ACTION_TYPEHASH = keccak256("SetrynLifecycleActionV1");
+    bytes32 internal constant ACTION_TYPEHASH = keccak256(
+        "SetrynLifecycleActionV1(uint8 kind,address actor,bytes32 actorAccountId,bytes32 policyContextHash,bytes32 inputsHash,bytes32 successorsHash,bytes32 collateralReplacementsHash,bytes32 participantSetHash,bytes32 consentsHash,bytes32 riskDomainId,uint32 riskDomainVersion,bytes32 feeScheduleId,uint32 feeScheduleVersion,bytes32 economicTransitionHash,bytes32 compressionPlanId,bool breaksPackageProvenance,bytes32 packageBreakPermissionHash,uint128 actorMaximumLiabilityIncreaseBaseUnits,uint128 actorMaximumCollateralIncreaseBaseUnits,uint16 inputCount,uint16 successorCount,uint16 participantCount,uint64 deadline,uint256 nonce,address permittedExecutor,bytes32 salt,uint256 chainId,address engine)"
+    );
     bytes32 internal constant CONSENT_TYPEHASH = keccak256(
         "SetrynLifecycleConsentV1(bytes32 actionId,bytes32 accountId,address signer,uint256 nonce,uint64 deadline,uint128 maximumLiabilityIncreaseBaseUnits,uint128 maximumCollateralIncreaseBaseUnits,bool allowsPackageBreak,bytes32 salt)"
     );
