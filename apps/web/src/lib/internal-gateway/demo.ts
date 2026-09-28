@@ -46,6 +46,114 @@ function isKnownTimeInForce(value: unknown): value is PackageOrderIntent["timeIn
   return value === "GTC" || value === "GTD" || value === "IOC" || value === "FOK";
 }
 
+function isIntentMarketableForPartial(intent: PackageOrderIntent): boolean {
+  if (intent.orderType === "MARKET") return true;
+  if (intent.orderType !== "LIMIT") return false;
+  if (!isPackageSide(intent.packageSide)) return false;
+  if (!Number.isFinite(intent.limitPrice) || !Number.isFinite(intent.executionPrice)) return false;
+  return limitCrosses(intent.limitPrice, intent.executionPrice, executableAction(intent.side, intent.packageSide));
+}
+
+function validateFillLots(intent: PackageOrderIntent, requireFull: boolean) {
+  const requested = (intent as { lots?: unknown }).lots;
+  const fill = (intent as { fillLots?: unknown }).fillLots;
+  const isExit = intent.side === "EXIT";
+  if (!Number.isFinite(requested) || (requested as number) <= 0) {
+    throw new Error(isExit ? "INVALID_CLOSE_LOTS" : "INVALID_LOTS");
+  }
+  if (!Number.isFinite(fill) || (fill as number) <= 0) {
+    throw new Error("INVALID_FILL_LOTS");
+  }
+  const req = requested as number;
+  const fl = fill as number;
+  if (fl - req > 1e-9) throw new Error("FILL_EXCEEDS_REQUESTED");
+  const isPartial = Math.abs(fl - req) > 1e-9;
+  if (requireFull || intent.timeInForce !== "IOC") {
+    if (isPartial) throw new Error("FILL_MUST_EQUAL_REQUESTED");
+    return;
+  }
+  if (isPartial && !isIntentMarketableForPartial(intent)) {
+    throw new Error("IOC_PARTIAL_REQUIRES_MARKETABLE");
+  }
+}
+
+function normalizeReceiptLots(candidate: Partial<ExecutionReceipt>): ExecutionReceipt | null {
+  if (typeof candidate.id !== "string" || candidate.id.length === 0) return null;
+  if (typeof candidate.marketId !== "string" || candidate.marketId.length === 0) return null;
+  if (typeof candidate.lots !== "number" || !Number.isFinite(candidate.lots) || candidate.lots <= 0) {
+    return null;
+  }
+  const lots = candidate.lots;
+  const requested = (candidate as { requestedLots?: unknown }).requestedLots;
+  const filled = (candidate as { filledLots?: unknown }).filledLots;
+  const cancelled = (candidate as { cancelledLots?: unknown }).cancelledLots;
+  if (requested === undefined && filled === undefined && cancelled === undefined) {
+    return {
+      ...(candidate as ExecutionReceipt),
+      requestedLots: lots,
+      filledLots: lots,
+      cancelledLots: 0,
+    };
+  }
+  if (
+    typeof requested !== "number" ||
+    !Number.isFinite(requested) ||
+    requested <= 0 ||
+    typeof filled !== "number" ||
+    !Number.isFinite(filled) ||
+    filled <= 0 ||
+    typeof cancelled !== "number" ||
+    !Number.isFinite(cancelled) ||
+    cancelled < 0
+  ) {
+    return null;
+  }
+  if (filled - requested > 1e-9) return null;
+  if (Math.abs(lots - filled) > 1e-9) return null;
+  if (Math.abs(requested - (filled + cancelled)) > 1e-9) return null;
+  return candidate as ExecutionReceipt;
+}
+
+function normalizeResultLots(
+  result: Partial<PackageExecutionResult>,
+  receipt: ExecutionReceipt,
+): PackageExecutionResult | null {
+  const requested = (result as { requestedLots?: unknown }).requestedLots;
+  const filled = (result as { filledLots?: unknown }).filledLots;
+  const cancelled = (result as { cancelledLots?: unknown }).cancelledLots;
+  if (requested === undefined && filled === undefined && cancelled === undefined) {
+    return {
+      ...(result as PackageExecutionResult),
+      requestedLots: receipt.requestedLots,
+      filledLots: receipt.filledLots,
+      cancelledLots: receipt.cancelledLots,
+    };
+  }
+  if (
+    typeof requested !== "number" ||
+    !Number.isFinite(requested) ||
+    requested <= 0 ||
+    typeof filled !== "number" ||
+    !Number.isFinite(filled) ||
+    filled <= 0 ||
+    typeof cancelled !== "number" ||
+    !Number.isFinite(cancelled) ||
+    cancelled < 0
+  ) {
+    return null;
+  }
+  if (filled - requested > 1e-9) return null;
+  if (Math.abs(requested - (filled + cancelled)) > 1e-9) return null;
+  if (
+    Math.abs(requested - receipt.requestedLots) > 1e-9 ||
+    Math.abs(filled - receipt.filledLots) > 1e-9 ||
+    Math.abs(cancelled - receipt.cancelledLots) > 1e-9
+  ) {
+    return null;
+  }
+  return result as PackageExecutionResult;
+}
+
 function validateIntentExpiry(intent: PackageOrderIntent, referenceMs = Date.now()) {
   if (!isKnownTimeInForce(intent.timeInForce)) throw new Error("INVALID_TIME_IN_FORCE");
   const expiresAt = (intent as { expiresAt?: unknown }).expiresAt ?? null;
@@ -146,12 +254,16 @@ function restoreSnapshot(): GatewaySnapshot {
       if (typeof candidate.id !== "string" || candidate.id.length === 0) continue;
       if (typeof candidate.marketId !== "string" || candidate.marketId.length === 0) continue;
       const rawSide = candidate.packageSide;
-      if (rawSide === undefined) {
-        receipts.push({ ...(candidate as ExecutionReceipt), packageSide: "LONG" });
-        continue;
-      }
-      if (!isPackageSide(rawSide)) continue;
-      receipts.push({ ...(candidate as ExecutionReceipt), packageSide: rawSide });
+      const withSide =
+        rawSide === undefined
+          ? { ...(candidate as ExecutionReceipt), packageSide: "LONG" as const }
+          : isPackageSide(rawSide)
+            ? (candidate as ExecutionReceipt)
+            : null;
+      if (!withSide) continue;
+      const normalized = normalizeReceiptLots(withSide);
+      if (!normalized) continue;
+      receipts.push({ ...normalized, packageSide: withSide.packageSide });
     }
     const rawRestingOrders = (snapshot as { restingOrders?: unknown }).restingOrders;
     const normalizedRestingOrders: RestingPackageOrder[] = Array.isArray(rawRestingOrders)
@@ -378,14 +490,32 @@ function restoreSnapshot(): GatewaySnapshot {
       const receiptCandidate = normalized.receipt as Partial<ExecutionReceipt> & {
         packageSide?: unknown;
       };
+      let receiptWithSide: ExecutionReceipt | null = null;
       if (receiptCandidate.packageSide === undefined) {
-        normalized = {
-          ...(normalized as PackageExecutionResult),
-          receipt: { ...(receiptCandidate as ExecutionReceipt), packageSide: "LONG" as const },
+        receiptWithSide = {
+          ...(receiptCandidate as ExecutionReceipt),
+          packageSide: "LONG" as const,
         };
-      } else if (!isPackageSide(receiptCandidate.packageSide)) {
+      } else if (isPackageSide(receiptCandidate.packageSide)) {
+        receiptWithSide = receiptCandidate as ExecutionReceipt;
+      } else {
         continue;
       }
+      const normalizedReceipt = normalizeReceiptLots(receiptWithSide);
+      if (!normalizedReceipt) continue;
+      normalized = {
+        ...(normalized as PackageExecutionResult),
+        receipt: {
+          ...normalizedReceipt,
+          packageSide: receiptWithSide.packageSide,
+        },
+      };
+      const normalizedResult = normalizeResultLots(
+        normalized,
+        (normalized as PackageExecutionResult).receipt as ExecutionReceipt,
+      );
+      if (!normalizedResult) continue;
+      normalized = normalizedResult;
       const position = (normalized as PackageExecutionResult).position;
       if (position !== null && position !== undefined) {
         const positionCandidate = position as Partial<ExecutionPosition> & { side?: unknown };
@@ -395,6 +525,37 @@ function restoreSnapshot(): GatewaySnapshot {
             position: { ...(position as ExecutionPosition), side: "LONG" as const },
           };
         } else if (!isPackageSide(positionCandidate.side)) {
+          continue;
+        }
+      }
+      {
+        const finalResult = normalized as PackageExecutionResult;
+        if (finalResult.outcome === "OPENED") {
+          if (finalResult.position != null) {
+            const posLots = (finalResult.position as Partial<ExecutionPosition>).lots;
+            if (
+              typeof posLots !== "number" ||
+              !Number.isFinite(posLots) ||
+              Math.abs(posLots - finalResult.filledLots) > 1e-9
+            ) {
+              continue;
+            }
+          }
+        } else if (finalResult.outcome === "REDUCED" || finalResult.outcome === "CLOSED") {
+          const closedLots = (finalResult as { closedLots?: unknown }).closedLots;
+          if (
+            typeof closedLots !== "number" ||
+            !Number.isFinite(closedLots) ||
+            Math.abs(closedLots - finalResult.filledLots) > 1e-9
+          ) {
+            continue;
+          }
+          if (finalResult.outcome === "CLOSED") {
+            if (finalResult.position != null) continue;
+          } else if (finalResult.position == null) {
+            continue;
+          }
+        } else {
           continue;
         }
       }
@@ -441,9 +602,28 @@ function restoreSnapshot(): GatewaySnapshot {
             replacesOrderId?: unknown;
             timeInForce?: unknown;
             expiresAt?: unknown;
+            lots?: unknown;
+            fillLots?: unknown;
           };
           if (intentCandidate.packageSide !== undefined && !isPackageSide(intentCandidate.packageSide)) {
             return false;
+          }
+          {
+            const requested = intentCandidate.lots;
+            const fill = intentCandidate.fillLots;
+            if (fill !== undefined) {
+              if (
+                typeof requested !== "number" ||
+                !Number.isFinite(requested) ||
+                requested <= 0 ||
+                typeof fill !== "number" ||
+                !Number.isFinite(fill) ||
+                fill <= 0 ||
+                Math.abs(fill - requested) > 1e-9
+              ) {
+                return false;
+              }
+            }
           }
           if (
             intentCandidate.timeInForce !== undefined &&
@@ -552,9 +732,13 @@ function restoreSnapshot(): GatewaySnapshot {
             (migratedIntent as { expiresAt?: unknown }).expiresAt === undefined
               ? { ...migratedIntent, expiresAt: null as string | null }
               : migratedIntent;
+          const withFill =
+            (withExpiry as { fillLots?: unknown }).fillLots === undefined
+              ? { ...withExpiry, fillLots: (withExpiry as PackageOrderIntent).lots }
+              : withExpiry;
           return {
             ...typed,
-            authorization: { ...typed.authorization, intent: withExpiry },
+            authorization: { ...typed.authorization, intent: withFill },
             quotes: typed.quotes.map((quote) => {
               const provenance = (quote as Partial<FirmRfqQuote>).provenance as
                 | RfqQuoteProvenance
@@ -654,6 +838,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
     const replacesOrderId =
       (intent as { replacesOrderId?: unknown }).replacesOrderId ?? null;
     if (replacesOrderId != null) {
+      validateFillLots(intent, true);
       if (typeof replacesOrderId !== "string" || replacesOrderId.length === 0) {
         throw new Error("REPLACEMENT_ORDER_NOT_FOUND");
       }
@@ -700,12 +885,14 @@ export class DemoTradingGateway implements InternalTradingGateway {
         if (intent.packageSide !== target.side) throw new Error("PACKAGE_SIDE_MISMATCH");
         if (!Number.isFinite(intent.lots) || intent.lots <= 0) throw new Error("INVALID_CLOSE_LOTS");
         if (intent.lots - target.lots > 1e-9) throw new Error("CLOSE_LOTS_EXCEEDS_POSITION");
+        if (intent.fillLots - target.lots > 1e-9) throw new Error("CLOSE_LOTS_EXCEEDS_POSITION");
+        const fillForExit = intent.fillLots;
         const releasable =
-          target.lots > 0 ? (target.collateral * intent.lots) / target.lots : 0;
+          target.lots > 0 ? (target.collateral * fillForExit) / target.lots : 0;
         const multiplier = intent.contractMultiplier;
         const direction = target.side === "SHORT" ? -1 : 1;
         const realizedPnl =
-          (intent.executionPrice - target.entryPrice) * intent.lots * multiplier * direction;
+          (intent.executionPrice - target.entryPrice) * fillForExit * multiplier * direction;
         const closeResult = releasable + realizedPnl - intent.feeCap;
         if (this.snapshot.account.available + closeResult < -1e-9) {
           throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
@@ -735,6 +922,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
     if (intent.side === "ENTER" && intent.closePositionId != null) {
       throw new Error("CLOSE_POSITION_FORBIDDEN_FOR_ENTRY");
     }
+    validateFillLots(intent, false);
     if (intent.side === "EXIT") {
       if (!intent.closePositionId) throw new Error("CLOSE_POSITION_REQUIRED");
       if (intent.collateralRequired !== 0) throw new Error("EXIT_REQUIRES_ZERO_COLLATERAL");
@@ -746,12 +934,14 @@ export class DemoTradingGateway implements InternalTradingGateway {
       if (intent.packageSide !== target.side) throw new Error("PACKAGE_SIDE_MISMATCH");
       if (!Number.isFinite(intent.lots) || intent.lots <= 0) throw new Error("INVALID_CLOSE_LOTS");
       if (intent.lots - target.lots > 1e-9) throw new Error("CLOSE_LOTS_EXCEEDS_POSITION");
+      if (intent.fillLots - target.lots > 1e-9) throw new Error("CLOSE_LOTS_EXCEEDS_POSITION");
+      const fillForExit = intent.fillLots;
       const releasable =
-        target.lots > 0 ? (target.collateral * intent.lots) / target.lots : 0;
+        target.lots > 0 ? (target.collateral * fillForExit) / target.lots : 0;
       const multiplier = intent.contractMultiplier;
       const direction = target.side === "SHORT" ? -1 : 1;
       const realizedPnl =
-        (intent.executionPrice - target.entryPrice) * intent.lots * multiplier * direction;
+        (intent.executionPrice - target.entryPrice) * fillForExit * multiplier * direction;
       const closeResult = releasable + realizedPnl - intent.feeCap;
       if (this.snapshot.account.available + closeResult < -1e-9) {
         throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
@@ -792,10 +982,14 @@ export class DemoTradingGateway implements InternalTradingGateway {
     const intent = authorization.intent;
     if (!isPackageSide(intent.packageSide)) throw new Error("INVALID_PACKAGE_SIDE");
     validateIntentExpiry(intent);
+    validateFillLots(intent, false);
     const isExit = intent.side === "EXIT";
     if (!isExit && intent.closePositionId != null) {
       throw new Error("CLOSE_POSITION_FORBIDDEN_FOR_ENTRY");
     }
+    const requestedLots = intent.lots;
+    const filledLots = intent.fillLots;
+    const cancelledLots = Math.max(0, requestedLots - filledLots);
 
     let exitTargetId: string | null = null;
     let exitCloseLots = 0;
@@ -814,13 +1008,13 @@ export class DemoTradingGateway implements InternalTradingGateway {
       if (!Number.isFinite(intent.lots) || intent.lots <= 0) throw new Error("INVALID_CLOSE_LOTS");
       if (intent.lots - target.lots > 1e-9) throw new Error("CLOSE_LOTS_EXCEEDS_POSITION");
       exitTargetId = target.id;
-      exitCloseLots = intent.lots;
-      exitRelease = target.lots > 0 ? (target.collateral * intent.lots) / target.lots : 0;
+      exitCloseLots = filledLots;
+      exitRelease = target.lots > 0 ? (target.collateral * filledLots) / target.lots : 0;
       const multiplier = intent.contractMultiplier;
       const direction = target.side === "SHORT" ? -1 : 1;
       exitRealizedPnl =
-        (intent.executionPrice - target.entryPrice) * intent.lots * multiplier * direction;
-      exitIsFull = intent.lots >= target.lots - 1e-9;
+        (intent.executionPrice - target.entryPrice) * filledLots * multiplier * direction;
+      exitIsFull = filledLots >= target.lots - 1e-9;
       const closeResult = exitRelease + exitRealizedPnl - intent.feeCap;
       if (this.snapshot.account.available + closeResult < -1e-9) {
         throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
@@ -828,17 +1022,20 @@ export class DemoTradingGateway implements InternalTradingGateway {
     }
 
     const transactionHash = digest(`${authorization.orderHash}:transaction`);
+    const filledDetail = isExit
+      ? `${filledLots} package lots closed at the selected route price.`
+      : `${filledLots} package lots filled at the selected route price.`;
     const positionStep: SubmissionUpdate = isExit
       ? exitIsFull
         ? {
             step: "POSITION_CLOSED",
             label: "Position closed",
-            detail: `Closed ${intent.lots} lots; the local demo account recorded the $${exitRealizedPnl.toFixed(2)} package result and released $${exitRelease.toFixed(2)} collateral.`,
+            detail: `Closed ${filledLots} lots; the local demo account recorded the $${exitRealizedPnl.toFixed(2)} package result and released $${exitRelease.toFixed(2)} collateral.`,
           }
         : {
             step: "POSITION_UPDATED",
             label: "Position reduced",
-            detail: `Closed ${intent.lots} lots pro rata; the local demo account recorded the $${exitRealizedPnl.toFixed(2)} package result and the remaining package position stays active.`,
+            detail: `Closed ${filledLots} lots pro rata; the local demo account recorded the $${exitRealizedPnl.toFixed(2)} package result and the remaining package position stays active.`,
           }
       : {
           step: "POSITION_CREATED",
@@ -852,10 +1049,17 @@ export class DemoTradingGateway implements InternalTradingGateway {
       {
         step: "FILLED",
         label: "Filled",
-        detail: isExit
-          ? `${intent.lots} package lots closed at the selected route price.`
-          : `${intent.lots} package lots filled at the selected route price.`,
+        detail: filledDetail,
       },
+      ...(cancelledLots > 1e-9
+        ? [
+            {
+              step: "IOC_CANCELLED" as const,
+              label: "Remainder cancelled",
+              detail: `Cancelled ${cancelledLots} lots; no receipt or position was created for the unfilled quantity.`,
+            },
+          ]
+        : []),
       positionStep,
     ];
     const journal: SubmissionUpdate[] = [];
@@ -876,7 +1080,10 @@ export class DemoTradingGateway implements InternalTradingGateway {
       packageCode: intent.packageCode,
       packageSide: intent.packageSide,
       routeLabel: intent.routeLabel,
-      lots: intent.lots,
+      lots: filledLots,
+      requestedLots,
+      filledLots,
+      cancelledLots,
       price: intent.executionPrice,
       fees: intent.feeCap,
       realizedPnlUsd: isExit ? exitRealizedPnl : 0,
@@ -929,6 +1136,9 @@ export class DemoTradingGateway implements InternalTradingGateway {
       const result: PackageExecutionResult = {
         fillId,
         outcome: updatedPosition === null ? "CLOSED" : "REDUCED",
+        requestedLots,
+        filledLots,
+        cancelledLots,
         position: updatedPosition,
         closedPositionId: target.id,
         closedLots: exitCloseLots,
@@ -955,7 +1165,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
       id: positionId,
       marketId: intent.marketId,
       side: intent.packageSide,
-      lots: intent.lots,
+      lots: filledLots,
       entryPrice: intent.executionPrice,
       collateral: intent.collateralRequired,
       state: "ACTIVE" as const,
@@ -983,6 +1193,9 @@ export class DemoTradingGateway implements InternalTradingGateway {
     const result: PackageExecutionResult = {
       fillId,
       outcome: "OPENED",
+      requestedLots,
+      filledLots,
+      cancelledLots,
       position,
       closedPositionId: null,
       closedLots: 0,
@@ -1028,6 +1241,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
     const intent = authorization.intent;
     if (!isPackageSide(intent.packageSide)) throw new Error("INVALID_PACKAGE_SIDE");
     validateIntentExpiry(intent);
+    validateFillLots(intent, true);
     const isExit = intent.side === "EXIT";
     if (!isExit && intent.closePositionId != null) {
       throw new Error("CLOSE_POSITION_FORBIDDEN_FOR_ENTRY");
@@ -1139,6 +1353,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
       throw new Error("REPLACEMENT_TIF_MISMATCH");
     }
     validateIntentExpiry(intent);
+    validateFillLots(intent, true);
     if (
       intent.accountId !== oldOrder.accountId ||
       intent.marketId !== oldOrder.marketId ||
@@ -1414,6 +1629,9 @@ export class DemoTradingGateway implements InternalTradingGateway {
       packageSide: order.packageSide,
       routeLabel: order.routeLabel,
       lots: order.lots,
+      requestedLots: order.lots,
+      filledLots: order.lots,
+      cancelledLots: 0,
       price: fillPrice,
       fees: order.feeCap,
       realizedPnlUsd: 0,
@@ -1443,6 +1661,9 @@ export class DemoTradingGateway implements InternalTradingGateway {
     const result: PackageExecutionResult = {
       fillId,
       outcome: "OPENED",
+      requestedLots: order.lots,
+      filledLots: order.lots,
+      cancelledLots: 0,
       position,
       closedPositionId: null,
       closedLots: 0,
@@ -1527,6 +1748,9 @@ export class DemoTradingGateway implements InternalTradingGateway {
       packageSide: order.packageSide,
       routeLabel: order.routeLabel,
       lots: order.lots,
+      requestedLots: order.lots,
+      filledLots: order.lots,
+      cancelledLots: 0,
       price: fillPrice,
       fees: order.feeCap,
       realizedPnlUsd: realizedPnl,
@@ -1558,6 +1782,9 @@ export class DemoTradingGateway implements InternalTradingGateway {
     const result: PackageExecutionResult = {
       fillId,
       outcome: updatedPosition === null ? "CLOSED" : "REDUCED",
+      requestedLots: order.lots,
+      filledLots: order.lots,
+      cancelledLots: 0,
       position: updatedPosition,
       closedPositionId: target.id,
       closedLots: order.lots,
@@ -1616,6 +1843,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
     if (Date.parse(authorization.deadline) <= Date.now()) throw new Error("AUTHORIZATION_EXPIRED");
     const intent = authorization.intent;
     if (!isPackageSide(intent.packageSide)) throw new Error("INVALID_PACKAGE_SIDE");
+    validateFillLots(intent, true);
     if (intent.timeInForce === "GTD") {
       throw new Error("EXPIRY_FORBIDDEN");
     }

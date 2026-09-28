@@ -62,7 +62,9 @@ export function executableAction(intent: Intent, side: PackageSide): ExecutableA
 }
 
 export interface EconomicsPreview {
-  lots: number;
+  requestedLots: number;
+  fillLots: number;
+  cancelledLots: number;
   limitPrice: number;
   notional: number;
   routePrice: number;
@@ -128,9 +130,8 @@ export function buildPreview(
   route: RouteQuote | null,
   closePosition?: ClosePositionRef | null,
 ): EconomicsPreview {
-  const lots = Math.max(0, Number.parseFloat(state.lotsInput) || 0);
+  const requestedLots = Math.max(0, Number.parseFloat(state.lotsInput) || 0);
   const limitPrice = Number.parseFloat(state.limitInput) || 0;
-  const notional = lots * market.notionalPerLot;
 
   const isExit = state.intent === "EXIT";
   const packageSide: PackageSide =
@@ -140,6 +141,13 @@ export function buildPreview(
   const marketable = limitCrosses(limitPrice, price, action);
   const rests = state.orderType === "LIMIT" && !marketable && isRestingTimeInForce(state.tif);
   const effectivePrice = state.orderType === "LIMIT" && !marketable ? limitPrice : price;
+
+  const iocPartial = state.tif === "IOC" && marketable && route != null;
+  const fillLots = iocPartial
+    ? Math.min(requestedLots, route.availableLots)
+    : requestedLots;
+  const cancelledLots = Math.max(0, requestedLots - fillLots);
+  const notional = fillLots * market.notionalPerLot;
 
   const protocolFeeBps = route?.protocolFeeBps ?? 2.5;
   const counterpartyFeeBps = route?.counterpartyFeeBps ?? 0;
@@ -152,13 +160,13 @@ export function buildPreview(
   const guarantee = route ? GUARANTEE_COPY[route.guarantee] : null;
 
   const blockers: string[] = [];
-  if (lots <= 0) blockers.push("Enter a package quantity above zero.");
+  if (requestedLots <= 0) blockers.push("Enter a package quantity above zero.");
   if (limitPrice === 0) blockers.push("Enter a package-price limit.");
   if (isExit) {
     if (!closePosition || !(closePosition.lots > 0)) {
       blockers.push("Exit requires exactly one active runtime package. Select a package to close.");
     } else {
-      if (lots > closePosition.lots) {
+      if (requestedLots > closePosition.lots) {
         blockers.push(
           `Quantity exceeds the selected package lots (${closePosition.lots} lots). Reduce quantity to close within the active package.`,
         );
@@ -168,10 +176,14 @@ export function buildPreview(
       }
     }
   }
-  if (route && lots > route.availableLots) {
-    blockers.push(
-      `Route capacity is ${route.availableLots} lots. Reduce quantity or pick another route.`,
-    );
+  if (route && requestedLots > route.availableLots && !(state.tif === "IOC" && marketable && fillLots > 0)) {
+    if (state.tif === "FOK") {
+      blockers.push("Fill or kill cannot clear more than the reserved route capacity.");
+    } else {
+      blockers.push(
+        `Route capacity is ${route.availableLots} lots. Reduce quantity or pick another route.`,
+      );
+    }
   }
   if (state.orderType === "MARKETABLE_LIMIT" && route && !marketable) {
     blockers.push(
@@ -195,29 +207,28 @@ export function buildPreview(
   } else if (state.expiresAt !== null) {
     blockers.push("Expiry applies only to GTD.");
   }
-  if (state.tif === "FOK" && route && lots > route.availableLots) {
-    blockers.push("Fill or kill cannot clear more than the reserved route capacity.");
-  }
   if (market.qualification === "SUSPENDED") {
     blockers.push("Market qualification is suspended. Entry is closed until the benchmark requalifies.");
   }
 
   return {
-    lots,
+    requestedLots,
+    fillLots,
+    cancelledLots,
     limitPrice,
     notional,
     routePrice: price,
     effectivePrice,
     action,
     packageSide,
-    totalCollateral: isExit ? 0 : lots * market.collateralPerLot * collateralMultiple,
+    totalCollateral: isExit ? 0 : fillLots * market.collateralPerLot * collateralMultiple,
     protocolFee,
     counterpartyFee,
     counterpartyFeeLabel: route?.counterpartyFeeLabel ?? "Counterparty fee",
     totalFees: protocolFee + counterpartyFee,
     maxIntermediateExposure: notional * exposureRate,
     terminalResidual:
-      lots * market.residualPerLot * (packageSide === "LONG" ? 1 : -1) * (isExit ? -1 : 1),
+      fillLots * market.residualPerLot * (packageSide === "LONG" ? 1 : -1) * (isExit ? -1 : 1),
     settlementGuarantee: guarantee?.label ?? "Not selected",
     guaranteeDetail:
       guarantee?.detail ?? "Pick a route to see which settlement guarantee applies to this package.",

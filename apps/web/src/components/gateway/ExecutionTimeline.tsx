@@ -54,7 +54,13 @@ export function ExecutionTimeline({ progress }: { progress: OrderExecutionProgre
       update.step === "POSITION_CREATED",
   );
   const positionStep: SubmissionStepId = positionUpdate?.step ?? "POSITION_CREATED";
-  const steps: SubmissionStepId[] = [...BASE_STEPS, positionStep, "RECEIPT_READY"];
+  const remainderUpdate = updateByStep.get("IOC_CANCELLED");
+  const steps: SubmissionStepId[] = [
+    ...BASE_STEPS,
+    ...(remainderUpdate ? ["IOC_CANCELLED" as const] : []),
+    positionStep,
+    "RECEIPT_READY",
+  ];
 
   return (
     <div className="overflow-hidden rounded-md border border-line-strong bg-raised">

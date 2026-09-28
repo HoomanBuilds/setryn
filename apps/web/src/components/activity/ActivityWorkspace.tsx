@@ -189,7 +189,7 @@ function Ledger({
                       <HashValue value={attempt.orderHash} title="Order hash" />
                     </span>
                     <span className="px-3 py-2.5"><ResultState result={attempt.result} /></span>
-                    <span className="px-3 py-2.5 text-right font-mono text-xs text-ink">{`${formatLots(attempt.lots)} ${attempt.packageSide === "SHORT" ? "Short" : "Long"}`}</span>
+                    <span className="px-3 py-2.5 text-right font-mono text-xs text-ink">{attempt.cancelledLots > 1e-9 ? `${formatLots(attempt.filledLots)} of ${formatLots(attempt.requestedLots)} ${attempt.packageSide === "SHORT" ? "Short" : "Long"}` : `${formatLots(attempt.filledLots)} ${attempt.packageSide === "SHORT" ? "Short" : "Long"}`}</span>
                     <span className="px-3 py-2.5 text-right font-mono text-xs text-dim">
                       {market ? `${formatNumber(attempt.price, market.priceDecimals)} ${priceUnitSuffix(market.priceUnit)}` : formatNumber(attempt.price, 2)}
                     </span>
@@ -250,7 +250,7 @@ function AttemptDetail({ attempt }: { attempt: ActivityAttemptView | null }) {
       <DetailRow label="Package side" value={attempt.packageSide} />
       <DetailRow label="Order hash" value={<HashValue value={attempt.orderHash} title="Order hash" />} hint={attempt.orderHash} />
       <DetailRow label="Route" value={attempt.routeLabel} />
-      <DetailRow label="Fill" value={`${formatLots(attempt.lots)} lots ${sideLabel.toLowerCase()} at ${market ? `${formatNumber(attempt.price, market.priceDecimals)} ${priceUnitSuffix(market.priceUnit)}` : formatNumber(attempt.price, 2)}`} />
+      <DetailRow label="Fill" value={attempt.cancelledLots > 1e-9 ? `${formatLots(attempt.filledLots)} of ${formatLots(attempt.requestedLots)} lots ${sideLabel.toLowerCase()} at ${market ? `${formatNumber(attempt.price, market.priceDecimals)} ${priceUnitSuffix(market.priceUnit)}` : formatNumber(attempt.price, 2)}, ${formatLots(attempt.cancelledLots)} cancelled` : `${formatLots(attempt.filledLots)} lots ${sideLabel.toLowerCase()} at ${market ? `${formatNumber(attempt.price, market.priceDecimals)} ${priceUnitSuffix(market.priceUnit)}` : formatNumber(attempt.price, 2)}`} />
       <DetailRow label="Fees" value={formatUsd(attempt.feeAmount, 2)} />
       <DetailRow label="Guarantee" value={attempt.guarantee} />
       <DetailRow label="Evidence" value={`${attempt.evidence.toLowerCase()} / ${attempt.freshness.label}`} hint={attempt.freshness.detail} />
@@ -336,7 +336,7 @@ export function ActivityWorkspace() {
 
   function handleExportLocalCsv() {
     if (localReceipts.length === 0) return;
-    const header = ["receipt_id", "created_at", "market", "package", "package_side", "route", "lots", "price", "fees", "realized_pnl_usd", "collateral_released_usd", "guarantee", "evidence", "order_hash", "fill_id", "transaction_reference"];
+    const header = ["receipt_id", "created_at", "market", "package", "package_side", "route", "lots", "requested_lots", "filled_lots", "cancelled_lots", "price", "fees", "realized_pnl_usd", "collateral_released_usd", "guarantee", "evidence", "order_hash", "fill_id", "transaction_reference"];
     const lines = [header.join(",")];
     for (const receipt of localReceipts) {
       lines.push(
@@ -348,6 +348,9 @@ export function ActivityWorkspace() {
           receipt.packageSide,
           receipt.routeLabel,
           receipt.lots,
+          receipt.requestedLots ?? receipt.lots,
+          receipt.filledLots ?? receipt.lots,
+          receipt.cancelledLots ?? 0,
           receipt.price,
           receipt.fees,
           receipt.realizedPnlUsd,

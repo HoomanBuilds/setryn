@@ -43,6 +43,9 @@ export interface ExecutionReceipt {
   packageSide: PackageSide;
   routeLabel: string;
   lots: number;
+  requestedLots: number;
+  filledLots: number;
+  cancelledLots: number;
   price: number;
   fees: number;
   realizedPnlUsd?: number;
@@ -91,6 +94,7 @@ export interface PackageOrderIntent {
   side: Intent;
   packageSide: PackageSide;
   lots: number;
+  fillLots: number;
   limitPrice: number;
   executionPrice: number;
   contractMultiplier: number;
@@ -192,6 +196,7 @@ export type SubmissionStepId =
   | "SUBMITTED"
   | "INCLUDED"
   | "FILLED"
+  | "IOC_CANCELLED"
   | "POSITION_CREATED"
   | "POSITION_UPDATED"
   | "POSITION_CLOSED"
@@ -209,6 +214,9 @@ export type ExecutionOutcome = "OPENED" | "REDUCED" | "CLOSED";
 export interface PackageExecutionResult {
   fillId: string;
   outcome: ExecutionOutcome;
+  requestedLots: number;
+  filledLots: number;
+  cancelledLots: number;
   position: ExecutionPosition | null;
   closedPositionId: string | null;
   closedLots: number;

@@ -185,8 +185,15 @@ export function OrderTicket({
   const amendmentCrosses = isAmending && preview.marketable;
   const amendmentPrivateRoute = isAmending && (route?.requiresPrivate ?? false);
   const rfqGtdBlocked = (route?.requiresPrivate ?? false) && state.tif === "GTD";
+  const enterIocCollateralBlocker =
+    state.intent === "ENTER" && state.tif === "IOC" && preview.requestedLots - maxLots > 1e-9
+      ? [
+          `Collateral supports at most ${maxLots} requested lots in this workspace. Reduce quantity to continue.`,
+        ]
+      : [];
   const blockers = [
     ...preview.blockers,
+    ...enterIocCollateralBlocker,
     ...(externalBlock ? [externalBlock] : []),
     ...(amendmentCrosses
       ? ["Amendment price crosses. Discard amendment and submit a normal immediate order."]
@@ -390,8 +397,12 @@ export function OrderTicket({
               onClick={() => onChange({ lotsInput: String(maxLots) })}
               title={
                 state.intent === "EXIT"
-                  ? `Largest close quantity on the selected position and route: ${maxLots} lots`
-                  : `Largest quantity this workspace can collateralise on the selected route: ${maxLots} lots`
+                  ? state.tif === "IOC"
+                    ? `Largest close quantity on the selected position: ${maxLots} lots`
+                    : `Largest close quantity on the selected position and route: ${maxLots} lots`
+                  : state.tif === "IOC"
+                    ? `Largest quantity this workspace can collateralise: ${maxLots} lots`
+                    : `Largest quantity this workspace can collateralise on the selected route: ${maxLots} lots`
               }
               className="focus-ring h-9 rounded-md border border-line bg-raised text-xs text-dim transition-colors hover:border-line-strong hover:text-ink lg:h-7"
             >
@@ -668,7 +679,13 @@ function StageArea({
             value={`${verb} ${sideLabel.toLowerCase()}, ${state.orderType === "LIMIT" ? "limit" : "marketable"}, ${state.tif}`}
           />
           <PayloadRow label="Package side" value={`${sideLabel} · ${actionLabel}`} />
-          <PayloadRow label="Quantity" value={`${formatLots(preview.lots)} lots`} />
+          <PayloadRow label="Requested" value={`${formatLots(preview.requestedLots)} lots`} />
+          {preview.cancelledLots > 1e-9 ? (
+            <>
+              <PayloadRow label="Expected fill" value={`${formatLots(preview.fillLots)} lots`} />
+              <PayloadRow label="IOC remainder" value={`${formatLots(preview.cancelledLots)} lots cancelled`} />
+            </>
+          ) : null}
           {state.intent === "EXIT" ? (
             <PayloadRow label="Close position" value={state.closePositionId ?? "none"} />
           ) : null}

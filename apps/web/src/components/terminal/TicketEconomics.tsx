@@ -4,6 +4,7 @@ import { DataRow, Disclosure } from "@/components/terminal/primitives";
 import { RECOVERY_COPY, type EconomicsPreview } from "@/lib/terminal/economics";
 import {
   formatBps,
+  formatLots,
   formatNumber,
   formatSignedUsd,
   formatUsd,
@@ -22,16 +23,33 @@ export function TicketEconomics({
   route: RouteQuote | null;
   intent: "ENTER" | "EXIT";
 }) {
-  const sized = preview.lots > 0;
+  const sized = preview.fillLots > 0;
   const unit = priceUnitSuffix(market.priceUnit);
   const feeBps = route ? route.protocolFeeBps + route.counterpartyFeeBps : 0;
   const recovery = route ? RECOVERY_COPY[route.guarantee] : null;
   const dash = "not set";
   const isExit = intent === "EXIT";
+  const partial = preview.cancelledLots > 1e-9;
 
   return (
     <div className="border-t border-line pt-1">
       <div className="divide-y divide-line">
+        {partial ? (
+          <>
+            <DataRow
+              label="Requested"
+              value={`${formatLots(preview.requestedLots)} lots`}
+            />
+            <DataRow
+              label="Expected fill"
+              value={`${formatLots(preview.fillLots)} lots`}
+            />
+            <DataRow
+              label="IOC remainder"
+              value={`${formatLots(preview.cancelledLots)} lots cancelled`}
+            />
+          </>
+        ) : null}
         <DataRow
           label={isExit ? "New collateral" : "Collateral required"}
           value={isExit ? "No new collateral" : sized ? formatUsd(preview.totalCollateral, 2) : dash}

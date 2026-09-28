@@ -75,6 +75,10 @@ function executionError(error: unknown): string {
     return "The ticket side does not match the selected position side. Reselect the position.";
   }
   if (error.message === "INVALID_LOTS") return "Enter a package quantity above zero.";
+  if (error.message === "INVALID_FILL_LOTS") return "The expected fill quantity is invalid. Review the ticket and try again.";
+  if (error.message === "FILL_EXCEEDS_REQUESTED") return "The fill quantity cannot exceed the requested quantity.";
+  if (error.message === "FILL_MUST_EQUAL_REQUESTED") return "Only IOC orders may partially fill. Use IOC or reduce to the available route capacity.";
+  if (error.message === "IOC_PARTIAL_REQUIRES_MARKETABLE") return "Only a marketable IOC can partially fill. Adjust the limit to cross or reduce to route capacity.";
   if (error.message === "REPLACEMENT_ORDER_NOT_FOUND") {
     return "The order to replace is no longer available.";
   }
@@ -452,8 +456,10 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
 
   const maxLots = useMemo(() => {
     const byCapacity = route ? route.availableLots : liveMarket.firmDepthLots;
+    const iocUncapped = ticket.tif === "IOC";
     if (ticket.intent === "EXIT") {
       if (!selectedClosePosition) return 1;
+      if (iocUncapped) return Math.max(1, selectedClosePosition.lots);
       return Math.max(1, Math.min(selectedClosePosition.lots, byCapacity));
     }
     const multiple = route?.collateralMultiple ?? 1;
@@ -467,8 +473,9 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     const byCollateral = Math.floor(
       creditedAvailable / (liveMarket.collateralPerLot * multiple + feePerLot),
     );
+    if (iocUncapped) return Math.max(1, byCollateral);
     return Math.max(1, Math.min(byCollateral, byCapacity));
-  }, [amendmentOrder, gatewaySnapshot.account.available, liveMarket, route, selectedClosePosition, ticket.intent]);
+  }, [amendmentOrder, gatewaySnapshot.account.available, liveMarket, route, selectedClosePosition, ticket.intent, ticket.tif]);
 
   const selectMarket = useCallback((next: PackageMarket) => router.push(tradeHref(next)), [router]);
 
@@ -581,9 +588,9 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     setRfqError(null);
     setStage({
       kind: "COMPILED",
-      reference: previewReference(liveMarket.id, preview.lots, preview.limitPrice),
+      reference: previewReference(liveMarket.id, preview.requestedLots, preview.limitPrice),
     });
-  }, [effectiveHandoff.blockedReason, liveMarket.id, preview.lots, preview.limitPrice]);
+  }, [effectiveHandoff.blockedReason, liveMarket.id, preview.requestedLots, preview.limitPrice]);
 
   const onConfirm = useCallback(async () => {
     if (stage.kind !== "COMPILED" || !route) return;
@@ -624,7 +631,8 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         routeLabel: route.label,
         side: ticket.intent,
         packageSide,
-        lots: preview.lots,
+        lots: preview.requestedLots,
+        fillLots: preview.fillLots,
         limitPrice: preview.limitPrice,
         executionPrice: preview.effectivePrice,
         contractMultiplier: liveMarket.contractMultiplier,
@@ -877,6 +885,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         ...baseIntent,
         executionPrice: currentQuote.packagePrice,
         feeCap: currentQuote.feeCap,
+        fillLots: baseIntent.lots,
         timeInForce: baseIntent.timeInForce,
         expiresAt: null,
         replacesOrderId: null,
@@ -938,7 +947,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
               baseMarket={market}
               tab={vizTab}
               onTab={setVizTab}
-              lots={Math.max(1, preview.lots)}
+              lots={Math.max(1, preview.fillLots)}
               previewEpochSeconds={previewEpochSeconds}
               positionOverlays={positionOverlays}
               orderOverlays={orderOverlays}
