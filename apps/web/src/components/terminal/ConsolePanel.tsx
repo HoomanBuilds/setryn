@@ -10,14 +10,23 @@ import {
   formatNumber,
   formatSigned,
   formatSignedUsd,
+  formatUsd,
   priceUnitSuffix,
 } from "@/lib/terminal/format";
 import { findMarket, packageLabel } from "@/lib/terminal/markets";
 import { strategyPnl } from "@/lib/portfolio/model";
-import type { ConsoleTabId, PackageMarket, ReceiptRecord, StrategyRecord } from "@/lib/terminal/types";
+import type {
+  ConsoleTabId,
+  FillRecord,
+  LiquiditySource,
+  PackageMarket,
+  ReceiptRecord,
+  StrategyRecord,
+} from "@/lib/terminal/types";
 import type {
   ExecutionPosition,
   ExecutionReceipt,
+  GatewayExecution,
   RestingPackageOrder,
 } from "@/lib/internal-gateway/types";
 
@@ -42,6 +51,26 @@ function State({ value }: { value: string }) {
   return (
     <span className={ADVERSE.has(value) ? "text-down" : "text-dim"}>{stateLabel(value)}</span>
   );
+}
+
+const FILL_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function formatFillAt(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "Unavailable";
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const month = FILL_MONTHS[date.getUTCMonth()];
+  const year = date.getUTCFullYear();
+  const hours = String(date.getUTCHours()).padStart(2, "0");
+  const minutes = String(date.getUTCMinutes()).padStart(2, "0");
+  return `${day} ${month} ${year}, ${hours}:${minutes} UTC`;
+}
+
+function sourceForRouteLabel(routeLabel: string): LiquiditySource {
+  const normalized = routeLabel.toLowerCase();
+  if (normalized.includes("implied")) return "IMPLIED";
+  if (normalized.includes("solver")) return "SOLVER_FIRM";
+  return "DIRECT";
 }
 
 const TH = "px-3 py-2 text-left font-normal whitespace-nowrap";
@@ -96,6 +125,7 @@ export function ConsolePanel({
   runtimePositions = [],
   runtimeReceipts = [],
   runtimeRestingOrders = [],
+  runtimeExecutions = [],
   onCancelRestingOrder,
 }: {
   market: PackageMarket;
@@ -107,6 +137,7 @@ export function ConsolePanel({
   runtimePositions?: ExecutionPosition[];
   runtimeReceipts?: ExecutionReceipt[];
   runtimeRestingOrders?: RestingPackageOrder[];
+  runtimeExecutions?: GatewayExecution[];
   onCancelRestingOrder?: (orderId: string) => void;
 }) {
   const runtimeStrategies: StrategyRecord[] = runtimePositions.map((position) => ({
@@ -133,6 +164,24 @@ export function ConsolePanel({
       href: `/activity/receipts/${receipt.id}`,
     }),
   );
+  const runtimeFillRows: FillRecord[] = runtimeExecutions.map((execution) => {
+    const receipt = execution.result.receipt;
+    const rowMarket = markets.find((candidate) => candidate.id === receipt.marketId);
+    const price = rowMarket
+      ? `${formatNumber(receipt.price, rowMarket.priceDecimals)} ${priceUnitSuffix(rowMarket.priceUnit)}`
+      : `${formatNumber(receipt.price, 2)}`;
+    return {
+      id: receipt.fillId,
+      marketId: receipt.marketId,
+      package: rowMarket ? packageLabel(rowMarket) : receipt.packageCode,
+      side: execution.result.outcome === "OPENED" ? "ENTER" : "EXIT",
+      lots: receipt.lots,
+      price,
+      source: sourceForRouteLabel(receipt.routeLabel),
+      fee: formatUsd(receipt.fees, 2),
+      at: formatFillAt(receipt.createdAt),
+    };
+  });
   const keep = <T extends { marketId: string }>(rows: T[]) =>
     scoped ? rows.filter((row) => row.marketId === market.id) : rows;
 
@@ -141,7 +190,7 @@ export function ConsolePanel({
   const runtimeRestingOrderRows = keep(runtimeRestingOrders);
   const orders = keep(CONSOLE.orders);
   const rfqs = keep(CONSOLE.rfqs);
-  const fills = keep(CONSOLE.fills);
+  const fills = keep([...runtimeFillRows, ...CONSOLE.fills]);
   const recovery = keep(CONSOLE.recovery);
   const receipts = keep([...runtimeReceiptRows, ...CONSOLE.receipts]);
 
@@ -265,6 +314,13 @@ export function ConsolePanel({
                 const rowMarket = resolveRuntimeConsoleMarket(markets, order.marketId);
                 const unit = priceUnitSuffix(rowMarket.priceUnit);
                 const cancellable = order.state === "WORKING" && onCancelRestingOrder;
+                const filledLots = order.state === "FILLED" ? order.lots : 0;
+                const detail =
+                  order.state === "FILLED"
+                    ? `LOCAL_DEMO filled order. Receipt ${order.receiptId ?? "unavailable"}.`
+                    : order.state === "CANCELLED"
+                      ? "LOCAL_DEMO cancelled order. No fill, receipt, or position."
+                      : "LOCAL_DEMO resting order. No fill, receipt, or position.";
                 return (
                   <Tr key={order.id} highlight={!scoped && order.marketId === market.id}>
                     <td className={`${TD} tnum font-mono whitespace-nowrap text-faint`}>{order.id}</td>
@@ -273,7 +329,7 @@ export function ConsolePanel({
                       {order.side === "ENTER" ? "Enter" : "Exit"}
                     </td>
                     <td className={NUM}>
-                      {`${formatLots(0)} / ${formatLots(order.lots)}`}
+                      {`${formatLots(filledLots)} / ${formatLots(order.lots)}`}
                     </td>
                     <td className={NUM}>
                       {`${formatNumber(order.limitPrice, rowMarket.priceDecimals)} ${unit}`}
@@ -287,7 +343,7 @@ export function ConsolePanel({
                     </td>
                     <td className={`${TD} text-faint`}>
                       <span className="flex items-start justify-between gap-2">
-                        <span>LOCAL_DEMO resting order. No fill, receipt, or position.</span>
+                        <span>{detail}</span>
                         {cancellable ? (
                           <button
                             type="button"

@@ -1,4 +1,5 @@
 import type { Intent, TimeInForce } from "@/lib/terminal/economics";
+import type { PackageMarket } from "@/lib/terminal/types";
 
 export type WalletStatus = "DISCONNECTED" | "CONNECTING" | "CONNECTED" | "WRONG_NETWORK";
 
@@ -103,7 +104,7 @@ export interface PackageOrderIntent {
 
 export type OrderType = "MARKET" | "LIMIT";
 
-export type RestingOrderState = "WORKING" | "CANCELLED";
+export type RestingOrderState = "WORKING" | "CANCELLED" | "FILLED";
 
 export interface RestingPackageOrder {
   id: string;
@@ -123,6 +124,15 @@ export interface RestingPackageOrder {
   createdAt: string;
   cancelledAt?: string;
   state: RestingOrderState;
+  orderType?: OrderType;
+  contractMultiplier?: number;
+  settlementGuarantee?: string;
+  disclosure?: "PUBLIC" | "PRIVATE_RFQ";
+  recipient?: string;
+  collateralRequired?: number;
+  filledAt?: string;
+  fillId?: string;
+  receiptId?: string;
 }
 
 export interface SignedOrderAuthorization {
@@ -223,6 +233,7 @@ export interface InternalTradingGateway {
   ): Promise<PackageExecutionResult>;
   placeRestingOrder(authorization: SignedOrderAuthorization): Promise<RestingPackageOrder>;
   cancelRestingOrder(orderId: string): Promise<RestingPackageOrder>;
+  reconcileRestingOrders(markets: readonly PackageMarket[]): RestingPackageOrder[];
   requestRfq(authorization: SignedOrderAuthorization): Promise<RfqRequest>;
   selectRfqQuote(requestId: string, quoteId: string): Promise<RfqRequest>;
   cancelRfq(requestId: string): Promise<RfqRequest>;

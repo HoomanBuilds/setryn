@@ -1,8 +1,10 @@
 import type {
   CollateralIntent,
   CollateralIntentResult,
+  ExecutionPosition,
   ExecutionReceipt,
   FirmRfqQuote,
+  GatewayExecution,
   GatewaySnapshot,
   InternalTradingGateway,
   PackageExecutionResult,
@@ -12,6 +14,8 @@ import type {
   SignedOrderAuthorization,
   SubmissionUpdate,
 } from "./types";
+import { GUARANTEE_COPY, limitCrosses } from "@/lib/terminal/economics";
+import type { PackageMarket } from "@/lib/terminal/types";
 
 const wait = (duration: number) => new Promise((resolve) => window.setTimeout(resolve, duration));
 const STORAGE_KEY = "setryn:demo-gateway:v1";
@@ -72,25 +76,83 @@ function restoreSnapshot(): GatewaySnapshot {
       ? rawRestingOrders.filter((order): order is RestingPackageOrder => {
           if (!order || typeof order !== "object") return false;
           const candidate = order as Partial<RestingPackageOrder>;
-          return (
-            typeof candidate.id === "string" &&
-            typeof candidate.orderHash === "string" &&
-            typeof candidate.accountId === "string" &&
-            typeof candidate.marketId === "string" &&
-            typeof candidate.packageCode === "string" &&
-            typeof candidate.routeId === "string" &&
-            typeof candidate.routeLabel === "string" &&
-            (candidate.side === "ENTER" || candidate.side === "EXIT") &&
-            typeof candidate.lots === "number" &&
-            typeof candidate.limitPrice === "number" &&
-            candidate.timeInForce === "GTC" &&
-            typeof candidate.collateralReservation === "number" &&
-            typeof candidate.feeCap === "number" &&
-            (candidate.closePositionId === null ||
-              typeof candidate.closePositionId === "string") &&
-            typeof candidate.createdAt === "string" &&
-            (candidate.state === "WORKING" || candidate.state === "CANCELLED")
-          );
+          if (
+            typeof candidate.id !== "string" ||
+            typeof candidate.orderHash !== "string" ||
+            typeof candidate.accountId !== "string" ||
+            typeof candidate.marketId !== "string" ||
+            typeof candidate.packageCode !== "string" ||
+            typeof candidate.routeId !== "string" ||
+            typeof candidate.routeLabel !== "string" ||
+            (candidate.side !== "ENTER" && candidate.side !== "EXIT") ||
+            typeof candidate.lots !== "number" ||
+            typeof candidate.limitPrice !== "number" ||
+            candidate.timeInForce !== "GTC" ||
+            typeof candidate.collateralReservation !== "number" ||
+            typeof candidate.feeCap !== "number" ||
+            (candidate.closePositionId !== null &&
+              typeof candidate.closePositionId !== "string") ||
+            typeof candidate.createdAt !== "string"
+          ) {
+            return false;
+          }
+          if (
+            candidate.state !== "WORKING" &&
+            candidate.state !== "CANCELLED" &&
+            candidate.state !== "FILLED"
+          ) {
+            return false;
+          }
+          if (
+            candidate.orderType !== undefined &&
+            candidate.orderType !== "LIMIT" &&
+            candidate.orderType !== "MARKET"
+          ) {
+            return false;
+          }
+          if (
+            candidate.contractMultiplier !== undefined &&
+            (!Number.isFinite(candidate.contractMultiplier) || candidate.contractMultiplier <= 0)
+          ) {
+            return false;
+          }
+          if (
+            candidate.settlementGuarantee !== undefined &&
+            (typeof candidate.settlementGuarantee !== "string" ||
+              candidate.settlementGuarantee.length === 0)
+          ) {
+            return false;
+          }
+          if (
+            candidate.disclosure !== undefined &&
+            candidate.disclosure !== "PUBLIC" &&
+            candidate.disclosure !== "PRIVATE_RFQ"
+          ) {
+            return false;
+          }
+          if (
+            candidate.recipient !== undefined &&
+            typeof candidate.recipient !== "string"
+          ) {
+            return false;
+          }
+          if (
+            candidate.collateralRequired !== undefined &&
+            (!Number.isFinite(candidate.collateralRequired) || candidate.collateralRequired < 0)
+          ) {
+            return false;
+          }
+          if (candidate.state === "FILLED") {
+            return (
+              typeof candidate.filledAt === "string" &&
+              Number.isFinite(Date.parse(candidate.filledAt)) &&
+              typeof candidate.fillId === "string" &&
+              candidate.fillId.length > 0 &&
+              typeof candidate.receiptId === "string" &&
+              candidate.receiptId.length > 0
+            );
+          }
+          return true;
         })
       : [];
     const executions = Array.isArray(snapshot.executions)
@@ -621,6 +683,12 @@ export class DemoTradingGateway implements InternalTradingGateway {
       closePositionId: intent.closePositionId,
       createdAt,
       state: "WORKING",
+      orderType: intent.orderType,
+      contractMultiplier: intent.contractMultiplier,
+      settlementGuarantee: intent.settlementGuarantee,
+      disclosure: intent.disclosure,
+      recipient: intent.recipient,
+      collateralRequired: isExit ? 0 : intent.collateralRequired,
     };
     const existingOrders = Array.isArray(this.snapshot.restingOrders)
       ? this.snapshot.restingOrders
@@ -674,6 +742,284 @@ export class DemoTradingGateway implements InternalTradingGateway {
       restingOrders: existingOrders.map((order) => (order.id === orderId ? cancelled : order)),
     });
     return cancelled;
+  }
+
+  reconcileRestingOrders(markets: readonly PackageMarket[]): RestingPackageOrder[] {
+    if (
+      this.snapshot.environment.id !== "LOCAL_DEMO" &&
+      this.snapshot.environment.id !== "ARBITRUM_SEPOLIA"
+    ) {
+      return [];
+    }
+    const working = this.snapshot.restingOrders.filter((order) => order.state === "WORKING");
+    if (working.length === 0) return [];
+    const remainingLotsByRoute = new Map<string, number>();
+    const filled: RestingPackageOrder[] = [];
+    for (const order of working) {
+      const completed = this.fillWorkingOrder(order.id, markets, remainingLotsByRoute);
+      if (completed) filled.push(completed);
+    }
+    return filled;
+  }
+
+  private fillWorkingOrder(
+    orderId: string,
+    markets: readonly PackageMarket[],
+    remainingLotsByRoute: Map<string, number>,
+  ): RestingPackageOrder | null {
+    const order = this.snapshot.restingOrders.find((candidate) => candidate.id === orderId);
+    if (!order || order.state !== "WORKING") return null;
+    if (order.timeInForce !== "GTC") return null;
+    if (order.orderType !== undefined && order.orderType !== "LIMIT") return null;
+    if (!Number.isFinite(order.lots) || order.lots <= 0) return null;
+    if (!Number.isFinite(order.limitPrice)) return null;
+    const market = markets.find((candidate) => candidate.id === order.marketId);
+    if (!market) return null;
+    if (market.qualification === "SUSPENDED") return null;
+    const route = market.routes.find((candidate) => candidate.id === order.routeId);
+    if (!route) return null;
+    const capacityKey = `${order.marketId}::${order.routeId}`;
+    let remainingLots = remainingLotsByRoute.get(capacityKey);
+    if (remainingLots === undefined) {
+      remainingLots = route.availableLots;
+      remainingLotsByRoute.set(capacityKey, remainingLots);
+    }
+    if (order.lots - remainingLots > 1e-9) return null;
+    const fillPrice = order.side === "ENTER" ? route.enterPrice : route.exitPrice;
+    if (!Number.isFinite(fillPrice)) return null;
+    if (!limitCrosses(order.limitPrice, fillPrice, order.side)) return null;
+    const contractMultiplier = order.contractMultiplier ?? market.contractMultiplier;
+    if (!Number.isFinite(contractMultiplier) || contractMultiplier <= 0) return null;
+    if (!Number.isFinite(order.feeCap) || order.feeCap < 0) return null;
+    const settlementGuarantee =
+      order.settlementGuarantee ?? GUARANTEE_COPY[route.guarantee]?.label ?? null;
+    if (!settlementGuarantee) return null;
+    if (order.side === "ENTER") {
+      const completed = this.fillWorkingEntry(order, fillPrice, contractMultiplier, settlementGuarantee);
+      if (completed) {
+        remainingLotsByRoute.set(capacityKey, remainingLots - order.lots);
+      }
+      return completed;
+    }
+    const completedExit = this.fillWorkingExit(
+      order,
+      market,
+      fillPrice,
+      contractMultiplier,
+      settlementGuarantee,
+    );
+    if (completedExit) {
+      remainingLotsByRoute.set(capacityKey, remainingLots - order.lots);
+    }
+    return completedExit;
+  }
+
+  private fillWorkingEntry(
+    order: RestingPackageOrder,
+    fillPrice: number,
+    contractMultiplier: number,
+    settlementGuarantee: string,
+  ): RestingPackageOrder | null {
+    void contractMultiplier;
+    if (order.closePositionId != null) return null;
+    const collateralRequired =
+      order.collateralRequired ?? Math.max(0, order.collateralReservation - order.feeCap);
+    if (!Number.isFinite(collateralRequired) || collateralRequired < 0) return null;
+    const now = new Date().toISOString();
+    const fillId = identifier("FIL");
+    const receiptId = identifier("RCP");
+    const transactionHash = digest(`${order.orderHash}:${fillId}:transaction`);
+    const receipt: ExecutionReceipt = {
+      id: receiptId,
+      orderHash: order.orderHash,
+      fillId,
+      transactionHash,
+      marketId: order.marketId,
+      packageCode: order.packageCode,
+      routeLabel: order.routeLabel,
+      lots: order.lots,
+      price: fillPrice,
+      fees: order.feeCap,
+      realizedPnlUsd: 0,
+      collateralReleasedUsd: 0,
+      guarantee: settlementGuarantee,
+      evidence: this.snapshot.environment.evidence,
+      createdAt: now,
+    };
+    const position: ExecutionPosition = {
+      id: identifier("STR"),
+      marketId: order.marketId,
+      side: "LONG",
+      lots: order.lots,
+      entryPrice: fillPrice,
+      collateral: collateralRequired,
+      state: "ACTIVE",
+      createdAt: now,
+    };
+    const journal: SubmissionUpdate[] = [
+      { step: "AUTHORIZED", label: "Authorized", detail: "Package authorization is bound to the selected account and route." },
+      { step: "SUBMITTED", label: "Submitted", detail: "Authorization accepted by the demo clearing runtime." },
+      { step: "INCLUDED", label: "Included", detail: "Package execution was included as one clearing result.", transactionHash },
+      { step: "FILLED", label: "Filled", detail: `${order.lots} package lots filled at the selected route price.` },
+      { step: "POSITION_CREATED", label: "Position created", detail: "Collateral reservation and package position were recorded together." },
+      { step: "RECEIPT_READY", label: "Receipt ready", detail: "Execution evidence is available for inspection." },
+    ];
+    const result: PackageExecutionResult = {
+      fillId,
+      outcome: "OPENED",
+      position,
+      closedPositionId: null,
+      closedLots: 0,
+      receipt,
+    };
+    const filled: RestingPackageOrder = {
+      ...order,
+      state: "FILLED",
+      filledAt: now,
+      fillId,
+      receiptId,
+    };
+    this.publish({
+      ...this.snapshot,
+      positions: [position, ...this.snapshot.positions],
+      receipts: [receipt, ...this.snapshot.receipts],
+      executions: [
+        {
+          id: identifier("EXE"),
+          orderHash: order.orderHash,
+          updates: journal,
+          result,
+          createdAt: now,
+        },
+        ...this.snapshot.executions,
+      ],
+      restingOrders: this.snapshot.restingOrders.map((candidate) =>
+        candidate.id === order.id ? filled : candidate,
+      ),
+    });
+    return filled;
+  }
+
+  private fillWorkingExit(
+    order: RestingPackageOrder,
+    market: PackageMarket,
+    fillPrice: number,
+    contractMultiplier: number,
+    settlementGuarantee: string,
+  ): RestingPackageOrder | null {
+    void market;
+    if (!order.closePositionId) return null;
+    if (order.collateralRequired !== undefined && order.collateralRequired !== 0) return null;
+    const target = this.snapshot.positions.find(
+      (position) => position.id === order.closePositionId,
+    );
+    if (!target) return null;
+    if (target.marketId !== order.marketId) return null;
+    if (!Number.isFinite(order.lots) || order.lots <= 0) return null;
+    if (order.lots - target.lots > 1e-9) return null;
+    const release = target.lots > 0 ? (target.collateral * order.lots) / target.lots : 0;
+    const direction = target.side === "SHORT" ? -1 : 1;
+    const realizedPnl =
+      (fillPrice - target.entryPrice) * order.lots * contractMultiplier * direction;
+    if (!Number.isFinite(release) || !Number.isFinite(realizedPnl)) return null;
+    const closeResult = release + realizedPnl - order.feeCap;
+    if (this.snapshot.account.available + closeResult < -1e-9) return null;
+    const isFull = order.lots >= target.lots - 1e-9;
+    const remainingLots = target.lots - order.lots;
+    const remainingCollateral = Math.max(0, target.collateral - release);
+    const updatedPosition =
+      isFull || remainingLots <= 1e-9
+        ? null
+        : {
+            ...target,
+            lots: remainingLots,
+            collateral: remainingCollateral,
+          };
+    const now = new Date().toISOString();
+    const fillId = identifier("FIL");
+    const receiptId = identifier("RCP");
+    const transactionHash = digest(`${order.orderHash}:${fillId}:transaction`);
+    const receipt: ExecutionReceipt = {
+      id: receiptId,
+      orderHash: order.orderHash,
+      fillId,
+      transactionHash,
+      marketId: order.marketId,
+      packageCode: order.packageCode,
+      routeLabel: order.routeLabel,
+      lots: order.lots,
+      price: fillPrice,
+      fees: order.feeCap,
+      realizedPnlUsd: realizedPnl,
+      collateralReleasedUsd: release,
+      guarantee: settlementGuarantee,
+      evidence: this.snapshot.environment.evidence,
+      createdAt: now,
+    };
+    const positionStep: SubmissionUpdate =
+      updatedPosition === null
+        ? {
+            step: "POSITION_CLOSED",
+            label: "Position closed",
+            detail: `Closed ${order.lots} lots; the local demo account recorded the $${realizedPnl.toFixed(2)} package result and released $${release.toFixed(2)} collateral.`,
+          }
+        : {
+            step: "POSITION_UPDATED",
+            label: "Position reduced",
+            detail: `Closed ${order.lots} lots pro rata; the local demo account recorded the $${realizedPnl.toFixed(2)} package result and the remaining package position stays active.`,
+          };
+    const journal: SubmissionUpdate[] = [
+      { step: "AUTHORIZED", label: "Authorized", detail: "Package authorization is bound to the selected account and route." },
+      { step: "SUBMITTED", label: "Submitted", detail: "Authorization accepted by the demo clearing runtime." },
+      { step: "INCLUDED", label: "Included", detail: "Package execution was included as one clearing result.", transactionHash },
+      { step: "FILLED", label: "Filled", detail: `${order.lots} package lots closed at the selected route price.` },
+      positionStep,
+      { step: "RECEIPT_READY", label: "Receipt ready", detail: "Execution evidence is available for inspection." },
+    ];
+    const result: PackageExecutionResult = {
+      fillId,
+      outcome: updatedPosition === null ? "CLOSED" : "REDUCED",
+      position: updatedPosition,
+      closedPositionId: target.id,
+      closedLots: order.lots,
+      receipt,
+    };
+    const filled: RestingPackageOrder = {
+      ...order,
+      state: "FILLED",
+      filledAt: now,
+      fillId,
+      receiptId,
+    };
+    const execution: GatewayExecution = {
+      id: identifier("EXE"),
+      orderHash: order.orderHash,
+      updates: journal,
+      result,
+      createdAt: now,
+    };
+    this.publish({
+      ...this.snapshot,
+      account: {
+        ...this.snapshot.account,
+        reserved: Math.max(0, this.snapshot.account.reserved - release),
+        available: this.snapshot.account.available + closeResult,
+        eligible: this.snapshot.account.eligible + closeResult,
+        equity: this.snapshot.account.equity + closeResult,
+      },
+      positions:
+        updatedPosition === null
+          ? this.snapshot.positions.filter((position) => position.id !== target.id)
+          : this.snapshot.positions.map((position) =>
+              position.id === target.id ? updatedPosition : position,
+            ),
+      receipts: [receipt, ...this.snapshot.receipts],
+      executions: [execution, ...this.snapshot.executions],
+      restingOrders: this.snapshot.restingOrders.map((candidate) =>
+        candidate.id === order.id ? filled : candidate,
+      ),
+    });
+    return filled;
   }
 
   async requestRfq(authorization: SignedOrderAuthorization): Promise<RfqRequest> {

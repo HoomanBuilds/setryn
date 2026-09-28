@@ -161,6 +161,40 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   }, [gatewaySnapshot.executions, loadedExecutionMarketId, market.id]);
 
   useEffect(() => {
+    gateway.reconcileRestingOrders(markets);
+  }, [gateway, markets]);
+
+  useEffect(() => {
+    if (stage.kind !== "RESTING") return;
+    const order = gatewaySnapshot.restingOrders.find(
+      (candidate) => candidate.id === stage.orderId,
+    );
+    if (!order || order.state !== "FILLED") return;
+    const record = gatewaySnapshot.executions.find(
+      (candidate) => candidate.orderHash === order.orderHash,
+    );
+    if (!record) return;
+    setExecution((current) => {
+      if (current.status === "COMPLETED" && current.result?.receipt.id === record.result.receipt.id) {
+        return current;
+      }
+      return {
+        ...current,
+        status: "COMPLETED",
+        updates: record.updates,
+        result: record.result,
+        restingOrder: order,
+      };
+    });
+    setStage((current) => {
+      if (current.kind !== "RESTING" || current.orderId !== order.id) return current;
+      return { kind: "COMPLETED", reference: current.reference, receiptId: record.result.receipt.id };
+    });
+    setConsoleTab("strategies");
+    setConsoleScoped(true);
+  }, [stage, gatewaySnapshot.restingOrders, gatewaySnapshot.executions]);
+
+  useEffect(() => {
     if (rfqParam === null) return;
     const key = `${market.id}::${rfqParam}`;
     if (appliedRfqKey === key) return;
@@ -712,6 +746,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
             runtimePositions={gatewaySnapshot.positions}
             runtimeReceipts={gatewaySnapshot.receipts}
             runtimeRestingOrders={gatewaySnapshot.restingOrders}
+            runtimeExecutions={gatewaySnapshot.executions}
             onCancelRestingOrder={onCancelConsoleRestingOrder}
           />
         </div>
