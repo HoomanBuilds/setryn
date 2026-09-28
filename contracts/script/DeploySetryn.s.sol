@@ -269,8 +269,8 @@ contract DeploySetryn is Script {
         deployment.tradingSessionPolicy = new TradingSessionPolicy(
             ISessionRegistry(address(deployment.sessionRegistry)),
             deployment.sequencerUptimeFeed,
-            WindowKindId.wrap(keccak256("SETRYN_SESSION_TRADING")),
-            WindowKindId.wrap(keccak256("SETRYN_SESSION_MAINTENANCE")),
+            WindowKindId.wrap(keccak256("SetrynWindowKindV1:Trading")),
+            WindowKindId.wrap(keccak256("SetrynWindowKindV1:Maintenance")),
             sequencerRecoveryGrace
         );
         deployment.packageWitnessRegistry = new PackageWitnessRegistry(deployment.packageRegistry);

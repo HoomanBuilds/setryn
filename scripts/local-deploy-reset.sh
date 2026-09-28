@@ -151,7 +151,12 @@ if port_is_occupied; then
     printf 'Refusing to start anvil because %s:%s is already occupied.\n' "$rpc_host" "$rpc_port" >&2
     exit 1
 fi
-rm -f "$state_file" "$log_file" "$deployment_directory/manifest.json"
+rm -f \
+    "$state_file" \
+    "$log_file" \
+    "$deployment_directory/manifest.json" \
+    "$deployment_directory/runtime.json" \
+    "$deployment_directory/runtime.tmp.json"
 
 anvil --silent --disable-code-size-limit --host "$rpc_bind_host" --port "$rpc_port" --chain-id "$chain_id" --state "$state_file" >"$log_file" 2>&1 &
 anvil_pid=$!
@@ -196,6 +201,10 @@ if [[ "$observed_chain_id" != "$chain_id" ]]; then
     exit 1
 fi
 
+safe_timestamp="$((($(date -u +%s) / 86400 + 1) * 86400 + 43200))"
+cast rpc evm_setNextBlockTimestamp "$safe_timestamp" --rpc-url "$rpc_url" >/dev/null
+cast rpc evm_mine --rpc-url "$rpc_url" >/dev/null
+
 accounts_json="$(cast rpc eth_accounts --rpc-url "$rpc_url")"
 mapfile -t local_accounts < <(
     ACCOUNTS_JSON="$accounts_json" node -e '
@@ -223,6 +232,7 @@ export SETRYN_EXCESS_RECOVERY_OPERATOR="${local_accounts[4]}"
 export SETRYN_PRIVACY_KEY_PUBLISHER="${local_accounts[5]}"
 export SETRYN_LIFECYCLE_WITNESS_STAGER="${local_accounts[6]}"
 export SETRYN_EVALUATION_GAS_HARD_CAP=2000000
+export SETRYN_SEQUENCER_RECOVERY_GRACE=1
 export SETRYN_DEPLOYMENT_ID=0xd008df4e26809366bea8099013ff60a895a26d818a8604d326067034ed7a7c93
 
 forge script "$repository_root/contracts/script/DeploySetryn.s.sol:DeploySetryn" \
@@ -240,6 +250,85 @@ node "$repository_root/scripts/generate-deployment-evidence.mjs" \
     --rpc-url "$rpc_url" \
     --broadcast "$repository_root/contracts/broadcast/DeploySetryn.s.sol/$chain_id/run-latest.json" \
     --output "$deployment_directory/manifest.json"
+
+mapfile -t bootstrap_addresses < <(
+    SETRYN_MANIFEST="$deployment_directory/manifest.json" node -e '
+        const manifest = require(process.env.SETRYN_MANIFEST);
+        const deployments = [...(manifest.contracts ?? []), ...(manifest.phase2?.deployments ?? [])];
+        const required = [
+            "AssetRegistry",
+            "AdapterRegistry",
+            "CalendarRegistry",
+            "SessionRegistry",
+            "SettlementAssetRegistry",
+            "BenchmarkRegistry",
+            "FeeScheduleRegistry",
+            "RiskDomainRegistry",
+            "InstrumentRegistry",
+            "MarketRegistry",
+            "SeriesRegistry",
+            "CanonicalStrategyCompiler",
+            "CappedForwardPayoffModule",
+            "CollateralVault",
+            "PortfolioRiskEngine",
+            "ExecutionPolicyRegistry",
+            "TradingSessionPolicy",
+            "OrderState",
+            "AtomicClearingEngine",
+            "PublicOrderBook",
+        ];
+        for (const name of required) {
+            const matches = deployments.filter((deployment) => deployment.name === name);
+            if (matches.length !== 1 || !/^0x[0-9a-fA-F]{40}$/.test(matches[0].address)) process.exit(1);
+            process.stdout.write(`${matches[0].address}\n`);
+        }
+    '
+) || {
+    printf 'Deployment manifest does not contain the complete devnet bootstrap dependency graph.\n' >&2
+    exit 1
+}
+if [[ "${#bootstrap_addresses[@]}" -ne 20 ]]; then
+    printf 'Deployment manifest returned an invalid devnet bootstrap dependency set.\n' >&2
+    exit 1
+fi
+
+export SETRYN_ASSET_REGISTRY="${bootstrap_addresses[0]}"
+export SETRYN_ADAPTER_REGISTRY="${bootstrap_addresses[1]}"
+export SETRYN_CALENDAR_REGISTRY="${bootstrap_addresses[2]}"
+export SETRYN_SESSION_REGISTRY="${bootstrap_addresses[3]}"
+export SETRYN_SETTLEMENT_ASSET_REGISTRY="${bootstrap_addresses[4]}"
+export SETRYN_BENCHMARK_REGISTRY="${bootstrap_addresses[5]}"
+export SETRYN_FEE_SCHEDULE_REGISTRY="${bootstrap_addresses[6]}"
+export SETRYN_RISK_DOMAIN_REGISTRY="${bootstrap_addresses[7]}"
+export SETRYN_INSTRUMENT_REGISTRY="${bootstrap_addresses[8]}"
+export SETRYN_MARKET_REGISTRY="${bootstrap_addresses[9]}"
+export SETRYN_SERIES_REGISTRY="${bootstrap_addresses[10]}"
+export SETRYN_CANONICAL_STRATEGY_COMPILER="${bootstrap_addresses[11]}"
+export SETRYN_CAPPED_FORWARD_PAYOFF_MODULE="${bootstrap_addresses[12]}"
+export SETRYN_COLLATERAL_VAULT="${bootstrap_addresses[13]}"
+export SETRYN_PORTFOLIO_RISK_ENGINE="${bootstrap_addresses[14]}"
+export SETRYN_EXECUTION_POLICY_REGISTRY="${bootstrap_addresses[15]}"
+export SETRYN_TRADING_SESSION_POLICY="${bootstrap_addresses[16]}"
+export SETRYN_ORDER_STATE="${bootstrap_addresses[17]}"
+export SETRYN_ATOMIC_CLEARING_ENGINE="${bootstrap_addresses[18]}"
+export SETRYN_PUBLIC_ORDER_BOOK="${bootstrap_addresses[19]}"
+export SETRYN_RUNTIME_OUTPUT="$deployment_directory/runtime.tmp.json"
+
+forge script "$repository_root/contracts/script/BootstrapSetrynDevnet.s.sol:BootstrapSetrynDevnet" \
+    --root "$repository_root/contracts" \
+    --rpc-url "$rpc_url" \
+    --sender "$SETRYN_GOVERNANCE_OPERATOR" \
+    --unlocked \
+    --disable-code-size-limit \
+    --non-interactive \
+    --slow \
+    --broadcast
+
+if [[ ! -s "$deployment_directory/runtime.tmp.json" ]]; then
+    printf 'Devnet bootstrap completed without producing runtime evidence.\n' >&2
+    exit 1
+fi
+mv "$deployment_directory/runtime.tmp.json" "$deployment_directory/runtime.json"
 
 trap - ERR INT TERM
 printf 'Local Setryn deployment ready at %s (anvil PID %s).\n' "$rpc_url" "$anvil_pid"
