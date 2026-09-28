@@ -435,6 +435,11 @@ contract DeploySetryn is Script {
             .grantRole(deployment.fundedFeeEngine.FEE_ACTION_CONSUMER_ROLE(), address(deployment.atomicClearingEngine));
         deployment.portfolioRiskEngine
             .grantRole(deployment.portfolioRiskEngine.RISK_CONSUMER_ROLE(), address(deployment.atomicClearingEngine));
+        deployment.portfolioRiskEngine
+            .grantRole(deployment.portfolioRiskEngine.RISK_CONSUMER_ROLE(), governanceOperator);
+        deployment.portfolioRiskEngine.grantRole(
+            deployment.portfolioRiskEngine.RISK_CONSUMER_ROLE(), address(deployment.riskAdmissionBindingRegistry)
+        );
         deployment.publicOrderBook.grantRole(deployment.publicOrderBook.DEFAULT_ADMIN_ROLE(), governanceAdmin);
         deployment.publicOrderBook.grantRole(deployment.publicOrderBook.ROUTE_RESERVER_ROLE(), governanceOperator);
         deployment.publicOrderBook.revokeRole(deployment.publicOrderBook.ROUTE_RESERVER_ROLE(), bootstrapAdmin);

@@ -271,6 +271,7 @@ mapfile -t bootstrap_addresses < <(
             "CappedForwardPayoffModule",
             "CollateralVault",
             "PortfolioRiskEngine",
+            "RiskAdmissionBindingRegistry",
             "ExecutionPolicyRegistry",
             "TradingSessionPolicy",
             "OrderState",
@@ -287,7 +288,7 @@ mapfile -t bootstrap_addresses < <(
     printf 'Deployment manifest does not contain the complete devnet bootstrap dependency graph.\n' >&2
     exit 1
 }
-if [[ "${#bootstrap_addresses[@]}" -ne 20 ]]; then
+if [[ "${#bootstrap_addresses[@]}" -ne 21 ]]; then
     printf 'Deployment manifest returned an invalid devnet bootstrap dependency set.\n' >&2
     exit 1
 fi
@@ -307,11 +308,12 @@ export SETRYN_CANONICAL_STRATEGY_COMPILER="${bootstrap_addresses[11]}"
 export SETRYN_CAPPED_FORWARD_PAYOFF_MODULE="${bootstrap_addresses[12]}"
 export SETRYN_COLLATERAL_VAULT="${bootstrap_addresses[13]}"
 export SETRYN_PORTFOLIO_RISK_ENGINE="${bootstrap_addresses[14]}"
-export SETRYN_EXECUTION_POLICY_REGISTRY="${bootstrap_addresses[15]}"
-export SETRYN_TRADING_SESSION_POLICY="${bootstrap_addresses[16]}"
-export SETRYN_ORDER_STATE="${bootstrap_addresses[17]}"
-export SETRYN_ATOMIC_CLEARING_ENGINE="${bootstrap_addresses[18]}"
-export SETRYN_PUBLIC_ORDER_BOOK="${bootstrap_addresses[19]}"
+export SETRYN_RISK_ADMISSION_BINDING_REGISTRY="${bootstrap_addresses[15]}"
+export SETRYN_EXECUTION_POLICY_REGISTRY="${bootstrap_addresses[16]}"
+export SETRYN_TRADING_SESSION_POLICY="${bootstrap_addresses[17]}"
+export SETRYN_ORDER_STATE="${bootstrap_addresses[18]}"
+export SETRYN_ATOMIC_CLEARING_ENGINE="${bootstrap_addresses[19]}"
+export SETRYN_PUBLIC_ORDER_BOOK="${bootstrap_addresses[20]}"
 export SETRYN_RUNTIME_OUTPUT="$deployment_directory/runtime.tmp.json"
 
 forge script "$repository_root/contracts/script/BootstrapSetrynDevnet.s.sol:BootstrapSetrynDevnet" \

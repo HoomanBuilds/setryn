@@ -111,6 +111,7 @@ contract BootstrapSetrynDevnet is Script {
         ITradingSessionPolicy tradingSessionPolicy;
         address collateralVault;
         address portfolioRiskEngine;
+        address riskAdmissionBindingRegistry;
         address orderState;
         address atomicClearingEngine;
         address publicOrderBook;
@@ -656,6 +657,7 @@ contract BootstrapSetrynDevnet is Script {
         c.tradingSessionPolicy = ITradingSessionPolicy(_dependency("SETRYN_TRADING_SESSION_POLICY"));
         c.collateralVault = _dependency("SETRYN_COLLATERAL_VAULT");
         c.portfolioRiskEngine = _dependency("SETRYN_PORTFOLIO_RISK_ENGINE");
+        c.riskAdmissionBindingRegistry = _dependency("SETRYN_RISK_ADMISSION_BINDING_REGISTRY");
         c.orderState = _dependency("SETRYN_ORDER_STATE");
         c.atomicClearingEngine = _dependency("SETRYN_ATOMIC_CLEARING_ENGINE");
         c.publicOrderBook = _dependency("SETRYN_PUBLIC_ORDER_BOOK");
@@ -672,7 +674,7 @@ contract BootstrapSetrynDevnet is Script {
 
     function _writeRuntime(Contracts memory c, Runtime memory runtime, address operator, string memory output) private {
         string memory objectKey = "setryn-runtime";
-        vm.serializeUint(objectKey, "schemaVersion", 1);
+        vm.serializeUint(objectKey, "schemaVersion", 2);
         vm.serializeUint(objectKey, "chainId", block.chainid);
         vm.serializeUint(objectKey, "day", runtime.day);
         vm.serializeAddress(objectKey, "operator", operator);
@@ -693,6 +695,7 @@ contract BootstrapSetrynDevnet is Script {
         vm.serializeAddress(objectKey, "cappedForwardPayoffModule", address(c.payoffModule));
         vm.serializeAddress(objectKey, "collateralVault", c.collateralVault);
         vm.serializeAddress(objectKey, "portfolioRiskEngine", c.portfolioRiskEngine);
+        vm.serializeAddress(objectKey, "riskAdmissionBindingRegistry", c.riskAdmissionBindingRegistry);
         vm.serializeAddress(objectKey, "executionPolicyRegistry", address(c.executionPolicy));
         vm.serializeAddress(objectKey, "tradingSessionPolicy", address(c.tradingSessionPolicy));
         vm.serializeAddress(objectKey, "orderState", c.orderState);
