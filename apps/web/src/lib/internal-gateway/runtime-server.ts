@@ -17,7 +17,12 @@ const ADDRESS_FIELDS = [
   "tradingSessionPolicy",
   "orderState",
   "atomicClearingEngine",
+  "privateRfqValidationGate",
+  "privateRfqBook",
   "publicOrderBook",
+  "positionEngine",
+  "lifecyclePolicyValidator",
+  "signedLifecycleEngine",
 ] as const;
 
 const HASH_FIELDS = [
@@ -49,7 +54,7 @@ function localRpcUrl(): string {
 function validateRuntime(candidate: unknown): Omit<SetrynRuntime, "rpcUrl"> {
   if (!candidate || typeof candidate !== "object") throw new Error("INVALID_RUNTIME");
   const record = candidate as Record<string, unknown>;
-  if (record.schemaVersion !== 4 || record.chainId !== 31337 || typeof record.day !== "number") {
+  if (record.schemaVersion !== 6 || record.chainId !== 31337 || typeof record.day !== "number") {
     throw new Error("INVALID_RUNTIME");
   }
   for (const field of ADDRESS_FIELDS) {

@@ -122,6 +122,8 @@ contract BootstrapSetrynDevnet is Script {
         address riskAdmissionBindingRegistry;
         address orderState;
         address atomicClearingEngine;
+        address privateRfqValidationGate;
+        address privateRfqBook;
         address publicOrderBook;
         address positionEngine;
         address lifecyclePolicyValidator;
@@ -739,6 +741,8 @@ contract BootstrapSetrynDevnet is Script {
         c.riskAdmissionBindingRegistry = _dependency("SETRYN_RISK_ADMISSION_BINDING_REGISTRY");
         c.orderState = _dependency("SETRYN_ORDER_STATE");
         c.atomicClearingEngine = _dependency("SETRYN_ATOMIC_CLEARING_ENGINE");
+        c.privateRfqValidationGate = _dependency("SETRYN_PRIVATE_RFQ_VALIDATION_GATE");
+        c.privateRfqBook = _dependency("SETRYN_PRIVATE_RFQ_BOOK");
         c.publicOrderBook = _dependency("SETRYN_PUBLIC_ORDER_BOOK");
         c.positionEngine = _dependency("SETRYN_POSITION_ENGINE");
         c.lifecyclePolicyValidator = _dependency("SETRYN_LIFECYCLE_POLICY_VALIDATOR");
@@ -756,7 +760,7 @@ contract BootstrapSetrynDevnet is Script {
 
     function _writeRuntime(Contracts memory c, Runtime memory runtime, address operator, string memory output) private {
         string memory objectKey = "setryn-runtime";
-        vm.serializeUint(objectKey, "schemaVersion", 5);
+        vm.serializeUint(objectKey, "schemaVersion", 6);
         vm.serializeUint(objectKey, "chainId", block.chainid);
         vm.serializeUint(objectKey, "day", runtime.day);
         vm.serializeAddress(objectKey, "operator", operator);
@@ -783,6 +787,8 @@ contract BootstrapSetrynDevnet is Script {
         vm.serializeAddress(objectKey, "tradingSessionPolicy", address(c.tradingSessionPolicy));
         vm.serializeAddress(objectKey, "orderState", c.orderState);
         vm.serializeAddress(objectKey, "atomicClearingEngine", c.atomicClearingEngine);
+        vm.serializeAddress(objectKey, "privateRfqValidationGate", c.privateRfqValidationGate);
+        vm.serializeAddress(objectKey, "privateRfqBook", c.privateRfqBook);
         vm.serializeAddress(objectKey, "publicOrderBook", c.publicOrderBook);
         vm.serializeAddress(objectKey, "positionEngine", c.positionEngine);
         vm.serializeAddress(objectKey, "lifecyclePolicyValidator", c.lifecyclePolicyValidator);

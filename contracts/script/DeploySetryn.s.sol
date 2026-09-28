@@ -20,6 +20,7 @@ import {IBenchmarkRegistry} from "../src/interfaces/IBenchmarkRegistry.sol";
 import {ICalendarRegistry} from "../src/interfaces/ICalendarRegistry.sol";
 import {ICollateralVault} from "../src/interfaces/ICollateralVault.sol";
 import {IFeeScheduleRegistry} from "../src/interfaces/IFeeScheduleRegistry.sol";
+import {IFirmCapacityVault} from "../src/interfaces/IFirmCapacityVault.sol";
 import {IInstrumentRegistry} from "../src/interfaces/IInstrumentRegistry.sol";
 import {IMarketRegistry} from "../src/interfaces/IMarketRegistry.sol";
 import {IPositionEngine} from "../src/interfaces/IPositionEngine.sol";
@@ -42,11 +43,13 @@ import {SettlementAssetRegistry} from "../src/registry/SettlementAssetRegistry.s
 import {PositionEngine} from "../src/position/PositionEngine.sol";
 import {PortfolioRiskEngine} from "../src/risk/PortfolioRiskEngine.sol";
 import {PublicOrderBook} from "../src/book/PublicOrderBook.sol";
+import {PrivateRfqBook} from "../src/rfq/PrivateRfqBook.sol";
 import {OrderState} from "../src/orders/OrderState.sol";
 import {ClearingAdmissionGate} from "../src/policy/ClearingAdmissionGate.sol";
 import {ExecutionPolicyRegistry} from "../src/policy/ExecutionPolicyRegistry.sol";
 import {OrderValidationGate} from "../src/policy/OrderValidationGate.sol";
 import {PackageWitnessRegistry} from "../src/policy/PackageWitnessRegistry.sol";
+import {PrivateRfqValidationGate} from "../src/policy/PrivateRfqValidationGate.sol";
 import {PublicBookEligibilityGate} from "../src/policy/PublicBookEligibilityGate.sol";
 import {RiskAdmissionBindingRegistry} from "../src/policy/RiskAdmissionBindingRegistry.sol";
 import {TradingSessionPolicy} from "../src/policy/TradingSessionPolicy.sol";
@@ -75,6 +78,7 @@ import {
     WindowAverageScalarPayoffModule
 } from "../src/payoff/ProductionPayoffModules.sol";
 import {WindowKindId} from "../src/types/Identifiers.sol";
+import {ClearingChannelKind} from "../src/types/ClearingTypes.sol";
 
 contract DeploySetryn is Script {
     uint256 private constant ARBITRUM_ONE_CHAIN_ID = 42161;
@@ -84,6 +88,7 @@ contract DeploySetryn is Script {
 
     bytes32 private constant LOCAL_ENVIRONMENT = keccak256("local");
     bytes32 private constant ARBITRUM_SEPOLIA_ENVIRONMENT = keccak256("arbitrum-sepolia");
+    bytes32 private constant PRIVATE_RFQ_CLEARING_CAPABILITY = keccak256("SetrynPrivateRfqClearingChannelV1");
 
     error ArbitrumOneDeploymentDisabled();
     error EnvironmentChainMismatch(string environment, uint256 chainId);
@@ -123,6 +128,8 @@ contract DeploySetryn is Script {
         OrderState orderState;
         ClearingAdmissionGate clearingAdmissionGate;
         AtomicClearingEngine atomicClearingEngine;
+        PrivateRfqValidationGate privateRfqValidationGate;
+        PrivateRfqBook privateRfqBook;
         PublicBookEligibilityGate publicBookEligibilityGate;
         PublicOrderBook publicOrderBook;
         PositionLifecycleExecutor positionLifecycleExecutor;
@@ -179,6 +186,7 @@ contract DeploySetryn is Script {
         uint64 operationalReadGas = _envUint64("SETRYN_OPERATIONAL_READ_GAS", 500_000);
         uint64 operationalExecutionGas = _envUint64("SETRYN_OPERATIONAL_EXECUTION_GAS", 800_000);
         uint64 maximumOrderLifetime = _envUint64("SETRYN_MAXIMUM_ORDER_LIFETIME", 30 days);
+        uint64 maximumRfqCapacityTail = _envUint64("SETRYN_MAXIMUM_RFQ_CAPACITY_TAIL", 1 days);
         uint64 sequencerRecoveryGrace = _envUint64("SETRYN_SEQUENCER_RECOVERY_GRACE", 1 hours);
         bytes32 deploymentId = vm.envBytes32("SETRYN_DEPLOYMENT_ID");
 
@@ -305,6 +313,24 @@ contract DeploySetryn is Script {
             deployment.collateralVault,
             deployment.clearingAdmissionGate,
             deployment.fundedFeeEngine
+        );
+        deployment.privateRfqValidationGate = new PrivateRfqValidationGate(
+            deployment.seriesRegistry,
+            deployment.packageRegistry,
+            deployment.executionPolicyRegistry,
+            deployment.tradingSessionPolicy,
+            deployment.packageWitnessRegistry
+        );
+        deployment.privateRfqBook = new PrivateRfqBook(
+            defaultAdminDelay,
+            initialAdmin,
+            IFirmCapacityVault(address(deployment.collateralVault)),
+            deployment.privateRfqValidationGate,
+            address(deployment.atomicClearingEngine),
+            maximumRfqCapacityTail
+        );
+        deployment.atomicClearingEngine.activateClearingChannel(
+            ClearingChannelKind.PrivateRfq, deployment.privateRfqBook, PRIVATE_RFQ_CLEARING_CAPABILITY
         );
         deployment.publicBookEligibilityGate = new PublicBookEligibilityGate(
             deployment.orderState,
@@ -444,6 +470,8 @@ contract DeploySetryn is Script {
         deployment.publicOrderBook.grantRole(deployment.publicOrderBook.ROUTE_RESERVER_ROLE(), governanceOperator);
         deployment.publicOrderBook.revokeRole(deployment.publicOrderBook.ROUTE_RESERVER_ROLE(), bootstrapAdmin);
         deployment.publicOrderBook.revokeRole(deployment.publicOrderBook.DEFAULT_ADMIN_ROLE(), bootstrapAdmin);
+        deployment.privateRfqBook.grantRole(deployment.privateRfqBook.ROUTE_RESERVER_ROLE(), governanceOperator);
+        deployment.privateRfqBook.revokeRole(deployment.privateRfqBook.ROUTE_RESERVER_ROLE(), bootstrapAdmin);
         deployment.collateralVault
             .grantRole(deployment.collateralVault.COLLATERAL_LOCKER_ROLE(), address(deployment.positionEngine));
         deployment.collateralVault
@@ -622,6 +650,7 @@ contract DeploySetryn is Script {
         _beginAdminTransfer(address(d.executionPolicyRegistry), governanceAdmin);
         _beginAdminTransfer(address(d.orderState), governanceAdmin);
         _beginAdminTransfer(address(d.atomicClearingEngine), governanceAdmin);
+        _beginAdminTransfer(address(d.privateRfqBook), governanceAdmin);
     }
 
     function _beginAdminTransfer(address target, address governanceAdmin) private {
@@ -779,6 +808,8 @@ contract DeploySetryn is Script {
         console2.log("OrderState", address(deployment.orderState));
         console2.log("ClearingAdmissionGate", address(deployment.clearingAdmissionGate));
         console2.log("AtomicClearingEngine", address(deployment.atomicClearingEngine));
+        console2.log("PrivateRfqValidationGate", address(deployment.privateRfqValidationGate));
+        console2.log("PrivateRfqBook", address(deployment.privateRfqBook));
         console2.log("PublicBookEligibilityGate", address(deployment.publicBookEligibilityGate));
         console2.log("PublicOrderBook", address(deployment.publicOrderBook));
         console2.log("PositionLifecycleExecutor", address(deployment.positionLifecycleExecutor));

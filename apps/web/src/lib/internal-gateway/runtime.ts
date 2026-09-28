@@ -16,6 +16,8 @@ export interface SetrynRuntime {
   tradingSessionPolicy: Address;
   orderState: Address;
   atomicClearingEngine: Address;
+  privateRfqValidationGate: Address;
+  privateRfqBook: Address;
   publicOrderBook: Address;
   positionEngine: Address;
   lifecyclePolicyValidator: Address;
