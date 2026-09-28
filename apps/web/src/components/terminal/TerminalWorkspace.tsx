@@ -297,6 +297,32 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     [gatewaySnapshot.positions, liveMarket.id],
   );
 
+  const positionOverlays = useMemo(
+    () =>
+      gatewaySnapshot.positions
+        .filter((position) => position.marketId === liveMarket.id)
+        .map((position) => ({
+          id: position.id,
+          entryPrice: position.entryPrice,
+          lots: position.lots,
+          side: position.side,
+        })),
+    [gatewaySnapshot.positions, liveMarket.id],
+  );
+
+  const orderOverlays = useMemo(
+    () =>
+      gatewaySnapshot.restingOrders
+        .filter((order) => order.marketId === liveMarket.id && order.state === "WORKING")
+        .map((order) => ({
+          id: order.id,
+          limitPrice: order.limitPrice,
+          lots: order.lots,
+          side: order.side,
+        })),
+    [gatewaySnapshot.restingOrders, liveMarket.id],
+  );
+
   const selectedClosePosition = useMemo(
     () =>
       ticket.intent === "EXIT" && ticket.closePositionId
@@ -668,6 +694,8 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
               onTab={setVizTab}
               lots={Math.max(1, preview.lots)}
               previewEpochSeconds={previewEpochSeconds}
+              positionOverlays={positionOverlays}
+              orderOverlays={orderOverlays}
             />
           </div>
           <div className="shrink-0 px-3 lg:hidden">

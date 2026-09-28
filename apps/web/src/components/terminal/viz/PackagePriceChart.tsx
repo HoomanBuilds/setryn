@@ -12,6 +12,7 @@ import {
   createChart,
   type CandlestickData,
   type IChartApi,
+  type IPriceLine,
   type ISeriesApi,
   type LineData,
   type MouseEventParams,
@@ -50,6 +51,32 @@ const MODES: { id: ChartMode; label: string }[] = [
 ];
 
 const CHART_PREFS_KEY = "setryn:chart-prefs";
+
+export interface PositionPriceOverlay {
+  id: string;
+  entryPrice: number;
+  lots: number;
+  side: "LONG" | "SHORT";
+}
+
+export interface WorkingOrderPriceOverlay {
+  id: string;
+  limitPrice: number;
+  lots: number;
+  side: "ENTER" | "EXIT";
+}
+
+function shortOverlayId(id: string): string {
+  const trimmed = id.trim();
+  if (trimmed.length <= 4) return trimmed.toUpperCase();
+  return trimmed.slice(-4).toUpperCase();
+}
+
+function formatOverlayLots(lots: number): string {
+  if (!Number.isFinite(lots)) return "0";
+  const bounded = Number(lots.toFixed(4));
+  return bounded.toLocaleString("en-US", { maximumFractionDigits: 4 });
+}
 
 function toCandlestickData(candle: PreviewCandle): CandlestickData<UTCTimestamp> {
   return {
@@ -107,10 +134,14 @@ export function PackagePriceChart({
   market,
   baseMarket,
   previewEpochSeconds,
+  positionOverlays = [],
+  orderOverlays = [],
 }: {
   market: PackageMarket;
   baseMarket: PackageMarket;
   previewEpochSeconds: number;
+  positionOverlays?: PositionPriceOverlay[];
+  orderOverlays?: WorkingOrderPriceOverlay[];
 }) {
   const shell = useRef<HTMLDivElement>(null);
   const holder = useRef<HTMLDivElement>(null);
@@ -386,6 +417,58 @@ export function PackagePriceChart({
     updateSeries(active, next);
     setLatest(next);
   }, [interval, market.netPrice, previewEpochSeconds, mode]);
+
+  useEffect(() => {
+    const active = seriesRef.current;
+    if (!active) return;
+    const lines: IPriceLine[] = [];
+    for (const position of positionOverlays) {
+      if (!Number.isFinite(position.entryPrice)) continue;
+      const entryLabel = position.side === "LONG" ? "Long entry" : "Short entry";
+      lines.push(
+        active.api.createPriceLine({
+          price: position.entryPrice,
+          color: CHART_THEME.brand,
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: `${entryLabel} ${shortOverlayId(position.id)} ${formatOverlayLots(position.lots)} lots`,
+        }),
+      );
+    }
+    for (const order of orderOverlays) {
+      if (!Number.isFinite(order.limitPrice)) continue;
+      const sideLabel = order.side === "ENTER" ? "Enter" : "Exit";
+      lines.push(
+        active.api.createPriceLine({
+          price: order.limitPrice,
+          color: order.side === "ENTER" ? CHART_THEME.up : CHART_THEME.down,
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: `${sideLabel} ${shortOverlayId(order.id)} ${formatOverlayLots(order.lots)} lots`,
+        }),
+      );
+    }
+    return () => {
+      for (const line of lines) {
+        try {
+          active.api.removePriceLine(line);
+        } catch {
+          continue;
+        }
+      }
+    };
+  }, [
+    positionOverlays,
+    orderOverlays,
+    mode,
+    history,
+    baseMarket.id,
+    baseMarket.priceDecimals,
+    baseMarket.priorNetPrice,
+    rising,
+  ]);
 
   useEffect(() => {
     const onFullscreenChange = () => setFullscreen(document.fullscreenElement === shell.current);

@@ -3,7 +3,11 @@
 import { Tabs } from "@/components/terminal/primitives";
 import { DepthChart } from "@/components/terminal/viz/DepthChart";
 import { LegGraph } from "@/components/terminal/viz/LegGraph";
-import { PackagePriceChart } from "@/components/terminal/viz/PackagePriceChart";
+import {
+  PackagePriceChart,
+  type PositionPriceOverlay,
+  type WorkingOrderPriceOverlay,
+} from "@/components/terminal/viz/PackagePriceChart";
 import { PayoffChart } from "@/components/terminal/viz/PayoffChart";
 import { formatUtcClock } from "@/lib/terminal/format";
 import type { PackageMarket } from "@/lib/terminal/types";
@@ -24,6 +28,8 @@ export function AnalysisPanel({
   onTab,
   lots,
   previewEpochSeconds,
+  positionOverlays = [],
+  orderOverlays = [],
 }: {
   market: PackageMarket;
   baseMarket: PackageMarket;
@@ -31,6 +37,8 @@ export function AnalysisPanel({
   onTab: (tab: VizTab) => void;
   lots: number;
   previewEpochSeconds: number;
+  positionOverlays?: PositionPriceOverlay[];
+  orderOverlays?: WorkingOrderPriceOverlay[];
 }) {
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-panel">
@@ -67,6 +75,8 @@ export function AnalysisPanel({
             market={market}
             baseMarket={baseMarket}
             previewEpochSeconds={previewEpochSeconds}
+            positionOverlays={positionOverlays}
+            orderOverlays={orderOverlays}
           />
         ) : null}
         {tab === "depth" ? <DepthChart market={market} /> : null}
