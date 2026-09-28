@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Check, CircleAlert, LoaderCircle } from "lucide-react";
 import { SectionLabel } from "@/components/terminal/primitives";
+import { formatLots } from "@/lib/terminal/format";
 import type { OrderExecutionProgress, SubmissionStepId } from "@/lib/internal-gateway/types";
 
 const BASE_STEPS: SubmissionStepId[] = [
@@ -28,16 +29,31 @@ function stateLabel(status: OrderExecutionProgress["status"]): string {
 
 export function ExecutionTimeline({ progress }: { progress: OrderExecutionProgress }) {
   if (progress.status === "RESTING") {
-    const orderId = progress.restingOrder?.id ?? progress.authorization?.orderHash ?? "";
+    const restingOrder = progress.restingOrder ?? null;
+    const orderId = restingOrder?.id ?? progress.authorization?.orderHash ?? "";
+    const partial = restingOrder?.state === "PARTIALLY_FILLED";
+    const filled =
+      restingOrder && typeof restingOrder.filledLots === "number" && Number.isFinite(restingOrder.filledLots)
+        ? restingOrder.filledLots
+        : null;
+    const remaining =
+      restingOrder && typeof restingOrder.remainingLots === "number" && Number.isFinite(restingOrder.remainingLots)
+        ? restingOrder.remainingLots
+        : null;
+    const latestReceipt = restingOrder?.receiptId ?? null;
     return (
       <div className="overflow-hidden rounded-md border border-line-strong bg-raised">
         <div className="flex items-center justify-between gap-3 border-b border-line px-3 py-2">
           <SectionLabel>Execution timeline</SectionLabel>
-          <span className="text-xs text-dim">Working locally</span>
+          <span className="text-xs text-dim">{partial ? "Partially filled" : "Working locally"}</span>
         </div>
         <div className="px-3 py-2.5 text-xs leading-snug text-dim">
           <p>{`Resting order ${orderId} is working locally.`}</p>
-          <p className="mt-1 text-faint">No fill, receipt, or position. Local demo only.</p>
+          {partial && filled !== null && remaining !== null ? (
+            <p className="mt-1 text-dim">{`${formatLots(filled)} of ${formatLots(restingOrder?.lots ?? 0)} lots filled. ${formatLots(remaining)} lots working${latestReceipt ? `. Latest receipt ${latestReceipt}` : ""}.`}</p>
+          ) : (
+            <p className="mt-1 text-faint">No fill, receipt, or position. Local demo only.</p>
+          )}
           {orderId ? (
             <p className="tnum mt-1 font-mono text-ink">{orderId}</p>
           ) : null}

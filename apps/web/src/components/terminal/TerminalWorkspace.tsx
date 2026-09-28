@@ -239,7 +239,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     const target = gatewaySnapshot.restingOrders.find(
       (candidate) => candidate.id === amendmentOrderId,
     );
-    if (target && target.state === "WORKING") return;
+    if (target && (target.state === "WORKING" || target.state === "PARTIALLY_FILLED")) return;
     setAmendmentOrderId(null);
     setStage({ kind: "IDLE" });
     setExecution({ status: "IDLE", updates: [] });
@@ -252,7 +252,28 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     const order = gatewaySnapshot.restingOrders.find(
       (candidate) => candidate.id === stage.orderId,
     );
-    if (!order || order.state !== "FILLED") return;
+    if (!order) return;
+    if (order.state === "PARTIALLY_FILLED") {
+      setExecution((current) => {
+        if (current.restingOrder?.id === order.id && current.restingOrder?.state === order.state) {
+          const currentFilled =
+            (current.restingOrder as { filledLots?: unknown }).filledLots ?? null;
+          if (currentFilled === order.filledLots) return current;
+        }
+        return { ...current, restingOrder: order };
+      });
+      return;
+    }
+    if (
+      order.state === "CANCELLED" ||
+      order.state === "EXPIRED" ||
+      order.state === "REPLACED"
+    ) {
+      setStage({ kind: "IDLE" });
+      setExecution({ status: "IDLE", updates: [] });
+      return;
+    }
+    if (order.state !== "FILLED") return;
     const record = gatewaySnapshot.executions.find(
       (candidate) => candidate.orderHash === order.orderHash,
     );
@@ -398,11 +419,18 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   const orderOverlays = useMemo(
     () =>
       gatewaySnapshot.restingOrders
-        .filter((order) => order.marketId === liveMarket.id && order.state === "WORKING")
+        .filter(
+          (order) =>
+            order.marketId === liveMarket.id &&
+            (order.state === "WORKING" || order.state === "PARTIALLY_FILLED"),
+        )
         .map((order) => ({
           id: order.id,
           limitPrice: order.limitPrice,
-          lots: order.lots,
+          lots:
+            typeof order.remainingLots === "number" && Number.isFinite(order.remainingLots)
+              ? order.remainingLots
+              : order.lots,
           side: order.side,
           packageSide: order.packageSide,
         })),
@@ -468,7 +496,11 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       10_000;
     const creditedAvailable =
       amendmentOrder && amendmentOrder.side === "ENTER"
-        ? gatewaySnapshot.account.available + amendmentOrder.collateralReservation
+        ? gatewaySnapshot.account.available +
+          (typeof amendmentOrder.remainingCollateralReservation === "number" &&
+          Number.isFinite(amendmentOrder.remainingCollateralReservation)
+            ? amendmentOrder.remainingCollateralReservation
+            : amendmentOrder.collateralReservation)
         : gatewaySnapshot.account.available;
     const byCollateral = Math.floor(
       creditedAvailable / (liveMarket.collateralPerLot * multiple + feePerLot),
@@ -751,15 +783,24 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   const onAmendConsoleRestingOrder = useCallback(
     (orderId: string) => {
       const target = gatewaySnapshot.restingOrders.find((candidate) => candidate.id === orderId);
-      if (!target || target.state !== "WORKING" || target.marketId !== liveMarket.id) return;
+      if (
+        !target ||
+        (target.state !== "WORKING" && target.state !== "PARTIALLY_FILLED") ||
+        target.marketId !== liveMarket.id
+      )
+        return;
       if (target.timeInForce !== "GTC" && target.timeInForce !== "GTD") return;
       const targetRoute = liveMarket.routes.find((candidate) => candidate.id === target.routeId) ?? null;
       const initialRouteId = targetRoute && !targetRoute.requiresPrivate ? targetRoute.id : null;
+      const amendmentLots =
+        typeof target.remainingLots === "number" && Number.isFinite(target.remainingLots)
+          ? target.remainingLots
+          : target.lots;
       setTicket({
         intent: target.side,
         side: isPackageSide(target.packageSide) ? target.packageSide : "LONG",
         orderType: "LIMIT",
-        lotsInput: String(target.lots),
+        lotsInput: String(amendmentLots),
         limitInput: target.limitPrice.toFixed(liveMarket.priceDecimals),
         tif: target.timeInForce,
         expiresAt: target.timeInForce === "GTD" ? target.expiresAt : null,

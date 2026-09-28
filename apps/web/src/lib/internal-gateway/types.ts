@@ -112,7 +112,13 @@ export interface PackageOrderIntent {
 
 export type OrderType = "MARKET" | "LIMIT";
 
-export type RestingOrderState = "WORKING" | "CANCELLED" | "FILLED" | "REPLACED" | "EXPIRED";
+export type RestingOrderState =
+  | "WORKING"
+  | "PARTIALLY_FILLED"
+  | "CANCELLED"
+  | "FILLED"
+  | "REPLACED"
+  | "EXPIRED";
 
 export interface RestingPackageOrder {
   id: string;
@@ -125,11 +131,17 @@ export interface RestingPackageOrder {
   side: Intent;
   packageSide: PackageSide;
   lots: number;
+  filledLots: number;
+  remainingLots: number;
   limitPrice: number;
   timeInForce: TimeInForce;
   expiresAt: string | null;
   collateralReservation: number;
+  remainingCollateralReservation: number;
   feeCap: number;
+  remainingFeeCap: number;
+  fillIds: string[];
+  receiptIds: string[];
   closePositionId: string | null;
   replacesOrderId: string | null;
   replacedByOrderId?: string | null;

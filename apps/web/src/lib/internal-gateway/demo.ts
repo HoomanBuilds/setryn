@@ -189,6 +189,198 @@ function isValidGtdPair(
   return true;
 }
 
+const RESTING_TOL = 1e-9;
+
+function isLiveRestingState(state: unknown): boolean {
+  return state === "WORKING" || state === "PARTIALLY_FILLED";
+}
+
+function restingRemainingLots(order: RestingPackageOrder): number {
+  if (typeof order.remainingLots === "number" && Number.isFinite(order.remainingLots)) {
+    return order.remainingLots;
+  }
+  const filled = typeof order.filledLots === "number" && Number.isFinite(order.filledLots) ? order.filledLots : 0;
+  return Math.max(0, order.lots - filled);
+}
+
+function restingRemainingReservation(order: RestingPackageOrder): number {
+  if (
+    typeof order.remainingCollateralReservation === "number" &&
+    Number.isFinite(order.remainingCollateralReservation)
+  ) {
+    return order.remainingCollateralReservation;
+  }
+  return order.state === "WORKING" || order.state === "PARTIALLY_FILLED"
+    ? order.collateralReservation
+    : 0;
+}
+
+function restingRemainingFee(order: RestingPackageOrder): number {
+  if (typeof order.remainingFeeCap === "number" && Number.isFinite(order.remainingFeeCap)) {
+    return order.remainingFeeCap;
+  }
+  return order.state === "WORKING" || order.state === "PARTIALLY_FILLED" ? order.feeCap : 0;
+}
+
+function isNonEmptyId(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+function isIdArray(value: unknown): value is string[] {
+  if (!Array.isArray(value)) return false;
+  if (!value.every((entry) => isNonEmptyId(entry))) return false;
+  return new Set(value).size === value.length;
+}
+
+interface RestingProgress {
+  filledLots: number;
+  remainingLots: number;
+  remainingCollateralReservation: number;
+  remainingFeeCap: number;
+  fillIds: string[];
+  receiptIds: string[];
+}
+
+function migrateRestingProgress(
+  candidate: Partial<RestingPackageOrder> & { packageSide?: unknown },
+): RestingProgress | null {
+  const lots = candidate.lots;
+  const reservation = candidate.collateralReservation;
+  const feeCap = candidate.feeCap;
+  const state = candidate.state;
+  const side = candidate.side;
+  if (typeof lots !== "number" || !Number.isFinite(lots) || lots <= 0) return null;
+  if (typeof reservation !== "number" || !Number.isFinite(reservation) || reservation < 0) return null;
+  if (typeof feeCap !== "number" || !Number.isFinite(feeCap) || feeCap < 0) return null;
+  const rawFilled = (candidate as { filledLots?: unknown }).filledLots;
+  const rawRemaining = (candidate as { remainingLots?: unknown }).remainingLots;
+  const rawRemainingRes = (candidate as { remainingCollateralReservation?: unknown })
+    .remainingCollateralReservation;
+  const rawRemainingFee = (candidate as { remainingFeeCap?: unknown }).remainingFeeCap;
+  const rawFillIds = (candidate as { fillIds?: unknown }).fillIds;
+  const rawReceiptIds = (candidate as { receiptIds?: unknown }).receiptIds;
+  const singularFillId = candidate.fillId;
+  const singularReceiptId = candidate.receiptId;
+  const legacy =
+    rawFilled === undefined &&
+    rawRemaining === undefined &&
+    rawRemainingRes === undefined &&
+    rawRemainingFee === undefined &&
+    rawFillIds === undefined &&
+    rawReceiptIds === undefined;
+  if (legacy) {
+    if (side === "EXIT" && reservation !== 0) return null;
+    if (state === "FILLED") {
+      if (!isNonEmptyId(singularFillId) || !isNonEmptyId(singularReceiptId)) return null;
+      return {
+        filledLots: lots,
+        remainingLots: 0,
+        remainingCollateralReservation: 0,
+        remainingFeeCap: 0,
+        fillIds: [singularFillId],
+        receiptIds: [singularReceiptId],
+      };
+    }
+    const isLive = state === "WORKING";
+    const isTerminal =
+      state === "CANCELLED" || state === "REPLACED" || state === "EXPIRED";
+    if (!isLive && !isTerminal) return null;
+    return {
+      filledLots: 0,
+      remainingLots: lots,
+      remainingCollateralReservation: isLive ? reservation : 0,
+      remainingFeeCap: isLive ? feeCap : 0,
+      fillIds: [],
+      receiptIds: [],
+    };
+  }
+  if (
+    typeof rawFilled !== "number" ||
+    !Number.isFinite(rawFilled) ||
+    rawFilled < 0 ||
+    typeof rawRemaining !== "number" ||
+    !Number.isFinite(rawRemaining) ||
+    rawRemaining < 0 ||
+    typeof rawRemainingRes !== "number" ||
+    !Number.isFinite(rawRemainingRes) ||
+    rawRemainingRes < 0 ||
+    typeof rawRemainingFee !== "number" ||
+    !Number.isFinite(rawRemainingFee) ||
+    rawRemainingFee < 0 ||
+    !isIdArray(rawFillIds) ||
+    !isIdArray(rawReceiptIds)
+  ) {
+    return null;
+  }
+  if (Math.abs(rawFilled + rawRemaining - lots) > RESTING_TOL) return null;
+  if (rawFillIds.length !== rawReceiptIds.length) return null;
+  if (rawRemainingRes - reservation > RESTING_TOL) return null;
+  if (rawRemainingFee - feeCap > RESTING_TOL) return null;
+  if (side === "EXIT") {
+    if (reservation !== 0 || rawRemainingRes !== 0) return null;
+  } else if (rawRemainingFee - rawRemainingRes > RESTING_TOL) {
+    return null;
+  }
+  const hasHistory = rawFillIds.length > 0;
+  const filledPositive = rawFilled > RESTING_TOL;
+  const remainingPositive = rawRemaining > RESTING_TOL;
+  if (hasHistory !== filledPositive) return null;
+  if (hasHistory) {
+    if (singularFillId !== rawFillIds[rawFillIds.length - 1]) return null;
+    if (singularReceiptId !== rawReceiptIds[rawReceiptIds.length - 1]) return null;
+  } else if (singularFillId != null || singularReceiptId != null) {
+    return null;
+  }
+  if (state === "WORKING") {
+    if (filledPositive || !remainingPositive || hasHistory) return null;
+    if (Math.abs(rawRemaining - lots) > RESTING_TOL) return null;
+    if (Math.abs(rawRemainingRes - reservation) > RESTING_TOL) return null;
+    if (Math.abs(rawRemainingFee - feeCap) > RESTING_TOL) return null;
+  } else if (state === "PARTIALLY_FILLED") {
+    if (!filledPositive || !remainingPositive || !hasHistory) return null;
+  } else if (state === "FILLED") {
+    if (Math.abs(rawFilled - lots) > RESTING_TOL || remainingPositive) return null;
+    if (!hasHistory) return null;
+    if (Math.abs(rawRemainingRes) > RESTING_TOL || Math.abs(rawRemainingFee) > RESTING_TOL) {
+      return null;
+    }
+  } else {
+    if (!remainingPositive) return null;
+    if (Math.abs(rawRemainingRes) > RESTING_TOL || Math.abs(rawRemainingFee) > RESTING_TOL) {
+      return null;
+    }
+  }
+  return {
+    filledLots: rawFilled,
+    remainingLots: rawRemaining,
+    remainingCollateralReservation: rawRemainingRes,
+    remainingFeeCap: rawRemainingFee,
+    fillIds: [...rawFillIds],
+    receiptIds: [...rawReceiptIds],
+  };
+}
+
+function splitTrancheAmounts(
+  remainingReservation: number,
+  remainingFee: number,
+  trancheLots: number,
+  remainingLots: number,
+  isFinal: boolean,
+): { trancheFee: number; trancheCollateral: number } | null {
+  if (!Number.isFinite(trancheLots) || trancheLots <= 0) return null;
+  if (!Number.isFinite(remainingLots) || remainingLots <= 0) return null;
+  if (trancheLots - remainingLots > RESTING_TOL) return null;
+  const remainingCollateral = Math.max(0, remainingReservation - remainingFee);
+  if (isFinal) {
+    return { trancheFee: remainingFee, trancheCollateral: remainingCollateral };
+  }
+  const fraction = trancheLots / remainingLots;
+  return {
+    trancheFee: remainingFee * fraction,
+    trancheCollateral: remainingCollateral * fraction,
+  };
+}
+
 function initialSnapshot(): GatewaySnapshot {
   return {
     environment: {
@@ -281,13 +473,21 @@ function restoreSnapshot(): GatewaySnapshot {
               typeof candidate.routeLabel !== "string" ||
               (candidate.side !== "ENTER" && candidate.side !== "EXIT") ||
               typeof candidate.lots !== "number" ||
+              !Number.isFinite(candidate.lots) ||
+              candidate.lots <= 0 ||
               typeof candidate.limitPrice !== "number" ||
+              !Number.isFinite(candidate.limitPrice) ||
               (candidate.timeInForce !== "GTC" && candidate.timeInForce !== "GTD") ||
               typeof candidate.collateralReservation !== "number" ||
+              !Number.isFinite(candidate.collateralReservation) ||
+              candidate.collateralReservation < 0 ||
               typeof candidate.feeCap !== "number" ||
+              !Number.isFinite(candidate.feeCap) ||
+              candidate.feeCap < 0 ||
               (candidate.closePositionId !== null &&
                 typeof candidate.closePositionId !== "string") ||
-              typeof candidate.createdAt !== "string"
+              typeof candidate.createdAt !== "string" ||
+              !Number.isFinite(Date.parse(candidate.createdAt))
             ) {
               return false;
             }
@@ -296,6 +496,7 @@ function restoreSnapshot(): GatewaySnapshot {
             }
           if (
             candidate.state !== "WORKING" &&
+            candidate.state !== "PARTIALLY_FILLED" &&
             candidate.state !== "CANCELLED" &&
             candidate.state !== "FILLED" &&
             candidate.state !== "REPLACED" &&
@@ -393,15 +594,81 @@ function restoreSnapshot(): GatewaySnapshot {
           } else if (replacedAt != null || replacedByOrderId != null) {
             return false;
           }
+          const progress = migrateRestingProgress(candidate);
+          if (!progress) return false;
+          if (Math.abs(progress.filledLots + progress.remainingLots - candidate.lots) > RESTING_TOL) {
+            return false;
+          }
+          const hasHistory = progress.fillIds.length > 0;
+          const filledAt = (candidate as { filledAt?: unknown }).filledAt;
+          const cancelledAt = (candidate as { cancelledAt?: unknown }).cancelledAt;
+          if (candidate.state === "WORKING") {
+            if (
+              filledAt != null ||
+              candidate.fillId != null ||
+              candidate.receiptId != null ||
+              cancelledAt != null
+            ) {
+              return false;
+            }
+            return true;
+          }
+          if (candidate.state === "PARTIALLY_FILLED") {
+            if (
+              typeof filledAt !== "string" ||
+              !Number.isFinite(Date.parse(filledAt)) ||
+              !isNonEmptyId(candidate.fillId) ||
+              !isNonEmptyId(candidate.receiptId) ||
+              cancelledAt != null
+            ) {
+              return false;
+            }
+            return true;
+          }
           if (candidate.state === "FILLED") {
-            return (
-              typeof candidate.filledAt === "string" &&
-              Number.isFinite(Date.parse(candidate.filledAt)) &&
-              typeof candidate.fillId === "string" &&
-              candidate.fillId.length > 0 &&
-              typeof candidate.receiptId === "string" &&
-              candidate.receiptId.length > 0
-            );
+            if (
+              typeof filledAt !== "string" ||
+              !Number.isFinite(Date.parse(filledAt)) ||
+              !isNonEmptyId(candidate.fillId) ||
+              !isNonEmptyId(candidate.receiptId) ||
+              cancelledAt != null
+            ) {
+              return false;
+            }
+            if (
+              candidate.fillId !== progress.fillIds[progress.fillIds.length - 1] ||
+              candidate.receiptId !== progress.receiptIds[progress.receiptIds.length - 1]
+            ) {
+              return false;
+            }
+            return true;
+          }
+          if (candidate.state === "CANCELLED") {
+            if (typeof cancelledAt !== "string" || !Number.isFinite(Date.parse(cancelledAt))) {
+              return false;
+            }
+            if (!(progress.remainingLots > RESTING_TOL)) {
+              return false;
+            }
+            if (hasHistory) {
+              if (
+                typeof filledAt !== "string" ||
+                !Number.isFinite(Date.parse(filledAt)) ||
+                !isNonEmptyId(candidate.fillId) ||
+                !isNonEmptyId(candidate.receiptId)
+              ) {
+                return false;
+              }
+              if (
+                candidate.fillId !== progress.fillIds[progress.fillIds.length - 1] ||
+                candidate.receiptId !== progress.receiptIds[progress.receiptIds.length - 1]
+              ) {
+                return false;
+              }
+            } else if (filledAt != null || candidate.fillId != null || candidate.receiptId != null) {
+              return false;
+            }
+            return true;
           }
           if (candidate.state === "EXPIRED") {
             const expiredAt = (candidate as { expiredAt?: unknown }).expiredAt;
@@ -414,29 +681,87 @@ function restoreSnapshot(): GatewaySnapshot {
             }
             if (Date.parse(expiredAt) < Date.parse(expiresAt)) return false;
             if (
-              candidate.cancelledAt != null ||
-              candidate.filledAt != null ||
-              candidate.fillId != null ||
-              candidate.receiptId != null ||
+              cancelledAt != null ||
               (candidate as { replacedAt?: unknown }).replacedAt != null ||
               (candidate as { replacedByOrderId?: unknown }).replacedByOrderId != null
             ) {
               return false;
             }
+            if (!(progress.remainingLots > RESTING_TOL)) {
+              return false;
+            }
+            if (hasHistory) {
+              if (
+                typeof filledAt !== "string" ||
+                !Number.isFinite(Date.parse(filledAt)) ||
+                !isNonEmptyId(candidate.fillId) ||
+                !isNonEmptyId(candidate.receiptId)
+              ) {
+                return false;
+              }
+              if (
+                candidate.fillId !== progress.fillIds[progress.fillIds.length - 1] ||
+                candidate.receiptId !== progress.receiptIds[progress.receiptIds.length - 1]
+              ) {
+                return false;
+              }
+            } else if (filledAt != null || candidate.fillId != null || candidate.receiptId != null) {
+              return false;
+            }
             return true;
           }
-          return true;
+          if (candidate.state === "REPLACED") {
+            if (cancelledAt != null) {
+              return false;
+            }
+            if (!(progress.remainingLots > RESTING_TOL)) {
+              return false;
+            }
+            if (hasHistory) {
+              if (
+                typeof filledAt !== "string" ||
+                !Number.isFinite(Date.parse(filledAt)) ||
+                !isNonEmptyId(candidate.fillId) ||
+                !isNonEmptyId(candidate.receiptId)
+              ) {
+                return false;
+              }
+              if (
+                candidate.fillId !== progress.fillIds[progress.fillIds.length - 1] ||
+                candidate.receiptId !== progress.receiptIds[progress.receiptIds.length - 1]
+              ) {
+                return false;
+              }
+            } else if (filledAt != null || candidate.fillId != null || candidate.receiptId != null) {
+              return false;
+            }
+            return true;
+          }
+          return false;
         })
           .map((order) => {
             const typed = order as RestingPackageOrder & { packageSide?: unknown };
+            const candidate = typed as Partial<RestingPackageOrder> & { packageSide?: unknown };
+            const progress = migrateRestingProgress(candidate);
             const withSide =
               typed.packageSide === undefined
                 ? { ...typed, packageSide: "LONG" as const }
                 : (typed as RestingPackageOrder);
+            const withProgress = progress
+              ? {
+                  ...withSide,
+                  filledLots: progress.filledLots,
+                  remainingLots: progress.remainingLots,
+                  remainingCollateralReservation: progress.remainingCollateralReservation,
+                  remainingFeeCap: progress.remainingFeeCap,
+                  fillIds: progress.fillIds,
+                  receiptIds: progress.receiptIds,
+                }
+              : (withSide as RestingPackageOrder);
             const withReplaces =
-              (withSide as { replacesOrderId?: unknown }).replacesOrderId === undefined
-                ? { ...withSide, replacesOrderId: null as string | null }
-                : (withSide as RestingPackageOrder);
+              (withProgress as { replacesOrderId?: unknown }).replacesOrderId === undefined
+                ? { ...withProgress, replacesOrderId: null as string | null }
+                : (withProgress as RestingPackageOrder);
             if ((withReplaces as { expiresAt?: unknown }).expiresAt === undefined) {
               return { ...withReplaces, expiresAt: null as string | null };
             }
@@ -844,7 +1169,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
       }
       const oldOrder = this.snapshot.restingOrders.find((order) => order.id === replacesOrderId);
       if (!oldOrder) throw new Error("REPLACEMENT_ORDER_NOT_FOUND");
-      if (oldOrder.state !== "WORKING") throw new Error("REPLACEMENT_ORDER_NOT_WORKING");
+      if (!isLiveRestingState(oldOrder.state)) throw new Error("REPLACEMENT_ORDER_NOT_WORKING");
       if (
         intent.orderType !== "LIMIT" ||
         (intent.timeInForce !== "GTC" && intent.timeInForce !== "GTD")
@@ -903,7 +1228,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
         if (!Number.isFinite(newRequirement) || newRequirement < 0) {
           throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
         }
-        if (newRequirement - oldOrder.collateralReservation > this.snapshot.account.available + 1e-9) {
+        if (newRequirement - restingRemainingReservation(oldOrder) > this.snapshot.account.available + 1e-9) {
           throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
         }
       }
@@ -1279,11 +1604,17 @@ export class DemoTradingGateway implements InternalTradingGateway {
       side: intent.side,
       packageSide: intent.packageSide,
       lots: intent.lots,
+      filledLots: 0,
+      remainingLots: intent.lots,
       limitPrice: intent.limitPrice,
       timeInForce: intent.timeInForce,
       expiresAt: intent.expiresAt,
       collateralReservation: reservation,
+      remainingCollateralReservation: reservation,
       feeCap: intent.feeCap,
+      remainingFeeCap: intent.feeCap,
+      fillIds: [],
+      receiptIds: [],
       closePositionId: intent.closePositionId,
       replacesOrderId: null,
       createdAt,
@@ -1348,7 +1679,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
       : [];
     const oldOrder = existingOrders.find((order) => order.id === oldOrderId);
     if (!oldOrder) throw new Error("REPLACEMENT_ORDER_NOT_FOUND");
-    if (oldOrder.state !== "WORKING") throw new Error("REPLACEMENT_ORDER_NOT_WORKING");
+    if (!isLiveRestingState(oldOrder.state)) throw new Error("REPLACEMENT_ORDER_NOT_WORKING");
     if (intent.timeInForce !== oldOrder.timeInForce) {
       throw new Error("REPLACEMENT_TIF_MISMATCH");
     }
@@ -1393,7 +1724,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
       if (!Number.isFinite(newReservation) || newReservation < 0) {
         throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
       }
-      const delta = newReservation - oldOrder.collateralReservation;
+      const delta = newReservation - restingRemainingReservation(oldOrder);
       if (delta > this.snapshot.account.available + 1e-9) {
         throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
       }
@@ -1411,11 +1742,17 @@ export class DemoTradingGateway implements InternalTradingGateway {
       side: intent.side,
       packageSide: intent.packageSide,
       lots: intent.lots,
+      filledLots: 0,
+      remainingLots: intent.lots,
       limitPrice: intent.limitPrice,
       timeInForce: intent.timeInForce,
       expiresAt: intent.expiresAt,
       collateralReservation: newReservation,
+      remainingCollateralReservation: newReservation,
       feeCap: intent.feeCap,
+      remainingFeeCap: intent.feeCap,
+      fillIds: [],
+      receiptIds: [],
       closePositionId: intent.closePositionId,
       replacesOrderId: oldOrderId,
       createdAt: now,
@@ -1432,6 +1769,8 @@ export class DemoTradingGateway implements InternalTradingGateway {
       state: "REPLACED",
       replacedAt: now,
       replacedByOrderId: newId,
+      remainingCollateralReservation: 0,
+      remainingFeeCap: 0,
     };
     if (isExit) {
       this.publish({
@@ -1439,7 +1778,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
         restingOrders: [newOrder, ...existingOrders.map((order) => (order.id === oldOrderId ? replaced : order))],
       });
     } else {
-      const delta = newReservation - oldOrder.collateralReservation;
+      const delta = newReservation - restingRemainingReservation(oldOrder);
       this.publish({
         ...this.snapshot,
         account: {
@@ -1460,17 +1799,19 @@ export class DemoTradingGateway implements InternalTradingGateway {
       : [];
     const target = existingOrders.find((order) => order.id === orderId);
     if (!target) throw new Error("RESTING_ORDER_NOT_FOUND");
-    if (target.state !== "WORKING") throw new Error("RESTING_ORDER_NOT_WORKING");
+    if (!isLiveRestingState(target.state)) throw new Error("RESTING_ORDER_NOT_WORKING");
     const cancelledAt = new Date().toISOString();
     const cancelled: RestingPackageOrder = {
       ...target,
       state: "CANCELLED",
       cancelledAt,
+      remainingCollateralReservation: 0,
+      remainingFeeCap: 0,
     };
     const isExit = target.side === "EXIT";
     let account = this.snapshot.account;
     if (!isExit) {
-      const reservation = target.collateralReservation;
+      const reservation = restingRemainingReservation(target);
       account = {
         ...account,
         reserved: Math.max(0, account.reserved - reservation),
@@ -1492,25 +1833,64 @@ export class DemoTradingGateway implements InternalTradingGateway {
     ) {
       return [];
     }
-    const working = this.snapshot.restingOrders.filter((order) => order.state === "WORKING");
-    if (working.length === 0) return [];
+    const live = this.snapshot.restingOrders.filter((order) => isLiveRestingState(order.state));
+    if (live.length === 0) return [];
     const expired: RestingPackageOrder[] = [];
-    for (const order of working) {
+    for (const order of live) {
       const completed = this.expireWorkingOrder(order.id);
       if (completed) expired.push(completed);
     }
+    const remaining = this.snapshot.restingOrders.filter((order) =>
+      isLiveRestingState(order.state),
+    );
+    const groups = new Map<string, RestingPackageOrder[]>();
+    for (const order of remaining) {
+      const key = `${order.marketId}::${order.routeId}`;
+      const list = groups.get(key);
+      if (list) list.push(order);
+      else groups.set(key, [order]);
+    }
+    const sortedKeys = [...groups.keys()].sort();
     const remainingLotsByRoute = new Map<string, number>();
     const filled: RestingPackageOrder[] = [];
-    for (const order of working) {
-      const completed = this.fillWorkingOrder(order.id, markets, remainingLotsByRoute);
-      if (completed) filled.push(completed);
+    for (const key of sortedKeys) {
+      const list = (groups.get(key) ?? []).slice();
+      list.sort((left, right) => {
+        const leftAction =
+          isPackageSide(left.packageSide) && (left.side === "ENTER" || left.side === "EXIT")
+            ? executableAction(left.side, left.packageSide)
+            : null;
+        const rightAction =
+          isPackageSide(right.packageSide) && (right.side === "ENTER" || right.side === "EXIT")
+            ? executableAction(right.side, right.packageSide)
+            : null;
+        if (leftAction && rightAction && leftAction === rightAction) {
+          if (leftAction === "BUY") {
+            if (Math.abs(right.limitPrice - left.limitPrice) > RESTING_TOL) {
+              return right.limitPrice - left.limitPrice;
+            }
+          } else if (Math.abs(left.limitPrice - right.limitPrice) > RESTING_TOL) {
+            return left.limitPrice - right.limitPrice;
+          }
+        }
+        const leftCreated = Date.parse(left.createdAt);
+        const rightCreated = Date.parse(right.createdAt);
+        if (Number.isFinite(leftCreated) && Number.isFinite(rightCreated) && leftCreated !== rightCreated) {
+          return leftCreated - rightCreated;
+        }
+        return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+      });
+      for (const order of list) {
+        const completed = this.fillWorkingOrder(order.id, markets, remainingLotsByRoute);
+        if (completed) filled.push(completed);
+      }
     }
     return [...expired, ...filled];
   }
 
   private expireWorkingOrder(orderId: string): RestingPackageOrder | null {
     const order = this.snapshot.restingOrders.find((candidate) => candidate.id === orderId);
-    if (!order || order.state !== "WORKING") return null;
+    if (!order || !isLiveRestingState(order.state)) return null;
     if (order.timeInForce !== "GTD") return null;
     if (typeof order.expiresAt !== "string") return null;
     const parsed = Date.parse(order.expiresAt);
@@ -1521,11 +1901,13 @@ export class DemoTradingGateway implements InternalTradingGateway {
       ...order,
       state: "EXPIRED",
       expiredAt,
+      remainingCollateralReservation: 0,
+      remainingFeeCap: 0,
     };
     const isExit = order.side === "EXIT";
     let account = this.snapshot.account;
     if (!isExit) {
-      const reservation = order.collateralReservation;
+      const reservation = restingRemainingReservation(order);
       account = {
         ...account,
         reserved: Math.max(0, account.reserved - reservation),
@@ -1548,7 +1930,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
     remainingLotsByRoute: Map<string, number>,
   ): RestingPackageOrder | null {
     const order = this.snapshot.restingOrders.find((candidate) => candidate.id === orderId);
-    if (!order || order.state !== "WORKING") return null;
+    if (!order || !isLiveRestingState(order.state)) return null;
     if (order.timeInForce !== "GTC" && order.timeInForce !== "GTD") return null;
     if (order.timeInForce === "GTD") {
       if (typeof order.expiresAt !== "string") return null;
@@ -1566,12 +1948,15 @@ export class DemoTradingGateway implements InternalTradingGateway {
     const route = market.routes.find((candidate) => candidate.id === order.routeId);
     if (!route) return null;
     const capacityKey = `${order.marketId}::${order.routeId}`;
-    let remainingLots = remainingLotsByRoute.get(capacityKey);
-    if (remainingLots === undefined) {
-      remainingLots = route.availableLots;
-      remainingLotsByRoute.set(capacityKey, remainingLots);
+    let routeRemaining = remainingLotsByRoute.get(capacityKey);
+    if (routeRemaining === undefined) {
+      routeRemaining = route.availableLots;
+      remainingLotsByRoute.set(capacityKey, routeRemaining);
     }
-    if (order.lots - remainingLots > 1e-9) return null;
+    if (!Number.isFinite(routeRemaining) || routeRemaining <= RESTING_TOL) return null;
+    const orderRemaining = restingRemainingLots(order);
+    if (!Number.isFinite(orderRemaining) || orderRemaining <= RESTING_TOL) return null;
+    if (orderRemaining - order.lots > RESTING_TOL) return null;
     if (!isPackageSide(order.packageSide)) return null;
     const action = executableAction(order.side, order.packageSide);
     const fillPrice = routePrice(route, action);
@@ -1583,38 +1968,81 @@ export class DemoTradingGateway implements InternalTradingGateway {
     const settlementGuarantee =
       order.settlementGuarantee ?? GUARANTEE_COPY[route.guarantee]?.label ?? null;
     if (!settlementGuarantee) return null;
+    let trancheLots = Math.min(orderRemaining, routeRemaining);
+    if (order.side === "EXIT") {
+      const target = this.snapshot.positions.find(
+        (position) => position.id === order.closePositionId,
+      );
+      if (!target) return null;
+      if (!Number.isFinite(target.lots) || target.lots <= RESTING_TOL) return null;
+      trancheLots = Math.min(trancheLots, target.lots);
+    }
+    if (!Number.isFinite(trancheLots) || trancheLots <= RESTING_TOL) return null;
+    if (trancheLots - orderRemaining > RESTING_TOL) return null;
+    if (trancheLots - order.lots > RESTING_TOL) return null;
     if (order.side === "ENTER") {
-      const completed = this.fillWorkingEntry(order, fillPrice, contractMultiplier, settlementGuarantee);
+      const completed = this.fillWorkingEntry(
+        order,
+        trancheLots,
+        fillPrice,
+        contractMultiplier,
+        settlementGuarantee,
+      );
       if (completed) {
-        remainingLotsByRoute.set(capacityKey, remainingLots - order.lots);
+        remainingLotsByRoute.set(capacityKey, Math.max(0, routeRemaining - completed.trancheLots));
+        return completed.order;
       }
-      return completed;
+      return null;
     }
     const completedExit = this.fillWorkingExit(
       order,
       market,
+      trancheLots,
       fillPrice,
       contractMultiplier,
       settlementGuarantee,
     );
     if (completedExit) {
-      remainingLotsByRoute.set(capacityKey, remainingLots - order.lots);
+      remainingLotsByRoute.set(capacityKey, Math.max(0, routeRemaining - completedExit.trancheLots));
+      return completedExit.order;
     }
-    return completedExit;
+    return null;
   }
 
   private fillWorkingEntry(
     order: RestingPackageOrder,
+    trancheLots: number,
     fillPrice: number,
     contractMultiplier: number,
     settlementGuarantee: string,
-  ): RestingPackageOrder | null {
+  ): { order: RestingPackageOrder; trancheLots: number } | null {
     void contractMultiplier;
     if (order.closePositionId != null) return null;
     if (!isPackageSide(order.packageSide)) return null;
-    const collateralRequired =
-      order.collateralRequired ?? Math.max(0, order.collateralReservation - order.feeCap);
-    if (!Number.isFinite(collateralRequired) || collateralRequired < 0) return null;
+    const filledSoFar =
+      typeof order.filledLots === "number" && Number.isFinite(order.filledLots) ? order.filledLots : 0;
+    const orderRemaining = restingRemainingLots(order);
+    const remainingRes = restingRemainingReservation(order);
+    const remainingFee = restingRemainingFee(order);
+    if (!Number.isFinite(orderRemaining) || orderRemaining <= RESTING_TOL) return null;
+    if (!Number.isFinite(trancheLots) || trancheLots <= RESTING_TOL) return null;
+    if (trancheLots - orderRemaining > RESTING_TOL) return null;
+    if (trancheLots - order.lots > RESTING_TOL) return null;
+    const isFinal = trancheLots >= orderRemaining - RESTING_TOL;
+    const executedLots = isFinal ? orderRemaining : trancheLots;
+    const split = splitTrancheAmounts(remainingRes, remainingFee, executedLots, orderRemaining, isFinal);
+    if (!split) return null;
+    if (!Number.isFinite(split.trancheFee) || split.trancheFee < 0) return null;
+    if (!Number.isFinite(split.trancheCollateral) || split.trancheCollateral < 0) return null;
+    if (split.trancheFee - remainingFee > RESTING_TOL) return null;
+    if (split.trancheFee + split.trancheCollateral - remainingRes > RESTING_TOL) return null;
+    const newFilled = isFinal ? order.lots : filledSoFar + executedLots;
+    const newRemaining = isFinal ? 0 : Math.max(0, orderRemaining - executedLots);
+    const newRemainingFee = isFinal ? 0 : Math.max(0, remainingFee - split.trancheFee);
+    const newRemainingRes = isFinal
+      ? 0
+      : Math.max(0, remainingRes - split.trancheFee - split.trancheCollateral);
+    if (Math.abs(newFilled + newRemaining - order.lots) > RESTING_TOL) return null;
     const now = new Date().toISOString();
     const fillId = identifier("FIL");
     const receiptId = identifier("RCP");
@@ -1628,12 +2056,12 @@ export class DemoTradingGateway implements InternalTradingGateway {
       packageCode: order.packageCode,
       packageSide: order.packageSide,
       routeLabel: order.routeLabel,
-      lots: order.lots,
-      requestedLots: order.lots,
-      filledLots: order.lots,
+      lots: executedLots,
+      requestedLots: executedLots,
+      filledLots: executedLots,
       cancelledLots: 0,
       price: fillPrice,
-      fees: order.feeCap,
+      fees: split.trancheFee,
       realizedPnlUsd: 0,
       collateralReleasedUsd: 0,
       guarantee: settlementGuarantee,
@@ -1644,9 +2072,9 @@ export class DemoTradingGateway implements InternalTradingGateway {
       id: identifier("STR"),
       marketId: order.marketId,
       side: order.packageSide,
-      lots: order.lots,
+      lots: executedLots,
       entryPrice: fillPrice,
-      collateral: collateralRequired,
+      collateral: split.trancheCollateral,
       state: "ACTIVE",
       createdAt: now,
     };
@@ -1654,24 +2082,30 @@ export class DemoTradingGateway implements InternalTradingGateway {
       { step: "AUTHORIZED", label: "Authorized", detail: "Package authorization is bound to the selected account and route." },
       { step: "SUBMITTED", label: "Submitted", detail: "Authorization accepted by the demo clearing runtime." },
       { step: "INCLUDED", label: "Included", detail: "Package execution was included as one clearing result.", transactionHash },
-      { step: "FILLED", label: "Filled", detail: `${order.lots} package lots filled at the selected route price.` },
+      { step: "FILLED", label: "Filled", detail: `${executedLots} package lots filled at the selected route price.` },
       { step: "POSITION_CREATED", label: "Position created", detail: "Collateral reservation and package position were recorded together." },
       { step: "RECEIPT_READY", label: "Receipt ready", detail: "Execution evidence is available for inspection." },
     ];
     const result: PackageExecutionResult = {
       fillId,
       outcome: "OPENED",
-      requestedLots: order.lots,
-      filledLots: order.lots,
+      requestedLots: executedLots,
+      filledLots: executedLots,
       cancelledLots: 0,
       position,
       closedPositionId: null,
       closedLots: 0,
       receipt,
     };
-    const filled: RestingPackageOrder = {
+    const updated: RestingPackageOrder = {
       ...order,
-      state: "FILLED",
+      state: isFinal ? "FILLED" : "PARTIALLY_FILLED",
+      filledLots: newFilled,
+      remainingLots: newRemaining,
+      remainingCollateralReservation: newRemainingRes,
+      remainingFeeCap: newRemainingFee,
+      fillIds: [...(order.fillIds ?? []), fillId],
+      receiptIds: [...(order.receiptIds ?? []), receiptId],
       filledAt: now,
       fillId,
       receiptId,
@@ -1691,19 +2125,20 @@ export class DemoTradingGateway implements InternalTradingGateway {
         ...this.snapshot.executions,
       ],
       restingOrders: this.snapshot.restingOrders.map((candidate) =>
-        candidate.id === order.id ? filled : candidate,
+        candidate.id === order.id ? updated : candidate,
       ),
     });
-    return filled;
+    return { order: updated, trancheLots: executedLots };
   }
 
   private fillWorkingExit(
     order: RestingPackageOrder,
     market: PackageMarket,
+    trancheLots: number,
     fillPrice: number,
     contractMultiplier: number,
     settlementGuarantee: string,
-  ): RestingPackageOrder | null {
+  ): { order: RestingPackageOrder; trancheLots: number } | null {
     void market;
     if (!order.closePositionId) return null;
     if (!isPackageSide(order.packageSide)) return null;
@@ -1715,25 +2150,47 @@ export class DemoTradingGateway implements InternalTradingGateway {
     if (target.marketId !== order.marketId) return null;
     if (order.packageSide !== target.side) return null;
     if (!Number.isFinite(order.lots) || order.lots <= 0) return null;
-    if (order.lots - target.lots > 1e-9) return null;
-    const release = target.lots > 0 ? (target.collateral * order.lots) / target.lots : 0;
+    const filledSoFar =
+      typeof order.filledLots === "number" && Number.isFinite(order.filledLots) ? order.filledLots : 0;
+    const orderRemaining = restingRemainingLots(order);
+    const remainingFee = restingRemainingFee(order);
+    if (!Number.isFinite(orderRemaining) || orderRemaining <= RESTING_TOL) return null;
+    if (!Number.isFinite(trancheLots) || trancheLots <= RESTING_TOL) return null;
+    if (trancheLots - orderRemaining > RESTING_TOL) return null;
+    if (trancheLots - order.lots > RESTING_TOL) return null;
+    if (!Number.isFinite(target.lots) || target.lots <= RESTING_TOL) return null;
+    if (trancheLots - target.lots > RESTING_TOL) return null;
+    const isFinal = trancheLots >= orderRemaining - RESTING_TOL;
+    const executedLots = isFinal ? Math.min(orderRemaining, target.lots) : trancheLots;
+    if (executedLots <= RESTING_TOL) return null;
+    const orderFinal = executedLots >= orderRemaining - RESTING_TOL;
+    const split = splitTrancheAmounts(0, remainingFee, executedLots, orderRemaining, orderFinal);
+    if (!split) return null;
+    const trancheFee = split.trancheFee;
+    if (!Number.isFinite(trancheFee) || trancheFee < 0) return null;
+    if (trancheFee - remainingFee > RESTING_TOL) return null;
+    const release = target.lots > 0 ? (target.collateral * executedLots) / target.lots : 0;
     const direction = target.side === "SHORT" ? -1 : 1;
     const realizedPnl =
-      (fillPrice - target.entryPrice) * order.lots * contractMultiplier * direction;
+      (fillPrice - target.entryPrice) * executedLots * contractMultiplier * direction;
     if (!Number.isFinite(release) || !Number.isFinite(realizedPnl)) return null;
-    const closeResult = release + realizedPnl - order.feeCap;
+    const closeResult = release + realizedPnl - trancheFee;
     if (this.snapshot.account.available + closeResult < -1e-9) return null;
-    const isFull = order.lots >= target.lots - 1e-9;
-    const remainingLots = target.lots - order.lots;
+    const positionClosed = executedLots >= target.lots - RESTING_TOL;
+    const targetRemainingLots = positionClosed ? 0 : target.lots - executedLots;
     const remainingCollateral = Math.max(0, target.collateral - release);
     const updatedPosition =
-      isFull || remainingLots <= 1e-9
+      positionClosed || targetRemainingLots <= RESTING_TOL
         ? null
         : {
             ...target,
-            lots: remainingLots,
+            lots: targetRemainingLots,
             collateral: remainingCollateral,
           };
+    const newFilled = orderFinal ? order.lots : filledSoFar + executedLots;
+    const newRemaining = orderFinal ? 0 : Math.max(0, orderRemaining - executedLots);
+    const newRemainingFee = orderFinal ? 0 : Math.max(0, remainingFee - trancheFee);
+    if (Math.abs(newFilled + newRemaining - order.lots) > RESTING_TOL) return null;
     const now = new Date().toISOString();
     const fillId = identifier("FIL");
     const receiptId = identifier("RCP");
@@ -1747,12 +2204,12 @@ export class DemoTradingGateway implements InternalTradingGateway {
       packageCode: order.packageCode,
       packageSide: order.packageSide,
       routeLabel: order.routeLabel,
-      lots: order.lots,
-      requestedLots: order.lots,
-      filledLots: order.lots,
+      lots: executedLots,
+      requestedLots: executedLots,
+      filledLots: executedLots,
       cancelledLots: 0,
       price: fillPrice,
-      fees: order.feeCap,
+      fees: trancheFee,
       realizedPnlUsd: realizedPnl,
       collateralReleasedUsd: release,
       guarantee: settlementGuarantee,
@@ -1764,35 +2221,41 @@ export class DemoTradingGateway implements InternalTradingGateway {
         ? {
             step: "POSITION_CLOSED",
             label: "Position closed",
-            detail: `Closed ${order.lots} lots; the local demo account recorded the $${realizedPnl.toFixed(2)} package result and released $${release.toFixed(2)} collateral.`,
+            detail: `Closed ${executedLots} lots; the local demo account recorded the $${realizedPnl.toFixed(2)} package result and released $${release.toFixed(2)} collateral.`,
           }
         : {
             step: "POSITION_UPDATED",
             label: "Position reduced",
-            detail: `Closed ${order.lots} lots pro rata; the local demo account recorded the $${realizedPnl.toFixed(2)} package result and the remaining package position stays active.`,
+            detail: `Closed ${executedLots} lots pro rata; the local demo account recorded the $${realizedPnl.toFixed(2)} package result and the remaining package position stays active.`,
           };
     const journal: SubmissionUpdate[] = [
       { step: "AUTHORIZED", label: "Authorized", detail: "Package authorization is bound to the selected account and route." },
       { step: "SUBMITTED", label: "Submitted", detail: "Authorization accepted by the demo clearing runtime." },
       { step: "INCLUDED", label: "Included", detail: "Package execution was included as one clearing result.", transactionHash },
-      { step: "FILLED", label: "Filled", detail: `${order.lots} package lots closed at the selected route price.` },
+      { step: "FILLED", label: "Filled", detail: `${executedLots} package lots closed at the selected route price.` },
       positionStep,
       { step: "RECEIPT_READY", label: "Receipt ready", detail: "Execution evidence is available for inspection." },
     ];
     const result: PackageExecutionResult = {
       fillId,
       outcome: updatedPosition === null ? "CLOSED" : "REDUCED",
-      requestedLots: order.lots,
-      filledLots: order.lots,
+      requestedLots: executedLots,
+      filledLots: executedLots,
       cancelledLots: 0,
       position: updatedPosition,
       closedPositionId: target.id,
-      closedLots: order.lots,
+      closedLots: executedLots,
       receipt,
     };
-    const filled: RestingPackageOrder = {
+    const updated: RestingPackageOrder = {
       ...order,
-      state: "FILLED",
+      state: orderFinal ? "FILLED" : "PARTIALLY_FILLED",
+      filledLots: newFilled,
+      remainingLots: newRemaining,
+      remainingCollateralReservation: 0,
+      remainingFeeCap: newRemainingFee,
+      fillIds: [...(order.fillIds ?? []), fillId],
+      receiptIds: [...(order.receiptIds ?? []), receiptId],
       filledAt: now,
       fillId,
       receiptId,
@@ -1822,10 +2285,10 @@ export class DemoTradingGateway implements InternalTradingGateway {
       receipts: [receipt, ...this.snapshot.receipts],
       executions: [execution, ...this.snapshot.executions],
       restingOrders: this.snapshot.restingOrders.map((candidate) =>
-        candidate.id === order.id ? filled : candidate,
+        candidate.id === order.id ? updated : candidate,
       ),
     });
-    return filled;
+    return { order: updated, trancheLots: executedLots };
   }
 
   async requestRfq(authorization: SignedOrderAuthorization): Promise<RfqRequest> {

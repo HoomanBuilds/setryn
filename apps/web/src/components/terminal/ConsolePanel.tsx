@@ -327,25 +327,40 @@ export function ConsolePanel({
               {runtimeRestingOrderRows.map((order) => {
                 const rowMarket = resolveRuntimeConsoleMarket(markets, order.marketId);
                 const unit = priceUnitSuffix(rowMarket.priceUnit);
-                const cancellable = order.state === "WORKING" && onCancelRestingOrder;
+                const live = order.state === "WORKING" || order.state === "PARTIALLY_FILLED";
+                const cancellable = live && onCancelRestingOrder;
                 const amendable =
-                  order.state === "WORKING" &&
-                  order.marketId === market.id &&
-                  onAmendRestingOrder;
-                const filledLots = order.state === "FILLED" ? order.lots : 0;
+                  live && order.marketId === market.id && onAmendRestingOrder;
+                const filledLots =
+                  typeof order.filledLots === "number" && Number.isFinite(order.filledLots)
+                    ? order.filledLots
+                    : order.state === "FILLED"
+                      ? order.lots
+                      : 0;
+                const remainingLots =
+                  typeof order.remainingLots === "number" && Number.isFinite(order.remainingLots)
+                    ? order.remainingLots
+                    : Math.max(0, order.lots - filledLots);
                 const tif = tifDisplay(order);
+                const latestReceipt = order.receiptId ?? "unavailable";
                 const detail =
                   order.state === "FILLED"
-                    ? `LOCAL_DEMO filled order. Receipt ${order.receiptId ?? "unavailable"}.`
-                    : order.state === "CANCELLED"
-                      ? "LOCAL_DEMO cancelled order. No fill, receipt, or position."
-                      : order.state === "EXPIRED"
-                        ? "LOCAL_DEMO expired order. No fill, receipt, or position."
-                        : order.state === "REPLACED"
-                        ? `Replaced by ${order.replacedByOrderId ?? "unknown"}. New queue priority.`
-                        : order.replacesOrderId
-                          ? `Replaces ${order.replacesOrderId}. New queue priority.`
-                          : "LOCAL_DEMO resting order. No fill, receipt, or position.";
+                    ? `LOCAL_DEMO filled order. Receipt ${latestReceipt}.`
+                    : order.state === "PARTIALLY_FILLED"
+                      ? `${formatLots(remainingLots)} lots working. Latest receipt ${latestReceipt}.`
+                      : order.state === "CANCELLED"
+                        ? filledLots > 1e-9
+                          ? `LOCAL_DEMO cancelled order. ${formatLots(filledLots)} lots filled. Latest receipt ${latestReceipt}.`
+                          : "LOCAL_DEMO cancelled order. No fill, receipt, or position."
+                        : order.state === "EXPIRED"
+                          ? filledLots > 1e-9
+                            ? `LOCAL_DEMO expired order. ${formatLots(filledLots)} lots filled. Latest receipt ${latestReceipt}.`
+                            : "LOCAL_DEMO expired order. No fill, receipt, or position."
+                          : order.state === "REPLACED"
+                            ? `Replaced by ${order.replacedByOrderId ?? "unknown"}. New queue priority.`
+                            : order.replacesOrderId
+                              ? `Replaces ${order.replacesOrderId}. New queue priority.`
+                              : "LOCAL_DEMO resting order. No fill, receipt, or position.";
                 return (
                   <Tr key={order.id} highlight={!scoped && order.marketId === market.id}>
                     <td className={`${TD} tnum font-mono whitespace-nowrap text-faint`}>{order.id}</td>
