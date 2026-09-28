@@ -1,4 +1,4 @@
-import type { Intent, TimeInForce } from "@/lib/terminal/economics";
+import type { Intent, PackageSide, TimeInForce } from "@/lib/terminal/economics";
 import type { PackageMarket } from "@/lib/terminal/types";
 
 export type WalletStatus = "DISCONNECTED" | "CONNECTING" | "CONNECTED" | "WRONG_NETWORK";
@@ -40,6 +40,7 @@ export interface ExecutionReceipt {
   transactionHash: string;
   marketId: string;
   packageCode: string;
+  packageSide: PackageSide;
   routeLabel: string;
   lots: number;
   price: number;
@@ -88,6 +89,7 @@ export interface PackageOrderIntent {
   routeId: string;
   routeLabel: string;
   side: Intent;
+  packageSide: PackageSide;
   lots: number;
   limitPrice: number;
   executionPrice: number;
@@ -115,6 +117,7 @@ export interface RestingPackageOrder {
   routeId: string;
   routeLabel: string;
   side: Intent;
+  packageSide: PackageSide;
   lots: number;
   limitPrice: number;
   timeInForce: TimeInForce;

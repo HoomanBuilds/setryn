@@ -1,11 +1,14 @@
 import type { Guarantee, PackageMarket, RouteQuote } from "./types";
 
 export type Intent = "ENTER" | "EXIT";
+export type PackageSide = "LONG" | "SHORT";
+export type ExecutableAction = "BUY" | "SELL";
 export type OrderType = "MARKETABLE_LIMIT" | "LIMIT";
 export type TimeInForce = "GTC" | "IOC" | "FOK";
 
 export interface TicketState {
   intent: Intent;
+  side: PackageSide;
   orderType: OrderType;
   lotsInput: string;
   limitInput: string;
@@ -17,6 +20,16 @@ export interface TicketState {
 
 export interface ClosePositionRef {
   lots: number;
+  side: PackageSide;
+}
+
+export function isPackageSide(value: unknown): value is PackageSide {
+  return value === "LONG" || value === "SHORT";
+}
+
+export function executableAction(intent: Intent, side: PackageSide): ExecutableAction {
+  if (intent === "ENTER") return side === "LONG" ? "BUY" : "SELL";
+  return side === "LONG" ? "SELL" : "BUY";
 }
 
 export interface EconomicsPreview {
@@ -25,6 +38,8 @@ export interface EconomicsPreview {
   notional: number;
   routePrice: number;
   effectivePrice: number;
+  action: ExecutableAction;
+  packageSide: PackageSide;
   totalCollateral: number;
   protocolFee: number;
   counterpartyFee: number;
@@ -62,20 +77,20 @@ export function availableRoutes(market: PackageMarket, privateRfq: boolean): Rou
   return market.routes.filter((route) => !route.requiresPrivate || privateRfq);
 }
 
-export function routePrice(route: RouteQuote, intent: Intent): number {
-  return intent === "ENTER" ? route.enterPrice : route.exitPrice;
+export function routePrice(route: RouteQuote, action: ExecutableAction): number {
+  return action === "BUY" ? route.enterPrice : route.exitPrice;
 }
 
-export function bestReferencePrice(market: PackageMarket, intent: Intent): number {
-  return intent === "ENTER" ? market.bestAsk : market.bestBid;
+export function bestReferencePrice(market: PackageMarket, action: ExecutableAction): number {
+  return action === "BUY" ? market.bestAsk : market.bestBid;
 }
 
 /**
  * A buyer improves by bidding at or above the route offer; a seller improves by
  * offering at or below the route bid. Both collapse to the same crossing test.
  */
-export function limitCrosses(limitPrice: number, price: number, intent: Intent): boolean {
-  return intent === "ENTER" ? limitPrice >= price : limitPrice <= price;
+export function limitCrosses(limitPrice: number, price: number, action: ExecutableAction): boolean {
+  return action === "BUY" ? limitPrice >= price : limitPrice <= price;
 }
 
 export function buildPreview(
@@ -88,8 +103,12 @@ export function buildPreview(
   const limitPrice = Number.parseFloat(state.limitInput) || 0;
   const notional = lots * market.notionalPerLot;
 
-  const price = route ? routePrice(route, state.intent) : bestReferencePrice(market, state.intent);
-  const marketable = limitCrosses(limitPrice, price, state.intent);
+  const isExit = state.intent === "EXIT";
+  const packageSide: PackageSide =
+    isExit && closePosition ? closePosition.side : state.side;
+  const action = executableAction(state.intent, packageSide);
+  const price = route ? routePrice(route, action) : bestReferencePrice(market, action);
+  const marketable = limitCrosses(limitPrice, price, action);
   const rests = state.orderType === "LIMIT" && !marketable && state.tif === "GTC";
   const effectivePrice = state.orderType === "LIMIT" && !marketable ? limitPrice : price;
 
@@ -102,7 +121,6 @@ export function buildPreview(
   const counterpartyFee = (notional * counterpartyFeeBps) / 10_000;
 
   const guarantee = route ? GUARANTEE_COPY[route.guarantee] : null;
-  const isExit = state.intent === "EXIT";
 
   const blockers: string[] = [];
   if (lots <= 0) blockers.push("Enter a package quantity above zero.");
@@ -110,10 +128,15 @@ export function buildPreview(
   if (isExit) {
     if (!closePosition || !(closePosition.lots > 0)) {
       blockers.push("Exit requires exactly one active runtime package. Select a package to close.");
-    } else if (lots > closePosition.lots) {
-      blockers.push(
-        `Quantity exceeds the selected package lots (${closePosition.lots} lots). Reduce quantity to close within the active package.`,
-      );
+    } else {
+      if (lots > closePosition.lots) {
+        blockers.push(
+          `Quantity exceeds the selected package lots (${closePosition.lots} lots). Reduce quantity to close within the active package.`,
+        );
+      }
+      if (state.side !== closePosition.side) {
+        blockers.push("Ticket side does not match the selected position side. Reselect the position.");
+      }
     }
   }
   if (route && lots > route.availableLots) {
@@ -123,7 +146,7 @@ export function buildPreview(
   }
   if (state.orderType === "MARKETABLE_LIMIT" && route && !marketable) {
     blockers.push(
-      state.intent === "ENTER"
+      action === "BUY"
         ? "A marketable limit must be at or above the route offer."
         : "A marketable limit must be at or below the route bid.",
     );
@@ -146,6 +169,8 @@ export function buildPreview(
     notional,
     routePrice: price,
     effectivePrice,
+    action,
+    packageSide,
     totalCollateral: isExit ? 0 : lots * market.collateralPerLot * collateralMultiple,
     protocolFee,
     counterpartyFee,
@@ -153,7 +178,7 @@ export function buildPreview(
     totalFees: protocolFee + counterpartyFee,
     maxIntermediateExposure: notional * exposureRate,
     terminalResidual:
-      lots * market.residualPerLot * (state.intent === "ENTER" ? 1 : -1),
+      lots * market.residualPerLot * (packageSide === "LONG" ? 1 : -1) * (isExit ? -1 : 1),
     settlementGuarantee: guarantee?.label ?? "Not selected",
     guaranteeDetail:
       guarantee?.detail ?? "Pick a route to see which settlement guarantee applies to this package.",

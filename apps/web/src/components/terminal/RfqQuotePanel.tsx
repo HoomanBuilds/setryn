@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { SectionLabel } from "@/components/terminal/primitives";
 import { formatNumber, formatUsd, priceUnitSuffix } from "@/lib/terminal/format";
+import { executableAction } from "@/lib/terminal/economics";
 import type { PackageMarket } from "@/lib/terminal/types";
 import type { RfqRequest } from "@/lib/internal-gateway/types";
 
@@ -46,6 +47,12 @@ export function RfqQuotePanel({
   }
 
   const requestedLots = rfqRequest.authorization.intent.lots;
+  const rfqIntent = rfqRequest.authorization.intent;
+  const rfqAction = executableAction(rfqIntent.side, rfqIntent.packageSide);
+  const rfqIntentLabel = rfqIntent.side === "ENTER" ? "Enter" : "Exit";
+  const rfqSideLabel = rfqIntent.packageSide === "LONG" ? "Long" : "Short";
+  const rfqActionLabel = rfqAction === "BUY" ? "Buy" : "Sell";
+  const directionLabel = `Private / ${rfqIntentLabel} ${rfqSideLabel} / ${rfqActionLabel}`;
   const requestSecondsLeft = Math.max(
     0,
     Math.ceil((Date.parse(rfqRequest.expiresAt) - now) / 1000),
@@ -60,7 +67,7 @@ export function RfqQuotePanel({
           <span className="tnum font-mono text-xs text-dim">{rfqRequest.id}</span>
         </div>
         <div className="flex items-center justify-between gap-2 px-3 py-1.5 text-xs">
-          <span className="text-dim">Private</span>
+          <span className="text-dim">{directionLabel}</span>
           <span className="tnum font-mono text-dim">0s</span>
         </div>
         <p className="border-t border-line px-3 py-2.5 text-xs leading-snug text-dim">
@@ -81,7 +88,7 @@ export function RfqQuotePanel({
           <span className="tnum font-mono text-xs text-dim">{rfqRequest.id}</span>
         </div>
         <div className="flex items-center justify-between gap-2 px-3 py-1.5 text-xs">
-          <span className="text-dim">Private</span>
+          <span className="text-dim">{directionLabel}</span>
           <span className="tnum font-mono text-dim">0s</span>
         </div>
         <ul className="divide-y divide-line border-t border-line">
@@ -138,7 +145,11 @@ export function RfqQuotePanel({
             <SectionLabel>Firm quotes</SectionLabel>
             <span className="tnum font-mono text-xs text-dim">{rfqRequest.id}</span>
           </div>
-          <p className="px-3 py-2.5 text-xs leading-snug text-dim">
+          <div className="flex items-center justify-between gap-2 px-3 py-1.5 text-xs">
+            <span className="text-dim">{directionLabel}</span>
+            <span className="tnum font-mono text-dim">{`${requestSecondsLeft}s`}</span>
+          </div>
+          <p className="border-t border-line px-3 py-2.5 text-xs leading-snug text-dim">
             Selected quote unavailable - no execution was created.
           </p>
           {rfqError ? (
@@ -164,7 +175,7 @@ export function RfqQuotePanel({
           <span className="tnum font-mono text-xs text-dim">{rfqRequest.id}</span>
         </div>
         <div className="flex items-center justify-between gap-2 px-3 py-1.5 text-xs">
-          <span className="text-dim">Private</span>
+          <span className="text-dim">{directionLabel}</span>
           <span className="tnum font-mono text-dim">{`${requestSecondsLeft}s`}</span>
         </div>
         <ul className="divide-y divide-line border-t border-line">
@@ -247,7 +258,7 @@ export function RfqQuotePanel({
         <span className="tnum font-mono text-xs text-dim">{rfqRequest.id}</span>
       </div>
       <div className="flex items-center justify-between gap-2 px-3 py-1.5 text-xs">
-        <span className="text-dim">Private</span>
+        <span className="text-dim">{directionLabel}</span>
         <span className="tnum font-mono text-dim">{`${requestSecondsLeft}s`}</span>
       </div>
       <ul className="divide-y divide-line border-t border-line">

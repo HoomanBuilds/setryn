@@ -156,11 +156,11 @@ export function ConsolePanel({
     (receipt) => ({
       id: receipt.id,
       marketId: receipt.marketId,
-      package: receipt.packageCode,
+      package: `${receipt.packageCode} · ${receipt.packageSide === "SHORT" ? "Short" : "Long"}`,
       kind: "BEST_EXECUTION",
       commitment: `${receipt.orderHash.slice(0, 10)}...${receipt.orderHash.slice(-6)}`,
       state: "READY",
-      detail: `${receipt.routeLabel}. ${receipt.guarantee}. ${receipt.evidence.toLowerCase()} evidence.`,
+      detail: `${receipt.packageSide === "SHORT" ? "Short" : "Long"} · ${receipt.routeLabel}. ${receipt.guarantee}. ${receipt.evidence.toLowerCase()} evidence.`,
       href: `/activity/receipts/${receipt.id}`,
     }),
   );
@@ -270,7 +270,7 @@ export function ConsolePanel({
                 return (
                 <Tr key={row.id} highlight={!scoped && row.marketId === market.id}>
                   <td className={`${TD} tnum font-mono whitespace-nowrap text-faint`}>{row.id}</td>
-                  <td className={`${TD} whitespace-nowrap text-ink`}>{packageLabel(rowMarket)}</td>
+                  <td className={`${TD} whitespace-nowrap text-ink`}>{`${packageLabel(rowMarket)} · ${row.side === "SHORT" ? "Short" : "Long"}`}</td>
                   <td className={NUM}>{formatSigned(row.lots, 0)}</td>
                   <td className={NUM}>
                     {`${formatNumber(row.entryPrice, rowMarket.priceDecimals)} ${unit}`}
@@ -326,7 +326,7 @@ export function ConsolePanel({
                     <td className={`${TD} tnum font-mono whitespace-nowrap text-faint`}>{order.id}</td>
                     <td className={`${TD} whitespace-nowrap text-ink`}>{packageLabel(rowMarket)}</td>
                     <td className={`${TD} whitespace-nowrap text-dim`}>
-                      {order.side === "ENTER" ? "Enter" : "Exit"}
+                      {`${order.side === "ENTER" ? "Enter" : "Exit"} ${order.packageSide === "SHORT" ? "Short" : "Long"}`}
                     </td>
                     <td className={NUM}>
                       {`${formatLots(filledLots)} / ${formatLots(order.lots)}`}

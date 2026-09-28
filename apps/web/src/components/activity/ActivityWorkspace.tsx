@@ -185,11 +185,11 @@ function Ledger({
                     className="focus-ring grid w-full grid-cols-[minmax(170px,1.2fr)_130px_90px_110px_minmax(180px,1.15fr)_minmax(150px,1fr)_120px] items-center text-left transition-colors"
                   >
                     <span className="min-w-0 px-3 py-2.5">
-                      <span className="block truncate text-sm text-ink">{attempt.packageCode}</span>
+                      <span className="block truncate text-sm text-ink">{`${attempt.packageCode} · ${attempt.packageSide === "SHORT" ? "Short" : "Long"}`}</span>
                       <HashValue value={attempt.orderHash} title="Order hash" />
                     </span>
                     <span className="px-3 py-2.5"><ResultState result={attempt.result} /></span>
-                    <span className="px-3 py-2.5 text-right font-mono text-xs text-ink">{formatLots(attempt.lots)}</span>
+                    <span className="px-3 py-2.5 text-right font-mono text-xs text-ink">{`${formatLots(attempt.lots)} ${attempt.packageSide === "SHORT" ? "Short" : "Long"}`}</span>
                     <span className="px-3 py-2.5 text-right font-mono text-xs text-dim">
                       {market ? `${formatNumber(attempt.price, market.priceDecimals)} ${priceUnitSuffix(market.priceUnit)}` : formatNumber(attempt.price, 2)}
                     </span>
@@ -234,6 +234,7 @@ function AttemptDetail({ attempt }: { attempt: ActivityAttemptView | null }) {
   const market = findMarket(attempt.marketId);
   const referenceLabel = attempt.result === "SIMULATED" ? "Runtime reference" : "Transaction reference";
   const outcomeLabel = attempt.outcome === "CLOSED" ? "Closed" : attempt.outcome === "REDUCED" ? "Reduced" : "Opened";
+  const sideLabel = attempt.packageSide === "SHORT" ? "Short" : "Long";
 
   return (
     <Surface
@@ -245,10 +246,11 @@ function AttemptDetail({ attempt }: { attempt: ActivityAttemptView | null }) {
         <p className="mt-1 text-xs text-faint">{attempt.environment} / {attempt.source.toLowerCase()} source</p>
       </div>
 
-      <DetailRow label="Outcome" value={outcomeLabel} />
+      <DetailRow label="Outcome" value={`${outcomeLabel} ${sideLabel}`} />
+      <DetailRow label="Package side" value={attempt.packageSide} />
       <DetailRow label="Order hash" value={<HashValue value={attempt.orderHash} title="Order hash" />} hint={attempt.orderHash} />
       <DetailRow label="Route" value={attempt.routeLabel} />
-      <DetailRow label="Fill" value={`${formatLots(attempt.lots)} lots at ${market ? `${formatNumber(attempt.price, market.priceDecimals)} ${priceUnitSuffix(market.priceUnit)}` : formatNumber(attempt.price, 2)}`} />
+      <DetailRow label="Fill" value={`${formatLots(attempt.lots)} lots ${sideLabel.toLowerCase()} at ${market ? `${formatNumber(attempt.price, market.priceDecimals)} ${priceUnitSuffix(market.priceUnit)}` : formatNumber(attempt.price, 2)}`} />
       <DetailRow label="Fees" value={formatUsd(attempt.feeAmount, 2)} />
       <DetailRow label="Guarantee" value={attempt.guarantee} />
       <DetailRow label="Evidence" value={`${attempt.evidence.toLowerCase()} / ${attempt.freshness.label}`} hint={attempt.freshness.detail} />
@@ -334,7 +336,7 @@ export function ActivityWorkspace() {
 
   function handleExportLocalCsv() {
     if (localReceipts.length === 0) return;
-    const header = ["receipt_id", "created_at", "market", "package", "route", "lots", "price", "fees", "realized_pnl_usd", "collateral_released_usd", "guarantee", "evidence", "order_hash", "fill_id", "transaction_reference"];
+    const header = ["receipt_id", "created_at", "market", "package", "package_side", "route", "lots", "price", "fees", "realized_pnl_usd", "collateral_released_usd", "guarantee", "evidence", "order_hash", "fill_id", "transaction_reference"];
     const lines = [header.join(",")];
     for (const receipt of localReceipts) {
       lines.push(
@@ -343,6 +345,7 @@ export function ActivityWorkspace() {
           receipt.createdAt,
           receipt.marketId,
           receipt.packageCode,
+          receipt.packageSide,
           receipt.routeLabel,
           receipt.lots,
           receipt.price,

@@ -443,7 +443,7 @@ function RfqQueue({
             <tbody>
               {localRequests.length > 0 ? localRequests.map((request) => {
                 const intent = request.authorization.intent;
-                const sideLabel = intent.side === "ENTER" ? "Enter" : "Exit";
+                const sideLabel = `${intent.side === "ENTER" ? "Enter" : "Exit"} ${intent.packageSide === "SHORT" ? "Short" : "Long"}`;
                 const isTerminal = request.state === "EXECUTED" || request.state === "CANCELLED";
                 const requestExpired = Date.parse(request.expiresAt) <= now;
                 const requestOpen = request.state === "OPEN" && !requestExpired;

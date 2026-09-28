@@ -13,9 +13,12 @@ import { Disclosure, Tabs } from "@/components/terminal/primitives";
 import {
   bestReferencePrice,
   buildPreview,
+  executableAction,
+  isPackageSide,
   previewReference,
   routePrice,
   type Intent,
+  type PackageSide,
   type StageState,
   type TicketState,
 } from "@/lib/terminal/economics";
@@ -64,18 +67,25 @@ function executionError(error: unknown): string {
   if (error.message === "INVALID_CONTRACT_MULTIPLIER") {
     return "The package multiplier is invalid and no package outcome was recorded.";
   }
+  if (error.message === "INVALID_PACKAGE_SIDE") {
+    return "The package side is invalid. Select Long or Short and try again.";
+  }
+  if (error.message === "PACKAGE_SIDE_MISMATCH") {
+    return "The ticket side does not match the selected position side. Reselect the position.";
+  }
   return "The demo runtime did not reach a final package outcome. No completion is claimed.";
 }
 
 function initialTicket(market: PackageMarket, handoff?: HandoffContext): TicketState {
   const intent = handoff?.intent ?? "ENTER";
+  const side: PackageSide = handoff?.direction ?? "LONG";
+  const action = executableAction(intent, side);
   return {
     intent,
+    side,
     orderType: "MARKETABLE_LIMIT",
     lotsInput: handoff?.lots != null ? String(handoff.lots) : "10",
-    limitInput: (intent === "EXIT" ? market.bestBid : market.bestAsk).toFixed(
-      market.priceDecimals,
-    ),
+    limitInput: bestReferencePrice(market, action).toFixed(market.priceDecimals),
     tif: "GTC",
     privateRfq: false,
     routeId: null,
@@ -251,6 +261,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         : null;
     setTicket({
       intent: intent.side,
+      side: isPackageSide(intent.packageSide) ? intent.packageSide : "LONG",
       orderType: intent.orderType === "LIMIT" ? "LIMIT" : "MARKETABLE_LIMIT",
       lotsInput: String(intent.lots),
       limitInput: intent.limitPrice.toFixed(market.priceDecimals),
@@ -319,6 +330,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
           limitPrice: order.limitPrice,
           lots: order.lots,
           side: order.side,
+          packageSide: order.packageSide,
         })),
     [gatewaySnapshot.restingOrders, liveMarket.id],
   );
@@ -387,6 +399,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       setStage({ kind: "IDLE" });
       setExecution({ status: "IDLE", updates: [] });
       setRfqError(null);
+      const positionsNow = gatewaySnapshot.positions;
       setTicket((current) => {
         const next = { ...current, ...patch };
         if (patch.privateRfq === false && current.routeId === "SOLVER_RFQ") {
@@ -395,37 +408,57 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         if (next.intent === "ENTER") {
           next.closePositionId = null;
         }
-        /* Picking a route or flipping intent reprices the ticket onto what that
-           route can actually execute, so a fresh selection is never born invalid. */
+        if (next.intent === "EXIT" && next.closePositionId) {
+          const matched = positionsNow.find((position) => position.id === next.closePositionId);
+          if (matched && isPackageSide(matched.side)) {
+            next.side = matched.side;
+          }
+        }
+        if (patch.side !== undefined && !isPackageSide(patch.side)) {
+          next.side = current.side;
+        }
+        /* Changing entry direction, intent, close position, or route reprices
+           onto what that route can execute, without touching other inputs. */
         const reprice =
           patch.routeId !== undefined ||
+          patch.intent !== undefined ||
+          patch.side !== undefined ||
+          patch.closePositionId !== undefined ||
           next.routeId !== current.routeId ||
-          next.intent !== current.intent;
+          next.intent !== current.intent ||
+          next.side !== current.side ||
+          next.closePositionId !== current.closePositionId;
         if (reprice) {
           const nextRoute =
             liveMarket.routes.find((candidate) => candidate.id === next.routeId) ?? null;
+          const action = executableAction(next.intent, next.side);
           next.limitInput = (
-            nextRoute
-              ? routePrice(nextRoute, next.intent)
-              : bestReferencePrice(liveMarket, next.intent)
+            nextRoute ? routePrice(nextRoute, action) : bestReferencePrice(liveMarket, action)
           ).toFixed(liveMarket.priceDecimals);
         }
         return next;
       });
     },
-    [liveMarket],
+    [gatewaySnapshot.positions, liveMarket],
   );
 
   const selectBookRow = useCallback(
     (row: BookRow) => {
       setStage({ kind: "IDLE" });
       setRfqError(null);
-      setTicket((current) => ({
-        ...current,
-        intent: row.side === "ASK" ? "ENTER" : "EXIT",
-        closePositionId: row.side === "ASK" ? null : current.closePositionId,
-        limitInput: row.price.toFixed(liveMarket.priceDecimals),
-      }));
+      setTicket((current) => {
+        if (current.intent === "ENTER") {
+          return {
+            ...current,
+            side: row.side === "ASK" ? ("LONG" as PackageSide) : ("SHORT" as PackageSide),
+            limitInput: row.price.toFixed(liveMarket.priceDecimals),
+          };
+        }
+        return {
+          ...current,
+          limitInput: row.price.toFixed(liveMarket.priceDecimals),
+        };
+      });
     },
     [liveMarket.priceDecimals],
   );
@@ -464,6 +497,9 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       const account = gateway.getSnapshot().account;
       const signer = gateway.getSnapshot().wallet.address;
       const isExit = ticket.intent === "EXIT";
+      const packageSide: PackageSide = isExit
+        ? (selectedClosePosition?.side ?? ticket.side)
+        : ticket.side;
       const authorization = await gateway.authorizeOrder({
         accountId: account.id,
         marketId: liveMarket.id,
@@ -471,6 +507,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         routeId: route.id,
         routeLabel: route.label,
         side: ticket.intent,
+        packageSide,
         lots: preview.lots,
         limitPrice: preview.limitPrice,
         executionPrice: preview.effectivePrice,
@@ -519,7 +556,31 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       setExecution((current) => ({ ...current, status: "FAILED", error: message }));
       setStage({ kind: "FAILED", reference, message });
     }
-  }, [gateway, liveMarket, preview, route, stage, ticket]);
+  }, [gateway, liveMarket, preview, route, selectedClosePosition, stage, ticket]);
+
+  useEffect(() => {
+    if (ticket.intent !== "EXIT") return;
+    if (!selectedClosePosition) return;
+    if (ticket.side === selectedClosePosition.side) return;
+    setTicket((current) => {
+      if (current.intent !== "EXIT") return current;
+      if (current.closePositionId !== selectedClosePosition.id) return current;
+      if (current.side === selectedClosePosition.side) return current;
+      const action = executableAction("EXIT", selectedClosePosition.side);
+      const currentRoute =
+        liveMarket.routes.find((candidate) => candidate.id === current.routeId) ?? null;
+      return {
+        ...current,
+        side: selectedClosePosition.side,
+        limitInput: (
+          currentRoute ? routePrice(currentRoute, action) : bestReferencePrice(liveMarket, action)
+        ).toFixed(liveMarket.priceDecimals),
+      };
+    });
+    setStage({ kind: "IDLE" });
+    setExecution({ status: "IDLE", updates: [] });
+    setRfqError(null);
+  }, [liveMarket, selectedClosePosition, ticket.closePositionId, ticket.intent, ticket.side]);
 
   const onReset = useCallback(() => {
     setStage({ kind: "IDLE" });

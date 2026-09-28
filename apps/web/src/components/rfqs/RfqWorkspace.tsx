@@ -79,7 +79,7 @@ function RfqCard({ request, now }: { request: RfqRequest; now: number }) {
       <dl className="grid grid-cols-2 gap-x-4 gap-y-3 px-3 py-3 sm:grid-cols-3">
         <Meta
           label="Side and size"
-          value={`${intent.side === "ENTER" ? "Enter" : "Exit"} · ${formatLots(intent.lots)} lots`}
+          value={`${intent.side === "ENTER" ? "Enter" : "Exit"} ${intent.packageSide === "SHORT" ? "Short" : "Long"} · ${formatLots(intent.lots)} lots`}
         />
         <Meta
           label="Limit"

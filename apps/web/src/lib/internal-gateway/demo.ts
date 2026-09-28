@@ -16,7 +16,13 @@ import type {
   SignedOrderAuthorization,
   SubmissionUpdate,
 } from "./types";
-import { GUARANTEE_COPY, limitCrosses } from "@/lib/terminal/economics";
+import {
+  GUARANTEE_COPY,
+  executableAction,
+  isPackageSide,
+  limitCrosses,
+  routePrice,
+} from "@/lib/terminal/economics";
 import type { PackageMarket } from "@/lib/terminal/types";
 
 const wait = (duration: number) => new Promise((resolve) => window.setTimeout(resolve, duration));
@@ -72,32 +78,70 @@ function restoreSnapshot(): GatewaySnapshot {
     if (snapshot.environment.id !== "LOCAL_DEMO" || !Array.isArray(snapshot.receipts)) {
       return initialSnapshot();
     }
-    const positions = Array.isArray(snapshot.positions) ? snapshot.positions : [];
+    const rawPositions = Array.isArray(snapshot.positions) ? snapshot.positions : [];
+    const positions: ExecutionPosition[] = [];
+    for (const entry of rawPositions) {
+      if (!entry || typeof entry !== "object") continue;
+      const candidate = entry as Partial<ExecutionPosition> & { packageSide?: unknown; side?: unknown };
+      if (typeof candidate.id !== "string" || candidate.id.length === 0) continue;
+      if (typeof candidate.marketId !== "string" || candidate.marketId.length === 0) continue;
+      if (typeof candidate.lots !== "number" || !Number.isFinite(candidate.lots) || candidate.lots <= 0) continue;
+      if (typeof candidate.entryPrice !== "number" || !Number.isFinite(candidate.entryPrice)) continue;
+      if (typeof candidate.collateral !== "number" || !Number.isFinite(candidate.collateral) || candidate.collateral < 0) continue;
+      if (typeof candidate.createdAt !== "string" || !Number.isFinite(Date.parse(candidate.createdAt))) continue;
+      if (candidate.state !== undefined && candidate.state !== "ACTIVE") continue;
+      const rawSide = candidate.side;
+      if (rawSide === undefined) {
+        positions.push({ ...(candidate as ExecutionPosition), side: "LONG", state: "ACTIVE" });
+        continue;
+      }
+      if (!isPackageSide(rawSide)) continue;
+      positions.push({ ...(candidate as ExecutionPosition), side: rawSide, state: "ACTIVE" });
+    }
+    const rawReceipts = Array.isArray(snapshot.receipts) ? snapshot.receipts : [];
+    const receipts: ExecutionReceipt[] = [];
+    for (const entry of rawReceipts) {
+      if (!entry || typeof entry !== "object") continue;
+      const candidate = entry as Partial<ExecutionReceipt> & { packageSide?: unknown };
+      if (typeof candidate.id !== "string" || candidate.id.length === 0) continue;
+      if (typeof candidate.marketId !== "string" || candidate.marketId.length === 0) continue;
+      const rawSide = candidate.packageSide;
+      if (rawSide === undefined) {
+        receipts.push({ ...(candidate as ExecutionReceipt), packageSide: "LONG" });
+        continue;
+      }
+      if (!isPackageSide(rawSide)) continue;
+      receipts.push({ ...(candidate as ExecutionReceipt), packageSide: rawSide });
+    }
     const rawRestingOrders = (snapshot as { restingOrders?: unknown }).restingOrders;
     const restingOrders: RestingPackageOrder[] = Array.isArray(rawRestingOrders)
-      ? rawRestingOrders.filter((order): order is RestingPackageOrder => {
-          if (!order || typeof order !== "object") return false;
-          const candidate = order as Partial<RestingPackageOrder>;
-          if (
-            typeof candidate.id !== "string" ||
-            typeof candidate.orderHash !== "string" ||
-            typeof candidate.accountId !== "string" ||
-            typeof candidate.marketId !== "string" ||
-            typeof candidate.packageCode !== "string" ||
-            typeof candidate.routeId !== "string" ||
-            typeof candidate.routeLabel !== "string" ||
-            (candidate.side !== "ENTER" && candidate.side !== "EXIT") ||
-            typeof candidate.lots !== "number" ||
-            typeof candidate.limitPrice !== "number" ||
-            candidate.timeInForce !== "GTC" ||
-            typeof candidate.collateralReservation !== "number" ||
-            typeof candidate.feeCap !== "number" ||
-            (candidate.closePositionId !== null &&
-              typeof candidate.closePositionId !== "string") ||
-            typeof candidate.createdAt !== "string"
-          ) {
-            return false;
-          }
+      ? rawRestingOrders
+          .filter((order): order is RestingPackageOrder => {
+            if (!order || typeof order !== "object") return false;
+            const candidate = order as Partial<RestingPackageOrder> & { packageSide?: unknown };
+            if (
+              typeof candidate.id !== "string" ||
+              typeof candidate.orderHash !== "string" ||
+              typeof candidate.accountId !== "string" ||
+              typeof candidate.marketId !== "string" ||
+              typeof candidate.packageCode !== "string" ||
+              typeof candidate.routeId !== "string" ||
+              typeof candidate.routeLabel !== "string" ||
+              (candidate.side !== "ENTER" && candidate.side !== "EXIT") ||
+              typeof candidate.lots !== "number" ||
+              typeof candidate.limitPrice !== "number" ||
+              candidate.timeInForce !== "GTC" ||
+              typeof candidate.collateralReservation !== "number" ||
+              typeof candidate.feeCap !== "number" ||
+              (candidate.closePositionId !== null &&
+                typeof candidate.closePositionId !== "string") ||
+              typeof candidate.createdAt !== "string"
+            ) {
+              return false;
+            }
+            if (candidate.packageSide !== undefined && !isPackageSide(candidate.packageSide)) {
+              return false;
+            }
           if (
             candidate.state !== "WORKING" &&
             candidate.state !== "CANCELLED" &&
@@ -156,26 +200,60 @@ function restoreSnapshot(): GatewaySnapshot {
           }
           return true;
         })
+          .map((order) => {
+            const typed = order as RestingPackageOrder & { packageSide?: unknown };
+            if (typed.packageSide === undefined) return { ...typed, packageSide: "LONG" as const };
+            return typed as RestingPackageOrder;
+          })
       : [];
-    const executions = Array.isArray(snapshot.executions)
-      ? snapshot.executions.map((execution) => {
-          const result = execution.result as Partial<PackageExecutionResult> & {
-            position?: PackageExecutionResult["position"];
+    const rawExecutions = Array.isArray(snapshot.executions) ? snapshot.executions : [];
+    const executions: GatewayExecution[] = [];
+    for (const execution of rawExecutions) {
+      if (!execution || typeof execution !== "object") continue;
+      const candidate = execution as Partial<GatewayExecution>;
+      if (typeof candidate.id !== "string" || typeof candidate.orderHash !== "string") continue;
+      if (!candidate.result || typeof candidate.result !== "object") continue;
+      const result = candidate.result as Partial<PackageExecutionResult> & {
+        position?: PackageExecutionResult["position"] | null;
+        receipt?: PackageExecutionResult["receipt"];
+      };
+      let normalized = result;
+      if (typeof result.outcome !== "string") {
+        normalized = {
+          fillId: result.fillId ?? "FIL-LEGACY",
+          outcome: "OPENED" as const,
+          position: result.position ?? null,
+          closedPositionId: null,
+          closedLots: 0,
+          receipt: result.receipt as PackageExecutionResult["receipt"],
+        };
+      }
+      if (!normalized.receipt || typeof normalized.receipt !== "object") continue;
+      const receiptCandidate = normalized.receipt as Partial<ExecutionReceipt> & {
+        packageSide?: unknown;
+      };
+      if (receiptCandidate.packageSide === undefined) {
+        normalized = {
+          ...(normalized as PackageExecutionResult),
+          receipt: { ...(receiptCandidate as ExecutionReceipt), packageSide: "LONG" as const },
+        };
+      } else if (!isPackageSide(receiptCandidate.packageSide)) {
+        continue;
+      }
+      const position = (normalized as PackageExecutionResult).position;
+      if (position !== null && position !== undefined) {
+        const positionCandidate = position as Partial<ExecutionPosition> & { side?: unknown };
+        if (positionCandidate.side === undefined) {
+          normalized = {
+            ...(normalized as PackageExecutionResult),
+            position: { ...(position as ExecutionPosition), side: "LONG" as const },
           };
-          if (result && typeof result.outcome === "string") return execution;
-          return {
-            ...execution,
-            result: {
-              fillId: result?.fillId ?? "FIL-LEGACY",
-              outcome: "OPENED" as const,
-              position: result?.position ?? null,
-              closedPositionId: null,
-              closedLots: 0,
-              receipt: result?.receipt as PackageExecutionResult["receipt"],
-            },
-          };
-        })
-      : [];
+        } else if (!isPackageSide(positionCandidate.side)) {
+          continue;
+        }
+      }
+      executions.push({ ...(candidate as GatewayExecution), result: normalized as PackageExecutionResult });
+    }
     const rawRfqRequests = (snapshot as { rfqRequests?: unknown }).rfqRequests;
     const rfqRequests: RfqRequest[] = Array.isArray(rawRfqRequests)
       ? rawRfqRequests.filter((request): request is RfqRequest => {
@@ -212,6 +290,12 @@ function restoreSnapshot(): GatewaySnapshot {
           if (typeof authorization.deadline !== "string" || authorization.deadline.length === 0)
             return false;
           if (!authorization.intent || typeof authorization.intent !== "object") return false;
+          const intentCandidate = authorization.intent as Partial<PackageOrderIntent> & {
+            packageSide?: unknown;
+          };
+          if (intentCandidate.packageSide !== undefined && !isPackageSide(intentCandidate.packageSide)) {
+            return false;
+          }
           if (!Array.isArray(candidate.quotes) || candidate.quotes.length < 2) return false;
           const quotesValid = candidate.quotes.every((quote) => {
             if (!quote || typeof quote !== "object") return false;
@@ -287,8 +371,14 @@ function restoreSnapshot(): GatewaySnapshot {
         })
         .map((request) => {
           const typed = request as RfqRequest;
+          const intent = typed.authorization.intent as PackageOrderIntent & { packageSide?: unknown };
+          const migratedIntent =
+            intent.packageSide === undefined
+              ? { ...intent, packageSide: "LONG" as const }
+              : intent;
           return {
             ...typed,
+            authorization: { ...typed.authorization, intent: migratedIntent },
             quotes: typed.quotes.map((quote) => {
               const provenance = (quote as Partial<FirmRfqQuote>).provenance as
                 | RfqQuoteProvenance
@@ -305,6 +395,7 @@ function restoreSnapshot(): GatewaySnapshot {
       ...snapshot,
       wallet: { status: "DISCONNECTED", address: null, chainId: null },
       positions,
+      receipts,
       executions,
       restingOrders,
       rfqRequests,
@@ -381,6 +472,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
     if (!Number.isFinite(intent.contractMultiplier) || intent.contractMultiplier <= 0) {
       throw new Error("INVALID_CONTRACT_MULTIPLIER");
     }
+    if (!isPackageSide(intent.packageSide)) throw new Error("INVALID_PACKAGE_SIDE");
     const signer = this.snapshot.wallet.address;
     if (!signer || this.snapshot.wallet.status !== "CONNECTED") throw new Error("CONNECT_WALLET");
     if (intent.side === "ENTER" && intent.closePositionId != null) {
@@ -394,6 +486,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
       );
       if (!target) throw new Error("POSITION_NOT_FOUND");
       if (target.marketId !== intent.marketId) throw new Error("POSITION_MARKET_MISMATCH");
+      if (intent.packageSide !== target.side) throw new Error("PACKAGE_SIDE_MISMATCH");
       if (!Number.isFinite(intent.lots) || intent.lots <= 0) throw new Error("INVALID_CLOSE_LOTS");
       if (intent.lots - target.lots > 1e-9) throw new Error("CLOSE_LOTS_EXCEEDS_POSITION");
       const releasable =
@@ -436,6 +529,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
     if (authorization.signer !== this.snapshot.wallet.address) throw new Error("SIGNER_MISMATCH");
     if (Date.parse(authorization.deadline) <= Date.now()) throw new Error("AUTHORIZATION_EXPIRED");
     const intent = authorization.intent;
+    if (!isPackageSide(intent.packageSide)) throw new Error("INVALID_PACKAGE_SIDE");
     const isExit = intent.side === "EXIT";
     if (!isExit && intent.closePositionId != null) {
       throw new Error("CLOSE_POSITION_FORBIDDEN_FOR_ENTRY");
@@ -454,6 +548,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
       );
       if (!target) throw new Error("POSITION_NOT_FOUND");
       if (target.marketId !== intent.marketId) throw new Error("POSITION_MARKET_MISMATCH");
+      if (intent.packageSide !== target.side) throw new Error("PACKAGE_SIDE_MISMATCH");
       if (!Number.isFinite(intent.lots) || intent.lots <= 0) throw new Error("INVALID_CLOSE_LOTS");
       if (intent.lots - target.lots > 1e-9) throw new Error("CLOSE_LOTS_EXCEEDS_POSITION");
       exitTargetId = target.id;
@@ -517,6 +612,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
       transactionHash,
       marketId: intent.marketId,
       packageCode: intent.packageCode,
+      packageSide: intent.packageSide,
       routeLabel: intent.routeLabel,
       lots: intent.lots,
       price: intent.executionPrice,
@@ -596,7 +692,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
     const position: PackageExecutionResult["position"] = {
       id: positionId,
       marketId: intent.marketId,
-      side: "LONG",
+      side: intent.packageSide,
       lots: intent.lots,
       entryPrice: intent.executionPrice,
       collateral: intent.collateralRequired,
@@ -665,6 +761,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
     if (authorization.signer !== this.snapshot.wallet.address) throw new Error("SIGNER_MISMATCH");
     if (Date.parse(authorization.deadline) <= Date.now()) throw new Error("AUTHORIZATION_EXPIRED");
     const intent = authorization.intent;
+    if (!isPackageSide(intent.packageSide)) throw new Error("INVALID_PACKAGE_SIDE");
     const isExit = intent.side === "EXIT";
     if (!isExit && intent.closePositionId != null) {
       throw new Error("CLOSE_POSITION_FORBIDDEN_FOR_ENTRY");
@@ -679,6 +776,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
       );
       if (!target) throw new Error("POSITION_NOT_FOUND");
       if (target.marketId !== intent.marketId) throw new Error("POSITION_MARKET_MISMATCH");
+      if (intent.packageSide !== target.side) throw new Error("PACKAGE_SIDE_MISMATCH");
       if (!Number.isFinite(intent.lots) || intent.lots <= 0) throw new Error("INVALID_CLOSE_LOTS");
       if (intent.lots - target.lots > 1e-9) throw new Error("CLOSE_LOTS_EXCEEDS_POSITION");
       reservation = 0;
@@ -699,6 +797,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
       routeId: intent.routeId,
       routeLabel: intent.routeLabel,
       side: intent.side,
+      packageSide: intent.packageSide,
       lots: intent.lots,
       limitPrice: intent.limitPrice,
       timeInForce: intent.timeInForce,
@@ -809,9 +908,11 @@ export class DemoTradingGateway implements InternalTradingGateway {
       remainingLotsByRoute.set(capacityKey, remainingLots);
     }
     if (order.lots - remainingLots > 1e-9) return null;
-    const fillPrice = order.side === "ENTER" ? route.enterPrice : route.exitPrice;
+    if (!isPackageSide(order.packageSide)) return null;
+    const action = executableAction(order.side, order.packageSide);
+    const fillPrice = routePrice(route, action);
     if (!Number.isFinite(fillPrice)) return null;
-    if (!limitCrosses(order.limitPrice, fillPrice, order.side)) return null;
+    if (!limitCrosses(order.limitPrice, fillPrice, action)) return null;
     const contractMultiplier = order.contractMultiplier ?? market.contractMultiplier;
     if (!Number.isFinite(contractMultiplier) || contractMultiplier <= 0) return null;
     if (!Number.isFinite(order.feeCap) || order.feeCap < 0) return null;
@@ -846,6 +947,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
   ): RestingPackageOrder | null {
     void contractMultiplier;
     if (order.closePositionId != null) return null;
+    if (!isPackageSide(order.packageSide)) return null;
     const collateralRequired =
       order.collateralRequired ?? Math.max(0, order.collateralReservation - order.feeCap);
     if (!Number.isFinite(collateralRequired) || collateralRequired < 0) return null;
@@ -860,6 +962,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
       transactionHash,
       marketId: order.marketId,
       packageCode: order.packageCode,
+      packageSide: order.packageSide,
       routeLabel: order.routeLabel,
       lots: order.lots,
       price: fillPrice,
@@ -873,7 +976,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
     const position: ExecutionPosition = {
       id: identifier("STR"),
       marketId: order.marketId,
-      side: "LONG",
+      side: order.packageSide,
       lots: order.lots,
       entryPrice: fillPrice,
       collateral: collateralRequired,
@@ -933,12 +1036,14 @@ export class DemoTradingGateway implements InternalTradingGateway {
   ): RestingPackageOrder | null {
     void market;
     if (!order.closePositionId) return null;
+    if (!isPackageSide(order.packageSide)) return null;
     if (order.collateralRequired !== undefined && order.collateralRequired !== 0) return null;
     const target = this.snapshot.positions.find(
       (position) => position.id === order.closePositionId,
     );
     if (!target) return null;
     if (target.marketId !== order.marketId) return null;
+    if (order.packageSide !== target.side) return null;
     if (!Number.isFinite(order.lots) || order.lots <= 0) return null;
     if (order.lots - target.lots > 1e-9) return null;
     const release = target.lots > 0 ? (target.collateral * order.lots) / target.lots : 0;
@@ -970,6 +1075,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
       transactionHash,
       marketId: order.marketId,
       packageCode: order.packageCode,
+      packageSide: order.packageSide,
       routeLabel: order.routeLabel,
       lots: order.lots,
       price: fillPrice,
@@ -1057,6 +1163,7 @@ export class DemoTradingGateway implements InternalTradingGateway {
     if (authorization.signer !== this.snapshot.wallet.address) throw new Error("SIGNER_MISMATCH");
     if (Date.parse(authorization.deadline) <= Date.now()) throw new Error("AUTHORIZATION_EXPIRED");
     const intent = authorization.intent;
+    if (!isPackageSide(intent.packageSide)) throw new Error("INVALID_PACKAGE_SIDE");
     if (intent.disclosure !== "PRIVATE_RFQ") {
       throw new Error("RFQ_REQUIRES_PRIVATE_DISCLOSURE");
     }
@@ -1066,11 +1173,12 @@ export class DemoTradingGateway implements InternalTradingGateway {
     const expiresAt = new Date(Date.now() + 300_000).toISOString();
     const createdAt = new Date().toISOString();
     const requestId = identifier("RFQ");
-    const isEnter = intent.side === "ENTER";
+    const action = executableAction(intent.side, intent.packageSide);
     const northstarPrice = intent.limitPrice;
-    const meridianPrice = isEnter
-      ? Math.min(intent.limitPrice, intent.limitPrice * 0.999)
-      : Math.max(intent.limitPrice, intent.limitPrice * 1.001);
+    const meridianPrice =
+      action === "BUY"
+        ? Math.min(intent.limitPrice, intent.limitPrice * 0.999)
+        : Math.max(intent.limitPrice, intent.limitPrice * 1.001);
     const northstarFeeCap = intent.feeCap;
     const meridianFeeCap = Math.max(0, intent.feeCap * 0.9);
     const quotes: FirmRfqQuote[] = [

@@ -24,6 +24,7 @@ export interface ActivityAttemptView {
   id: string;
   marketId: string;
   packageCode: string;
+  packageSide: "LONG" | "SHORT";
   routeLabel: string;
   orderHash: string;
   createdAt: string;
@@ -53,11 +54,13 @@ function toAttempt(execution: GatewayExecution, snapshot: GatewaySnapshot): Acti
   const receipt = execution.result.receipt;
   const result = runtimeResult(snapshot);
   const transactionReference = receipt.transactionHash;
+  const packageSide = receipt.packageSide === "SHORT" ? ("SHORT" as const) : ("LONG" as const);
 
   return {
     id: execution.id,
     marketId: receipt.marketId,
     packageCode: receipt.packageCode,
+    packageSide,
     routeLabel: receipt.routeLabel,
     orderHash: execution.orderHash,
     createdAt: execution.createdAt,

@@ -84,7 +84,7 @@ export function ReceiptExplorer({ receiptId }: { receiptId: string }) {
           <section className="border border-line bg-panel">
             <div className="flex items-center justify-between border-b border-line px-3 py-2.5">
               <SectionLabel>Completed package outcome</SectionLabel>
-              <span className="text-xs text-up">{outcomeLabel}</span>
+              <span className="text-xs text-up">{`${outcomeLabel} ${receipt.packageSide === "SHORT" ? "Short" : "Long"}`}</span>
             </div>
             <div className="grid grid-cols-2 divide-x divide-y divide-line sm:grid-cols-4">
               <div className="p-3">
@@ -155,7 +155,8 @@ export function ReceiptExplorer({ receiptId }: { receiptId: string }) {
           <div className="border-b border-line px-3 py-2.5">
             <SectionLabel>Verifiable fields</SectionLabel>
           </div>
-          <EvidenceRow label="Outcome" value={outcomeLabel} />
+          <EvidenceRow label="Outcome" value={`${outcomeLabel} ${receipt.packageSide === "SHORT" ? "Short" : "Long"}`} />
+          <EvidenceRow label="Package side" value={receipt.packageSide} />
           <EvidenceRow label="Order hash" value={receipt.orderHash} />
           <EvidenceRow label="Fill ID" value={receipt.fillId} />
           <EvidenceRow label="Transaction reference" value={receipt.transactionHash} />

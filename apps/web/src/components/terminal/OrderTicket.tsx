@@ -14,10 +14,12 @@ import type {
   EconomicsPreview,
   Intent,
   OrderType,
+  PackageSide,
   StageState,
   TicketState,
   TimeInForce,
 } from "@/lib/terminal/economics";
+import { bestReferencePrice, executableAction } from "@/lib/terminal/economics";
 import { formatLots, formatNumber, formatUsd, priceUnitSuffix } from "@/lib/terminal/format";
 import type { HandoffContext } from "@/lib/terminal/handoff";
 import type { PackageMarket, RouteQuote } from "@/lib/terminal/types";
@@ -30,6 +32,11 @@ import type {
 const INTENTS: { value: Intent; label: string }[] = [
   { value: "ENTER", label: "Enter" },
   { value: "EXIT", label: "Exit" },
+];
+
+const SIDES: { value: PackageSide; label: string }[] = [
+  { value: "LONG", label: "Long" },
+  { value: "SHORT", label: "Short" },
 ];
 
 /** Definitions live on the control itself so the ticket keeps values, not prose. */
@@ -139,7 +146,9 @@ export function OrderTicket({
   onCancelRfq?: () => void;
 }) {
   const unit = priceUnitSuffix(market.priceUnit);
-  const bestPrice = state.intent === "ENTER" ? market.bestAsk : market.bestBid;
+  const action = preview.action;
+  const bestPrice = bestReferencePrice(market, action);
+  const bestLabel = action === "BUY" ? "best offer" : "best bid";
   const externalBlock = handoff.blockedReason;
   const blockers = externalBlock ? [...preview.blockers, externalBlock] : preview.blockers;
   const invalid = blockers.length > 0;
@@ -149,6 +158,8 @@ export function OrderTicket({
   const selectedClose = isExit
     ? (closePositions.find((position) => position.id === state.closePositionId) ?? null)
     : null;
+  const closeAction = selectedClose ? executableAction("EXIT", selectedClose.side) : null;
+  const closeActionLabel = closeAction === "BUY" ? "Buy to close" : closeAction === "SELL" ? "Sell to close" : null;
   const guaranteeLabel =
     handoff.guarantee === "PACKAGE_ATOMIC"
       ? "package atomic"
@@ -218,6 +229,17 @@ export function OrderTicket({
           tone="direction"
         />
 
+        {!isExit ? (
+          <Segmented
+            options={SIDES}
+            value={state.side}
+            onChange={(side) => onChange({ side })}
+            label="Package side"
+            size="sm"
+            tone="direction"
+          />
+        ) : null}
+
         {isExit ? (
           <div>
             <div className="mb-1.5 flex items-baseline justify-between gap-2">
@@ -245,7 +267,7 @@ export function OrderTicket({
             </select>
             {selectedClose ? (
               <p className="mt-1 text-[11px] leading-snug text-dim">
-                {`${selectedClose.id} · ${selectedClose.side.toLowerCase()} · ${selectedClose.lots} lots · ${formatUsd(selectedClose.collateral, 0)} collateral. Closes as a complete package; legs cannot be broken.`}
+                {`${selectedClose.side === "LONG" ? "Long" : "Short"} position · ${closeActionLabel} · ${selectedClose.lots} lots · ${formatUsd(selectedClose.collateral, 0)} collateral.`}
               </p>
             ) : (
               <p className="mt-1 text-[11px] leading-snug text-faint">
@@ -325,7 +347,7 @@ export function OrderTicket({
               onClick={() => onChange({ limitInput: bestPrice.toFixed(market.priceDecimals) })}
               className="focus-ring tnum rounded-sm font-mono text-xs text-dim transition-colors hover:text-ink"
             >
-              {`${state.intent === "ENTER" ? "best offer" : "best bid"} ${formatNumber(bestPrice, market.priceDecimals)}`}
+              {`${bestLabel} ${formatNumber(bestPrice, market.priceDecimals)}`}
             </button>
           </div>
           <div className="flex gap-1.5">
@@ -370,7 +392,7 @@ export function OrderTicket({
 
         <RouteTable
           market={market}
-          intent={state.intent}
+          action={preview.action}
           privateRfq={state.privateRfq}
           selectedId={state.routeId}
           onSelect={(routeId) => onChange({ routeId })}
@@ -469,6 +491,7 @@ function StageArea({
 }) {
   const unit = priceUnitSuffix(market.priceUnit);
   const verb = state.intent === "ENTER" ? "Enter" : "Exit";
+  const idleSide = preview.packageSide === "LONG" ? "Long" : "Short";
 
   if (stage.kind === "RFQ" || stage.kind === "RFQ_SELECTED") {
     return (
@@ -496,13 +519,15 @@ function StageArea({
             : "bg-brand text-app hover:brightness-105"
         }`}
       >
-        {routeMissing ? "Select a route to continue" : `${verb} ${market.name} ${market.tenorLabel}`}
+        {routeMissing ? "Select a route to continue" : `${verb} ${idleSide} ${market.name} ${market.tenorLabel}`}
       </button>
     );
   }
 
   if (stage.kind === "COMPILED") {
     const requiresRfq = (route?.requiresPrivate ?? false) && state.privateRfq;
+    const sideLabel = preview.packageSide === "LONG" ? "Long" : "Short";
+    const actionLabel = preview.action === "BUY" ? "Buy" : "Sell";
     return (
       <div className="overflow-hidden rounded-md border border-line-strong bg-raised pb-1">
         <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
@@ -514,8 +539,9 @@ function StageArea({
           <PayloadRow label="Legs" value={`${market.legs.length}, one net price`} />
           <PayloadRow
             label="Intent"
-            value={`${verb}, ${state.orderType === "LIMIT" ? "limit" : "marketable"}, ${state.tif}`}
+            value={`${verb} ${sideLabel.toLowerCase()}, ${state.orderType === "LIMIT" ? "limit" : "marketable"}, ${state.tif}`}
           />
+          <PayloadRow label="Package side" value={`${sideLabel} · ${actionLabel}`} />
           <PayloadRow label="Quantity" value={`${formatLots(preview.lots)} lots`} />
           {state.intent === "EXIT" ? (
             <PayloadRow label="Close position" value={state.closePositionId ?? "none"} />

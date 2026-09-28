@@ -27,6 +27,7 @@ import {
   priceUnitSuffix,
 } from "@/lib/terminal/format";
 import type { PackageMarket } from "@/lib/terminal/types";
+import { executableAction } from "@/lib/terminal/economics";
 import { CHART_THEME } from "./chart-theme";
 import {
   buildPreviewHistory,
@@ -64,6 +65,7 @@ export interface WorkingOrderPriceOverlay {
   limitPrice: number;
   lots: number;
   side: "ENTER" | "EXIT";
+  packageSide: "LONG" | "SHORT";
 }
 
 function shortOverlayId(id: string): string {
@@ -438,15 +440,17 @@ export function PackagePriceChart({
     }
     for (const order of orderOverlays) {
       if (!Number.isFinite(order.limitPrice)) continue;
-      const sideLabel = order.side === "ENTER" ? "Enter" : "Exit";
+      const sideLabel = order.packageSide === "LONG" ? "Long" : "Short";
+      const intentLabel = order.side === "ENTER" ? "entry" : "exit";
+      const action = executableAction(order.side, order.packageSide);
       lines.push(
         active.api.createPriceLine({
           price: order.limitPrice,
-          color: order.side === "ENTER" ? CHART_THEME.up : CHART_THEME.down,
+          color: action === "BUY" ? CHART_THEME.up : CHART_THEME.down,
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
-          title: `${sideLabel} ${shortOverlayId(order.id)} ${formatOverlayLots(order.lots)} lots`,
+          title: `${sideLabel} ${intentLabel} ${shortOverlayId(order.id)} ${formatOverlayLots(order.lots)} lots`,
         }),
       );
     }

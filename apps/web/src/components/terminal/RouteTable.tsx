@@ -1,7 +1,7 @@
 "use client";
 
 import { SourceMark } from "@/components/terminal/primitives";
-import { GUARANTEE_COPY, routePrice, type Intent } from "@/lib/terminal/economics";
+import { GUARANTEE_COPY, routePrice, type ExecutableAction } from "@/lib/terminal/economics";
 import { formatLots, formatNumber, priceUnitSuffix } from "@/lib/terminal/format";
 import type { PackageMarket, RouteQuote } from "@/lib/terminal/types";
 
@@ -22,13 +22,13 @@ function Radio({ on, blocked }: { on: boolean; blocked: boolean }) {
 
 export function RouteTable({
   market,
-  intent,
+  action,
   privateRfq,
   selectedId,
   onSelect,
 }: {
   market: PackageMarket;
-  intent: Intent;
+  action: ExecutableAction;
   privateRfq: boolean;
   selectedId: string | null;
   onSelect: (routeId: string) => void;
@@ -36,9 +36,9 @@ export function RouteTable({
   const usable = market.routes.filter((route) => !route.requiresPrivate || privateRfq);
   const best = usable.length
     ? usable.reduce((winner, route) => {
-        const price = routePrice(route, intent);
-        const winning = routePrice(winner, intent);
-        if (intent === "ENTER") return price < winning ? route : winner;
+        const price = routePrice(route, action);
+        const winning = routePrice(winner, action);
+        if (action === "BUY") return price < winning ? route : winner;
         return price > winning ? route : winner;
       })
     : null;
@@ -67,7 +67,7 @@ export function RouteTable({
         {market.routes.map((route) => {
           const blocked = route.requiresPrivate && !privateRfq;
           const selected = route.id === selectedId;
-          const price = routePrice(route, intent);
+          const price = routePrice(route, action);
           const guarantee = GUARANTEE_COPY[route.guarantee];
 
           return (
