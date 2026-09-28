@@ -1504,14 +1504,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   private async refreshActivity(): Promise<void> {
     if (!this.setryn || !this.publicClient || !this.walletAddress) return;
     const accountId = await this.accountId(this.walletAddress);
-    const [matches, positionEvents, ledgerEvents] = await Promise.all([
-      this.publicClient.getContractEvents({
-        address: this.setryn.publicOrderBook,
-        abi: publicOrderBookAbi,
-        eventName: "DirectMatchExecuted",
-        fromBlock: BigInt(0),
-        toBlock: "latest",
-      }),
+    const [positionEvents, ledgerEvents] = await Promise.all([
       this.publicClient.getContractEvents({
         address: this.setryn.atomicClearingEngine,
         abi: atomicClearingAbi,
@@ -1530,38 +1523,39 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const positions = [] as GatewaySnapshot["positions"];
     const receipts = [] as GatewaySnapshot["receipts"];
     const executions = [] as GatewaySnapshot["executions"];
-    const blockTimes = new Map<bigint, string>();
-    for (const match of matches) {
-      const fillId = match.args.fillId;
-      const makerOrderHash = match.args.makerOrderHash;
-      const takerOrderHash = match.args.takerOrderHash;
-      if (!fillId || !makerOrderHash || !takerOrderHash) continue;
+    for (const positionEvent of positionEvents) {
+      const fillId = positionEvent.args.fillId;
+      const positionId = positionEvent.args.positionId;
+      if (!fillId || !positionId) continue;
+      const fill = await this.publicClient.readContract({
+        address: this.setryn.atomicClearingEngine,
+        abi: atomicClearingAbi,
+        functionName: "getFill",
+        args: [fillId],
+      });
       const [makerRecord, takerRecord] = await Promise.all([
         this.publicClient.readContract({
           address: this.setryn.orderState,
           abi: orderStateAbi,
           functionName: "getOrder",
-          args: [makerOrderHash],
+          args: [fill.makerOrderHash],
         }),
         this.publicClient.readContract({
           address: this.setryn.orderState,
           abi: orderStateAbi,
           functionName: "getOrder",
-          args: [takerOrderHash],
+          args: [fill.takerOrderHash],
         }),
       ]);
       const isTaker = takerRecord.order.accountId.toLowerCase() === accountId.toLowerCase();
       const isMaker = makerRecord.order.accountId.toLowerCase() === accountId.toLowerCase();
       if (!isTaker && !isMaker) continue;
       const ownRecord = isTaker ? takerRecord : makerRecord;
-      const ownOrderHash = isTaker ? takerOrderHash : makerOrderHash;
-      const positionEvent = positionEvents.find((event) => event.args.fillId === fillId);
-      const positionId = positionEvent?.args.positionId;
-      if (!positionId) continue;
-      const filledLots = Number(match.args.fillLots ?? BigInt(0));
+      const ownOrderHash = isTaker ? fill.takerOrderHash : fill.makerOrderHash;
+      const filledLots = Number(fill.fillLots);
       const requestedLots = isTaker ? Number(ownRecord.order.lots) : filledLots;
       const packageSide: "LONG" | "SHORT" = ownRecord.order.side === 1 ? "LONG" : "SHORT";
-      const price = Number(match.args.executionPriceTicks ?? BigInt(0)) / 10;
+      const price = Number(fill.executionPriceTicks) / 10;
       const ownFeeKind = isTaker ? 3 : 2;
       const feeMinor = ledgerEvents.find(
         (event) =>
@@ -1569,17 +1563,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
           event.args.kind === ownFeeKind &&
           event.args.payerAccountId?.toLowerCase() === accountId.toLowerCase(),
       )?.args.amount ?? BigInt(0);
-      let createdAt = new Date().toISOString();
-      if (match.blockNumber != null) {
-        const cached = blockTimes.get(match.blockNumber);
-        if (cached) {
-          createdAt = cached;
-        } else {
-          const block = await this.publicClient.getBlock({ blockNumber: match.blockNumber });
-          createdAt = new Date(Number(block.timestamp) * 1000).toISOString();
-          blockTimes.set(match.blockNumber, createdAt);
-        }
-      }
+      const createdAt = new Date(Number(fill.clearedAt) * 1000).toISOString();
       const position = {
         id: positionId,
         marketId: PRIMARY_MARKET_ID,
@@ -1600,11 +1584,11 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         id: fillId,
         orderHash: ownOrderHash,
         fillId,
-        transactionHash: match.transactionHash,
+        transactionHash: positionEvent.transactionHash,
         marketId: PRIMARY_MARKET_ID,
         packageCode: PRIMARY_MARKET_ID,
         packageSide,
-        routeLabel: "Direct package book",
+        routeLabel: fill.channelKind === 2 ? "Private firm RFQ" : "Direct package book",
         lots: filledLots,
         requestedLots,
         filledLots,
@@ -1618,10 +1602,10 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       const updates: SubmissionUpdate[] = [
         { step: "AUTHORIZED", label: "Order authorized", detail: "Signature and risk admission were bound." },
         { step: "SUBMITTED", label: "Order registered", detail: "Signed order registered onchain." },
-        { step: "INCLUDED", label: "Match included", detail: "Public liquidity cleared atomically.", transactionHash: match.transactionHash },
-        { step: "FILLED", label: "Package filled", detail: `${filledLots} lots filled at ${price}.`, transactionHash: match.transactionHash },
-        { step: "POSITION_CREATED", label: "Position created", detail: `Position ${positionId} is active.`, transactionHash: match.transactionHash },
-        { step: "RECEIPT_READY", label: "Receipt ready", detail: `Fill ${fillId} is verifiable onchain.`, transactionHash: match.transactionHash },
+        { step: "INCLUDED", label: "Match included", detail: `${receipt.routeLabel} cleared atomically.`, transactionHash: positionEvent.transactionHash },
+        { step: "FILLED", label: "Package filled", detail: `${filledLots} lots filled at ${price}.`, transactionHash: positionEvent.transactionHash },
+        { step: "POSITION_CREATED", label: "Position created", detail: `Position ${positionId} is active.`, transactionHash: positionEvent.transactionHash },
+        { step: "RECEIPT_READY", label: "Receipt ready", detail: `Fill ${fillId} is verifiable onchain.`, transactionHash: positionEvent.transactionHash },
       ];
       positions.push(position);
       receipts.push(receipt);
