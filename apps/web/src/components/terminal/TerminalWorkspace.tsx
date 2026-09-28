@@ -436,6 +436,30 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     [gatewaySnapshot.restingOrders, liveMarket.id],
   );
 
+  const directBookOrders = useMemo<BookRow[]>(
+    () =>
+      gatewaySnapshot.restingOrders
+        .filter(
+          (order) =>
+            order.marketId === liveMarket.id &&
+            (order.state === "WORKING" || order.state === "PARTIALLY_FILLED"),
+        )
+        .map((order) => {
+          const action = executableAction(order.side, order.packageSide);
+          return {
+            id: `onchain-${order.orderHash}`,
+            side: action === "BUY" ? "BID" : "ASK",
+            source: "DIRECT",
+            price: order.limitPrice,
+            lots: order.remainingLots,
+            firmness: "FIRM",
+            executable: true,
+            origin: "Setryn public book",
+          };
+        }),
+    [gatewaySnapshot.restingOrders, liveMarket.id],
+  );
+
   const selectedClosePosition = useMemo(
     () =>
       ticket.intent === "EXIT" && ticket.closePositionId
@@ -1005,6 +1029,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         >
           <OrderBookPanel
             market={liveMarket}
+            directOrders={directBookOrders}
             activePrice={activePrice}
             onSelectRow={selectBookRow}
           />

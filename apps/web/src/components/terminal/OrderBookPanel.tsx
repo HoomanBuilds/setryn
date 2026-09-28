@@ -126,18 +126,24 @@ function BookInfo() {
 
 export function OrderBookPanel({
   market,
+  directOrders,
   activePrice,
   onSelectRow,
 }: {
   market: PackageMarket;
+  directOrders: readonly BookRow[];
   activePrice: number;
   onSelectRow: (row: BookRow) => void;
 }) {
   const [filter, setFilter] = useState<Filter>("ALL");
 
   const { asks, bids, maxLots, counts } = useMemo(() => {
-    const visible = market.book.filter((row) => filter === "ALL" || row.source === filter);
-    const executable = market.book.filter((row) => row.executable);
+    const book = [
+      ...market.book.filter((row) => row.source !== "DIRECT"),
+      ...directOrders,
+    ];
+    const visible = book.filter((row) => filter === "ALL" || row.source === filter);
+    const executable = book.filter((row) => row.executable);
     const bySource = (source: LiquiditySource) =>
       executable.filter((row) => row.source === source).reduce((sum, row) => sum + row.lots, 0);
     return {
@@ -151,7 +157,7 @@ export function OrderBookPanel({
         SOLVER_FIRM: bySource("SOLVER_FIRM"),
       } as Record<Filter, number>,
     };
-  }, [market, filter]);
+  }, [directOrders, market, filter]);
 
   const spread = market.bestAsk - market.bestBid;
   const mid = (market.bestAsk + market.bestBid) / 2;
@@ -203,6 +209,12 @@ export function OrderBookPanel({
       </div>
 
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
+        {asks.length + bids.length === 0 ? (
+          <div className="px-4 py-8 text-center text-xs text-faint">
+            No {filter === "ALL" ? "" : `${FILTERS.find((option) => option.value === filter)?.label.toLowerCase()} `}
+            liquidity is available.
+          </div>
+        ) : null}
         {asks.map((row) => (
           <Row
             key={row.id}
