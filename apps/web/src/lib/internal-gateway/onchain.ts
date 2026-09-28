@@ -126,6 +126,27 @@ const vaultAbi = [
     ],
     outputs: [],
   },
+  {
+    type: "function",
+    name: "isLockOperator",
+    stateMutability: "view",
+    inputs: [
+      { name: "accountId", type: "bytes32" },
+      { name: "operator", type: "address" },
+    ],
+    outputs: [{ name: "approved", type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "setLockOperator",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "accountId", type: "bytes32" },
+      { name: "operator", type: "address" },
+      { name: "approved", type: "bool" },
+    ],
+    outputs: [],
+  },
 ] as const;
 
 const tokenAbi = [
@@ -362,6 +383,24 @@ export class OnchainTradingGateway implements InternalTradingGateway {
 
     const accountId = await this.accountId(address);
     if (intent.accountId.toLowerCase() !== accountId.toLowerCase()) throw new Error("ACCOUNT_MISMATCH");
+    const clearingApproved = await publicClient.readContract({
+      address: setryn.collateralVault,
+      abi: vaultAbi,
+      functionName: "isLockOperator",
+      args: [accountId, setryn.atomicClearingEngine],
+    });
+    if (!clearingApproved) {
+      const approvalHash = await walletClient.writeContract({
+        account: address,
+        chain: this.chain(setryn),
+        address: setryn.collateralVault,
+        abi: vaultAbi,
+        functionName: "setLockOperator",
+        args: [accountId, setryn.atomicClearingEngine, true],
+      });
+      const approvalReceipt = await publicClient.waitForTransactionReceipt({ hash: approvalHash });
+      if (approvalReceipt.status !== "success") throw new Error("CLEARING_APPROVAL_FAILED");
+    }
     const block = await publicClient.getBlock();
     let lifetime = BigInt(240);
     if (intent.timeInForce === "GTD") {
