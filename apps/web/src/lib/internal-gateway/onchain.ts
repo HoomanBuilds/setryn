@@ -1215,16 +1215,63 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     return cancelled;
   }
 
-  async completeRfq(_requestId: string, _receiptId: string): Promise<RfqRequest> {
-    throw new Error("ONCHAIN_RFQ_FLOW_NOT_READY");
-  }
-
   async submitLocalMakerQuote(_requestId: string, _input: LocalMakerQuoteInput): Promise<RfqRequest> {
-    throw new Error("ONCHAIN_RFQ_FLOW_NOT_READY");
+    const current = this.snapshot.rfqRequests.find((request) => request.id === _requestId);
+    if (!current) throw new Error("RFQ_NOT_FOUND");
+    if (current.state !== "OPEN") throw new Error("RFQ_NOT_OPEN");
+    const response = await fetch("/api/internal/devnet/rfq-quote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rfqId: _requestId, ..._input }),
+    });
+    const body = (await response.json()) as {
+      quoteId?: string;
+      packagePrice?: number;
+      feeCap?: number;
+      capacityLots?: number;
+      expiresAt?: string;
+      error?: string;
+    };
+    if (!response.ok || !body.quoteId || body.packagePrice === undefined || body.feeCap === undefined || body.capacityLots === undefined || !body.expiresAt) {
+      throw new Error(body.error ?? "RFQ_QUOTE_FAILED");
+    }
+    const quote = {
+      id: body.quoteId,
+      solverLabel: "Setryn Devnet MM",
+      packagePrice: body.packagePrice,
+      feeCap: body.feeCap,
+      capacityLots: body.capacityLots,
+      expiresAt: body.expiresAt,
+      settlementGuarantee: "Firm capacity, atomic onchain settlement",
+      provenance: "DEVNET_MAKER" as const,
+    };
+    const updated = { ...current, quotes: [...current.quotes, quote] };
+    this.publish({
+      ...this.snapshot,
+      rfqRequests: this.snapshot.rfqRequests.map((request) => request.id === _requestId ? updated : request),
+    });
+    return updated;
   }
 
   async withdrawLocalMakerQuote(_requestId: string): Promise<RfqRequest> {
-    throw new Error("ONCHAIN_RFQ_FLOW_NOT_READY");
+    const current = this.snapshot.rfqRequests.find((request) => request.id === _requestId);
+    if (!current) throw new Error("RFQ_NOT_FOUND");
+    if (current.state !== "OPEN") throw new Error("RFQ_NOT_OPEN");
+    const quote = [...current.quotes].reverse().find((candidate) => candidate.provenance === "DEVNET_MAKER");
+    if (!quote) throw new Error("RFQ_QUOTE_NOT_FOUND");
+    const response = await fetch("/api/internal/devnet/rfq-withdraw", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ quoteId: quote.id }),
+    });
+    const body = (await response.json()) as { error?: string };
+    if (!response.ok) throw new Error(body.error ?? "QUOTE_WITHDRAWAL_FAILED");
+    const updated = { ...current, quotes: current.quotes.filter((candidate) => candidate.id !== quote.id) };
+    this.publish({
+      ...this.snapshot,
+      rfqRequests: this.snapshot.rfqRequests.map((request) => request.id === _requestId ? updated : request),
+    });
+    return updated;
   }
 
   getReceipt(receiptId: string): ExecutionReceipt | null {
@@ -1690,6 +1737,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
           functionName: "getQuote",
           args: [quoteId],
         });
+        if (quoteRecord.status >= 5) continue;
         const priceTicks = rfq.request.sidePolicy === 1
           ? quoteRecord.quote.askPriceTicks
           : quoteRecord.quote.bidPriceTicks;
@@ -1701,7 +1749,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
           capacityLots: Number(quoteRecord.quote.lots - quoteRecord.cumulativeFilledLots),
           expiresAt: new Date(Number(quoteRecord.quote.deadline) * 1000).toISOString(),
           settlementGuarantee: "Firm capacity, atomic onchain settlement",
-          provenance: "SEEDED_SOLVER",
+          provenance: "DEVNET_MAKER",
         });
       }
       const settled = rfq.status === 8

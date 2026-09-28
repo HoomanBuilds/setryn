@@ -42,6 +42,10 @@ const vaultAbi = [
 
 interface RfqQuoteBody {
   rfqId?: unknown;
+  packagePrice?: unknown;
+  capacityLots?: unknown;
+  feeCap?: unknown;
+  ttlSeconds?: unknown;
 }
 
 export async function POST(request: Request) {
@@ -51,6 +55,18 @@ export async function POST(request: Request) {
       return Response.json({ error: "Invalid RFQ identifier" }, { status: 400 });
     }
     const rfqId = body.rfqId as Hex;
+    const requestedPrice = body.packagePrice === undefined ? 612 : Number(body.packagePrice);
+    const requestedLots = body.capacityLots === undefined ? null : Number(body.capacityLots);
+    const requestedFeeCap = body.feeCap === undefined ? null : Number(body.feeCap);
+    const ttlSeconds = body.ttlSeconds === undefined ? 120 : Number(body.ttlSeconds);
+    if (!Number.isFinite(requestedPrice) || requestedPrice <= 0) throw new Error("INVALID_PACKAGE_PRICE");
+    if (requestedLots !== null && (!Number.isInteger(requestedLots) || requestedLots <= 0)) {
+      throw new Error("INVALID_CAPACITY");
+    }
+    if (requestedFeeCap !== null && (!Number.isFinite(requestedFeeCap) || requestedFeeCap < 0)) {
+      throw new Error("INVALID_FEE_CAP");
+    }
+    if (!Number.isInteger(ttlSeconds) || ttlSeconds < 5 || ttlSeconds > 120) throw new Error("INVALID_TTL");
     const bootstrap = await fetch(new URL("/api/internal/devnet/liquidity", request.url), { method: "POST" });
     if (!bootstrap.ok) throw new Error("DEVNET_MAKER_UNAVAILABLE");
 
@@ -76,12 +92,20 @@ export async function POST(request: Request) {
     if (rfq.status !== 2 || rfq.request.deadline <= block.timestamp) throw new Error("RFQ_NOT_COLLECTING");
 
     const makerSide: 1 | 2 = rfq.request.sidePolicy === 1 ? 2 : 1;
-    const priceTicks = BigInt(6120);
-    const quoteDeadline = rfq.request.deadline < block.timestamp + BigInt(120)
+    const priceTicks = BigInt(Math.round(requestedPrice * 10));
+    const lots = requestedLots === null ? rfq.request.lots : BigInt(requestedLots);
+    const maxFeeMinor = requestedFeeCap === null
+      ? rfq.request.maxFeeMinor
+      : BigInt(Math.round(requestedFeeCap * 1_000_000));
+    if (lots > rfq.request.lots || maxFeeMinor > rfq.request.maxFeeMinor) throw new Error("QUOTE_ABOVE_REQUEST_LIMIT");
+    if (lots < rfq.request.lots && (!rfq.request.allowPartialFills || rfq.request.remainderPolicy !== 2)) {
+      throw new Error("PARTIAL_QUOTE_NOT_ALLOWED");
+    }
+    const quoteDeadline = rfq.request.deadline < block.timestamp + BigInt(ttlSeconds)
       ? rfq.request.deadline
-      : block.timestamp + BigInt(120);
+      : block.timestamp + BigInt(ttlSeconds);
     const capacityExpiry = quoteDeadline + BigInt(60);
-    const orderNonce = block.timestamp * BigInt(1_000_000) + BigInt(101);
+    const orderNonce = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(crypto.getRandomValues(new Uint32Array(1))[0]);
     const makerOrder: OnchainPublicOrder = {
       signer: maker,
       accountId: makerAccountId,
@@ -93,14 +117,14 @@ export async function POST(request: Request) {
       packageId: ZERO_ID,
       targetVersion: 1,
       side: makerSide,
-      lots: rfq.request.lots,
+      lots,
       priceTicks,
       timeInForce: 4,
       deadline: quoteDeadline,
       executionModeId: setryn.privateRfqExecutionModeId,
       feeScheduleId: setryn.feeScheduleId,
       feeScheduleVersion: 1,
-      maxFeeMinor: rfq.request.maxFeeMinor,
+      maxFeeMinor,
       recipient: maker,
       permittedExecutor: setryn.atomicClearingEngine,
       nonce: orderNonce,
@@ -167,7 +191,7 @@ export async function POST(request: Request) {
       hasPackageLegCommitment: false,
       packageLegsHash: ZERO_ID,
       sidePolicy: rfq.request.sidePolicy as 1 | 2 | 3,
-      lots: rfq.request.lots,
+      lots,
       allowPartialFills: rfq.request.allowPartialFills,
       minimumFillLots: rfq.request.minimumFillLots,
       remainderPolicy: rfq.request.remainderPolicy as 1 | 2,
@@ -175,12 +199,12 @@ export async function POST(request: Request) {
       askPriceTicks: rfq.request.sidePolicy === 1 ? priceTicks : BigInt(0),
       feeScheduleId: setryn.feeScheduleId,
       feeScheduleVersion: 1,
-      maxFeeMinor: rfq.request.maxFeeMinor,
+      maxFeeMinor,
       riskDomainId: setryn.riskDomainId,
       riskDomainVersion: 1,
       collateralAssetId: setryn.settlementAssetId,
       collateralBindingVersion: 1,
-      maximumLiability: rfq.request.lots * liabilityPerLot,
+      maximumLiability: lots * liabilityPerLot,
       privacyModeId: setryn.privateRfqPrivacyModeId,
       executionModeId: setryn.privateRfqExecutionModeId,
       disclosurePolicyHash: setryn.privateRfqDisclosurePolicyHash,
@@ -226,8 +250,8 @@ export async function POST(request: Request) {
     return Response.json({
       quoteId,
       packagePrice: Number(priceTicks) / 10,
-      feeCap: Number(rfq.request.maxFeeMinor) / 1_000_000,
-      capacityLots: Number(rfq.request.lots),
+      feeCap: Number(maxFeeMinor) / 1_000_000,
+      capacityLots: Number(lots),
       expiresAt: new Date(Number(quoteDeadline) * 1000).toISOString(),
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

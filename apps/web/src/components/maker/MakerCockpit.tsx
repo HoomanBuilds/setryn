@@ -280,7 +280,7 @@ function makerQuoteError(error: unknown): string {
 }
 
 function localMakerQuote(request: GatewayRfqRequest): FirmRfqQuote | null {
-  return request.quotes.find((quote) => quote.provenance === "LOCAL_DEMO") ?? null;
+  return [...request.quotes].reverse().find((quote) => quote.provenance === "DEVNET_MAKER") ?? null;
 }
 
 function RfqQueue({
@@ -485,7 +485,7 @@ function RfqQueue({
                             <span className="tnum font-mono text-xs text-ink">{owned.packagePrice}</span>
                             <span className="tnum ml-2 font-mono text-[11px] text-dim">{owned.capacityLots} lots</span>
                             <span className="mt-0.5 block font-mono text-[10px] text-off">
-                              {owned.feeCap} cap · {ownedExpired ? "Expired" : `${ownedLeft}s`} · LOCAL_DEMO
+                              {owned.feeCap} cap · {ownedExpired ? "Expired" : `${ownedLeft}s`} · DEVNET
                             </span>
                           </span>
                         ) : (

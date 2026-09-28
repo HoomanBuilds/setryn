@@ -232,9 +232,18 @@ export const rfqSelectionComponents = [
   { name: "salt", type: "bytes32" },
 ] as const;
 
+export const capacityCancelComponents = [
+  { name: "quoteId", type: "bytes32" },
+  { name: "maker", type: "address" },
+  { name: "nonce", type: "uint256" },
+  { name: "deadline", type: "uint64" },
+  { name: "salt", type: "bytes32" },
+] as const;
+
 export const privateRfqRequestTypedData = { PrivateRfqRequest: privateRfqRequestComponents } as const;
 export const makerQuoteTypedData = { MakerQuote: makerQuoteComponents } as const;
 export const rfqSelectionTypedData = { RfqSelectionAuthorization: rfqSelectionComponents } as const;
+export const capacityCancelTypedData = { CapacityCancelAuthorization: capacityCancelComponents } as const;
 
 export const privateRfqBookAbi = [
   { type: "event", name: "PrivateRfqCommitted", inputs: [{ name: "rfqId", type: "bytes32", indexed: true }, { name: "requestCommitment", type: "bytes32", indexed: true }, { name: "targetCommitment", type: "bytes32", indexed: true }, { name: "packageLegsHash", type: "bytes32", indexed: false }, { name: "privacyModeId", type: "bytes32", indexed: false }, { name: "executionModeId", type: "bytes32", indexed: false }, { name: "deadline", type: "uint64", indexed: false }] },
@@ -252,6 +261,7 @@ export const privateRfqBookAbi = [
   { type: "function", name: "submitSelectedRfq", stateMutability: "nonpayable", inputs: [{ name: "rfqId", type: "bytes32" }, { name: "submissionReference", type: "bytes32" }], outputs: [] },
   { type: "function", name: "cancelRfq", stateMutability: "nonpayable", inputs: [{ name: "rfqId", type: "bytes32" }], outputs: [] },
   { type: "function", name: "expireRfq", stateMutability: "nonpayable", inputs: [{ name: "rfqId", type: "bytes32" }], outputs: [] },
+  { type: "function", name: "cancelQuoteCapacity", stateMutability: "nonpayable", inputs: [{ name: "cancellation", type: "tuple", components: capacityCancelComponents }, { name: "signature", type: "bytes" }], outputs: [] },
   { type: "function", name: "getRfq", stateMutability: "view", inputs: [{ name: "rfqId", type: "bytes32" }], outputs: [{ name: "record", type: "tuple", components: [{ name: "request", type: "tuple", components: privateRfqRequestComponents }, { name: "selectedQuoteId", type: "bytes32" }, { name: "status", type: "uint8" }, { name: "cumulativeFilledLots", type: "uint128" }, { name: "registeredAt", type: "uint64" }] }] },
   { type: "function", name: "getQuote", stateMutability: "view", inputs: [{ name: "quoteId", type: "bytes32" }], outputs: [{ name: "record", type: "tuple", components: [{ name: "quote", type: "tuple", components: makerQuoteComponents }, { name: "status", type: "uint8" }, { name: "cumulativeFilledLots", type: "uint128" }, { name: "offeredAt", type: "uint64" }] }] },
   { type: "function", name: "getCapacity", stateMutability: "view", inputs: [{ name: "quoteId", type: "bytes32" }], outputs: [{ name: "record", type: "tuple", components: [{ name: "quoteId", type: "bytes32" }, { name: "maker", type: "address" }, { name: "makerAccountId", type: "bytes32" }, { name: "collateralId", type: "bytes32" }, { name: "lockId", type: "bytes32" }, { name: "riskDomainId", type: "bytes32" }, { name: "riskDomainVersion", type: "uint32" }, { name: "expiry", type: "uint64" }, { name: "status", type: "uint8" }, { name: "initialLiability", type: "uint128" }, { name: "remainingLiability", type: "uint128" }] }] },

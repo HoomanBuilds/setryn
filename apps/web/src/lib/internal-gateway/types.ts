@@ -177,7 +177,7 @@ export interface SignedOrderAuthorization {
 
 export type RfqRequestState = "OPEN" | "SELECTED" | "CANCELLED" | "EXECUTED";
 
-export type RfqQuoteProvenance = "SEEDED_SOLVER" | "LOCAL_DEMO";
+export type RfqQuoteProvenance = "SEEDED_SOLVER" | "DEVNET_MAKER";
 
 export interface FirmRfqQuote {
   id: string;
@@ -290,7 +290,6 @@ export interface InternalTradingGateway {
     onUpdate: (update: SubmissionUpdate) => void,
   ): Promise<PackageExecutionResult>;
   cancelRfq(requestId: string): Promise<RfqRequest>;
-  completeRfq(requestId: string, receiptId: string): Promise<RfqRequest>;
   submitLocalMakerQuote(requestId: string, input: LocalMakerQuoteInput): Promise<RfqRequest>;
   withdrawLocalMakerQuote(requestId: string): Promise<RfqRequest>;
   getReceipt(receiptId: string): ExecutionReceipt | null;
