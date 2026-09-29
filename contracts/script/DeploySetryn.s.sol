@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.37;
 
-import {Script, console2} from "forge-std/Script.sol";
+import {console2} from "forge-std/Script.sol";
+
+import {ArtifactDeployer} from "./ArtifactDeployer.sol";
 import {
     AccessControlDefaultAdminRules
 } from "@openzeppelin/contracts/access/extensions/AccessControlDefaultAdminRules.sol";
@@ -127,7 +129,7 @@ import {
 import {WindowKindId} from "../src/types/Identifiers.sol";
 import {ClearingChannelKind} from "../src/types/ClearingTypes.sol";
 
-contract DeploySetryn is Script {
+contract DeploySetryn is ArtifactDeployer {
     uint256 private constant ARBITRUM_ONE_CHAIN_ID = 42161;
     uint256 private constant ARBITRUM_SEPOLIA_CHAIN_ID = 421614;
     uint256 private constant ANVIL_CHAIN_ID = 31337;
@@ -330,7 +332,8 @@ contract DeploySetryn is Script {
 
         ISequencerUptimeFeed resolvedFeed;
         if (address(config.sequencerFeed) == address(0)) {
-            resolvedFeed = ISequencerUptimeFeed(address(new DevnetSequencerUptimeFeed()));
+            resolvedFeed =
+                ISequencerUptimeFeed(address(DevnetSequencerUptimeFeed(_create("DevnetSequencerUptimeFeed", ""))));
         } else {
             if (address(config.sequencerFeed).code.length == 0) {
                 revert InvalidSequencerUptimeFeed(address(config.sequencerFeed));
@@ -338,228 +341,390 @@ contract DeploySetryn is Script {
             resolvedFeed = config.sequencerFeed;
         }
 
-        deployment.assetRegistry = new AssetRegistry(config.defaultAdminDelay, config.bootstrapAdmin);
-        deployment.adapterRegistry = new AdapterRegistry(config.defaultAdminDelay, config.bootstrapAdmin);
-        deployment.calendarRegistry = new CalendarRegistry(config.defaultAdminDelay, config.bootstrapAdmin);
-        deployment.sessionRegistry = new SessionRegistry(
-            config.defaultAdminDelay, config.bootstrapAdmin, ICalendarRegistry(address(deployment.calendarRegistry))
+        deployment.assetRegistry =
+            AssetRegistry(_create("AssetRegistry", abi.encode(config.defaultAdminDelay, config.bootstrapAdmin)));
+        deployment.adapterRegistry =
+            AdapterRegistry(_create("AdapterRegistry", abi.encode(config.defaultAdminDelay, config.bootstrapAdmin)));
+        deployment.calendarRegistry =
+            CalendarRegistry(_create("CalendarRegistry", abi.encode(config.defaultAdminDelay, config.bootstrapAdmin)));
+        deployment.sessionRegistry = SessionRegistry(
+            _create(
+                "SessionRegistry",
+                abi.encode(
+                    config.defaultAdminDelay,
+                    config.bootstrapAdmin,
+                    ICalendarRegistry(address(deployment.calendarRegistry))
+                )
+            )
         );
-        deployment.settlementAssetRegistry = new SettlementAssetRegistry(
-            config.defaultAdminDelay, config.bootstrapAdmin, IAssetRegistry(address(deployment.assetRegistry))
+        deployment.settlementAssetRegistry = SettlementAssetRegistry(
+            _create(
+                "SettlementAssetRegistry",
+                abi.encode(
+                    config.defaultAdminDelay, config.bootstrapAdmin, IAssetRegistry(address(deployment.assetRegistry))
+                )
+            )
         );
-        deployment.benchmarkRegistry = new BenchmarkRegistry(
-            config.defaultAdminDelay,
-            config.bootstrapAdmin,
-            IAssetRegistry(address(deployment.assetRegistry)),
-            IAdapterRegistry(address(deployment.adapterRegistry)),
-            ICalendarRegistry(address(deployment.calendarRegistry)),
-            ISessionRegistry(address(deployment.sessionRegistry))
+        deployment.benchmarkRegistry = BenchmarkRegistry(
+            _create(
+                "BenchmarkRegistry",
+                abi.encode(
+                    config.defaultAdminDelay,
+                    config.bootstrapAdmin,
+                    IAssetRegistry(address(deployment.assetRegistry)),
+                    IAdapterRegistry(address(deployment.adapterRegistry)),
+                    ICalendarRegistry(address(deployment.calendarRegistry)),
+                    ISessionRegistry(address(deployment.sessionRegistry))
+                )
+            )
         );
-        deployment.feeScheduleRegistry = new FeeScheduleRegistry(
-            config.defaultAdminDelay,
-            config.bootstrapAdmin,
-            ISettlementAssetRegistry(address(deployment.settlementAssetRegistry))
+        deployment.feeScheduleRegistry = FeeScheduleRegistry(
+            _create(
+                "FeeScheduleRegistry",
+                abi.encode(
+                    config.defaultAdminDelay,
+                    config.bootstrapAdmin,
+                    ISettlementAssetRegistry(address(deployment.settlementAssetRegistry))
+                )
+            )
         );
-        deployment.riskDomainRegistry = new RiskDomainRegistry(
-            config.defaultAdminDelay,
-            config.bootstrapAdmin,
-            ISettlementAssetRegistry(address(deployment.settlementAssetRegistry)),
-            IAdapterRegistry(address(deployment.adapterRegistry))
+        deployment.riskDomainRegistry = RiskDomainRegistry(
+            _create(
+                "RiskDomainRegistry",
+                abi.encode(
+                    config.defaultAdminDelay,
+                    config.bootstrapAdmin,
+                    ISettlementAssetRegistry(address(deployment.settlementAssetRegistry)),
+                    IAdapterRegistry(address(deployment.adapterRegistry))
+                )
+            )
         );
-        deployment.instrumentRegistry = new InstrumentRegistry(
-            config.defaultAdminDelay,
-            config.bootstrapAdmin,
-            IAdapterRegistry(address(deployment.adapterRegistry)),
-            config.evaluationGasHardCap
+        deployment.instrumentRegistry = InstrumentRegistry(
+            _create(
+                "InstrumentRegistry",
+                abi.encode(
+                    config.defaultAdminDelay,
+                    config.bootstrapAdmin,
+                    IAdapterRegistry(address(deployment.adapterRegistry)),
+                    config.evaluationGasHardCap
+                )
+            )
         );
-        deployment.collateralVault = new CollateralVault(
-            config.defaultAdminDelay,
-            config.bootstrapAdmin,
-            ISettlementAssetRegistry(address(deployment.settlementAssetRegistry)),
-            IRiskDomainRegistry(address(deployment.riskDomainRegistry)),
-            config.maxLockDuration
+        deployment.collateralVault = CollateralVault(
+            _create(
+                "CollateralVault",
+                abi.encode(
+                    config.defaultAdminDelay,
+                    config.bootstrapAdmin,
+                    ISettlementAssetRegistry(address(deployment.settlementAssetRegistry)),
+                    IRiskDomainRegistry(address(deployment.riskDomainRegistry)),
+                    config.maxLockDuration
+                )
+            )
         );
-        deployment.marketRegistry = new MarketRegistry(
-            config.defaultAdminDelay,
-            config.bootstrapAdmin,
-            IAssetRegistry(address(deployment.assetRegistry)),
-            ISettlementAssetRegistry(address(deployment.settlementAssetRegistry)),
-            ICollateralVault(address(deployment.collateralVault)),
-            IBenchmarkRegistry(address(deployment.benchmarkRegistry)),
-            ICalendarRegistry(address(deployment.calendarRegistry)),
-            ISessionRegistry(address(deployment.sessionRegistry)),
-            IRiskDomainRegistry(address(deployment.riskDomainRegistry)),
-            IFeeScheduleRegistry(address(deployment.feeScheduleRegistry))
+        deployment.marketRegistry = MarketRegistry(
+            _create(
+                "MarketRegistry",
+                abi.encode(
+                    config.defaultAdminDelay,
+                    config.bootstrapAdmin,
+                    IAssetRegistry(address(deployment.assetRegistry)),
+                    ISettlementAssetRegistry(address(deployment.settlementAssetRegistry)),
+                    ICollateralVault(address(deployment.collateralVault)),
+                    IBenchmarkRegistry(address(deployment.benchmarkRegistry)),
+                    ICalendarRegistry(address(deployment.calendarRegistry)),
+                    ISessionRegistry(address(deployment.sessionRegistry)),
+                    IRiskDomainRegistry(address(deployment.riskDomainRegistry)),
+                    IFeeScheduleRegistry(address(deployment.feeScheduleRegistry))
+                )
+            )
         );
-        deployment.seriesRegistry = new SeriesRegistry(
-            config.defaultAdminDelay,
-            config.bootstrapAdmin,
-            IMarketRegistry(address(deployment.marketRegistry)),
-            IInstrumentRegistry(address(deployment.instrumentRegistry))
+        deployment.seriesRegistry = SeriesRegistry(
+            _create(
+                "SeriesRegistry",
+                abi.encode(
+                    config.defaultAdminDelay,
+                    config.bootstrapAdmin,
+                    IMarketRegistry(address(deployment.marketRegistry)),
+                    IInstrumentRegistry(address(deployment.instrumentRegistry))
+                )
+            )
         );
-        deployment.packageRegistry = new PackageRegistry(
-            config.defaultAdminDelay, config.bootstrapAdmin, ISeriesRegistry(address(deployment.seriesRegistry))
+        deployment.packageRegistry = PackageRegistry(
+            _create(
+                "PackageRegistry",
+                abi.encode(
+                    config.defaultAdminDelay, config.bootstrapAdmin, ISeriesRegistry(address(deployment.seriesRegistry))
+                )
+            )
         );
-        deployment.strategyCompiler = new CanonicalStrategyCompiler();
-        deployment.positionEngine = new PositionEngine(
-            config.defaultAdminDelay,
-            config.bootstrapAdmin,
-            ISeriesRegistry(address(deployment.seriesRegistry)),
-            ICollateralVault(address(deployment.collateralVault))
+        deployment.strategyCompiler = CanonicalStrategyCompiler(_create("CanonicalStrategyCompiler", ""));
+        deployment.positionEngine = PositionEngine(
+            _create(
+                "PositionEngine",
+                abi.encode(
+                    config.defaultAdminDelay,
+                    config.bootstrapAdmin,
+                    ISeriesRegistry(address(deployment.seriesRegistry)),
+                    ICollateralVault(address(deployment.collateralVault))
+                )
+            )
         );
-        deployment.fixingEngine = new FixingEngine(ISeriesRegistry(address(deployment.seriesRegistry)));
-        deployment.fundedFeeEngine = new FundedFeeEngine(
-            config.defaultAdminDelay,
-            config.bootstrapAdmin,
-            IFeeScheduleRegistry(address(deployment.feeScheduleRegistry)),
-            ICollateralVault(address(deployment.collateralVault))
+        deployment.fixingEngine =
+            FixingEngine(_create("FixingEngine", abi.encode(ISeriesRegistry(address(deployment.seriesRegistry)))));
+        deployment.fundedFeeEngine = FundedFeeEngine(
+            _create(
+                "FundedFeeEngine",
+                abi.encode(
+                    config.defaultAdminDelay,
+                    config.bootstrapAdmin,
+                    IFeeScheduleRegistry(address(deployment.feeScheduleRegistry)),
+                    ICollateralVault(address(deployment.collateralVault))
+                )
+            )
         );
-        deployment.portfolioRiskEngine = new PortfolioRiskEngine(
-            config.defaultAdminDelay,
-            config.bootstrapAdmin,
-            IRiskDomainRegistry(address(deployment.riskDomainRegistry)),
-            IAdapterRegistry(address(deployment.adapterRegistry)),
-            ICollateralVault(address(deployment.collateralVault)),
-            IPositionEngine(address(deployment.positionEngine)),
-            config.maximumRiskAdapterGas,
-            config.maximumRiskObservationAge
+        deployment.portfolioRiskEngine = PortfolioRiskEngine(
+            _create(
+                "PortfolioRiskEngine",
+                abi.encode(
+                    config.defaultAdminDelay,
+                    config.bootstrapAdmin,
+                    IRiskDomainRegistry(address(deployment.riskDomainRegistry)),
+                    IAdapterRegistry(address(deployment.adapterRegistry)),
+                    ICollateralVault(address(deployment.collateralVault)),
+                    IPositionEngine(address(deployment.positionEngine)),
+                    config.maximumRiskAdapterGas,
+                    config.maximumRiskObservationAge
+                )
+            )
         );
         deployment.sequencerUptimeFeed = resolvedFeed;
-        deployment.executionPolicyRegistry =
-            new ExecutionPolicyRegistry(config.defaultAdminDelay, config.bootstrapAdmin);
-        deployment.tradingSessionPolicy = new TradingSessionPolicy(
-            ISessionRegistry(address(deployment.sessionRegistry)),
-            deployment.sequencerUptimeFeed,
-            WindowKindId.wrap(keccak256("SetrynWindowKindV1:Trading")),
-            WindowKindId.wrap(keccak256("SetrynWindowKindV1:Maintenance")),
-            config.sequencerRecoveryGrace
+        deployment.executionPolicyRegistry = ExecutionPolicyRegistry(
+            _create("ExecutionPolicyRegistry", abi.encode(config.defaultAdminDelay, config.bootstrapAdmin))
         );
-        deployment.packageWitnessRegistry = new PackageWitnessRegistry(deployment.packageRegistry);
-        deployment.riskAdmissionBindingRegistry =
-            new RiskAdmissionBindingRegistry(deployment.portfolioRiskEngine, address(0));
-        deployment.orderValidationGate = new OrderValidationGate(
-            deployment.seriesRegistry,
-            deployment.packageRegistry,
-            deployment.executionPolicyRegistry,
-            deployment.tradingSessionPolicy,
-            deployment.packageWitnessRegistry,
-            deployment.riskAdmissionBindingRegistry
+        deployment.tradingSessionPolicy = TradingSessionPolicy(
+            _create(
+                "TradingSessionPolicy",
+                abi.encode(
+                    ISessionRegistry(address(deployment.sessionRegistry)),
+                    deployment.sequencerUptimeFeed,
+                    WindowKindId.wrap(keccak256("SetrynWindowKindV1:Trading")),
+                    WindowKindId.wrap(keccak256("SetrynWindowKindV1:Maintenance")),
+                    config.sequencerRecoveryGrace
+                )
+            )
         );
-        deployment.orderState = new OrderState(
-            config.defaultAdminDelay, config.bootstrapAdmin, deployment.orderValidationGate, config.maximumOrderLifetime
+        deployment.packageWitnessRegistry =
+            PackageWitnessRegistry(_create("PackageWitnessRegistry", abi.encode(deployment.packageRegistry)));
+        deployment.riskAdmissionBindingRegistry = RiskAdmissionBindingRegistry(
+            _create("RiskAdmissionBindingRegistry", abi.encode(deployment.portfolioRiskEngine, address(0)))
+        );
+        deployment.orderValidationGate = OrderValidationGate(
+            _create(
+                "OrderValidationGate",
+                abi.encode(
+                    deployment.seriesRegistry,
+                    deployment.packageRegistry,
+                    deployment.executionPolicyRegistry,
+                    deployment.tradingSessionPolicy,
+                    deployment.packageWitnessRegistry,
+                    deployment.riskAdmissionBindingRegistry
+                )
+            )
+        );
+        deployment.orderState = OrderState(
+            _create(
+                "OrderState",
+                abi.encode(
+                    config.defaultAdminDelay,
+                    config.bootstrapAdmin,
+                    deployment.orderValidationGate,
+                    config.maximumOrderLifetime
+                )
+            )
         );
         deployment.riskAdmissionBindingRegistry.bindOrderVerifyingContract(address(deployment.orderState));
-        deployment.clearingAdmissionGate = new ClearingAdmissionGate(
-            deployment.seriesRegistry,
-            deployment.packageRegistry,
-            deployment.executionPolicyRegistry,
-            deployment.tradingSessionPolicy,
-            deployment.packageWitnessRegistry,
-            deployment.riskAdmissionBindingRegistry
+        deployment.clearingAdmissionGate = ClearingAdmissionGate(
+            _create(
+                "ClearingAdmissionGate",
+                abi.encode(
+                    deployment.seriesRegistry,
+                    deployment.packageRegistry,
+                    deployment.executionPolicyRegistry,
+                    deployment.tradingSessionPolicy,
+                    deployment.packageWitnessRegistry,
+                    deployment.riskAdmissionBindingRegistry
+                )
+            )
         );
-        deployment.atomicClearingEngine = new AtomicClearingEngine(
-            config.defaultAdminDelay,
-            config.bootstrapAdmin,
-            deployment.orderState,
-            deployment.seriesRegistry,
-            deployment.packageRegistry,
-            deployment.positionEngine,
-            deployment.collateralVault,
-            deployment.clearingAdmissionGate,
-            deployment.fundedFeeEngine
+        deployment.atomicClearingEngine = AtomicClearingEngine(
+            _create(
+                "AtomicClearingEngine",
+                abi.encode(
+                    config.defaultAdminDelay,
+                    config.bootstrapAdmin,
+                    deployment.orderState,
+                    deployment.seriesRegistry,
+                    deployment.packageRegistry,
+                    deployment.positionEngine,
+                    deployment.collateralVault,
+                    deployment.clearingAdmissionGate,
+                    deployment.fundedFeeEngine
+                )
+            )
         );
-        deployment.privateRfqValidationGate = new PrivateRfqValidationGate(
-            deployment.seriesRegistry,
-            deployment.packageRegistry,
-            deployment.executionPolicyRegistry,
-            deployment.tradingSessionPolicy,
-            deployment.packageWitnessRegistry
+        deployment.privateRfqValidationGate = PrivateRfqValidationGate(
+            _create(
+                "PrivateRfqValidationGate",
+                abi.encode(
+                    deployment.seriesRegistry,
+                    deployment.packageRegistry,
+                    deployment.executionPolicyRegistry,
+                    deployment.tradingSessionPolicy,
+                    deployment.packageWitnessRegistry
+                )
+            )
         );
-        deployment.privateRfqBook = new PrivateRfqBook(
-            config.defaultAdminDelay,
-            config.bootstrapAdmin,
-            IFirmCapacityVault(address(deployment.collateralVault)),
-            deployment.privateRfqValidationGate,
-            address(deployment.atomicClearingEngine),
-            config.maximumRfqCapacityTail
+        deployment.privateRfqBook = PrivateRfqBook(
+            _create(
+                "PrivateRfqBook",
+                abi.encode(
+                    config.defaultAdminDelay,
+                    config.bootstrapAdmin,
+                    IFirmCapacityVault(address(deployment.collateralVault)),
+                    deployment.privateRfqValidationGate,
+                    address(deployment.atomicClearingEngine),
+                    config.maximumRfqCapacityTail
+                )
+            )
         );
         deployment.atomicClearingEngine
             .activateClearingChannel(
                 ClearingChannelKind.PrivateRfq, deployment.privateRfqBook, PRIVATE_RFQ_CLEARING_CAPABILITY
             );
-        deployment.publicBookEligibilityGate = new PublicBookEligibilityGate(
-            deployment.orderState,
-            deployment.seriesRegistry,
-            deployment.packageRegistry,
-            deployment.executionPolicyRegistry,
-            deployment.tradingSessionPolicy,
-            deployment.packageWitnessRegistry
+        deployment.publicBookEligibilityGate = PublicBookEligibilityGate(
+            _create(
+                "PublicBookEligibilityGate",
+                abi.encode(
+                    deployment.orderState,
+                    deployment.seriesRegistry,
+                    deployment.packageRegistry,
+                    deployment.executionPolicyRegistry,
+                    deployment.tradingSessionPolicy,
+                    deployment.packageWitnessRegistry
+                )
+            )
         );
-        deployment.publicOrderBook = new PublicOrderBook(
-            deployment.orderState, deployment.atomicClearingEngine, deployment.publicBookEligibilityGate
+        deployment.publicOrderBook = PublicOrderBook(
+            _create(
+                "PublicOrderBook",
+                abi.encode(deployment.orderState, deployment.atomicClearingEngine, deployment.publicBookEligibilityGate)
+            )
         );
-        deployment.positionLifecycleExecutor = new PositionLifecycleExecutor(
-            config.defaultAdminDelay,
-            config.bootstrapAdmin,
-            IPositionEngine(address(deployment.positionEngine)),
-            deployment.portfolioRiskEngine
+        deployment.positionLifecycleExecutor = PositionLifecycleExecutor(
+            _create(
+                "PositionLifecycleExecutor",
+                abi.encode(
+                    config.defaultAdminDelay,
+                    config.bootstrapAdmin,
+                    IPositionEngine(address(deployment.positionEngine)),
+                    deployment.portfolioRiskEngine
+                )
+            )
         );
-        deployment.accountPolicyAuthority =
-            new AccountPolicyAuthority(ICollateralVault(address(deployment.collateralVault)));
-        deployment.lifecyclePolicyValidator = new LifecyclePolicyValidator(
-            IPositionEngine(address(deployment.positionEngine)), deployment.packageRegistry
+        deployment.accountPolicyAuthority = AccountPolicyAuthority(
+            _create("AccountPolicyAuthority", abi.encode(ICollateralVault(address(deployment.collateralVault))))
         );
-        deployment.signedLifecycleEngine = new SignedLifecycleEngine(
-            config.defaultAdminDelay,
-            config.bootstrapAdmin,
-            deployment.positionEngine,
-            deployment.accountPolicyAuthority,
-            deployment.lifecyclePolicyValidator,
-            deployment.positionLifecycleExecutor,
-            IRiskDomainRegistry(address(deployment.riskDomainRegistry))
+        deployment.lifecyclePolicyValidator = LifecyclePolicyValidator(
+            _create(
+                "LifecyclePolicyValidator",
+                abi.encode(IPositionEngine(address(deployment.positionEngine)), deployment.packageRegistry)
+            )
         );
-        deployment.compressionCoordinator = new CompressionCoordinator(
-            config.defaultAdminDelay,
-            config.bootstrapAdmin,
-            deployment.positionEngine,
-            deployment.accountPolicyAuthority,
-            deployment.positionLifecycleExecutor,
-            IRiskDomainRegistry(address(deployment.riskDomainRegistry))
+        deployment.signedLifecycleEngine = SignedLifecycleEngine(
+            _create(
+                "SignedLifecycleEngine",
+                abi.encode(
+                    config.defaultAdminDelay,
+                    config.bootstrapAdmin,
+                    deployment.positionEngine,
+                    deployment.accountPolicyAuthority,
+                    deployment.lifecyclePolicyValidator,
+                    deployment.positionLifecycleExecutor,
+                    IRiskDomainRegistry(address(deployment.riskDomainRegistry))
+                )
+            )
         );
-        deployment.defaultBidderGate = new DefaultBidderGate(
-            IRiskDomainRegistry(address(deployment.riskDomainRegistry)),
-            ICollateralVault(address(deployment.collateralVault))
+        deployment.compressionCoordinator = CompressionCoordinator(
+            _create(
+                "CompressionCoordinator",
+                abi.encode(
+                    config.defaultAdminDelay,
+                    config.bootstrapAdmin,
+                    deployment.positionEngine,
+                    deployment.accountPolicyAuthority,
+                    deployment.positionLifecycleExecutor,
+                    IRiskDomainRegistry(address(deployment.riskDomainRegistry))
+                )
+            )
         );
-        deployment.defaultProcessEngine = new DefaultProcessEngine(
-            deployment.portfolioRiskEngine, deployment.defaultBidderGate, deployment.positionLifecycleExecutor
+        deployment.defaultBidderGate = DefaultBidderGate(
+            _create(
+                "DefaultBidderGate",
+                abi.encode(
+                    IRiskDomainRegistry(address(deployment.riskDomainRegistry)),
+                    ICollateralVault(address(deployment.collateralVault))
+                )
+            )
         );
-        deployment.cashSettlementCoordinator = new CashSettlementCoordinator(
-            IPositionEngine(address(deployment.positionEngine)),
-            deployment.fixingEngine,
-            deployment.fundedFeeEngine,
-            deployment.portfolioRiskEngine
+        deployment.defaultProcessEngine = DefaultProcessEngine(
+            _create(
+                "DefaultProcessEngine",
+                abi.encode(
+                    deployment.portfolioRiskEngine, deployment.defaultBidderGate, deployment.positionLifecycleExecutor
+                )
+            )
         );
-        deployment.privacyCommitmentRegistry =
-            new PrivacyCommitmentRegistry(config.defaultAdminDelay, config.bootstrapAdmin);
-        deployment.operationalAdapterExecutor = new OperationalAdapterExecutor(
-            IAdapterRegistry(address(deployment.adapterRegistry)),
-            config.deploymentId,
-            config.operationalReadGas,
-            config.operationalExecutionGas
+        deployment.cashSettlementCoordinator = CashSettlementCoordinator(
+            _create(
+                "CashSettlementCoordinator",
+                abi.encode(
+                    IPositionEngine(address(deployment.positionEngine)),
+                    deployment.fixingEngine,
+                    deployment.fundedFeeEngine,
+                    deployment.portfolioRiskEngine
+                )
+            )
         );
-        deployment.cappedForwardPayoffModule = new CappedForwardPayoffModule();
-        deployment.ndfPayoffModule = new NdfPayoffModule();
-        deployment.europeanCallPayoffModule = new EuropeanCallPayoffModule();
-        deployment.europeanPutPayoffModule = new EuropeanPutPayoffModule();
-        deployment.collarPayoffModule = new CollarPayoffModule();
-        deployment.rateForwardPayoffModule = new RateForwardPayoffModule();
-        deployment.rateCapPayoffModule = new RateCapPayoffModule();
-        deployment.rateFloorPayoffModule = new RateFloorPayoffModule();
-        deployment.rateCollarPayoffModule = new RateCollarPayoffModule();
-        deployment.basisSpreadPayoffModule = new BasisSpreadPayoffModule();
-        deployment.calendarSpreadPayoffModule = new CalendarSpreadPayoffModule();
-        deployment.windowAverageScalarPayoffModule = new WindowAverageScalarPayoffModule();
-        deployment.correlationDispersionScalarPayoffModule = new CorrelationDispersionScalarPayoffModule();
+        deployment.privacyCommitmentRegistry = PrivacyCommitmentRegistry(
+            _create("PrivacyCommitmentRegistry", abi.encode(config.defaultAdminDelay, config.bootstrapAdmin))
+        );
+        deployment.operationalAdapterExecutor = OperationalAdapterExecutor(
+            _create(
+                "OperationalAdapterExecutor",
+                abi.encode(
+                    IAdapterRegistry(address(deployment.adapterRegistry)),
+                    config.deploymentId,
+                    config.operationalReadGas,
+                    config.operationalExecutionGas
+                )
+            )
+        );
+        deployment.cappedForwardPayoffModule = CappedForwardPayoffModule(_create("CappedForwardPayoffModule", ""));
+        deployment.ndfPayoffModule = NdfPayoffModule(_create("NdfPayoffModule", ""));
+        deployment.europeanCallPayoffModule = EuropeanCallPayoffModule(_create("EuropeanCallPayoffModule", ""));
+        deployment.europeanPutPayoffModule = EuropeanPutPayoffModule(_create("EuropeanPutPayoffModule", ""));
+        deployment.collarPayoffModule = CollarPayoffModule(_create("CollarPayoffModule", ""));
+        deployment.rateForwardPayoffModule = RateForwardPayoffModule(_create("RateForwardPayoffModule", ""));
+        deployment.rateCapPayoffModule = RateCapPayoffModule(_create("RateCapPayoffModule", ""));
+        deployment.rateFloorPayoffModule = RateFloorPayoffModule(_create("RateFloorPayoffModule", ""));
+        deployment.rateCollarPayoffModule = RateCollarPayoffModule(_create("RateCollarPayoffModule", ""));
+        deployment.basisSpreadPayoffModule = BasisSpreadPayoffModule(_create("BasisSpreadPayoffModule", ""));
+        deployment.calendarSpreadPayoffModule = CalendarSpreadPayoffModule(_create("CalendarSpreadPayoffModule", ""));
+        deployment.windowAverageScalarPayoffModule =
+            WindowAverageScalarPayoffModule(_create("WindowAverageScalarPayoffModule", ""));
+        deployment.correlationDispersionScalarPayoffModule =
+            CorrelationDispersionScalarPayoffModule(_create("CorrelationDispersionScalarPayoffModule", ""));
         _deployExecutionVenues(deployment, config.defaultAdminDelay, config.bootstrapAdmin);
         _deployReceiptLedger(deployment, config.deploymentId);
 
@@ -588,48 +753,89 @@ contract DeploySetryn is Script {
     /// Capacity-backed execution venues: sealed auctions, request-for-stream quotes, batch clearing, and the
     /// collateral-aware route engine with its protocol liquidity source and shared capacity reservation registry.
     function _deployExecutionVenues(Deployment memory d, uint48 defaultAdminDelay, address bootstrapAdmin) private {
-        d.capacityReservationRegistry = new CapacityReservationRegistry(defaultAdminDelay, bootstrapAdmin);
-        d.streamCapacityManager = new VaultBackedStreamCapacityManager(
-            defaultAdminDelay, bootstrapAdmin, IPositionEngine(address(d.positionEngine)), d.capacityReservationRegistry
+        d.capacityReservationRegistry = CapacityReservationRegistry(
+            _create("CapacityReservationRegistry", abi.encode(defaultAdminDelay, bootstrapAdmin))
         );
-        d.batchCapacityManager = new VaultBackedBatchCapacityManager(
-            defaultAdminDelay, bootstrapAdmin, IPositionEngine(address(d.positionEngine)), d.capacityReservationRegistry
+        d.streamCapacityManager = VaultBackedStreamCapacityManager(
+            _create(
+                "VaultBackedStreamCapacityManager",
+                abi.encode(
+                    defaultAdminDelay,
+                    bootstrapAdmin,
+                    IPositionEngine(address(d.positionEngine)),
+                    d.capacityReservationRegistry
+                )
+            )
         );
-        d.auctionValidationGate = new AuctionValidationGate(
-            d.seriesRegistry,
-            d.packageRegistry,
-            d.executionPolicyRegistry,
-            d.tradingSessionPolicy,
-            d.packageWitnessRegistry
+        d.batchCapacityManager = VaultBackedBatchCapacityManager(
+            _create(
+                "VaultBackedBatchCapacityManager",
+                abi.encode(
+                    defaultAdminDelay,
+                    bootstrapAdmin,
+                    IPositionEngine(address(d.positionEngine)),
+                    d.capacityReservationRegistry
+                )
+            )
         );
-        d.sealedAuctionHouse = new SealedAuctionHouse(
-            defaultAdminDelay,
-            bootstrapAdmin,
-            IAuctionVault(address(d.collateralVault)),
-            d.auctionValidationGate,
-            address(d.atomicClearingEngine)
+        d.auctionValidationGate = AuctionValidationGate(
+            _create(
+                "AuctionValidationGate",
+                abi.encode(
+                    d.seriesRegistry,
+                    d.packageRegistry,
+                    d.executionPolicyRegistry,
+                    d.tradingSessionPolicy,
+                    d.packageWitnessRegistry
+                )
+            )
+        );
+        d.sealedAuctionHouse = SealedAuctionHouse(
+            _create(
+                "SealedAuctionHouse",
+                abi.encode(
+                    defaultAdminDelay,
+                    bootstrapAdmin,
+                    IAuctionVault(address(d.collateralVault)),
+                    d.auctionValidationGate,
+                    address(d.atomicClearingEngine)
+                )
+            )
         );
         d.atomicClearingEngine
             .activateClearingChannel(
                 ClearingChannelKind.SealedAuction, d.sealedAuctionHouse, SEALED_AUCTION_CLEARING_CAPABILITY
             );
-        d.streamingQuoteEngine = new StreamingQuoteEngine(d.atomicClearingEngine, d.streamCapacityManager);
-        d.batchClearingEngine =
-            new BatchClearingEngine(d.atomicClearingEngine, d.sealedAuctionHouse, d.batchCapacityManager);
-        d.routeLiquiditySource = new ProtocolRouteLiquiditySource(
-            defaultAdminDelay,
-            bootstrapAdmin,
-            d.publicOrderBook,
-            d.packageRegistry,
-            d.privateRfqBook,
-            d.streamingQuoteEngine,
-            d.sealedAuctionHouse,
-            ICollateralVault(address(d.collateralVault)),
-            ISessionRegistry(address(d.sessionRegistry)),
-            d.capacityReservationRegistry
+        d.streamingQuoteEngine = StreamingQuoteEngine(
+            _create("StreamingQuoteEngine", abi.encode(d.atomicClearingEngine, d.streamCapacityManager))
         );
-        d.routeEngine = new CollateralAwareRouteEngine(
-            defaultAdminDelay, bootstrapAdmin, d.routeLiquiditySource, d.portfolioRiskEngine
+        d.batchClearingEngine = BatchClearingEngine(
+            _create(
+                "BatchClearingEngine", abi.encode(d.atomicClearingEngine, d.sealedAuctionHouse, d.batchCapacityManager)
+            )
+        );
+        d.routeLiquiditySource = ProtocolRouteLiquiditySource(
+            _create(
+                "ProtocolRouteLiquiditySource",
+                abi.encode(
+                    defaultAdminDelay,
+                    bootstrapAdmin,
+                    d.publicOrderBook,
+                    d.packageRegistry,
+                    d.privateRfqBook,
+                    d.streamingQuoteEngine,
+                    d.sealedAuctionHouse,
+                    ICollateralVault(address(d.collateralVault)),
+                    ISessionRegistry(address(d.sessionRegistry)),
+                    d.capacityReservationRegistry
+                )
+            )
+        );
+        d.routeEngine = CollateralAwareRouteEngine(
+            _create(
+                "CollateralAwareRouteEngine",
+                abi.encode(defaultAdminDelay, bootstrapAdmin, d.routeLiquiditySource, d.portfolioRiskEngine)
+            )
         );
     }
 
@@ -637,46 +843,144 @@ contract DeploySetryn is Script {
     /// accepted only against objective protocol state. Bindings are immutable and sorted by subject kind.
     function _deployReceiptLedger(Deployment memory d, bytes32 deploymentId) private {
         address[18] memory authorities = [
-            address(new OrderReceiptAuthority(_kind("Order"), IOrderState(address(d.orderState)))),
-            address(new RfqReceiptAuthority(_kind("RFQ"), IPrivateRfqBook(address(d.privateRfqBook)))),
-            address(new BookOrderReceiptAuthority(_kind("Book"), IPublicOrderBook(address(d.publicOrderBook)))),
-            address(new AuctionReceiptAuthority(_kind("Auction"), ISealedAuctionHouse(address(d.sealedAuctionHouse)))),
-            address(new SolverReceiptAuthority(_kind("Solver"), ISealedAuctionHouse(address(d.sealedAuctionHouse)))),
-            address(new FillReceiptAuthority(_kind("Fill"), IAtomicClearingEngine(address(d.atomicClearingEngine)))),
-            address(new FixingReceiptAuthority(_kind("Fixing"), IFixingEngine(address(d.fixingEngine)))),
             address(
-                new SettlementReceiptAuthority(
-                    _kind("Settlement"), ICashSettlementCoordinator(address(d.cashSettlementCoordinator))
+                OrderReceiptAuthority(
+                    _create("OrderReceiptAuthority", abi.encode(_kind("Order"), IOrderState(address(d.orderState))))
                 )
             ),
             address(
-                new DefaultReceiptAuthority(_kind("Default"), IDefaultProcessEngine(address(d.defaultProcessEngine)))
-            ),
-            address(
-                new RecoveryReceiptAuthority(
-                    _kind("Recovery"), IOperationalAdapterExecutor(address(d.operationalAdapterExecutor))
+                RfqReceiptAuthority(
+                    _create("RfqReceiptAuthority", abi.encode(_kind("RFQ"), IPrivateRfqBook(address(d.privateRfqBook))))
                 )
             ),
             address(
-                new LifecycleReceiptAuthority(
-                    _kind("Lifecycle"), ISignedLifecycleEngine(address(d.signedLifecycleEngine))
+                BookOrderReceiptAuthority(
+                    _create(
+                        "BookOrderReceiptAuthority",
+                        abi.encode(_kind("Book"), IPublicOrderBook(address(d.publicOrderBook)))
+                    )
                 )
             ),
             address(
-                new StreamReceiptAuthority(_kind("Stream"), IStreamingQuoteEngine(address(d.streamingQuoteEngine)))
-            ),
-            address(new RouteReceiptAuthority(_kind("Route"), ICollateralAwareRouteEngine(address(d.routeEngine)))),
-            address(new PositionReceiptAuthority(_kind("Position"), IPositionEngine(address(d.positionEngine)))),
-            address(new FeeReceiptAuthority(_kind("Fee"), IFundedFeeEngine(address(d.fundedFeeEngine)))),
-            address(new RiskReceiptAuthority(_kind("Risk"), IPortfolioRiskEngine(address(d.portfolioRiskEngine)))),
-            address(
-                new PrivacyReceiptAuthority(
-                    _kind("Privacy"), IPrivacyCommitmentRegistry(address(d.privacyCommitmentRegistry))
+                AuctionReceiptAuthority(
+                    _create(
+                        "AuctionReceiptAuthority",
+                        abi.encode(_kind("Auction"), ISealedAuctionHouse(address(d.sealedAuctionHouse)))
+                    )
                 )
             ),
             address(
-                new AsyncReceiptAuthority(
-                    _kind("Async"), IOperationalAdapterExecutor(address(d.operationalAdapterExecutor))
+                SolverReceiptAuthority(
+                    _create(
+                        "SolverReceiptAuthority",
+                        abi.encode(_kind("Solver"), ISealedAuctionHouse(address(d.sealedAuctionHouse)))
+                    )
+                )
+            ),
+            address(
+                FillReceiptAuthority(
+                    _create(
+                        "FillReceiptAuthority",
+                        abi.encode(_kind("Fill"), IAtomicClearingEngine(address(d.atomicClearingEngine)))
+                    )
+                )
+            ),
+            address(
+                FixingReceiptAuthority(
+                    _create(
+                        "FixingReceiptAuthority", abi.encode(_kind("Fixing"), IFixingEngine(address(d.fixingEngine)))
+                    )
+                )
+            ),
+            address(
+                SettlementReceiptAuthority(
+                    _create(
+                        "SettlementReceiptAuthority",
+                        abi.encode(
+                            _kind("Settlement"), ICashSettlementCoordinator(address(d.cashSettlementCoordinator))
+                        )
+                    )
+                )
+            ),
+            address(
+                    DefaultReceiptAuthority(
+                        _create(
+                            "DefaultReceiptAuthority",
+                            abi.encode(_kind("Default"), IDefaultProcessEngine(address(d.defaultProcessEngine)))
+                        )
+                    )
+                ),
+            address(
+                RecoveryReceiptAuthority(
+                    _create(
+                        "RecoveryReceiptAuthority",
+                        abi.encode(
+                            _kind("Recovery"), IOperationalAdapterExecutor(address(d.operationalAdapterExecutor))
+                        )
+                    )
+                )
+            ),
+            address(
+                    LifecycleReceiptAuthority(
+                        _create(
+                            "LifecycleReceiptAuthority",
+                            abi.encode(_kind("Lifecycle"), ISignedLifecycleEngine(address(d.signedLifecycleEngine)))
+                        )
+                    )
+                ),
+            address(
+                StreamReceiptAuthority(
+                    _create(
+                        "StreamReceiptAuthority",
+                        abi.encode(_kind("Stream"), IStreamingQuoteEngine(address(d.streamingQuoteEngine)))
+                    )
+                )
+            ),
+            address(
+                RouteReceiptAuthority(
+                    _create(
+                        "RouteReceiptAuthority",
+                        abi.encode(_kind("Route"), ICollateralAwareRouteEngine(address(d.routeEngine)))
+                    )
+                )
+            ),
+            address(
+                PositionReceiptAuthority(
+                    _create(
+                        "PositionReceiptAuthority",
+                        abi.encode(_kind("Position"), IPositionEngine(address(d.positionEngine)))
+                    )
+                )
+            ),
+            address(
+                FeeReceiptAuthority(
+                    _create(
+                        "FeeReceiptAuthority", abi.encode(_kind("Fee"), IFundedFeeEngine(address(d.fundedFeeEngine)))
+                    )
+                )
+            ),
+            address(
+                RiskReceiptAuthority(
+                    _create(
+                        "RiskReceiptAuthority",
+                        abi.encode(_kind("Risk"), IPortfolioRiskEngine(address(d.portfolioRiskEngine)))
+                    )
+                )
+            ),
+            address(
+                PrivacyReceiptAuthority(
+                    _create(
+                        "PrivacyReceiptAuthority",
+                        abi.encode(_kind("Privacy"), IPrivacyCommitmentRegistry(address(d.privacyCommitmentRegistry)))
+                    )
+                )
+            ),
+            address(
+                AsyncReceiptAuthority(
+                    _create(
+                        "AsyncReceiptAuthority",
+                        abi.encode(_kind("Async"), IOperationalAdapterExecutor(address(d.operationalAdapterExecutor)))
+                    )
                 )
             )
         ];
@@ -713,8 +1017,12 @@ contract DeploySetryn is Script {
             bindings[j] = binding;
         }
         d.receiptAuthorities = authorities;
-        d.receiptLedger =
-            new VerifiableReceiptLedger(bindings, IPrivacyCommitmentRegistry(address(d.privacyCommitmentRegistry)));
+        d.receiptLedger = VerifiableReceiptLedger(
+            _create(
+                "VerifiableReceiptLedger",
+                abi.encode(bindings, IPrivacyCommitmentRegistry(address(d.privacyCommitmentRegistry)))
+            )
+        );
     }
 
     function _kind(string memory name) private pure returns (bytes32) {
@@ -1094,7 +1402,7 @@ contract DeploySetryn is Script {
 
     function _deployOrResolveSequencerFeed(string memory environment) private returns (ISequencerUptimeFeed feed) {
         if (keccak256(bytes(environment)) == LOCAL_ENVIRONMENT) {
-            return ISequencerUptimeFeed(address(new DevnetSequencerUptimeFeed()));
+            return ISequencerUptimeFeed(address(DevnetSequencerUptimeFeed(_create("DevnetSequencerUptimeFeed", ""))));
         }
         address configuredFeed = vm.envAddress("SETRYN_SEQUENCER_UPTIME_FEED");
         if (configuredFeed == address(0) || configuredFeed.code.length == 0) {

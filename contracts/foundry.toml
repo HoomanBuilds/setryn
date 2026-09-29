@@ -8,7 +8,10 @@ optimizer = true
 optimizer_runs = 1
 via_ir = true
 bytecode_hash = "none"
-fs_permissions = [{ access = "read-write", path = "../deployments/local" }]
+fs_permissions = [
+  { access = "read-write", path = "../deployments/local" },
+  { access = "read", path = "./out" },
+]
 remappings = [
   "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
   "forge-std/=lib/forge-std/src/",

@@ -33,6 +33,8 @@
     "contracts:deployment:validate": "node scripts/validate-deployment-manifests.mjs",
     "phase4:fork:qualify": "node scripts/qualify-arbitrum-one-fork.mjs",
     "phase4:fork:suite": "bash scripts/run-arbitrum-one-fork-suite.sh",
+    "contracts:deploy-artifacts": "node scripts/generate-deploy-artifacts.mjs",
+    "contracts:deploy-artifacts:check": "node scripts/generate-deploy-artifacts.mjs --check",
     "phase2:drift:check": "node scripts/check-phase2-integration.mjs",
     "phase2:gate": "pnpm run contracts:build && pnpm run internal:bindings:generate && pnpm run internal:bindings:check && pnpm run phase2:drift:check && pnpm run contracts:deployment:validate && pnpm run internal:typecheck && pnpm run internal:test && pnpm run contracts:fmt:check",
     "contracts:fmt": "forge fmt --root contracts",
