@@ -11,11 +11,12 @@ import {IPositionEngine} from "../interfaces/IPositionEngine.sol";
 import {IPortfolioRiskEngine} from "../interfaces/IPortfolioRiskEngine.sol";
 import {ISeriesRegistry} from "../interfaces/ISeriesRegistry.sol";
 import {PositionMathLib} from "../libraries/PositionMathLib.sol";
+import {SeriesDefinitionLib} from "../libraries/SeriesDefinitionLib.sol";
 import {SettlementLib} from "../libraries/SettlementLib.sol";
 import {TerminalClaim} from "../types/CollateralTypes.sol";
 import {TerminalClaimStatus} from "../types/Enums.sol";
 import {FeeActionRequest} from "../types/FeeEngineTypes.sol";
-import {PositionId, SettlementId, TerminalClaimId} from "../types/Identifiers.sol";
+import {ExercisePolicyId, PositionId, SettlementId, TerminalClaimId} from "../types/Identifiers.sol";
 import {PositionEconomics, PositionLifecycle, PositionStatus} from "../types/PositionTypes.sol";
 import {
     CanonicalSettlementFixing,
@@ -270,6 +271,15 @@ contract CashSettlementCoordinator is
         int256 unresolved = PositionMathLib.scaleTransfer(
             economics.terminalDisruptionTransferMinorPerLot, lifecycle.remainingLots
         );
+        // Mirror the position engine's terminal fallback: the precommitted disruption transfer applies to unresolved
+        // lots only under automatic exercise, or automatic-unless-abandoned at or above the threshold. Otherwise the
+        // lots lapse, and expecting a transfer here would make the permissionless fallback revert forever.
+        bytes32 policy = ExercisePolicyId.unwrap(economics.exercisePolicyId);
+        bool applies = policy == ExercisePolicyId.unwrap(SeriesDefinitionLib.EXERCISE_POLICY_AUTOMATIC);
+        if (policy == ExercisePolicyId.unwrap(SeriesDefinitionLib.EXERCISE_POLICY_AUTOMATIC_UNLESS_ABANDONED)) {
+            applies = _absoluteTransfer(unresolved) >= economics.automaticExerciseThresholdMinor;
+        }
+        if (!applies) unresolved = 0;
         int256 total = lifecycle.terminalTransferMinor + unresolved;
         if (
             (unresolved > 0 && total < lifecycle.terminalTransferMinor)
@@ -278,6 +288,12 @@ contract CashSettlementCoordinator is
             revert SettlementOutcomeMismatch();
         }
         return total;
+    }
+
+    function _absoluteTransfer(int256 value) private pure returns (uint256) {
+        if (value >= 0) return uint256(value);
+        if (value == type(int256).min) revert SettlementOutcomeMismatch();
+        return uint256(-value);
     }
 
     function _isPositionTerminal(PositionStatus status) private pure returns (bool) {

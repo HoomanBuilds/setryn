@@ -20,6 +20,7 @@ import {FixingResolutionKind, FixingResult, FixingStatus} from "../../src/types/
 import {
     AccountId,
     AssetId,
+    ExercisePolicyId,
     InstrumentId,
     MarketId,
     PositionId,
@@ -178,8 +179,16 @@ contract SettlementPositionEngineMock is IPositionEngineTerminalState {
         PositionEconomics storage economics = _economics[positionId];
         PositionLifecycle storage lifecycle = _lifecycle[positionId];
         uint128 unresolvedLots = Lots.unwrap(lifecycle.remainingLots);
-        int256 total = lifecycle.terminalTransferMinor + economics.terminalDisruptionTransferMinorPerLot
-            * int256(uint256(unresolvedLots));
+        // Mirrors PositionEngine: the disruption transfer applies only under automatic exercise, or
+        // automatic-unless-abandoned at or above the threshold; otherwise unresolved lots lapse.
+        int256 disruption = economics.terminalDisruptionTransferMinorPerLot * int256(uint256(unresolvedLots));
+        bytes32 policy = ExercisePolicyId.unwrap(economics.exercisePolicyId);
+        bool applies = policy == ExercisePolicyId.unwrap(SeriesDefinitionLib.EXERCISE_POLICY_AUTOMATIC);
+        if (policy == ExercisePolicyId.unwrap(SeriesDefinitionLib.EXERCISE_POLICY_AUTOMATIC_UNLESS_ABANDONED)) {
+            uint256 magnitude = disruption >= 0 ? uint256(disruption) : uint256(-disruption);
+            applies = magnitude >= economics.automaticExerciseThresholdMinor;
+        }
+        int256 total = lifecycle.terminalTransferMinor + (applies ? disruption : int256(0));
         lifecycle.status = total == 0 ? PositionStatus.Settled : PositionStatus.TerminalClaim;
         lifecycle.terminalTransferMinor = total;
         lifecycle.closedLots = Lots.wrap(Lots.unwrap(lifecycle.closedLots) + unresolvedLots);

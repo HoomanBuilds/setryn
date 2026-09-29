@@ -74,6 +74,7 @@ contract CashSettlementCoordinatorTest is Test {
     SettlementFeeEngineMock internal fees;
     CashSettlementCoordinator internal coordinator;
     PositionId internal positionId;
+    PositionEconomics internal seededEconomics;
     SeriesId internal seriesId;
 
     function setUp() public {
@@ -99,6 +100,7 @@ contract CashSettlementCoordinatorTest is Test {
         PositionEconomics memory economics =
             _economics(seriesRecord, instrumentRecord, marketRecord, positionId, seriesId, instrumentId, marketId);
         positions.seed(economics, terms, 10);
+        seededEconomics = economics;
         _seedReservation(economics.longReservationId, economics.longLiabilityKey, LONG, economics, 100);
         _seedReservation(economics.shortReservationId, economics.shortLiabilityKey, SHORT, economics, 100);
 
@@ -161,6 +163,27 @@ contract CashSettlementCoordinatorTest is Test {
         assertEq(uint8(record.mode), uint8(SettlementMode.TerminalDisruption));
         assertEq(record.terminalTransferMinor, -5);
         assertEq(record.terminalAmount, 5);
+        assertEq(record.longCollateral.claimAmount, 5);
+    }
+
+    function test_HolderElectionFallbackLapsesUnresolvedLotsInsteadOfDeadlocking() public {
+        _reseedExercisePolicy(SeriesDefinitionLib.EXERCISE_POLICY_HOLDER_ELECTION, 0);
+        SettlementRecord memory record = _finalizeDisruption();
+        assertEq(uint8(record.mode), uint8(SettlementMode.TerminalDisruption));
+        assertEq(record.terminalTransferMinor, 0, "unelected lots lapse without the disruption transfer");
+        assertEq(record.terminalAmount, 0);
+    }
+
+    function test_AutomaticUnlessAbandonedBelowThresholdLapses() public {
+        _reseedExercisePolicy(SeriesDefinitionLib.EXERCISE_POLICY_AUTOMATIC_UNLESS_ABANDONED, 6);
+        SettlementRecord memory record = _finalizeDisruption();
+        assertEq(record.terminalTransferMinor, 0, "below-threshold lots are abandoned");
+    }
+
+    function test_AutomaticUnlessAbandonedAtThresholdAppliesDisruption() public {
+        _reseedExercisePolicy(SeriesDefinitionLib.EXERCISE_POLICY_AUTOMATIC_UNLESS_ABANDONED, 5);
+        SettlementRecord memory record = _finalizeDisruption();
+        assertEq(record.terminalTransferMinor, -5, "at-threshold lots take the precommitted disruption transfer");
         assertEq(record.longCollateral.claimAmount, 5);
     }
 
@@ -261,7 +284,7 @@ contract CashSettlementCoordinatorTest is Test {
             correctionCutoffAt: 3_000,
             finalResolutionAt: FINAL_RESOLUTION,
             settlementDeadline: 5_000,
-            exercisePolicyId: ExercisePolicyId.wrap(keccak256("automatic")),
+            exercisePolicyId: SeriesDefinitionLib.EXERCISE_POLICY_AUTOMATIC,
             automaticExerciseThresholdMinor: 0,
             disruptionOutcomeId: DisruptionOutcomeId.wrap(keccak256("precommitted")),
             terminalDisruptionTransferMinorPerLot: -5,
@@ -292,6 +315,21 @@ contract CashSettlementCoordinatorTest is Test {
             maximumObservations: 1,
             selectionParametersHash: keccak256("official")
         });
+    }
+
+    function _reseedExercisePolicy(ExercisePolicyId policy, uint128 threshold) private {
+        PositionEconomics memory economics = seededEconomics;
+        economics.exercisePolicyId = policy;
+        economics.automaticExerciseThresholdMinor = threshold;
+        positions.seed(economics, abi.encode(uint256(7)), 10);
+    }
+
+    function _finalizeDisruption() private returns (SettlementRecord memory) {
+        vm.warp(FINAL_RESOLUTION);
+        FixingSlot[] memory slotWitness = _currentSlots();
+        SettlementId settlementId =
+            coordinator.finalizeTerminalDisruption(positionId, slotWitness, new FeeActionRequest[](0));
+        return coordinator.getSettlement(settlementId);
     }
 
     function _currentSlots() private view returns (FixingSlot[] memory) {
@@ -341,6 +379,8 @@ contract CashSettlementCoordinatorTest is Test {
         economics.maxLongDebitMinor = 100;
         economics.maxShortDebitMinor = 100;
         economics.terminalDisruptionTransferMinorPerLot = -5;
+        economics.exercisePolicyId = series.definition.exercisePolicyId;
+        economics.automaticExerciseThresholdMinor = series.definition.automaticExerciseThresholdMinor;
         economics.longLiabilityKey = keccak256("long.liability");
         economics.shortLiabilityKey = keccak256("short.liability");
         economics.longReservationId = TerminalLiabilityReservationId.wrap(keccak256("long.reservation"));
