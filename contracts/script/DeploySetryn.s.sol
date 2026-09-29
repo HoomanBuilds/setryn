@@ -568,10 +568,16 @@ contract DeploySetryn is Script {
         deployment.collateralVault
             .grantRole(deployment.collateralVault.COLLATERAL_LOCKER_ROLE(), address(deployment.positionEngine));
         deployment.collateralVault
+            .grantRole(deployment.collateralVault.COLLATERAL_SETTLER_ROLE(), address(deployment.positionEngine));
+        deployment.collateralVault
             .grantRole(deployment.collateralVault.COLLATERAL_SETTLER_ROLE(), address(deployment.fundedFeeEngine));
         deployment.collateralVault
             .grantRole(
                 deployment.collateralVault.TERMINAL_RESERVATION_CREATOR_ROLE(), address(deployment.positionEngine)
+            );
+        deployment.collateralVault
+            .grantRole(
+                deployment.collateralVault.TERMINAL_RESERVATION_RESOLVER_ROLE(), address(deployment.positionEngine)
             );
         deployment.collateralVault
             .grantRole(

@@ -275,6 +275,22 @@ contract ArbitrumOneDeploymentRehearsalForkTest is Test, DeploySetryn {
         );
 
         assertTrue(
+            d.collateralVault.hasRole(
+                d.collateralVault.TERMINAL_RESERVATION_RESOLVER_ROLE(), address(d.positionEngine)
+            ),
+            "position engine must hold terminal reservation resolver role"
+        );
+        assertTrue(
+            d.collateralVault.hasRole(
+                d.collateralVault.COLLATERAL_SETTLER_ROLE(), address(d.positionEngine)
+            ),
+            "position engine must hold collateral settler role"
+        );
+        assertFalse(
+            d.collateralVault.hasRole(d.collateralVault.COLLATERAL_SETTLER_ROLE(), bootstrap),
+            "bootstrap collateral settler role must be revoked"
+        );
+        assertTrue(
             d.collateralVault.hasRole(d.collateralVault.EXCESS_RECOVERY_ROLE(), excessRecovery),
             "excess recovery must be granted"
         );
