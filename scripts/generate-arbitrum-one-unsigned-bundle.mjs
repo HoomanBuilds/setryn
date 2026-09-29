@@ -23,6 +23,7 @@ import {
   buildBundle,
   createFixtureTransport,
 } from "./lib/unsigned-bundle.mjs";
+import { estimateSequentiallyOnFork } from "./lib/fork-sequential-estimates.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const deploymentsRoot = resolve(repositoryRoot, "deployments");
@@ -33,7 +34,11 @@ function usage() {
   node scripts/generate-arbitrum-one-unsigned-bundle.mjs --rpc-url <https-url> --block-number <pinned-decimal> --from <0x-address> --intent <path> [--output <path>]
   node scripts/generate-arbitrum-one-unsigned-bundle.mjs --fixture <canned-rpc.json> --block-number <pinned-decimal> --from <0x-address> --intent <path> [--output <path>]
 
-Read-only unsigned EIP-1559 bundle with gas budget. Only ${ALLOWED_RPC_METHODS.join(", ")} are ever called.
+  node scripts/generate-arbitrum-one-unsigned-bundle.mjs --rpc-url <https-url> --block-number <pinned-decimal> --from <0x-address> --intent <path> --sequential-fork true [--output <path>]
+
+Read-only unsigned EIP-1559 bundle with gas budget. With --sequential-fork true, dependent operations are
+estimated in canonical order on loopback Anvil forks of the pinned and latest blocks; only those local forks
+receive writes. Only ${ALLOWED_RPC_METHODS.join(", ")} are ever called.
 No transactions are sent, signed, or broadcast. Default output is stdout.
 --intent must stay outside inspiration/ and docs/. --output, when given, must stay
 inside deployments/arbitrum-one/qualification/.
@@ -159,6 +164,18 @@ async function main() {
     transport = createNetworkTransport(rpcUrl);
   }
 
+  // Dependent graphs are estimated in order on loopback Anvil forks of the pinned and latest blocks.
+  let sequentialEstimates = null;
+  if (options["sequential-fork"] === "true") {
+    if (rpcUrl === null) throw new Error("--sequential-fork requires --rpc-url for the forked state.");
+    const operations = intent.operations.map((op) => ({ ...op, expectedAddress: op.expectedAddress?.toLowerCase() }));
+    const pinned = await estimateSequentiallyOnFork({ forkUrl: rpcUrl, forkBlock: pinnedBlockNumber, from, operations });
+    const latest = await estimateSequentiallyOnFork({ forkUrl: rpcUrl, forkBlock: "latest", from, operations });
+    sequentialEstimates = new Map(
+      intent.operations.map((op) => [op.id, { pinned: pinned.results.get(op.id).estimate, latest: latest.results.get(op.id).estimate }]),
+    );
+  }
+
   const bundle = await buildBundle({
     intent,
     intentRawText,
@@ -166,6 +183,7 @@ async function main() {
     pinnedBlockNumber,
     expectedChainId: EXPECTED_CHAIN_ID,
     transport,
+    sequentialEstimates,
     timestamp: new Date().toISOString(),
   });
 

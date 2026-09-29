@@ -6,7 +6,9 @@ import { fileURLToPath } from "node:url";
 import {
   ALLOWED_RPC_METHODS,
   EXPECTED_CHAIN_ID,
+  ARBITRUM_NODE_INTERFACE,
   assertAllowedMethod,
+  encodeGasEstimateL1Component,
   assertExplicitRpcUrl,
   buildBundle,
   canonicalJson,
@@ -256,6 +258,91 @@ describe("RPC allowlist and input guards", () => {
       assert.ok(ALLOWED_RPC_METHODS.includes(method), `unexpected RPC method ${method}`);
     }
     assert.ok(![...seen].some((method) => method.startsWith("eth_send") || method.startsWith("personal_") || method.startsWith("wallet_")));
+  });
+});
+
+describe("sequential fork estimates", () => {
+  it("uses precomputed pinned and latest estimates without estimating dependent operations upstream", async () => {
+    const seen = [];
+    const inner = fixtureTransportWith();
+    const recording = async (method, params) => {
+      seen.push(method);
+      return inner(method, params);
+    };
+    const intent = baseIntent();
+    const sequentialEstimates = new Map(
+      intent.operations.map((op, index) => [op.id, { pinned: 100_000n + BigInt(index), latest: 90_000n + BigInt(index) }]),
+    );
+    const bundle = await buildBundle({
+      intent,
+      intentRawText: JSON.stringify(intent),
+      from: FROM,
+      pinnedBlockNumber: PINNED_BLOCK,
+      expectedChainId: EXPECTED_CHAIN_ID,
+      transport: recording,
+      sequentialEstimates,
+      timestamp: FIXED_TIME_A,
+    });
+    assert.ok(!seen.includes("eth_estimateGas"));
+    assert.equal(bundle.estimationMode, "sequential-local-fork-plus-l1-component");
+    for (const tx of bundle.transactions) {
+      const index = intent.operations.findIndex((op) => op.id === tx.id);
+      assert.equal(BigInt(tx.gas), 100_000n + BigInt(index), "chooses the larger of the pinned and latest estimates");
+    }
+  });
+
+  it("adds the Arbitrum L1 data-posting component read from NodeInterface", async () => {
+    const calls = [];
+    const inner = fixtureTransportWith({ l1ComponentHex: "0x1f4" });
+    const recording = async (method, params) => {
+      if (method === "eth_call") calls.push(params[0]);
+      return inner(method, params);
+    };
+    const intent = baseIntent();
+    const sequentialEstimates = new Map(intent.operations.map((op) => [op.id, { pinned: 100_000n, latest: 100_000n }]));
+    const bundle = await buildBundle({
+      intent,
+      intentRawText: JSON.stringify(intent),
+      from: FROM,
+      pinnedBlockNumber: PINNED_BLOCK,
+      expectedChainId: EXPECTED_CHAIN_ID,
+      transport: recording,
+      sequentialEstimates,
+      timestamp: FIXED_TIME_A,
+    });
+    assert.equal(calls.length, intent.operations.length * 2);
+    for (const call of calls) {
+      assert.equal(call.to, ARBITRUM_NODE_INTERFACE);
+      assert.ok(call.data.startsWith(encodeGasEstimateL1Component({ to: null, contractCreation: true, data: "0x" }).slice(0, 10)));
+    }
+    for (const tx of bundle.transactions) {
+      assert.equal(BigInt(tx.gas), 100_500n);
+      assert.equal(BigInt(tx.estimatedL1GasPinned), 500n);
+    }
+  });
+
+  it("encodes gasEstimateL1Component calldata exactly", () => {
+    assert.equal(
+      encodeGasEstimateL1Component({ to: "0x00000000000000000000000000000000000000aa", contractCreation: false, data: "0x1234" }),
+      `0x77d488a2${"0".repeat(62)}aa${"0".repeat(64)}${"0".repeat(62)}60${"0".repeat(63)}2${"1234".padEnd(64, "0")}`,
+    );
+  });
+
+  it("rejects a missing sequential estimate", async () => {
+    const intent = baseIntent();
+    await assert.rejects(
+      buildBundle({
+        intent,
+        intentRawText: JSON.stringify(intent),
+        from: FROM,
+        pinnedBlockNumber: PINNED_BLOCK,
+        expectedChainId: EXPECTED_CHAIN_ID,
+        transport: fixtureTransportWith(),
+        sequentialEstimates: new Map(),
+        timestamp: FIXED_TIME_A,
+      }),
+      /Sequential fork estimate is missing/,
+    );
   });
 });
 

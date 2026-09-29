@@ -19,6 +19,7 @@ export const ALLOWED_RPC_METHODS = [
   "eth_getTransactionCount",
   "eth_getCode",
   "eth_estimateGas",
+  "eth_call",
   "eth_feeHistory",
   "eth_maxPriorityFeePerGas",
 ];
@@ -615,6 +616,9 @@ function validateBlockPayload(block, context) {
 
 async function callRpc(transport, method, params) {
   assertAllowedMethod(method);
+  if (method === "eth_call" && String(params?.[0]?.to).toLowerCase() !== ARBITRUM_NODE_INTERFACE) {
+    throw new Error("eth_call is only allowed against the Arbitrum NodeInterface L1 gas estimator.");
+  }
   return transport(method, params);
 }
 
@@ -660,6 +664,13 @@ export function createFixtureTransport(fixture) {
       case "eth_feeHistory":
         if (!fixture.feeHistory) throw new Error("Fixture is missing feeHistory.");
         return fixture.feeHistory;
+      case "eth_call": {
+        if (String(params[0]?.to).toLowerCase() !== ARBITRUM_NODE_INTERFACE) {
+          throw new Error("Fixture eth_call is only served for the Arbitrum NodeInterface.");
+        }
+        const l1 = BigInt(fixture.l1ComponentHex ?? "0x0").toString(16);
+        return `0x${l1.padStart(64, "0")}${"0".repeat(128)}`;
+      }
       case "eth_maxPriorityFeePerGas":
         if (!fixture.maxPriorityFeeHex) throw new Error("Fixture is missing maxPriorityFeeHex.");
         return fixture.maxPriorityFeeHex;
@@ -669,6 +680,37 @@ export function createFixtureTransport(fixture) {
   };
 }
 
+// Arbitrum's NodeInterface virtual contract. eth_call is only ever sent here, to read the L1 data-posting gas
+// component that a local Anvil fork cannot model.
+export const ARBITRUM_NODE_INTERFACE = "0x00000000000000000000000000000000000000c8";
+
+function abiWord(hexWithoutPrefix) {
+  return hexWithoutPrefix.padStart(64, "0");
+}
+
+export function encodeGasEstimateL1Component({ to, contractCreation, data }) {
+  const selector = keccak256HexOfBytes(new TextEncoder().encode("gasEstimateL1Component(address,bool,bytes)")).slice(2, 10);
+  const payload = data.slice(2);
+  const padded = payload.padEnd(Math.ceil(payload.length / 64) * 64, "0");
+  return `0x${selector}${abiWord((to ?? ZERO_ADDRESS).slice(2))}${abiWord(contractCreation ? "1" : "0")}${abiWord("60")}${abiWord((payload.length / 2).toString(16))}${padded}`;
+}
+
+async function estimateL1ComponentGas(transport, op, blockTag) {
+  const request = {
+    to: ARBITRUM_NODE_INTERFACE,
+    data: encodeGasEstimateL1Component({
+      to: op.kind === "CREATE" ? null : op.to,
+      contractCreation: op.kind === "CREATE",
+      data: op.kind === "CREATE" ? op.initCode : op.data,
+    }),
+  };
+  const raw = await callRpc(transport, "eth_call", [request, blockTag]);
+  if (typeof raw !== "string" || !/^0x[0-9a-fA-F]{192}$/.test(raw)) {
+    throw new Error(`NodeInterface L1 component for ${op.id} is malformed.`);
+  }
+  return BigInt(`0x${raw.slice(2, 66)}`);
+}
+
 export async function buildBundle({
   intent,
   intentRawText = "",
@@ -676,6 +718,7 @@ export async function buildBundle({
   pinnedBlockNumber,
   expectedChainId = EXPECTED_CHAIN_ID,
   transport,
+  sequentialEstimates = null,
   timestamp = new Date().toISOString(),
 }) {
   if (typeof transport !== "function") {
@@ -816,15 +859,29 @@ export async function buildBundle({
     }
     let pinnedEstimateRaw;
     let latestEstimateRaw;
-    try {
-      pinnedEstimateRaw = await callRpc(transport, "eth_estimateGas", [txForEstimate, pinnedHex]);
-    } catch (error) {
-      throw new Error(`eth_estimateGas failed for ${op.id} at pinned block ${pinnedBlockNumber}: ${error.message}`);
-    }
-    try {
-      latestEstimateRaw = await callRpc(transport, "eth_estimateGas", [txForEstimate, "latest"]);
-    } catch (error) {
-      throw new Error(`eth_estimateGas failed for ${op.id} at latest block ${latestBlock.number}: ${error.message}`);
+    let l1Component = null;
+    if (sequentialEstimates) {
+      // Dependent operations were estimated in order on local forks of the pinned and latest blocks. Local forks
+      // only meter L2 execution, so the Arbitrum L1 data-posting component is read from NodeInterface and added.
+      const estimate = sequentialEstimates.get(op.id);
+      if (!estimate) throw new Error(`Sequential fork estimate is missing for ${op.id}.`);
+      l1Component = {
+        pinned: await estimateL1ComponentGas(transport, op, pinnedHex),
+        latest: await estimateL1ComponentGas(transport, op, "latest"),
+      };
+      pinnedEstimateRaw = toHexQuantity(estimate.pinned + l1Component.pinned);
+      latestEstimateRaw = toHexQuantity(estimate.latest + l1Component.latest);
+    } else {
+      try {
+        pinnedEstimateRaw = await callRpc(transport, "eth_estimateGas", [txForEstimate, pinnedHex]);
+      } catch (error) {
+        throw new Error(`eth_estimateGas failed for ${op.id} at pinned block ${pinnedBlockNumber}: ${error.message}`);
+      }
+      try {
+        latestEstimateRaw = await callRpc(transport, "eth_estimateGas", [txForEstimate, "latest"]);
+      } catch (error) {
+        throw new Error(`eth_estimateGas failed for ${op.id} at latest block ${latestBlock.number}: ${error.message}`);
+      }
     }
     for (const [label, raw] of [[`${op.id} pinned estimate`, pinnedEstimateRaw], [`${op.id} latest estimate`, latestEstimateRaw]]) {
       if (typeof raw !== "string" || !HEX_QUANTITY_PATTERN.test(raw)) {
@@ -844,6 +901,7 @@ export async function buildBundle({
       op,
       estimatedGasPinned: toHexQuantity(pinnedEstimate),
       estimatedGasLatest: toHexQuantity(latestEstimate),
+      l1Component,
       chosenGas,
       nonce: baseNonce + index,
     });
@@ -904,6 +962,12 @@ export async function buildBundle({
       data: entry.op.kind === "CREATE" ? entry.op.initCode : entry.op.data,
       estimatedGasLatest: entry.estimatedGasLatest,
       estimatedGasPinned: entry.estimatedGasPinned,
+      ...(entry.l1Component
+        ? {
+            estimatedL1GasLatest: toHexQuantity(entry.l1Component.latest),
+            estimatedL1GasPinned: toHexQuantity(entry.l1Component.pinned),
+          }
+        : {}),
       from: fromLower,
       gas: toHexQuantity(entry.chosenGas),
       id: entry.op.id,
@@ -927,6 +991,7 @@ export async function buildBundle({
     broadcast: false,
     chainId: expectedChainId,
     dependencies: dependencyEvidence,
+    estimationMode: sequentialEstimates ? "sequential-local-fork-plus-l1-component" : "independent-rpc",
     feeEvidence: {
       baseFeePerGas: baseFeeHex,
       maxFeePerGas: maxFeeHex,
