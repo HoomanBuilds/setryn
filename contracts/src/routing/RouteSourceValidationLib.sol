@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.37;
 
+import {AuctionHashLib} from "../libraries/AuctionHashLib.sol";
 import {
     AuctionTargetKind,
     AuctionVersion,
@@ -277,9 +278,7 @@ library RouteSourceValidationLib {
                 || CollateralLockId.unwrap(solver.route.capacityLockId)
                     != CollateralLockId.unwrap(component.capacityLockId) || solver.route.capacityAmount == 0
         ) revert ProtocolRouteLiquiditySource.InvalidRouteSource(index);
-        bytes32 expectedReference = keccak256(
-            abi.encode(keccak256("SetrynAuctionCapacityLockV1(bytes32 routeId)"), SolverRouteId.unwrap(solverRouteId))
-        );
+        bytes32 expectedReference = AuctionHashLib.capacityLockReference(solver.route);
         if (component.capacityLockReference != expectedReference) {
             revert ProtocolRouteLiquiditySource.InvalidRouteSource(index);
         }

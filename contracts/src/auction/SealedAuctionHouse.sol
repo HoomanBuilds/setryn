@@ -52,8 +52,6 @@ contract SealedAuctionHouse is
     bytes32 public constant ROUTE_RESERVER_ROLE = keccak256("SETRYN_AUCTION_ROUTE_RESERVER_ROLE");
     bytes32 private constant BOND_LOCK_REFERENCE_TYPEHASH =
         keccak256("SetrynAuctionBondLockV1(bytes32 bidCommitmentId)");
-    bytes32 private constant CAPACITY_LOCK_REFERENCE_TYPEHASH =
-        keccak256("SetrynAuctionCapacityLockV1(bytes32 routeId)");
     bytes32 private constant ALLOCATION_TYPEHASH =
         keccak256("SetrynAuctionAllocationV1(bytes32 bidId,uint128 allocatedLots,int128 allocationPriceTicks)");
 

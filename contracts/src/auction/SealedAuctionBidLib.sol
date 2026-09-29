@@ -35,8 +35,6 @@ import {SealedAuctionDependencies} from "./SealedAuctionTypes.sol";
 library SealedAuctionBidLib {
     bytes32 internal constant BOND_LOCK_REFERENCE_TYPEHASH =
         keccak256("SetrynAuctionBondLockV1(bytes32 bidCommitmentId)");
-    bytes32 internal constant CAPACITY_LOCK_REFERENCE_TYPEHASH =
-        keccak256("SetrynAuctionCapacityLockV1(bytes32 routeId)");
 
     function commitBid(
         SealedAuctionDependencies memory deps,
@@ -150,8 +148,7 @@ library SealedAuctionBidLib {
         if (SolverRouteId.unwrap(claimedRouteId) != bytes32(0)) {
             revert ISealedAuctionHouse.CapacityLockAlreadyClaimed(capacityLockKey, claimedRouteId);
         }
-        bytes32 capacityLockReference =
-            keccak256(abi.encode(CAPACITY_LOCK_REFERENCE_TYPEHASH, SolverRouteId.unwrap(route.routeId)));
+        bytes32 capacityLockReference = AuctionHashLib.capacityLockReference(route);
         CollateralLockId capacityLockId = IAtomicClearingEngine(deps.clearingEngine).positionEngine()
             .createPositionFundingLock(
                 capacityLockReference,
@@ -249,8 +246,7 @@ library SealedAuctionBidLib {
         AuctionDefinition storage definition
     ) public view {
         CollateralLock memory lock = deps.auctionVault.getLock(route.capacityLockId);
-        bytes32 expectedReference =
-            keccak256(abi.encode(CAPACITY_LOCK_REFERENCE_TYPEHASH, SolverRouteId.unwrap(route.routeId)));
+        bytes32 expectedReference = AuctionHashLib.capacityLockReference(route);
         CollateralId expectedCollateral =
             deps.auctionVault.deriveCollateralId(definition.settlementAssetId, definition.settlementAssetVersion);
         if (
@@ -279,8 +275,7 @@ library SealedAuctionBidLib {
             return;
         }
         CollateralLock memory lock = deps.auctionVault.getLock(route.capacityLockId);
-        bytes32 expectedReference =
-            keccak256(abi.encode(CAPACITY_LOCK_REFERENCE_TYPEHASH, SolverRouteId.unwrap(route.routeId)));
+        bytes32 expectedReference = AuctionHashLib.capacityLockReference(route);
         CollateralId expectedCollateral =
             deps.auctionVault.deriveCollateralId(definition.settlementAssetId, definition.settlementAssetVersion);
         if (

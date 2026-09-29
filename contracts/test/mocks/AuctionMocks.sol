@@ -27,7 +27,7 @@ contract AuctionVaultMock is IAuctionVault {
         uint64 expiry,
         address settlementOperator
     ) external returns (CollateralLockId lockId) {
-        lockId = CollateralLockId.wrap(keccak256(abi.encode(block.chainid, address(this), msg.sender, lockReference)));
+        lockId = deriveLockId(msg.sender, lockReference);
         _locks[lockId] = CollateralLock({
             accountId: accountId,
             collateralId: deriveCollateralId(assetId, bindingVersion),
@@ -65,6 +65,10 @@ contract AuctionVaultMock is IAuctionVault {
         require(amount <= lock.remainingAmount);
         lock.remainingAmount -= amount;
         if (lock.remainingAmount == 0) lock.status = LockStatus.Consumed;
+    }
+
+    function deriveLockId(address operator, bytes32 lockReference) public view returns (CollateralLockId) {
+        return CollateralLockId.wrap(keccak256(abi.encode(block.chainid, address(this), operator, lockReference)));
     }
 
     function deriveCollateralId(AssetId assetId, uint32 bindingVersion) public view returns (CollateralId) {

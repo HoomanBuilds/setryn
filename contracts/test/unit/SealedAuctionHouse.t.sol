@@ -42,6 +42,11 @@ import {
 } from "../../src/types/AuctionTypes.sol";
 import {Lots, PriceTicks} from "../../src/types/Units.sol";
 import {AuctionValidationGateMock, AuctionVaultMock} from "../mocks/AuctionMocks.sol";
+import {
+    IPositionFundingLockVault,
+    PositionFundingClearingEngineMock,
+    PositionFundingEngineMock
+} from "../mocks/PositionFundingMocks.sol";
 
 contract SealedAuctionHouseTest is Test {
     uint256 internal constant NOW = 1_800_000_000;
@@ -50,13 +55,14 @@ contract SealedAuctionHouseTest is Test {
     AssetId internal constant SETTLEMENT_ASSET = AssetId.wrap(keccak256("usdc"));
 
     address internal admin = makeAddr("admin");
-    address internal clearing = makeAddr("clearing");
+    address internal clearing;
     address internal firstBidder;
     uint256 internal firstKey;
     address internal secondBidder;
     uint256 internal secondKey;
 
     AuctionVaultMock internal vault;
+    PositionFundingEngineMock internal positionEngine;
     AuctionValidationGateMock internal gate;
     SealedAuctionHouse internal house;
 
@@ -65,6 +71,8 @@ contract SealedAuctionHouseTest is Test {
         (firstBidder, firstKey) = makeAddrAndKey("first bidder");
         (secondBidder, secondKey) = makeAddrAndKey("second bidder");
         vault = new AuctionVaultMock();
+        positionEngine = new PositionFundingEngineMock(IPositionFundingLockVault(address(vault)));
+        clearing = address(new PositionFundingClearingEngineMock(address(positionEngine)));
         gate = new AuctionValidationGateMock();
         gate.setGuarantee(GUARANTEE, true);
         gate.setCapacityPolicy(CAPACITY_POLICY, true);
@@ -173,10 +181,6 @@ contract SealedAuctionHouseTest is Test {
 
         AccountId solverAccountId = AccountId.wrap(keccak256(abi.encode("account", firstBidder)));
         uint64 capacityExpiry = uint64(NOW + 450);
-        vm.prank(firstBidder);
-        CollateralLockId capacityLockId = vault.createLock(
-            keccak256("solver capacity"), solverAccountId, SETTLEMENT_ASSET, 1, 1_000, capacityExpiry, clearing
-        );
         CollateralId capacityCollateralId = vault.deriveCollateralId(SETTLEMENT_ASSET, 1);
         AdapterId adapterId = AdapterId.wrap(keccak256("venue adapter"));
         bytes32 capabilityHash = keccak256("exact fill capability");
@@ -206,7 +210,7 @@ contract SealedAuctionHouseTest is Test {
             actionCount: uint16(actions.length),
             packageOutcomeTicks: PriceTicks.wrap(125),
             maximumFeeMinor: 10,
-            capacityLockId: capacityLockId,
+            capacityLockId: CollateralLockId.wrap(bytes32(0)),
             capacityCollateralId: capacityCollateralId,
             capacityAmount: 1_000,
             capacityEvidenceHash: capacityEvidenceHash,
@@ -214,6 +218,10 @@ contract SealedAuctionHouseTest is Test {
             guaranteeClassId: GUARANTEE,
             salt: keccak256("route salt")
         });
+        // The position engine creates the capacity lock at reveal, so the route commits to its derived lock id.
+        CollateralLockId capacityLockId =
+            vault.deriveLockId(address(positionEngine), AuctionHashLib.capacityLockReference(route));
+        route.capacityLockId = capacityLockId;
         route.routeId = AuctionHashLib.deriveSolverRouteId(route);
         SealedBid memory bid = _bid(auctionId, version, firstBidder, 6, 100, 125);
         bid.minimumFillLots = Lots.wrap(100);
@@ -224,6 +232,10 @@ contract SealedAuctionHouseTest is Test {
         vm.warp(NOW + 100);
         house.advanceAuction(auctionId, version);
         house.revealSolverBid(bidId, bid, route, legs, actions);
+        assertEq(vault.getLock(capacityLockId).operator, address(positionEngine));
+        assertEq(vault.getLock(capacityLockId).settlementOperator, address(positionEngine));
+        assertEq(vault.getLock(capacityLockId).remainingAmount, 1_000);
+        assertEq(positionEngine.positionFundingRequester(capacityLockId), address(house));
         vm.warp(NOW + 200);
         house.advanceAuction(auctionId, version);
         house.clearAuction(auctionId, version);

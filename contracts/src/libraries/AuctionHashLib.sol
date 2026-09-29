@@ -58,6 +58,8 @@ library AuctionHashLib {
     bytes32 internal constant SOLVER_ROUTE_TYPEHASH = keccak256(
         "SolverRoute(bytes32 auctionId,uint32 auctionVersion,address solver,bytes32 solverAccountId,bytes32 routeId,bytes32 packageLegsHash,bytes32 actionGraphHash,uint16 legCount,uint16 actionCount,int128 packageOutcomeTicks,uint128 maximumFeeMinor,bytes32 capacityLockId,bytes32 capacityCollateralId,uint128 capacityAmount,bytes32 capacityEvidenceHash,uint64 expiry,bytes32 guaranteeClassId,bytes32 salt)"
     );
+    bytes32 internal constant SOLVER_CAPACITY_LOCK_TYPEHASH =
+        keccak256("SetrynAuctionCapacityLockV2(bytes32 routeCapacityKey)");
     bytes32 internal constant RESULT_TYPEHASH = keccak256(
         "SetrynAuctionResultV1(bytes32 auctionId,uint32 auctionVersion,bytes32 winningRouteBidId,int128 uniformPriceTicks,uint128 totalAllocatedLots,uint16 winnerCount,bytes32 allocationsHash)"
     );
@@ -207,6 +209,18 @@ library AuctionHashLib {
 
     function deriveSolverRouteId(SolverRoute memory route) internal pure returns (SolverRouteId) {
         return SolverRouteId.wrap(_hashRoute(route, SolverRouteId.wrap(bytes32(0))));
+    }
+
+    /// Reference under which the position engine creates a solver route's capacity lock. The route commits to the
+    /// resulting lock id and the route id hashes that commitment, so a reference derived from the route id would be
+    /// circular and no route could ever match its lock. The reference commits to every other route field instead: the
+    /// route hash taken with both the lock id and the route id zeroed.
+    function capacityLockReference(SolverRoute memory route) internal pure returns (bytes32) {
+        CollateralLockId committedLockId = route.capacityLockId;
+        route.capacityLockId = CollateralLockId.wrap(bytes32(0));
+        bytes32 routeCapacityKey = _hashRoute(route, SolverRouteId.wrap(bytes32(0)));
+        route.capacityLockId = committedLockId;
+        return keccak256(abi.encode(SOLVER_CAPACITY_LOCK_TYPEHASH, routeCapacityKey));
     }
 
     function _hashRoute(SolverRoute memory route, SolverRouteId routeId) private pure returns (bytes32) {
