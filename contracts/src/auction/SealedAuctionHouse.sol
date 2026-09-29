@@ -4,66 +4,43 @@ pragma solidity 0.8.37;
 import {
     AccessControlDefaultAdminRules
 } from "@openzeppelin/contracts/access/extensions/AccessControlDefaultAdminRules.sol";
-import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {IAuctionValidationGate} from "../interfaces/IAuctionValidationGate.sol";
 import {IAuctionVault} from "../interfaces/IAuctionVault.sol";
-import {IAtomicClearingEngine} from "../interfaces/IAtomicClearingEngine.sol";
 import {IClearingChannelHandoffAdapter} from "../interfaces/IClearingChannelHandoffAdapter.sol";
 import {ISealedAuctionHouse} from "../interfaces/ISealedAuctionHouse.sol";
-import {AuctionHashLib} from "../libraries/AuctionHashLib.sol";
-import {AuctionRankingLib} from "../libraries/AuctionRankingLib.sol";
-import {PackageDefinitionLib} from "../libraries/PackageDefinitionLib.sol";
-import {CollateralLock} from "../types/CollateralTypes.sol";
-import {
-    CapacityDispositionKind,
-    CapacityReservationDisposition,
-    ClearingHandoffClaim,
-    ClearingHandoffKind,
-    UnusedCapacityPolicy,
-    VerifiedClearingHandoff
-} from "../types/ClearingHandoffTypes.sol";
-import {LockStatus, Side} from "../types/Enums.sol";
-import {
-    AccountId,
-    AssetId,
-    CollateralId,
-    CollateralLockId,
-    FeeScheduleId,
-    PackageId,
-    RiskDomainId,
-    SeriesId
-} from "../types/Identifiers.sol";
+import {ClearingHandoffClaim, VerifiedClearingHandoff} from "../types/ClearingHandoffTypes.sol";
 import {PackageLeg} from "../types/PackageDefinition.sol";
-import {OrderTargetKind} from "../types/OrderTypes.sol";
 import {
     AuctionClearingHandoff,
     AuctionClearingResult,
     AuctionDefinition,
     AuctionId,
-    AuctionKind,
-    AuctionPriceRule,
     AuctionStatus,
-    AuctionTargetKind,
     AuctionVersion,
     BidCommitAuthorization,
     BidCommitmentId,
     BidRecord,
     BidStatus,
-    BondOutcome,
-    NoBidTreatment,
     SealedBid,
     SolverAction,
     SolverRoute,
     SolverRouteId,
     SolverRouteRecord
 } from "../types/AuctionTypes.sol";
-import {Lots, PriceTicks} from "../types/Units.sol";
+import {Lots} from "../types/Units.sol";
 import {RouteId, SourceReservationStatus, SourceRouteReservation} from "../types/RoutingTypes.sol";
-import {RiskAdmissionId} from "../types/RiskTypes.sol";
+
+import {SealedAuctionBidLib} from "./SealedAuctionBidLib.sol";
+import {SealedAuctionClearingLib} from "./SealedAuctionClearingLib.sol";
+import {SealedAuctionSettlementLib} from "./SealedAuctionSettlementLib.sol";
+import {SealedAuctionDependencies} from "./SealedAuctionTypes.sol";
+
+import {ISealedAuctionHouseLinkedErrors} from "./ISealedAuctionHouseLinkedErrors.sol";
 
 contract SealedAuctionHouse is
+    ISealedAuctionHouseLinkedErrors,
     ISealedAuctionHouse,
     IClearingChannelHandoffAdapter,
     AccessControlDefaultAdminRules,
@@ -136,67 +113,13 @@ contract SealedAuctionHouse is
         nonReentrant
         returns (AuctionId auctionId, uint32 version)
     {
-        AuctionHashLib.validateDefinition(definition, packageLegs);
-        _validationGate.validateDefinition(definition, packageLegs);
-        auctionId = AuctionHashLib.deriveAuctionId(definition);
-        bytes32 definitionHash = AuctionHashLib.hashDefinition(definition, block.chainid, address(this));
-        if (_definitionVersions[auctionId][definitionHash] != 0) {
-            revert DuplicateAuctionDefinition(auctionId, definitionHash);
-        }
-        version = _latestVersions[auctionId];
-        if (version == type(uint32).max) revert AuctionVersionExhausted(auctionId);
-        version += 1;
-        bytes32 versionHash =
-            AuctionHashLib.hashVersion(auctionId, version, definitionHash, block.chainid, address(this));
-        _auctions[auctionId][version] = AuctionVersion({
-            definition: definition,
-            definitionHash: definitionHash,
-            versionHash: versionHash,
-            version: version,
-            status: AuctionStatus.Scheduled,
-            commitmentCount: 0,
-            revealCount: 0,
-            clearingResultHash: bytes32(0)
-        });
-        _latestVersions[auctionId] = version;
-        _definitionVersions[auctionId][definitionHash] = version;
-        emit AuctionScheduled(
-            auctionId,
-            version,
-            versionHash,
-            definitionHash,
-            definition.packageLegsHash,
-            definition.commitOpensAt,
-            definition.commitClosesAt,
-            definition.revealClosesAt
+        return SealedAuctionClearingLib.scheduleAuction(
+            _dependencies(), _auctions, _latestVersions, _definitionVersions, definition, packageLegs
         );
     }
 
     function advanceAuction(AuctionId auctionId, uint32 version) external nonReentrant {
-        AuctionVersion storage auction = _requireAuction(auctionId, version);
-        if (auction.status == AuctionStatus.Scheduled) {
-            if (block.timestamp < auction.definition.commitOpensAt) {
-                revert AuctionPhaseNotReached(auction.definition.commitOpensAt, block.timestamp);
-            }
-            _setAuctionStatus(auctionId, version, auction, AuctionStatus.CommitOpen);
-            return;
-        }
-        if (auction.status == AuctionStatus.CommitOpen) {
-            if (block.timestamp < auction.definition.commitClosesAt) {
-                revert AuctionPhaseNotReached(auction.definition.commitClosesAt, block.timestamp);
-            }
-            _setAuctionStatus(auctionId, version, auction, AuctionStatus.RevealOpen);
-            return;
-        }
-        if (auction.status == AuctionStatus.RevealOpen) {
-            if (block.timestamp < auction.definition.revealClosesAt) {
-                revert AuctionPhaseNotReached(auction.definition.revealClosesAt, block.timestamp);
-            }
-            _resolveUnrevealed(auctionId, version, auction.definition);
-            _setAuctionStatus(auctionId, version, auction, AuctionStatus.ReadyToClear);
-            return;
-        }
-        revert InvalidAuctionState(auctionId, version, auction.status);
+        SealedAuctionClearingLib.advanceAuction(_dependencies(), _auctions, _auctionBidIds, _bids, auctionId, version);
     }
 
     function cancelAuction(AuctionId auctionId, uint32 version) external onlyRole(AUCTION_GUARDIAN_ROLE) nonReentrant {
@@ -213,64 +136,13 @@ contract SealedAuctionHouse is
         bytes32[] calldata eligibilityProof,
         bytes calldata signature
     ) external nonReentrant returns (BidCommitmentId bidId) {
-        AuctionVersion storage auction = _requireAuction(authorization.auctionId, authorization.auctionVersion);
-        if (auction.status != AuctionStatus.CommitOpen) {
-            revert InvalidAuctionState(authorization.auctionId, authorization.auctionVersion, auction.status);
-        }
-        if (block.timestamp >= auction.definition.commitClosesAt) {
-            revert AuctionPhaseClosed(auction.definition.commitClosesAt, block.timestamp);
-        }
-        if (authorization.deadline < block.timestamp || authorization.deadline > auction.definition.commitClosesAt) {
-            revert AuctionPhaseClosed(authorization.deadline, block.timestamp);
-        }
-        if (
-            authorization.bidder == address(0) || AccountId.unwrap(authorization.bidderAccountId) == bytes32(0)
-                || authorization.sealedBidHash == bytes32(0) || authorization.eligibilityProofHash == bytes32(0)
-                || authorization.salt == bytes32(0)
-        ) revert BidAuthorizationMismatch();
-        if (keccak256(abi.encodePacked(eligibilityProof)) != authorization.eligibilityProofHash) {
-            revert EligibilityProofMismatch();
-        }
-        if (auction.commitmentCount >= auction.definition.maximumBids) {
-            revert AuctionCapacityReached(auction.definition.maximumBids);
-        }
-        bidId = AuctionHashLib.deriveBidCommitmentId(authorization);
-        if (_bids[bidId].status != BidStatus.Unspecified) revert DuplicateBid(bidId);
-        bytes32 digest = AuctionHashLib.bidCommitDigest(authorization, block.chainid, address(this));
-        _requireSignature(authorization.bidder, digest, signature);
-        _validationGate.validateCommit(auction.definition, authorization, eligibilityProof);
-
-        bytes32 lockReference = keccak256(abi.encode(BOND_LOCK_REFERENCE_TYPEHASH, BidCommitmentId.unwrap(bidId)));
-        CollateralLockId bondLockId = _auctionVault.createLock(
-            lockReference,
-            authorization.bidderAccountId,
-            auction.definition.bondAssetId,
-            auction.definition.bondBindingVersion,
-            auction.definition.requiredBondAmount,
-            auction.definition.bondExpiry,
-            address(this)
-        );
-        _requireBondLock(auction.definition, authorization, bidId, bondLockId, lockReference);
-        _bids[bidId].authorization = authorization;
-        _bids[bidId].bondLockId = bondLockId;
-        _bids[bidId].status = BidStatus.Committed;
-        _auctionBidIds[authorization.auctionId][authorization.auctionVersion].push(bidId);
-        auction.commitmentCount += 1;
-        emit BidCommitted(
-            authorization.auctionId,
-            authorization.auctionVersion,
-            bidId,
-            authorization.sealedBidHash,
-            CollateralLockId.unwrap(bondLockId)
+        return SealedAuctionBidLib.commitBid(
+            _dependencies(), _auctions, _auctionBidIds, _bids, authorization, eligibilityProof, signature
         );
     }
 
     function revealBid(BidCommitmentId bidId, SealedBid calldata bid) external nonReentrant {
-        BidRecord storage record = _prepareReveal(bidId, bid);
-        AuctionVersion storage auction = _auctions[bid.auctionId][bid.auctionVersion];
-        if (auction.definition.kind != AuctionKind.BatchOrder) revert RouteMismatch();
-        _validationGate.validateBid(auction.definition, bid);
-        _finishReveal(bidId, record, auction, bid, SolverRouteId.wrap(bytes32(0)));
+        SealedAuctionBidLib.revealBid(_dependencies(), _auctions, _bids, bidId, bid);
     }
 
     function revealSolverBid(
@@ -280,87 +152,28 @@ contract SealedAuctionHouse is
         PackageLeg[] calldata routeLegs,
         SolverAction[] calldata actions
     ) external nonReentrant {
-        BidRecord storage record = _prepareReveal(bidId, bid);
-        AuctionVersion storage auction = _auctions[bid.auctionId][bid.auctionVersion];
-        if (auction.definition.kind != AuctionKind.SolverRoute) revert RouteMismatch();
-        _validationGate.validateBid(auction.definition, bid);
-        AuctionHashLib.validateRoute(route, auction.definition, routeLegs, actions);
-        _validationGate.validateRoute(auction.definition, route, routeLegs, actions);
-        if (
-            AuctionId.unwrap(route.auctionId) != AuctionId.unwrap(bid.auctionId)
-                || route.auctionVersion != bid.auctionVersion || route.solver != bid.bidder
-                || AccountId.unwrap(route.solverAccountId) != AccountId.unwrap(bid.bidderAccountId)
-                || SolverRouteId.unwrap(route.routeId) != SolverRouteId.unwrap(bid.solverRouteId)
-                || PriceTicks.unwrap(route.packageOutcomeTicks) != PriceTicks.unwrap(bid.priceTicks)
-                || route.maximumFeeMinor != bid.maximumFeeMinor
-                || route.capacityEvidenceHash != bid.capacityEvidenceHash
-        ) revert RouteMismatch();
-        if (_routes[route.routeId].revealed) revert DuplicateRoute(route.routeId);
-        bytes32 capacityLockKey = CollateralLockId.unwrap(route.capacityLockId);
-        SolverRouteId claimedRouteId = _capacityLockClaims[capacityLockKey];
-        if (SolverRouteId.unwrap(claimedRouteId) != bytes32(0)) {
-            revert CapacityLockAlreadyClaimed(capacityLockKey, claimedRouteId);
-        }
-        bytes32 capacityLockReference =
-            keccak256(abi.encode(CAPACITY_LOCK_REFERENCE_TYPEHASH, SolverRouteId.unwrap(route.routeId)));
-        CollateralLockId capacityLockId = IAtomicClearingEngine(_clearingEngine).positionEngine()
-            .createPositionFundingLock(
-                capacityLockReference,
-                route.solverAccountId,
-                auction.definition.settlementAssetId,
-                auction.definition.settlementAssetVersion,
-                route.capacityAmount,
-                route.expiry
-            );
-        if (CollateralLockId.unwrap(capacityLockId) != CollateralLockId.unwrap(route.capacityLockId)) {
-            revert CapacityLockMismatch(route.routeId);
-        }
-        _requireCapacityLock(route, auction.definition);
-        bytes32 routeHash = AuctionHashLib.hashRoute(route);
-        _routes[route.routeId] = SolverRouteRecord({route: route, routeHash: routeHash, revealed: true});
-        _capacityLockClaims[capacityLockKey] = route.routeId;
-        _finishReveal(bidId, record, auction, bid, route.routeId);
+        SealedAuctionBidLib.revealSolverBid(
+            _dependencies(), _auctions, _bids, _routes, _capacityLockClaims, bidId, bid, route, routeLegs, actions
+        );
     }
 
     function clearAuction(AuctionId auctionId, uint32 version) external nonReentrant returns (bytes32 resultHash) {
-        AuctionVersion storage auction = _requireAuction(auctionId, version);
-        if (auction.status != AuctionStatus.ReadyToClear) {
-            revert InvalidAuctionState(auctionId, version, auction.status);
-        }
-        if (block.timestamp > auction.definition.clearDeadline) {
-            _failAuction(auctionId, version, auction);
-            return bytes32(0);
-        }
-        (
-            BidCommitmentId[] memory winners,
-            Lots[] memory allocations,
-            PriceTicks[] memory prices,
-            AuctionClearingResult memory result
-        ) = _computeResult(auctionId, version, auction.definition);
-        if (result.winnerCount == 0) {
-            _resolveNoBid(auctionId, version, auction);
-            return bytes32(0);
-        }
-        for (uint256 i; i < winners.length; ++i) {
-            if (BidCommitmentId.unwrap(winners[i]) == bytes32(0)) continue;
-            BidRecord storage winner = _bids[winners[i]];
-            winner.allocatedLots = allocations[i];
-            winner.allocationPriceTicks = prices[i];
-            _setBidStatus(winners[i], winner, BidStatus.Winner);
-        }
-        _resolveLosingBids(auctionId, version, auction.definition);
-        _results[auctionId][version] = result;
-        auction.clearingResultHash = result.resultHash;
-        _setAuctionStatus(auctionId, version, auction, AuctionStatus.Cleared);
-        emit AuctionCleared(auctionId, version, result.resultHash, result.allocationsHash, result.winnerCount);
-        return result.resultHash;
+        return SealedAuctionClearingLib.clearAuction(
+            _dependencies(),
+            _auctions,
+            _auctionBidIds,
+            _bids,
+            _routes,
+            _capacityLockClaims,
+            _results,
+            auctionId,
+            version
+        );
     }
 
     function verifyClearingResult(AuctionId auctionId, uint32 version) external view returns (bool) {
-        AuctionVersion storage auction = _requireAuction(auctionId, version);
-        if (auction.clearingResultHash == bytes32(0)) return false;
-        (,,, AuctionClearingResult memory expected) = _computeResult(auctionId, version, auction.definition);
-        return expected.resultHash == auction.clearingResultHash;
+        return
+            SealedAuctionClearingLib.verifyClearingResult(_auctions, _auctionBidIds, _bids, _routes, auctionId, version);
     }
 
     function reserveForRoute(
@@ -371,37 +184,22 @@ contract SealedAuctionHouse is
         bytes32 reservationKey,
         address clearingConsumer
     ) external onlyRole(ROUTE_RESERVER_ROLE) nonReentrant {
-        uint128 requested = Lots.unwrap(quantity);
-        if (
-            RouteId.unwrap(routeId) == bytes32(0) || reservationKey == bytes32(0) || clearingConsumer != _clearingEngine
-                || requested == 0 || expiry <= block.timestamp
-                || _routeReservations[reservationKey].status != SourceReservationStatus.Unspecified
-                || _solverRouteReservationKeys[solverRouteId] != bytes32(0)
-        ) revert InvalidRouteReservation();
-        SolverRouteRecord storage routeRecord = _routes[solverRouteId];
-        if (!routeRecord.revealed) revert InvalidRouteReservation();
-        SolverRoute storage route = routeRecord.route;
-        AuctionVersion storage auction = _requireAuction(route.auctionId, route.auctionVersion);
-        AuctionClearingResult storage result = _results[route.auctionId][route.auctionVersion];
-        BidRecord storage winner = _requireBid(result.winningRouteBidId);
-        if (
-            auction.status != AuctionStatus.Cleared || winner.status != BidStatus.Winner
-                || SolverRouteId.unwrap(winner.routeId) != SolverRouteId.unwrap(solverRouteId)
-                || requested != Lots.unwrap(winner.allocatedLots) || expiry > auction.definition.settlementDeadline
-                || expiry > route.expiry || _handoffConsumed[route.auctionId][route.auctionVersion]
-        ) revert InvalidRouteReservation();
-        _requireCapacityLock(route, auction.definition);
-        _solverRouteReservationKeys[solverRouteId] = reservationKey;
-        _routeReservations[reservationKey] = SourceRouteReservation({
-            routeId: routeId,
-            sourceId: SolverRouteId.unwrap(solverRouteId),
-            reservationKey: reservationKey,
-            clearingConsumer: clearingConsumer,
-            quantity: quantity,
-            expiry: expiry,
-            status: SourceReservationStatus.Active
-        });
-        emit AuctionRouteReserved(solverRouteId, routeId, reservationKey, quantity, expiry, clearingConsumer);
+        SealedAuctionSettlementLib.reserveForRoute(
+            _dependencies(),
+            _auctions,
+            _bids,
+            _routes,
+            _results,
+            _handoffConsumed,
+            _routeReservations,
+            _solverRouteReservationKeys,
+            routeId,
+            solverRouteId,
+            quantity,
+            expiry,
+            reservationKey,
+            clearingConsumer
+        );
     }
 
     function releaseRouteReservation(bytes32 reservationKey, bytes32 releaseReference)
@@ -410,7 +208,13 @@ contract SealedAuctionHouse is
         nonReentrant
     {
         if (releaseReference == bytes32(0)) revert InvalidRouteReservation();
-        _closeRouteReservation(reservationKey, SourceReservationStatus.Released, releaseReference);
+        SealedAuctionSettlementLib.closeRouteReservation(
+            _routeReservations,
+            _solverRouteReservationKeys,
+            reservationKey,
+            SourceReservationStatus.Released,
+            releaseReference
+        );
     }
 
     function expireRouteReservation(bytes32 reservationKey) external nonReentrant {
@@ -418,7 +222,9 @@ contract SealedAuctionHouse is
         if (reservation.status != SourceReservationStatus.Active || block.timestamp <= reservation.expiry) {
             revert InvalidRouteReservation();
         }
-        _closeRouteReservation(
+        SealedAuctionSettlementLib.closeRouteReservation(
+            _routeReservations,
+            _solverRouteReservationKeys,
             reservationKey,
             SourceReservationStatus.Expired,
             keccak256(abi.encode("AUCTION_ROUTE_EXPIRED", reservationKey))
@@ -440,60 +246,19 @@ contract SealedAuctionHouse is
         nonReentrant
         returns (AuctionClearingHandoff memory handoff)
     {
-        return _consumeClearingHandoff(auctionId, version, executionReference);
-    }
-
-    function _consumeClearingHandoff(AuctionId auctionId, uint32 version, bytes32 executionReference)
-        private
-        returns (AuctionClearingHandoff memory handoff)
-    {
-        if (executionReference == bytes32(0)) revert ZeroReference();
-        if (_executionReferences[executionReference]) revert ExecutionReferenceUsed(executionReference);
-        if (_handoffConsumed[auctionId][version]) revert ClearingHandoffAlreadyConsumed(auctionId, version);
-        AuctionVersion storage auction = _requireAuction(auctionId, version);
-        if (auction.status != AuctionStatus.Cleared) revert InvalidAuctionState(auctionId, version, auction.status);
-        if (block.timestamp > auction.definition.settlementDeadline) {
-            revert SettlementDeadlinePassed(auction.definition.settlementDeadline, block.timestamp);
-        }
-        AuctionClearingResult storage result = _results[auctionId][version];
-        if (result.resultHash == bytes32(0)) revert NoClearingResult();
-        CollateralLockId capacityLockId;
-        uint128 capacityAmount;
-        if (auction.definition.kind == AuctionKind.SolverRoute) {
-            BidRecord storage winner = _bids[result.winningRouteBidId];
-            SolverRoute storage route = _routes[winner.routeId].route;
-            _requireCapacityLock(route, auction.definition);
-            bytes32 reservationKey = _solverRouteReservationKeys[winner.routeId];
-            if (reservationKey != bytes32(0)) {
-                SourceRouteReservation storage routeReservation = _routeReservations[reservationKey];
-                if (
-                    routeReservation.status != SourceReservationStatus.Active
-                        || routeReservation.clearingConsumer != msg.sender || block.timestamp > routeReservation.expiry
-                        || Lots.unwrap(routeReservation.quantity) != Lots.unwrap(winner.allocatedLots)
-                ) revert InvalidRouteReservation();
-                _closeRouteReservation(
-                    reservationKey,
-                    SourceReservationStatus.Consumed,
-                    keccak256(abi.encode("AUCTION_ROUTE_CONSUMED", executionReference))
-                );
-            }
-            capacityLockId = route.capacityLockId;
-            capacityAmount = route.capacityAmount;
-        }
-        _handoffConsumed[auctionId][version] = true;
-        _executionReferences[executionReference] = true;
-        handoff = AuctionClearingHandoff({
-            auctionId: auctionId,
-            auctionVersion: version,
-            clearingResultHash: result.resultHash,
-            winningRouteBidId: result.winningRouteBidId,
-            capacityLockId: capacityLockId,
-            capacityAmount: capacityAmount,
-            maximumKeeperRewardMinor: auction.definition.maximumKeeperRewardMinor,
-            executionReference: executionReference
-        });
-        emit ClearingHandoffConsumed(
-            auctionId, version, executionReference, result.resultHash, CollateralLockId.unwrap(capacityLockId)
+        return SealedAuctionSettlementLib._consumeClearingHandoff(
+            _dependencies(),
+            _auctions,
+            _bids,
+            _routes,
+            _results,
+            _handoffConsumed,
+            _executionReferences,
+            _routeReservations,
+            _solverRouteReservationKeys,
+            auctionId,
+            version,
+            executionReference
         );
     }
 
@@ -503,93 +268,20 @@ contract SealedAuctionHouse is
         nonReentrant
         returns (VerifiedClearingHandoff memory handoff)
     {
-        if (claim.kind != ClearingHandoffKind.SealedAuction) {
-            revert HandoffClaimMismatch();
-        }
-        AuctionId auctionId = AuctionId.wrap(claim.sourceId);
-        AuctionVersion storage auction = _requireAuction(auctionId, claim.sourceVersion);
-        AuctionClearingResult storage result = _results[auctionId][claim.sourceVersion];
-        if (auction.definition.kind != AuctionKind.SolverRoute || result.winnerCount != 1) {
-            revert HandoffClaimMismatch();
-        }
-        BidRecord storage winner = _requireBid(result.winningRouteBidId);
-        SolverRouteRecord storage routeRecord = _routes[winner.routeId];
-        SolverRoute storage route = routeRecord.route;
-        bytes32 expectedCommitment = keccak256(
-            abi.encode(
-                auction.versionHash,
-                result.resultHash,
-                BidCommitmentId.unwrap(result.winningRouteBidId),
-                routeRecord.routeHash,
-                AuctionHashLib.hashBid(winner.bid)
-            )
+        return SealedAuctionSettlementLib.consumeTypedHandoff(
+            _dependencies(),
+            _auctions,
+            _bids,
+            _routes,
+            _results,
+            _handoffConsumed,
+            _executionReferences,
+            _handoffAuctions,
+            _handoffVersions,
+            _routeReservations,
+            _solverRouteReservationKeys,
+            claim
         );
-        Side expectedTakerSide = winner.bid.side == Side.Buy ? Side.Sell : Side.Buy;
-        bool packageTarget = auction.definition.targetKind == AuctionTargetKind.Package;
-        if (
-            claim.sourceCommitment != expectedCommitment
-                || claim.selectedQuoteOrRouteId != SolverRouteId.unwrap(winner.routeId)
-                || RiskAdmissionId.unwrap(claim.longAdmissionId) == bytes32(0)
-                || RiskAdmissionId.unwrap(claim.shortAdmissionId) == bytes32(0)
-                || RiskAdmissionId.unwrap(claim.longAdmissionId) == RiskAdmissionId.unwrap(claim.shortAdmissionId)
-                || claim.longAdmissionResultHash == bytes32(0) || claim.shortAdmissionResultHash == bytes32(0)
-                || claim.takerOrderHash != auction.definition.initiatorOrderHash
-                || claim.makerOrderHash != winner.bid.bidderOrderHash
-                || AccountId.unwrap(claim.takerAccountId) != AccountId.unwrap(auction.definition.initiatorAccountId)
-                || AccountId.unwrap(claim.makerAccountId) != AccountId.unwrap(winner.bid.bidderAccountId)
-                || claim.takerSide != expectedTakerSide || claim.targetVersion != auction.definition.targetVersion
-                || Lots.unwrap(claim.fillLots) != Lots.unwrap(winner.allocatedLots)
-                || PriceTicks.unwrap(claim.executionPriceTicks) != PriceTicks.unwrap(winner.allocationPriceTicks)
-                || FeeScheduleId.unwrap(claim.feeScheduleId) != FeeScheduleId.unwrap(auction.definition.feeScheduleId)
-                || claim.feeScheduleVersion != auction.definition.feeScheduleVersion
-                || claim.takerMaximumFeeMinor != auction.definition.initiatorMaximumFeeMinor
-                || claim.makerMaximumFeeMinor != winner.bid.maximumFeeMinor
-                || RiskDomainId.unwrap(claim.riskDomainId) != RiskDomainId.unwrap(auction.definition.riskDomainId)
-                || claim.riskDomainVersion != auction.definition.riskDomainVersion
-                || claim.executionModeId != auction.definition.executionModeId
-                || claim.deadline != auction.definition.settlementDeadline
-        ) revert HandoffClaimMismatch();
-        if (packageTarget) {
-            if (
-                claim.targetKind != OrderTargetKind.Package
-                    || PackageId.unwrap(claim.packageId) != PackageId.unwrap(auction.definition.packageId)
-                    || claim.packageWitnessHash != auction.definition.packageLegsHash
-                    || PackageDefinitionLib.hashLegs(claim.packageLegs) != auction.definition.packageLegsHash
-            ) revert HandoffClaimMismatch();
-        } else if (
-            claim.targetKind != OrderTargetKind.Series
-                || SeriesId.unwrap(claim.seriesId) != SeriesId.unwrap(auction.definition.seriesId)
-                || claim.packageLegs.length != 0 || claim.packageWitnessHash != bytes32(0)
-        ) {
-            revert HandoffClaimMismatch();
-        }
-
-        uint128 expectedRemaining = route.capacityAmount;
-        uint256 reserved;
-        for (uint256 i; i < claim.capacityDispositions.length; ++i) {
-            CapacityReservationDisposition calldata disposition = claim.capacityDispositions[i];
-            if (
-                disposition.capacityDisposition != CapacityDispositionKind.ConvertedToTerminalLiability
-                    || CollateralLockId.unwrap(disposition.funding.lockId)
-                        != CollateralLockId.unwrap(route.capacityLockId)
-                    || AccountId.unwrap(disposition.accountId) != AccountId.unwrap(route.solverAccountId)
-                    || disposition.funding.expectedRemainingAmount != expectedRemaining
-                    || disposition.funding.expectedExpiry != route.expiry
-                    || disposition.unusedCapacityPolicy != UnusedCapacityPolicy.ReleaseOnTerminalFill
-                    || disposition.reservationAmount > expectedRemaining
-            ) revert HandoffClaimMismatch();
-            reserved += disposition.reservationAmount;
-            if (reserved > route.capacityAmount) revert HandoffClaimMismatch();
-            expectedRemaining -= disposition.reservationAmount;
-        }
-        if (reserved == 0) revert HandoffClaimMismatch();
-        _consumeClearingHandoff(auctionId, claim.sourceVersion, claim.consumptionId);
-        _handoffAuctions[claim.consumptionId] = auctionId;
-        _handoffVersions[claim.consumptionId] = claim.sourceVersion;
-        handoff = VerifiedClearingHandoff({
-            claim: claim,
-            provenanceHash: keccak256(abi.encode(block.chainid, address(this), expectedCommitment, claim.consumptionId))
-        });
     }
 
     function finalizeTypedHandoff(bytes32 consumptionId, bytes32 fillId, bytes32 positionsHash)
@@ -600,7 +292,18 @@ contract SealedAuctionHouse is
         if (!_executionReferences[consumptionId] || fillId == bytes32(0) || positionsHash == bytes32(0)) {
             revert HandoffClaimMismatch();
         }
-        _settleAuction(_handoffAuctions[consumptionId], _handoffVersions[consumptionId], fillId);
+        SealedAuctionSettlementLib._settleAuction(
+            _dependencies(),
+            _auctions,
+            _auctionBidIds,
+            _bids,
+            _routes,
+            _results,
+            _handoffConsumed,
+            _handoffAuctions[consumptionId],
+            _handoffVersions[consumptionId],
+            fillId
+        );
     }
 
     function source() external view returns (address) {
@@ -616,50 +319,32 @@ contract SealedAuctionHouse is
         onlyRole(CLEARING_ENGINE_ROLE)
         nonReentrant
     {
-        _settleAuction(auctionId, version, settlementReference);
-    }
-
-    function _settleAuction(AuctionId auctionId, uint32 version, bytes32 settlementReference) private {
-        if (settlementReference == bytes32(0)) revert ZeroReference();
-        AuctionVersion storage auction = _requireAuction(auctionId, version);
-        if (auction.status != AuctionStatus.Cleared || !_handoffConsumed[auctionId][version]) {
-            revert InvalidAuctionState(auctionId, version, auction.status);
-        }
-        if (block.timestamp > auction.definition.settlementDeadline) {
-            revert SettlementDeadlinePassed(auction.definition.settlementDeadline, block.timestamp);
-        }
-        _resolveWinningBonds(auctionId, version, BondOutcome.Release, auction.definition);
-        if (auction.definition.kind == AuctionKind.SolverRoute) {
-            BidRecord storage winner = _bids[_results[auctionId][version].winningRouteBidId];
-            CollateralLockId capacityLockId = _routes[winner.routeId].route.capacityLockId;
-            CollateralLock memory capacityLock = _auctionVault.getLock(capacityLockId);
-            if (capacityLock.status == LockStatus.Active) {
-                IAtomicClearingEngine(_clearingEngine).positionEngine().releasePositionFundingLock(capacityLockId);
-            }
-        }
-        _setAuctionStatus(auctionId, version, auction, AuctionStatus.Settled);
-        emit AuctionSettled(auctionId, version, settlementReference);
+        SealedAuctionSettlementLib._settleAuction(
+            _dependencies(),
+            _auctions,
+            _auctionBidIds,
+            _bids,
+            _routes,
+            _results,
+            _handoffConsumed,
+            auctionId,
+            version,
+            settlementReference
+        );
     }
 
     function failExpiredSettlement(AuctionId auctionId, uint32 version) external nonReentrant {
-        AuctionVersion storage auction = _requireAuction(auctionId, version);
-        if (auction.status != AuctionStatus.Cleared) revert InvalidAuctionState(auctionId, version, auction.status);
-        if (block.timestamp <= auction.definition.settlementDeadline) {
-            revert SettlementDeadlineNotReached(auction.definition.settlementDeadline, block.timestamp);
-        }
-        AuctionClearingResult storage result = _results[auctionId][version];
-        if (BidCommitmentId.unwrap(result.winningRouteBidId) != bytes32(0)) {
-            bytes32 reservationKey = _solverRouteReservationKeys[_bids[result.winningRouteBidId].routeId];
-            if (reservationKey != bytes32(0)) {
-                _closeRouteReservation(
-                    reservationKey,
-                    SourceReservationStatus.Expired,
-                    keccak256(abi.encode("AUCTION_SETTLEMENT_EXPIRED", AuctionId.unwrap(auctionId), version))
-                );
-            }
-        }
-        _resolveWinningBonds(auctionId, version, auction.definition.settlementFailureBondOutcome, auction.definition);
-        _setAuctionStatus(auctionId, version, auction, AuctionStatus.Failed);
+        SealedAuctionSettlementLib.failExpiredSettlement(
+            _dependencies(),
+            _auctions,
+            _auctionBidIds,
+            _bids,
+            _results,
+            _routeReservations,
+            _solverRouteReservationKeys,
+            auctionId,
+            version
+        );
     }
 
     function releaseExpiredBond(BidCommitmentId bidId) external nonReentrant {
@@ -704,377 +389,6 @@ contract SealedAuctionHouse is
         return result;
     }
 
-    function _closeRouteReservation(bytes32 reservationKey, SourceReservationStatus status, bytes32 closeReference)
-        private
-    {
-        SourceRouteReservation storage reservation = _routeReservations[reservationKey];
-        if (reservation.status != SourceReservationStatus.Active || closeReference == bytes32(0)) {
-            revert InvalidRouteReservation();
-        }
-        SolverRouteId solverRouteId = SolverRouteId.wrap(reservation.sourceId);
-        _solverRouteReservationKeys[solverRouteId] = bytes32(0);
-        reservation.status = status;
-        emit AuctionRouteReservationClosed(
-            solverRouteId, reservation.routeId, reservationKey, uint8(status), closeReference
-        );
-    }
-
-    function _prepareReveal(BidCommitmentId bidId, SealedBid calldata bid)
-        private
-        view
-        returns (BidRecord storage record)
-    {
-        record = _requireBid(bidId);
-        if (record.status != BidStatus.Committed) revert InvalidBidState(bidId, record.status);
-        AuctionVersion storage auction = _requireAuction(bid.auctionId, bid.auctionVersion);
-        if (auction.status != AuctionStatus.RevealOpen) {
-            revert InvalidAuctionState(bid.auctionId, bid.auctionVersion, auction.status);
-        }
-        if (block.timestamp >= auction.definition.revealClosesAt) {
-            revert AuctionPhaseClosed(auction.definition.revealClosesAt, block.timestamp);
-        }
-        BidCommitAuthorization storage authorization = record.authorization;
-        if (
-            AuctionId.unwrap(bid.auctionId) != AuctionId.unwrap(authorization.auctionId)
-                || bid.auctionVersion != authorization.auctionVersion || bid.bidder != authorization.bidder
-                || AccountId.unwrap(bid.bidderAccountId) != AccountId.unwrap(authorization.bidderAccountId)
-                || bid.nonce != authorization.nonce
-        ) revert BidAuthorizationMismatch();
-        bytes32 actualHash = AuctionHashLib.hashBid(bid);
-        if (actualHash != authorization.sealedBidHash) {
-            revert BidCommitmentMismatch(authorization.sealedBidHash, actualHash);
-        }
-    }
-
-    function _finishReveal(
-        BidCommitmentId bidId,
-        BidRecord storage record,
-        AuctionVersion storage auction,
-        SealedBid calldata bid,
-        SolverRouteId routeId
-    ) private {
-        AuctionHashLib.validateBid(bid, auction.definition);
-        record.bid = bid;
-        record.routeId = routeId;
-        _setBidStatus(bidId, record, BidStatus.Revealed);
-        auction.revealCount += 1;
-        emit BidRevealed(bid.auctionId, bid.auctionVersion, bidId, record.authorization.sealedBidHash, routeId);
-    }
-
-    function _computeResult(AuctionId auctionId, uint32 version, AuctionDefinition storage definition)
-        private
-        view
-        returns (
-            BidCommitmentId[] memory winners,
-            Lots[] memory allocations,
-            PriceTicks[] memory prices,
-            AuctionClearingResult memory result
-        )
-    {
-        BidCommitmentId[] storage bidIds = _auctionBidIds[auctionId][version];
-        winners = new BidCommitmentId[](bidIds.length);
-        allocations = new Lots[](bidIds.length);
-        prices = new PriceTicks[](bidIds.length);
-        if (definition.kind == AuctionKind.SolverRoute) {
-            return _computeRouteResult(auctionId, version, definition, bidIds, winners, allocations, prices);
-        }
-        bool[] memory selected = new bool[](bidIds.length);
-        uint128 remaining = Lots.unwrap(definition.totalLots);
-        uint16 winnerCount;
-        PriceTicks uniformPrice;
-        bytes32 allocationsHash;
-        for (uint256 rank; rank < bidIds.length && remaining != 0; ++rank) {
-            (bool found, uint256 bestIndex) = _findBestBid(bidIds, selected, definition.auctionSide);
-            if (!found) break;
-            selected[bestIndex] = true;
-            BidCommitmentId bidId = bidIds[bestIndex];
-            SealedBid storage bid = _bids[bidId].bid;
-            uint128 requested = Lots.unwrap(bid.lots);
-            uint128 allocated;
-            if (requested <= remaining) {
-                allocated = requested;
-            } else if (bid.allowPartialAllocation && remaining >= Lots.unwrap(bid.minimumFillLots)) {
-                allocated = remaining;
-            } else {
-                continue;
-            }
-            remaining -= allocated;
-            winners[winnerCount] = bidId;
-            allocations[winnerCount] = Lots.wrap(allocated);
-            prices[winnerCount] = bid.priceTicks;
-            uniformPrice = bid.priceTicks;
-            allocationsHash = keccak256(
-                abi.encode(
-                    allocationsHash,
-                    ALLOCATION_TYPEHASH,
-                    BidCommitmentId.unwrap(bidId),
-                    allocated,
-                    PriceTicks.unwrap(bid.priceTicks)
-                )
-            );
-            winnerCount += 1;
-        }
-        if (definition.priceRule == AuctionPriceRule.UniformPrice) {
-            allocationsHash = bytes32(0);
-            for (uint256 i; i < winnerCount; ++i) {
-                prices[i] = uniformPrice;
-                allocationsHash = keccak256(
-                    abi.encode(
-                        allocationsHash,
-                        ALLOCATION_TYPEHASH,
-                        BidCommitmentId.unwrap(winners[i]),
-                        Lots.unwrap(allocations[i]),
-                        PriceTicks.unwrap(uniformPrice)
-                    )
-                );
-            }
-        }
-        uint128 allocatedTotal = Lots.unwrap(definition.totalLots) - remaining;
-        bytes32 resultHash = AuctionHashLib.hashResult(
-            auctionId,
-            version,
-            BidCommitmentId.wrap(bytes32(0)),
-            uniformPrice,
-            Lots.wrap(allocatedTotal),
-            winnerCount,
-            allocationsHash
-        );
-        result = AuctionClearingResult({
-            auctionId: auctionId,
-            auctionVersion: version,
-            winningRouteBidId: BidCommitmentId.wrap(bytes32(0)),
-            uniformPriceTicks: uniformPrice,
-            totalAllocatedLots: Lots.wrap(allocatedTotal),
-            winnerCount: winnerCount,
-            allocationsHash: allocationsHash,
-            resultHash: resultHash
-        });
-    }
-
-    function _computeRouteResult(
-        AuctionId auctionId,
-        uint32 version,
-        AuctionDefinition storage definition,
-        BidCommitmentId[] storage bidIds,
-        BidCommitmentId[] memory winners,
-        Lots[] memory allocations,
-        PriceTicks[] memory prices
-    )
-        private
-        view
-        returns (BidCommitmentId[] memory, Lots[] memory, PriceTicks[] memory, AuctionClearingResult memory result)
-    {
-        bool found;
-        BidCommitmentId bestId;
-        SolverRoute memory bestRoute;
-        for (uint256 i; i < bidIds.length; ++i) {
-            BidCommitmentId bidId = bidIds[i];
-            BidRecord storage bid = _bids[bidId];
-            if (bid.bid.bidder == address(0)) continue;
-            SolverRoute memory route = _routes[bid.routeId].route;
-            if (!found || AuctionRankingLib.isBetterRoute(route, bidId, bestRoute, bestId, definition.auctionSide)) {
-                found = true;
-                bestId = bidId;
-                bestRoute = route;
-            }
-        }
-        uint16 winnerCount;
-        Lots allocated;
-        bytes32 allocationsHash;
-        if (found) {
-            winnerCount = 1;
-            allocated = _bids[bestId].bid.lots;
-            winners[0] = bestId;
-            allocations[0] = allocated;
-            prices[0] = bestRoute.packageOutcomeTicks;
-            allocationsHash = keccak256(
-                abi.encode(
-                    bytes32(0),
-                    ALLOCATION_TYPEHASH,
-                    BidCommitmentId.unwrap(bestId),
-                    Lots.unwrap(allocated),
-                    PriceTicks.unwrap(bestRoute.packageOutcomeTicks)
-                )
-            );
-        }
-        bytes32 resultHash = AuctionHashLib.hashResult(
-            auctionId, version, bestId, bestRoute.packageOutcomeTicks, allocated, winnerCount, allocationsHash
-        );
-        result = AuctionClearingResult({
-            auctionId: auctionId,
-            auctionVersion: version,
-            winningRouteBidId: bestId,
-            uniformPriceTicks: bestRoute.packageOutcomeTicks,
-            totalAllocatedLots: allocated,
-            winnerCount: winnerCount,
-            allocationsHash: allocationsHash,
-            resultHash: resultHash
-        });
-        return (winners, allocations, prices, result);
-    }
-
-    function _findBestBid(BidCommitmentId[] storage bidIds, bool[] memory selected, Side auctionSide)
-        private
-        view
-        returns (bool found, uint256 bestIndex)
-    {
-        BidCommitmentId bestId;
-        SealedBid memory bestBid;
-        for (uint256 i; i < bidIds.length; ++i) {
-            if (selected[i]) continue;
-            BidCommitmentId candidateId = bidIds[i];
-            BidRecord storage candidate = _bids[candidateId];
-            if (candidate.bid.bidder == address(0)) continue;
-            if (!found || AuctionRankingLib.isBetterBid(candidate.bid, candidateId, bestBid, bestId, auctionSide)) {
-                found = true;
-                bestIndex = i;
-                bestId = candidateId;
-                bestBid = candidate.bid;
-            }
-        }
-    }
-
-    function _resolveUnrevealed(AuctionId auctionId, uint32 version, AuctionDefinition storage definition) private {
-        BidCommitmentId[] storage bidIds = _auctionBidIds[auctionId][version];
-        for (uint256 i; i < bidIds.length; ++i) {
-            BidRecord storage bid = _bids[bidIds[i]];
-            if (bid.status != BidStatus.Committed) continue;
-            _setBidStatus(bidIds[i], bid, BidStatus.Unrevealed);
-            _applyBondOutcome(bidIds[i], bid, definition.unrevealedBondOutcome, definition);
-        }
-    }
-
-    function _resolveLosingBids(AuctionId auctionId, uint32 version, AuctionDefinition storage definition) private {
-        BidCommitmentId[] storage bidIds = _auctionBidIds[auctionId][version];
-        for (uint256 i; i < bidIds.length; ++i) {
-            BidRecord storage bid = _bids[bidIds[i]];
-            if (bid.status != BidStatus.Revealed) continue;
-            _setBidStatus(bidIds[i], bid, BidStatus.Loser);
-            if (SolverRouteId.unwrap(bid.routeId) != bytes32(0)) {
-                CollateralLockId capacityLockId = _routes[bid.routeId].route.capacityLockId;
-                _capacityLockClaims[CollateralLockId.unwrap(capacityLockId)] = SolverRouteId.wrap(bytes32(0));
-                CollateralLock memory capacityLock = _auctionVault.getLock(capacityLockId);
-                if (capacityLock.status == LockStatus.Active) {
-                    IAtomicClearingEngine(_clearingEngine).positionEngine().releasePositionFundingLock(capacityLockId);
-                }
-            }
-            _applyBondOutcome(bidIds[i], bid, definition.losingBondOutcome, definition);
-        }
-    }
-
-    function _resolveWinningBonds(
-        AuctionId auctionId,
-        uint32 version,
-        BondOutcome outcome,
-        AuctionDefinition storage definition
-    ) private {
-        BidCommitmentId[] storage bidIds = _auctionBidIds[auctionId][version];
-        for (uint256 i; i < bidIds.length; ++i) {
-            BidRecord storage bid = _bids[bidIds[i]];
-            if (bid.status == BidStatus.Winner) _applyBondOutcome(bidIds[i], bid, outcome, definition);
-        }
-    }
-
-    function _applyBondOutcome(
-        BidCommitmentId bidId,
-        BidRecord storage bid,
-        BondOutcome outcome,
-        AuctionDefinition storage definition
-    ) private {
-        if (outcome == BondOutcome.Expire) return;
-        if (outcome == BondOutcome.Release) {
-            _auctionVault.releaseLock(bid.bondLockId);
-            _setBidStatus(bidId, bid, BidStatus.BondReleased);
-            return;
-        }
-        if (outcome == BondOutcome.Slash) {
-            _auctionVault.consumeLock(bid.bondLockId, definition.slashRecipientAccountId, definition.requiredBondAmount);
-            _setBidStatus(bidId, bid, BidStatus.BondSlashed);
-            return;
-        }
-        revert InvalidBidState(bidId, bid.status);
-    }
-
-    function _resolveNoBid(AuctionId auctionId, uint32 version, AuctionVersion storage auction) private {
-        _resolveLosingBids(auctionId, version, auction.definition);
-        AuctionStatus status =
-            auction.definition.noBidTreatment == NoBidTreatment.Cancel ? AuctionStatus.Cancelled : AuctionStatus.Failed;
-        _setAuctionStatus(auctionId, version, auction, status);
-    }
-
-    function _failAuction(AuctionId auctionId, uint32 version, AuctionVersion storage auction) private {
-        _resolveLosingBids(auctionId, version, auction.definition);
-        _setAuctionStatus(auctionId, version, auction, AuctionStatus.Failed);
-    }
-
-    function _requireBondLock(
-        AuctionDefinition storage definition,
-        BidCommitAuthorization calldata authorization,
-        BidCommitmentId bidId,
-        CollateralLockId lockId,
-        bytes32 lockReference
-    ) private view {
-        CollateralLock memory lock = _auctionVault.getLock(lockId);
-        CollateralId expectedCollateral =
-            _auctionVault.deriveCollateralId(definition.bondAssetId, definition.bondBindingVersion);
-        if (
-            lock.status != LockStatus.Active || lock.lockReference != lockReference || lock.operator != address(this)
-                || lock.settlementOperator != address(this)
-                || AccountId.unwrap(lock.accountId) != AccountId.unwrap(authorization.bidderAccountId)
-                || CollateralId.unwrap(lock.collateralId) != CollateralId.unwrap(expectedCollateral)
-                || lock.initialAmount != definition.requiredBondAmount
-                || lock.remainingAmount != definition.requiredBondAmount || lock.expiry != definition.bondExpiry
-        ) revert BondLockMismatch(bidId);
-    }
-
-    function _requireCapacityLock(SolverRoute memory route, AuctionDefinition storage definition) private view {
-        CollateralLock memory lock = _auctionVault.getLock(route.capacityLockId);
-        bytes32 expectedReference =
-            keccak256(abi.encode(CAPACITY_LOCK_REFERENCE_TYPEHASH, SolverRouteId.unwrap(route.routeId)));
-        CollateralId expectedCollateral =
-            _auctionVault.deriveCollateralId(definition.settlementAssetId, definition.settlementAssetVersion);
-        if (
-            lock.status != LockStatus.Active
-                || lock.operator != address(IAtomicClearingEngine(_clearingEngine).positionEngine())
-                || lock.settlementOperator != address(IAtomicClearingEngine(_clearingEngine).positionEngine())
-                || lock.lockReference != expectedReference
-                || AccountId.unwrap(lock.accountId) != AccountId.unwrap(route.solverAccountId)
-                || CollateralId.unwrap(lock.collateralId) != CollateralId.unwrap(expectedCollateral)
-                || CollateralId.unwrap(route.capacityCollateralId) != CollateralId.unwrap(expectedCollateral)
-                || AssetId.unwrap(lock.assetId) != AssetId.unwrap(definition.settlementAssetId)
-                || lock.bindingVersion != definition.settlementAssetVersion || lock.expiry != route.expiry
-                || lock.initialAmount != route.capacityAmount || lock.remainingAmount != route.capacityAmount
-        ) revert CapacityLockMismatch(route.routeId);
-    }
-
-    function _requireProposedCapacityLock(SolverRoute calldata route, AuctionDefinition storage definition)
-        private
-        view
-    {
-        SolverRoute storage storedRoute = _routes[route.routeId].route;
-        if (_routes[route.routeId].revealed) {
-            _requireCapacityLock(storedRoute, definition);
-            return;
-        }
-        CollateralLock memory lock = _auctionVault.getLock(route.capacityLockId);
-        bytes32 expectedReference =
-            keccak256(abi.encode(CAPACITY_LOCK_REFERENCE_TYPEHASH, SolverRouteId.unwrap(route.routeId)));
-        CollateralId expectedCollateral =
-            _auctionVault.deriveCollateralId(definition.settlementAssetId, definition.settlementAssetVersion);
-        if (
-            lock.status != LockStatus.Active
-                || lock.operator != address(IAtomicClearingEngine(_clearingEngine).positionEngine())
-                || lock.settlementOperator != address(IAtomicClearingEngine(_clearingEngine).positionEngine())
-                || lock.lockReference != expectedReference
-                || AccountId.unwrap(lock.accountId) != AccountId.unwrap(route.solverAccountId)
-                || CollateralId.unwrap(lock.collateralId) != CollateralId.unwrap(expectedCollateral)
-                || CollateralId.unwrap(route.capacityCollateralId) != CollateralId.unwrap(expectedCollateral)
-                || AssetId.unwrap(lock.assetId) != AssetId.unwrap(definition.settlementAssetId)
-                || lock.bindingVersion != definition.settlementAssetVersion || lock.expiry != route.expiry
-                || lock.initialAmount != route.capacityAmount || lock.remainingAmount != route.capacityAmount
-        ) revert CapacityLockMismatch(route.routeId);
-    }
-
     function _requireAuction(AuctionId auctionId, uint32 version)
         private
         view
@@ -1106,15 +420,16 @@ contract SealedAuctionHouse is
         emit BidStatusChanged(bidId, previousStatus, newStatus);
     }
 
-    function _requireSignature(address signer, bytes32 digest, bytes calldata signature) private view {
-        if (!SignatureChecker.isValidSignatureNowCalldata(signer, digest, signature)) {
-            revert InvalidSignature(signer, digest);
-        }
-    }
-
     function _requireDependency(address dependency) private view {
         if (dependency == address(0)) revert ZeroDependency();
         if (dependency.code.length == 0) revert DependencyHasNoCode(dependency);
+    }
+
+    /// Linked libraries execute in this contract's context and receive the immutable dependency graph explicitly.
+    function _dependencies() private view returns (SealedAuctionDependencies memory) {
+        return SealedAuctionDependencies({
+            auctionVault: _auctionVault, validationGate: _validationGate, clearingEngine: _clearingEngine
+        });
     }
 
     function _requireInitialAdmin(address initialAdmin) private pure returns (address) {

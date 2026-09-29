@@ -9,7 +9,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {ICollateralVault} from "../interfaces/ICollateralVault.sol";
-import {IPositionEngineTerminalState, PositionTerminalState} from "../interfaces/IPositionEngineTerminalState.sol";
+import {PositionTerminalState} from "../interfaces/IPositionEngineTerminalState.sol";
 import {IRiskDomainRegistry} from "../interfaces/IRiskDomainRegistry.sol";
 import {ISettlementAssetRegistry} from "../interfaces/ISettlementAssetRegistry.sol";
 import {CollateralIdLib} from "../libraries/CollateralIdLib.sol";
@@ -21,12 +21,7 @@ import {
     TerminalLiabilityReplacement,
     TerminalLiabilityReservation
 } from "../types/CollateralTypes.sol";
-import {
-    LockStatus,
-    TerminalClaimStatus,
-    TerminalLiabilityReservationStatus,
-    TerminalOutcomeKind
-} from "../types/Enums.sol";
+import {LockStatus, TerminalClaimStatus, TerminalLiabilityReservationStatus} from "../types/Enums.sol";
 import {
     AccountId,
     AssetId,
@@ -36,7 +31,6 @@ import {
     TerminalClaimId,
     TerminalLiabilityReservationId
 } from "../types/Identifiers.sol";
-import {RiskDomainVersion} from "../types/RiskDomainDefinition.sol";
 
 /// @dev Value custody for qualified settlement assets. The settlement asset registry stays the
 /// authority on which ERC-20 contract a canonical asset settles against on this chain. The risk
@@ -55,15 +49,11 @@ import {RiskDomainVersion} from "../types/RiskDomainDefinition.sol";
 /// the lock operator that created it. The lock operator therefore chooses the settlement engine, but
 /// only after the controller admitted that operator and governance admitted that engine, so neither
 /// governance nor a controller can unilaterally point an existing pledge at a new settler.
+import {CollateralReservationLib} from "./CollateralReservationLib.sol";
+import {CollateralVaultDependencies} from "./CollateralVaultTypes.sol";
+
 contract CollateralVault is ICollateralVault, AccessControlDefaultAdminRules, ReentrancyGuard {
     using SafeERC20 for IERC20;
-
-    struct PositionEngineQualification {
-        bytes32 positionEngineId;
-        bytes32 positionEngineCodeHash;
-        uint64 settlementDeadline;
-        uint64 finalResolutionAt;
-    }
 
     bytes32 public constant COLLATERAL_LOCKER_ROLE = keccak256("SETRYN_COLLATERAL_LOCKER_ROLE");
     bytes32 public constant COLLATERAL_SETTLER_ROLE = keccak256("SETRYN_COLLATERAL_SETTLER_ROLE");
@@ -433,49 +423,8 @@ contract CollateralVault is ICollateralVault, AccessControlDefaultAdminRules, Re
         nonReentrant
         onlyRole(COLLATERAL_SETTLER_ROLE)
     {
-        CollateralLock storage lock = _requireActiveLock(lockId);
-        address pinnedSettlementOperator = lock.settlementOperator;
-        if (msg.sender != pinnedSettlementOperator) {
-            revert NotLockSettlementOperator(lockId, pinnedSettlementOperator, msg.sender);
-        }
-        if (block.timestamp >= lock.expiry) {
-            revert LockExpired(lockId, lock.expiry);
-        }
-        _requireAccount(recipientAccountId);
-        if (amount == 0) {
-            revert ZeroAmount();
-        }
-
-        AccountId payerAccountId = lock.accountId;
-        if (AccountId.unwrap(payerAccountId) == AccountId.unwrap(recipientAccountId)) {
-            revert SelfConsumption(payerAccountId);
-        }
-
-        uint128 remaining = lock.remainingAmount;
-        if (amount > remaining) {
-            revert AmountAboveLockRemaining(lockId, remaining, amount);
-        }
-
-        CollateralId collateralId = lock.collateralId;
-        CollateralBalance storage payerBalance = _balances[payerAccountId][collateralId];
-        payerBalance.total = payerBalance.total - amount;
-        payerBalance.locked = payerBalance.locked - amount;
-        _preTradeLocked[payerAccountId][collateralId] -= amount;
-        _preTradeEncumbrance[collateralId] -= amount;
-
-        _creditTotal(recipientAccountId, collateralId, amount);
-
-        remaining = remaining - amount;
-        lock.remainingAmount = remaining;
-
-        LockStatus newStatus = LockStatus.Active;
-        if (remaining == 0) {
-            newStatus = LockStatus.Consumed;
-            lock.status = newStatus;
-        }
-
-        emit CollateralLockConsumed(
-            lockId, payerAccountId, recipientAccountId, collateralId, amount, remaining, newStatus, msg.sender
+        CollateralReservationLib.consumeLock(
+            _accounts, _balances, _locks, _preTradeLocked, _preTradeEncumbrance, lockId, recipientAccountId, amount
         );
     }
 
@@ -494,49 +443,25 @@ contract CollateralVault is ICollateralVault, AccessControlDefaultAdminRules, Re
         onlyRole(TERMINAL_RESERVATION_CREATOR_ROLE)
         returns (TerminalLiabilityReservationId reservationId)
     {
-        _requireTerminalReservationInputs(positionId, riskDomainId, riskDomainVersion, amount);
-        _requireAccount(payerAccountId);
-        if (!_isLockOperator(payerAccountId, msg.sender)) {
-            revert LockOperatorNotApproved(payerAccountId, msg.sender);
-        }
-        if (!_settlementAssetRegistry.isOpenForNewRisk(assetId, bindingVersion)) {
-            revert BindingClosedForNewRisk(assetId, bindingVersion);
-        }
-
-        PositionEngineQualification memory engine = _requirePositionEngineForNewRisk(positionEngine, positionId);
-        _requireRiskDomainForReservation(
-            payerAccountId, assetId, bindingVersion, riskDomainId, riskDomainVersion, amount
+        return CollateralReservationLib.createTerminalLiabilityReservation(
+            _dependencies(),
+            _accounts,
+            _balances,
+            _lockOperators,
+            _terminalReserved,
+            _terminalReservationEncumbrance,
+            _terminalLiabilityReservations,
+            _riskDomainTerminalLiability,
+            _accountRiskDomainTerminalLiability,
+            positionId,
+            payerAccountId,
+            assetId,
+            bindingVersion,
+            riskDomainId,
+            riskDomainVersion,
+            amount,
+            positionEngine
         );
-
-        reservationId = _deriveTerminalLiabilityReservationId(positionEngine, engine.positionEngineId, positionId);
-        _requireUnusedTerminalLiabilityReservation(reservationId);
-
-        CollateralId collateralId = _collateralId(assetId, bindingVersion);
-        _pledgeAvailable(payerAccountId, collateralId, amount);
-        _terminalReserved[payerAccountId][collateralId] += amount;
-        _terminalReservationEncumbrance[collateralId] += amount;
-
-        TerminalLiabilityReservation storage reservation = _terminalLiabilityReservations[reservationId];
-        reservation.positionId = positionId;
-        reservation.payerAccountId = payerAccountId;
-        reservation.collateralId = collateralId;
-        reservation.assetId = assetId;
-        reservation.riskDomainId = riskDomainId;
-        reservation.creator = msg.sender;
-        reservation.positionEngine = positionEngine;
-        reservation.positionEngineId = engine.positionEngineId;
-        reservation.positionEngineCodeHash = engine.positionEngineCodeHash;
-        reservation.bindingVersion = bindingVersion;
-        reservation.riskDomainVersion = riskDomainVersion;
-        reservation.settlementDeadline = engine.settlementDeadline;
-        reservation.finalResolutionAt = engine.finalResolutionAt;
-        reservation.status = TerminalLiabilityReservationStatus.Active;
-        reservation.initialAmount = amount;
-        reservation.remainingAmount = amount;
-
-        _increaseRiskDomainTerminalLiability(payerAccountId, riskDomainId, riskDomainVersion, amount);
-
-        _emitTerminalLiabilityReservationCreated(reservationId, reservation, CollateralLockId.wrap(bytes32(0)));
     }
 
     function convertLockToTerminalLiabilityReservation(
@@ -551,73 +476,24 @@ contract CollateralVault is ICollateralVault, AccessControlDefaultAdminRules, Re
         onlyRole(TERMINAL_RESERVATION_CREATOR_ROLE)
         returns (TerminalLiabilityReservationId reservationId)
     {
-        _requireTerminalReservationInputs(positionId, riskDomainId, riskDomainVersion, amount);
-
-        CollateralLock storage lock = _requireActiveLock(lockId);
-        if (msg.sender != lock.operator) {
-            revert NotLockOperator(lockId, msg.sender);
-        }
-        if (!_isLockOperator(lock.accountId, msg.sender)) {
-            revert LockOperatorNotApproved(lock.accountId, msg.sender);
-        }
-        if (block.timestamp >= lock.expiry) {
-            revert LockExpired(lockId, lock.expiry);
-        }
-        if (!_settlementAssetRegistry.isOpenForNewRisk(lock.assetId, lock.bindingVersion)) {
-            revert BindingClosedForNewRisk(lock.assetId, lock.bindingVersion);
-        }
-
-        {
-            address positionEngine = lock.settlementOperator;
-            PositionEngineQualification memory engine = _requirePositionEngineForNewRisk(positionEngine, positionId);
-
-            uint128 lockRemaining = lock.remainingAmount;
-            if (amount > lockRemaining) {
-                revert AmountAboveLockRemaining(lockId, lockRemaining, amount);
-            }
-            _requireRiskDomainForReservation(
-                lock.accountId, lock.assetId, lock.bindingVersion, riskDomainId, riskDomainVersion, amount
-            );
-
-            reservationId = _deriveTerminalLiabilityReservationId(positionEngine, engine.positionEngineId, positionId);
-            _requireUnusedTerminalLiabilityReservation(reservationId);
-
-            uint128 newLockRemaining = lockRemaining - amount;
-            lock.remainingAmount = newLockRemaining;
-            if (newLockRemaining == 0) {
-                lock.status = LockStatus.Consumed;
-            }
-
-            AccountId payerAccountId = lock.accountId;
-            CollateralId collateralId = lock.collateralId;
-            _preTradeLocked[payerAccountId][collateralId] -= amount;
-            _preTradeEncumbrance[collateralId] -= amount;
-            _terminalReserved[payerAccountId][collateralId] += amount;
-            _terminalReservationEncumbrance[collateralId] += amount;
-
-            TerminalLiabilityReservation storage reservation = _terminalLiabilityReservations[reservationId];
-            reservation.positionId = positionId;
-            reservation.payerAccountId = payerAccountId;
-            reservation.collateralId = collateralId;
-            reservation.assetId = lock.assetId;
-            reservation.riskDomainId = riskDomainId;
-            reservation.creator = msg.sender;
-            reservation.positionEngine = positionEngine;
-            reservation.positionEngineId = engine.positionEngineId;
-            reservation.positionEngineCodeHash = engine.positionEngineCodeHash;
-            reservation.bindingVersion = lock.bindingVersion;
-            reservation.riskDomainVersion = riskDomainVersion;
-            reservation.settlementDeadline = engine.settlementDeadline;
-            reservation.finalResolutionAt = engine.finalResolutionAt;
-            reservation.status = TerminalLiabilityReservationStatus.Active;
-            reservation.initialAmount = amount;
-            reservation.remainingAmount = amount;
-
-            _increaseRiskDomainTerminalLiability(payerAccountId, riskDomainId, riskDomainVersion, amount);
-        }
-
-        _emitCollateralLockConverted(lockId, reservationId, lock, amount);
-        _emitTerminalLiabilityReservationCreated(reservationId, _terminalLiabilityReservations[reservationId], lockId);
+        return CollateralReservationLib.convertLockToTerminalLiabilityReservation(
+            _dependencies(),
+            _accounts,
+            _lockOperators,
+            _locks,
+            _preTradeLocked,
+            _terminalReserved,
+            _preTradeEncumbrance,
+            _terminalReservationEncumbrance,
+            _terminalLiabilityReservations,
+            _riskDomainTerminalLiability,
+            _accountRiskDomainTerminalLiability,
+            lockId,
+            positionId,
+            riskDomainId,
+            riskDomainVersion,
+            amount
+        );
     }
 
     function replaceTerminalLiabilityReservations(
@@ -629,107 +505,15 @@ contract CollateralVault is ICollateralVault, AccessControlDefaultAdminRules, Re
         onlyRole(TERMINAL_RESERVATION_CREATOR_ROLE)
         returns (TerminalLiabilityReservationId[] memory replacementReservationIds)
     {
-        if (sourceReservationIds.length == 0 || replacements.length == 0) {
-            revert InvalidTerminalLiabilityReplacement();
-        }
-        TerminalLiabilityReservation storage first = _requireActiveTerminalLiabilityReservation(sourceReservationIds[0]);
-        if (
-            first.creator != msg.sender || first.positionEngine != msg.sender
-                || first.positionEngineCodeHash != msg.sender.codehash
-        ) {
-            revert InvalidTerminalLiabilityReplacement();
-        }
-        uint256 sourceTotal;
-        bytes32 previousSource;
-        for (uint256 i; i < sourceReservationIds.length; ++i) {
-            bytes32 currentSource = TerminalLiabilityReservationId.unwrap(sourceReservationIds[i]);
-            if (currentSource <= previousSource) revert InvalidTerminalLiabilityReplacement();
-            previousSource = currentSource;
-            TerminalLiabilityReservation storage source =
-                _requireActiveTerminalLiabilityReservation(sourceReservationIds[i]);
-            if (
-                source.creator != msg.sender || source.positionEngine != msg.sender
-                    || source.positionEngineId != first.positionEngineId
-                    || source.positionEngineCodeHash != first.positionEngineCodeHash
-                    || AccountId.unwrap(source.payerAccountId) != AccountId.unwrap(first.payerAccountId)
-                    || CollateralId.unwrap(source.collateralId) != CollateralId.unwrap(first.collateralId)
-                    || RiskDomainId.unwrap(source.riskDomainId) != RiskDomainId.unwrap(first.riskDomainId)
-                    || source.riskDomainVersion != first.riskDomainVersion
-            ) revert InvalidTerminalLiabilityReplacement();
-            sourceTotal += source.remainingAmount;
-        }
-
-        replacementReservationIds = new TerminalLiabilityReservationId[](replacements.length);
-        uint256 replacementTotal;
-        for (uint256 i; i < replacements.length; ++i) {
-            TerminalLiabilityReplacement calldata replacement = replacements[i];
-            if (
-                replacement.positionId == bytes32(0) || replacement.amount == 0
-                    || AccountId.unwrap(replacement.payerAccountId) != AccountId.unwrap(first.payerAccountId)
-                    || AssetId.unwrap(replacement.assetId) != AssetId.unwrap(first.assetId)
-                    || replacement.bindingVersion != first.bindingVersion
-                    || RiskDomainId.unwrap(replacement.riskDomainId) != RiskDomainId.unwrap(first.riskDomainId)
-                    || replacement.riskDomainVersion != first.riskDomainVersion
-                    || replacement.finalResolutionAt > replacement.settlementDeadline
-            ) revert InvalidTerminalLiabilityReplacement();
-            TerminalLiabilityReservationId replacementId =
-                _deriveTerminalLiabilityReservationId(msg.sender, first.positionEngineId, replacement.positionId);
-            _requireUnusedTerminalLiabilityReservation(replacementId);
-            replacementReservationIds[i] = replacementId;
-            replacementTotal += replacement.amount;
-        }
-        if (replacementTotal > sourceTotal || replacementTotal > type(uint128).max) {
-            revert InvalidTerminalLiabilityReplacement();
-        }
-
-        for (uint256 i; i < sourceReservationIds.length; ++i) {
-            TerminalLiabilityReservation storage source = _terminalLiabilityReservations[sourceReservationIds[i]];
-            source.remainingAmount = 0;
-            source.status = TerminalLiabilityReservationStatus.Replaced;
-        }
-        for (uint256 i; i < replacements.length; ++i) {
-            TerminalLiabilityReplacement calldata replacement = replacements[i];
-            TerminalLiabilityReservation storage reservation =
-                _terminalLiabilityReservations[replacementReservationIds[i]];
-            reservation.positionId = replacement.positionId;
-            reservation.positionEngineId = first.positionEngineId;
-            reservation.positionEngineCodeHash = first.positionEngineCodeHash;
-            reservation.payerAccountId = first.payerAccountId;
-            reservation.collateralId = first.collateralId;
-            reservation.assetId = first.assetId;
-            reservation.riskDomainId = first.riskDomainId;
-            reservation.creator = msg.sender;
-            reservation.positionEngine = msg.sender;
-            reservation.bindingVersion = first.bindingVersion;
-            reservation.riskDomainVersion = first.riskDomainVersion;
-            reservation.settlementDeadline = replacement.settlementDeadline;
-            reservation.finalResolutionAt = replacement.finalResolutionAt;
-            reservation.status = TerminalLiabilityReservationStatus.Active;
-            reservation.initialAmount = replacement.amount;
-            reservation.remainingAmount = replacement.amount;
-            _emitTerminalLiabilityReservationCreated(
-                replacementReservationIds[i], reservation, CollateralLockId.wrap(bytes32(0))
-            );
-        }
-
-        uint128 released = uint128(sourceTotal - replacementTotal);
-        if (released != 0) {
-            _terminalReserved[first.payerAccountId][first.collateralId] -= released;
-            _terminalReservationEncumbrance[first.collateralId] -= released;
-            _balances[first.payerAccountId][first.collateralId].locked -= released;
-            _decreaseRiskDomainTerminalLiability(
-                first.payerAccountId, first.riskDomainId, first.riskDomainVersion, released
-            );
-        }
-        bytes32 replacementHash = keccak256(abi.encode(sourceReservationIds, replacements));
-        emit TerminalLiabilityReservationsReplaced(
-            replacementHash,
-            first.payerAccountId,
-            first.collateralId,
-            uint128(sourceTotal),
-            uint128(replacementTotal),
-            released,
-            msg.sender
+        return CollateralReservationLib.replaceTerminalLiabilityReservations(
+            _balances,
+            _terminalReserved,
+            _terminalReservationEncumbrance,
+            _terminalLiabilityReservations,
+            _riskDomainTerminalLiability,
+            _accountRiskDomainTerminalLiability,
+            sourceReservationIds,
+            replacements
         );
     }
 
@@ -738,7 +522,20 @@ contract CollateralVault is ICollateralVault, AccessControlDefaultAdminRules, Re
         nonReentrant
         returns (TerminalClaimId claimId)
     {
-        return _finalizeTerminalLiabilityReservation(reservationId, false);
+        return CollateralReservationLib._finalizeTerminalLiabilityReservation(
+            _accounts,
+            _balances,
+            _terminalReserved,
+            _terminalClaimBacking,
+            _terminalReservationEncumbrance,
+            _terminalClaimEncumbrance,
+            _terminalLiabilityReservations,
+            _terminalClaims,
+            _riskDomainTerminalLiability,
+            _accountRiskDomainTerminalLiability,
+            reservationId,
+            false
+        );
     }
 
     function materializeTerminalClaimAfterFinalResolution(TerminalLiabilityReservationId reservationId)
@@ -751,7 +548,20 @@ contract CollateralVault is ICollateralVault, AccessControlDefaultAdminRules, Re
         if (nowTs < reservation.finalResolutionAt) {
             revert TerminalClaimFallbackNotReached(reservation.finalResolutionAt, nowTs);
         }
-        return _finalizeTerminalLiabilityReservation(reservationId, true);
+        return CollateralReservationLib._finalizeTerminalLiabilityReservation(
+            _accounts,
+            _balances,
+            _terminalReserved,
+            _terminalClaimBacking,
+            _terminalReservationEncumbrance,
+            _terminalClaimEncumbrance,
+            _terminalLiabilityReservations,
+            _terminalClaims,
+            _riskDomainTerminalLiability,
+            _accountRiskDomainTerminalLiability,
+            reservationId,
+            true
+        );
     }
 
     function fulfillTerminalClaim(TerminalClaimId claimId) external nonReentrant {
@@ -990,255 +800,9 @@ contract CollateralVault is ICollateralVault, AccessControlDefaultAdminRules, Re
 
     function reentrancyCheck() external view nonReentrantView {}
 
-    function _finalizeTerminalLiabilityReservation(
-        TerminalLiabilityReservationId reservationId,
-        bool requireFinalResolution
-    ) private returns (TerminalClaimId claimId) {
-        TerminalLiabilityReservation storage reservation = _requireActiveTerminalLiabilityReservation(reservationId);
-        PositionTerminalState memory state = _readPinnedTerminalState(reservation);
-        TerminalOutcomeKind outcome = state.outcome;
-        if (outcome == TerminalOutcomeKind.Unspecified) {
-            revert PositionNotTerminal(reservation.positionId);
-        }
-
-        if (requireFinalResolution && block.timestamp < reservation.finalResolutionAt) {
-            revert TerminalClaimFallbackNotReached(reservation.finalResolutionAt, uint64(block.timestamp));
-        }
-
-        if (outcome == TerminalOutcomeKind.NoEffect || outcome == TerminalOutcomeKind.Flat) {
-            if (AccountId.unwrap(state.receiverAccountId) != bytes32(0) || state.amount != 0) {
-                revert InvalidTerminalState(outcome, state.receiverAccountId, state.amount);
-            }
-            _releaseTerminalReservation(reservationId, reservation, state);
-            return TerminalClaimId.wrap(bytes32(0));
-        }
-
-        if (outcome != TerminalOutcomeKind.Payout && outcome != TerminalOutcomeKind.Claim) {
-            revert InvalidTerminalState(outcome, state.receiverAccountId, state.amount);
-        }
-        if (outcome == TerminalOutcomeKind.Claim && block.timestamp < reservation.finalResolutionAt) {
-            revert TerminalClaimFallbackNotReached(reservation.finalResolutionAt, uint64(block.timestamp));
-        }
-        return _convertTerminalReservationToClaim(reservationId, reservation, state);
-    }
-
-    function _releaseTerminalReservation(
-        TerminalLiabilityReservationId reservationId,
-        TerminalLiabilityReservation storage reservation,
-        PositionTerminalState memory state
-    ) private {
-        uint128 remaining = reservation.remainingAmount;
-        AccountId payerAccountId = reservation.payerAccountId;
-        CollateralId collateralId = reservation.collateralId;
-
-        _balances[payerAccountId][collateralId].locked -= remaining;
-        _terminalReserved[payerAccountId][collateralId] -= remaining;
-        _terminalReservationEncumbrance[collateralId] -= remaining;
-        _decreaseRiskDomainTerminalLiability(
-            payerAccountId, reservation.riskDomainId, reservation.riskDomainVersion, remaining
-        );
-
-        _terminalizeReservation(
-            reservation,
-            payerAccountId,
-            0,
-            state.terminalOutcomeReference,
-            state.outcome,
-            TerminalLiabilityReservationStatus.ReleasedAtTerminal
-        );
-        _emitTerminalLiabilityReservationResolved(reservationId, reservation, remaining);
-    }
-
-    function _convertTerminalReservationToClaim(
-        TerminalLiabilityReservationId reservationId,
-        TerminalLiabilityReservation storage reservation,
-        PositionTerminalState memory state
-    ) private returns (TerminalClaimId claimId) {
-        _requireAccount(state.receiverAccountId);
-        if (state.amount == 0) {
-            revert InvalidTerminalState(state.outcome, state.receiverAccountId, state.amount);
-        }
-        if (AccountId.unwrap(state.receiverAccountId) == AccountId.unwrap(reservation.payerAccountId)) {
-            revert SelfConsumption(state.receiverAccountId);
-        }
-
-        uint128 remaining = reservation.remainingAmount;
-        if (state.amount > remaining) {
-            revert AmountAboveTerminalLiabilityReservation(reservationId, remaining, state.amount);
-        }
-        claimId = _deriveTerminalClaimId(reservationId, state.terminalOutcomeReference);
-        if (_terminalClaims[claimId].status != TerminalClaimStatus.Unspecified) {
-            revert TerminalClaimAlreadyExists(claimId);
-        }
-
-        AccountId payerAccountId = reservation.payerAccountId;
-        CollateralId collateralId = reservation.collateralId;
-        uint128 releasedAmount = remaining - state.amount;
-        _balances[payerAccountId][collateralId].locked -= releasedAmount;
-        _terminalReserved[payerAccountId][collateralId] -= remaining;
-        _terminalReservationEncumbrance[collateralId] -= remaining;
-        _terminalClaimBacking[payerAccountId][collateralId] += state.amount;
-        _terminalClaimEncumbrance[collateralId] += state.amount;
-        _decreaseRiskDomainTerminalLiability(
-            payerAccountId, reservation.riskDomainId, reservation.riskDomainVersion, releasedAmount
-        );
-
-        TerminalClaim storage claim = _terminalClaims[claimId];
-        claim.reservationId = reservationId;
-        claim.positionId = reservation.positionId;
-        claim.payerAccountId = payerAccountId;
-        claim.receiverAccountId = state.receiverAccountId;
-        claim.collateralId = collateralId;
-        claim.riskDomainId = reservation.riskDomainId;
-        claim.terminalOutcomeReference = state.terminalOutcomeReference;
-        claim.status = TerminalClaimStatus.Active;
-        claim.riskDomainVersion = reservation.riskDomainVersion;
-        claim.amount = state.amount;
-
-        _terminalizeReservation(
-            reservation,
-            state.receiverAccountId,
-            state.amount,
-            state.terminalOutcomeReference,
-            state.outcome,
-            TerminalLiabilityReservationStatus.ConvertedToClaim
-        );
-
-        _emitTerminalLiabilityReservationResolved(reservationId, reservation, releasedAmount);
-        _emitTerminalClaimCreated(claimId, claim);
-    }
-
-    function _requirePositionEngineForNewRisk(address positionEngine, bytes32 positionId)
-        private
-        view
-        returns (PositionEngineQualification memory qualification)
-    {
-        if (positionEngine.code.length == 0) {
-            revert PositionEngineHasNoCode(positionEngine);
-        }
-        if (!hasRole(TERMINAL_RESERVATION_RESOLVER_ROLE, positionEngine)) {
-            revert PositionEngineNotAuthorized(positionEngine);
-        }
-
-        uint32 actualVersion = IPositionEngineTerminalState(positionEngine).terminalStateInterfaceVersion();
-        if (actualVersion != POSITION_ENGINE_TERMINAL_STATE_INTERFACE_VERSION) {
-            revert PositionEngineInterfaceVersionMismatch(
-                positionEngine, POSITION_ENGINE_TERMINAL_STATE_INTERFACE_VERSION, actualVersion
-            );
-        }
-        qualification.positionEngineId = IPositionEngineTerminalState(positionEngine).positionEngineId();
-        if (qualification.positionEngineId == bytes32(0)) {
-            revert ZeroPositionEngineId(positionEngine);
-        }
-        qualification.positionEngineCodeHash = positionEngine.codehash;
-        PositionTerminalState memory state = IPositionEngineTerminalState(positionEngine).terminalState(positionId);
-        _requirePositionStateIdentity(positionId, state);
-        if (state.outcome != TerminalOutcomeKind.Unspecified) {
-            revert PositionAlreadyTerminal(positionId, state.outcome);
-        }
-        uint64 nowTs = uint64(block.timestamp);
-        if (
-            state.finalResolutionAt <= nowTs || state.settlementDeadline < state.finalResolutionAt
-                || state.settlementDeadline == 0
-        ) {
-            revert InvalidPositionDeadlines(state.settlementDeadline, state.finalResolutionAt, nowTs);
-        }
-        qualification.settlementDeadline = state.settlementDeadline;
-        qualification.finalResolutionAt = state.finalResolutionAt;
-    }
-
-    function _readPinnedTerminalState(TerminalLiabilityReservation storage reservation)
-        private
-        view
-        returns (PositionTerminalState memory state)
-    {
-        address positionEngine = reservation.positionEngine;
-        bytes32 actualCodeHash = positionEngine.codehash;
-        if (actualCodeHash != reservation.positionEngineCodeHash) {
-            revert PositionEngineCodeChanged(positionEngine, reservation.positionEngineCodeHash, actualCodeHash);
-        }
-        bytes32 actualPositionEngineId = IPositionEngineTerminalState(positionEngine).positionEngineId();
-        if (actualPositionEngineId != reservation.positionEngineId) {
-            revert PositionEngineIdentityChanged(positionEngine, reservation.positionEngineId, actualPositionEngineId);
-        }
-
-        state = IPositionEngineTerminalState(positionEngine).terminalState(reservation.positionId);
-        _requirePositionStateIdentity(reservation.positionId, state);
-        if (
-            state.settlementDeadline != reservation.settlementDeadline
-                || state.finalResolutionAt != reservation.finalResolutionAt
-        ) {
-            revert PositionDeadlinesChanged(
-                reservation.settlementDeadline,
-                state.settlementDeadline,
-                reservation.finalResolutionAt,
-                state.finalResolutionAt
-            );
-        }
-        if (state.terminalOutcomeReference == bytes32(0)) {
-            revert PositionNotTerminal(reservation.positionId);
-        }
-    }
-
     function _requirePositionStateIdentity(bytes32 positionId, PositionTerminalState memory state) private pure {
         if (state.positionId != positionId) {
             revert PositionStateMismatch(positionId, state.positionId);
-        }
-    }
-
-    function _requireRiskDomainForReservation(
-        AccountId payerAccountId,
-        AssetId assetId,
-        uint32 bindingVersion,
-        RiskDomainId riskDomainId,
-        uint32 riskDomainVersion,
-        uint128 amount
-    ) private view {
-        if (!_riskDomainRegistry.isOpenForNewRisk(riskDomainId, riskDomainVersion)) {
-            revert RiskDomainNotOpenForNewRisk(riskDomainId, riskDomainVersion);
-        }
-        RiskDomainVersion memory record = _riskDomainRegistry.getRiskDomain(riskDomainId, riskDomainVersion);
-        if (
-            AssetId.unwrap(record.definition.collateralAssetId) != AssetId.unwrap(assetId)
-                || record.definition.collateralAssetVersion != bindingVersion
-        ) {
-            revert RiskDomainCollateralMismatch(
-                riskDomainId,
-                riskDomainVersion,
-                assetId,
-                bindingVersion,
-                record.definition.collateralAssetId,
-                record.definition.collateralAssetVersion
-            );
-        }
-
-        uint128 aggregateReservationCap = record.definition.maxAggregateReservationBaseUnits;
-        uint128 accountReservationCap = record.definition.maxAccountReservationBaseUnits;
-        if (aggregateReservationCap == 0 || accountReservationCap == 0) {
-            revert TerminalReservationsDisabled(riskDomainId, riskDomainVersion);
-        }
-
-        uint256 aggregateCap = aggregateReservationCap;
-        if (record.definition.maxAggregateLiabilityBaseUnits < aggregateCap) {
-            aggregateCap = record.definition.maxAggregateLiabilityBaseUnits;
-        }
-        uint256 accountCap = accountReservationCap;
-        if (record.definition.maxAccountLiabilityBaseUnits < accountCap) {
-            accountCap = record.definition.maxAccountLiabilityBaseUnits;
-        }
-
-        uint256 aggregateRequested = _riskDomainTerminalLiability[riskDomainId][riskDomainVersion] + amount;
-        if (aggregateRequested > aggregateCap) {
-            revert AggregateTerminalLiabilityCapExceeded(
-                riskDomainId, riskDomainVersion, aggregateCap, aggregateRequested
-            );
-        }
-        uint256 accountRequested =
-            _accountRiskDomainTerminalLiability[payerAccountId][riskDomainId][riskDomainVersion] + amount;
-        if (accountRequested > accountCap) {
-            revert AccountTerminalLiabilityCapExceeded(
-                riskDomainId, riskDomainVersion, payerAccountId, accountCap, accountRequested
-            );
         }
     }
 
@@ -1303,24 +867,6 @@ contract CollateralVault is ICollateralVault, AccessControlDefaultAdminRules, Re
         emit CollateralLockReleased(lockId, lock.accountId, lock.collateralId, remaining, newStatus, msg.sender);
     }
 
-    function _emitCollateralLockConverted(
-        CollateralLockId lockId,
-        TerminalLiabilityReservationId reservationId,
-        CollateralLock storage lock,
-        uint128 convertedAmount
-    ) private {
-        emit CollateralLockConverted(
-            lockId,
-            reservationId,
-            lock.accountId,
-            lock.collateralId,
-            convertedAmount,
-            lock.remainingAmount,
-            lock.status,
-            msg.sender
-        );
-    }
-
     function _emitTerminalLiabilityReservationCreated(
         TerminalLiabilityReservationId reservationId,
         TerminalLiabilityReservation storage reservation,
@@ -1344,55 +890,6 @@ contract CollateralVault is ICollateralVault, AccessControlDefaultAdminRules, Re
             reservation.finalResolutionAt,
             sourceLockId
         );
-    }
-
-    function _emitTerminalLiabilityReservationResolved(
-        TerminalLiabilityReservationId reservationId,
-        TerminalLiabilityReservation storage reservation,
-        uint128 releasedAmount
-    ) private {
-        emit TerminalLiabilityReservationResolved(
-            reservationId,
-            reservation.positionId,
-            reservation.terminalOutcomeReference,
-            reservation.payerAccountId,
-            reservation.terminalAccountId,
-            reservation.collateralId,
-            reservation.terminalAmount,
-            releasedAmount,
-            reservation.terminalOutcome,
-            reservation.status,
-            msg.sender
-        );
-    }
-
-    function _emitTerminalClaimCreated(TerminalClaimId claimId, TerminalClaim storage claim) private {
-        emit TerminalClaimCreated(
-            claimId,
-            claim.reservationId,
-            claim.positionId,
-            claim.payerAccountId,
-            claim.receiverAccountId,
-            claim.collateralId,
-            claim.terminalOutcomeReference,
-            claim.amount
-        );
-    }
-
-    function _terminalizeReservation(
-        TerminalLiabilityReservation storage reservation,
-        AccountId terminalAccountId,
-        uint128 terminalAmount,
-        bytes32 terminalOutcomeReference,
-        TerminalOutcomeKind terminalOutcome,
-        TerminalLiabilityReservationStatus status
-    ) private {
-        reservation.remainingAmount = 0;
-        reservation.terminalAccountId = terminalAccountId;
-        reservation.terminalAmount = terminalAmount;
-        reservation.terminalOutcomeReference = terminalOutcomeReference;
-        reservation.terminalOutcome = terminalOutcome;
-        reservation.status = status;
     }
 
     function _debitAvailable(AccountId accountId, CollateralId collateralId, uint128 amount)
@@ -1527,26 +1024,6 @@ contract CollateralVault is ICollateralVault, AccessControlDefaultAdminRules, Re
         }
     }
 
-    function _requireTerminalReservationInputs(
-        bytes32 positionId,
-        RiskDomainId riskDomainId,
-        uint32 riskDomainVersion,
-        uint128 amount
-    ) private pure {
-        if (positionId == bytes32(0)) {
-            revert ZeroPositionId();
-        }
-        if (RiskDomainId.unwrap(riskDomainId) == bytes32(0)) {
-            revert ZeroRiskDomainId();
-        }
-        if (riskDomainVersion == 0) {
-            revert ZeroRiskDomainVersion();
-        }
-        if (amount == 0) {
-            revert ZeroAmount();
-        }
-    }
-
     function _deriveTerminalLiabilityReservationId(address positionEngine, bytes32 positionEngineId, bytes32 positionId)
         private
         view
@@ -1584,6 +1061,15 @@ contract CollateralVault is ICollateralVault, AccessControlDefaultAdminRules, Re
             CollateralIdLib.deriveCollateralId(
                 block.chainid, address(_settlementAssetRegistry), assetId, bindingVersion
             );
+    }
+
+    /// Linked libraries execute in this contract's context and receive the immutable dependency graph explicitly.
+    function _dependencies() private view returns (CollateralVaultDependencies memory) {
+        return CollateralVaultDependencies({
+            settlementAssetRegistry: _settlementAssetRegistry,
+            riskDomainRegistry: _riskDomainRegistry,
+            maxLockDuration: _maxLockDuration
+        });
     }
 
     function _requireInitialAdmin(address initialAdmin) private pure returns (address) {
