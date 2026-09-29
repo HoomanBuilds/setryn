@@ -28,6 +28,11 @@ import {
 } from "../../src/types/RfqTypes.sol";
 import {Lots, PriceTicks} from "../../src/types/Units.sol";
 import {OrderSigner1271Mock} from "../mocks/OrderMocks.sol";
+import {
+    IPositionFundingLockVault,
+    PositionFundingClearingEngineMock,
+    PositionFundingEngineMock
+} from "../mocks/PositionFundingMocks.sol";
 import {FirmCapacityRiskRegistryMock, FirmCapacityVaultMock, PrivateRfqValidationGateMock} from "../mocks/RfqMocks.sol";
 
 contract PrivateRfqBookTest is Test {
@@ -39,7 +44,7 @@ contract PrivateRfqBookTest is Test {
 
     address internal admin = makeAddr("admin");
     address internal executor = makeAddr("executor");
-    address internal clearing = makeAddr("clearing");
+    address internal clearing;
     address internal taker;
     uint256 internal takerKey;
     address internal maker;
@@ -47,6 +52,7 @@ contract PrivateRfqBookTest is Test {
 
     FirmCapacityRiskRegistryMock internal risks;
     FirmCapacityVaultMock internal vault;
+    PositionFundingEngineMock internal positionEngine;
     PrivateRfqValidationGateMock internal gate;
     PrivateRfqBook internal book;
 
@@ -57,6 +63,8 @@ contract PrivateRfqBookTest is Test {
         risks = new FirmCapacityRiskRegistryMock();
         risks.configure(COLLATERAL_ASSET, 1, 10_000, 100_000);
         vault = new FirmCapacityVaultMock(risks);
+        positionEngine = new PositionFundingEngineMock(IPositionFundingLockVault(address(vault)));
+        clearing = address(new PositionFundingClearingEngineMock(address(positionEngine)));
         gate = new PrivateRfqValidationGateMock();
         gate.setPrivacyMode(PRIVACY_MODE, true);
         gate.setExecutionMode(EXECUTION_MODE, true);
@@ -80,7 +88,7 @@ contract PrivateRfqBookTest is Test {
         vm.prank(clearing);
         book.consumeClearingHandoff(rfqId, Lots.wrap(1), 1, executionReference);
 
-        vm.prank(clearing);
+        vm.prank(address(positionEngine));
         vault.consumeLock(handoff.makerLockId, 1_000);
         vm.prank(clearing);
         book.settleRfq(rfqId, keccak256("settlement"));
@@ -116,16 +124,22 @@ contract PrivateRfqBookTest is Test {
         PrivateRfqRequest memory unsupported = _request(1);
         unsupported.privacyModeId = keccak256("unknown privacy");
         PackageLeg[] memory noLegs = new PackageLeg[](0);
-        vm.expectRevert(PrivateRfqValidationGateMock.UnsupportedPrivacyMode.selector);
-        book.registerRequest(unsupported, noLegs, _sign(takerKey, RfqId.unwrap(book.hashRequest(unsupported))));
+        bytes memory unsupportedSignature = _sign(takerKey, RfqId.unwrap(book.hashRequest(unsupported)));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                PrivateRfqValidationGateMock.UnsupportedPrivacyMode.selector, unsupported.privacyModeId
+            )
+        );
+        book.registerRequest(unsupported, noLegs, unsupportedSignature);
 
         RfqId rfqId = _createCollectingRfq(2);
         MakerQuote memory quote = _quote(rfqId, 5);
         bytes32[] memory proof = new bytes32[](0);
         book.submitQuote(quote, proof, _sign(makerKey, MakerQuoteId.unwrap(book.hashQuote(quote))));
         quote.salt = keccak256("different quote");
+        bytes memory replaySignature = _sign(makerKey, MakerQuoteId.unwrap(book.hashQuote(quote)));
         vm.expectRevert(abi.encodeWithSelector(IPrivateRfqBook.NonceAlreadyUsed.selector, maker, quote.nonce));
-        book.submitQuote(quote, proof, _sign(makerKey, MakerQuoteId.unwrap(book.hashQuote(quote))));
+        book.submitQuote(quote, proof, replaySignature);
     }
 
     function test_Erc1271TakerCanAuthorizeRequestAndSelection() public {
@@ -160,8 +174,9 @@ contract PrivateRfqBookTest is Test {
         legs[0] = PackageLeg({seriesId: SeriesId.wrap(bytes32(uint256(1))), seriesVersion: 1, ratio: 1});
         legs[1] = PackageLeg({seriesId: SeriesId.wrap(bytes32(uint256(2))), seriesVersion: 1, ratio: -1});
         request.packageLegsHash = RfqHashLib.hashRequest(request);
+        bytes memory signature = _sign(takerKey, RfqId.unwrap(book.hashRequest(request)));
         vm.expectRevert(RfqHashLib.InvalidPackageLegCommitment.selector);
-        book.registerRequest(request, legs, _sign(takerKey, RfqId.unwrap(book.hashRequest(request))));
+        book.registerRequest(request, legs, signature);
     }
 
     function testFuzz_PartialHandoffNeverOverdrawsFirmCapacity(uint8 rawFill) public {
@@ -171,7 +186,7 @@ contract PrivateRfqBookTest is Test {
         vm.prank(clearing);
         ClearingHandoff memory handoff =
             book.consumeClearingHandoff(rfqId, Lots.wrap(fill), liability, keccak256(abi.encode("fill", fill)));
-        vm.prank(clearing);
+        vm.prank(address(positionEngine));
         vault.consumeLock(handoff.makerLockId, liability);
 
         FirmCapacityRecord memory capacity = book.getCapacity(quoteId);
