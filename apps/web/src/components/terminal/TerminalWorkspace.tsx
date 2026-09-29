@@ -163,7 +163,8 @@ function initialTicket(market: PackageMarket, handoff?: HandoffContext): TicketS
     orderType: "MARKETABLE_LIMIT",
     lotsInput: handoff?.lots != null ? String(handoff.lots) : "10",
     limitInput: bestReferencePrice(market, action).toFixed(market.priceDecimals),
-    tif: "GTC",
+    // A lifecycle exit is fill-or-kill, the same rule the ticket applies when switching to Exit.
+    tif: intent === "EXIT" ? "FOK" : "GTC",
     expiresAt: null,
     privateRfq: false,
     routeId: null,
