@@ -115,6 +115,7 @@ contract ArbitrumOneDeploymentRehearsalForkTest is Test, DeploySetryn {
             lifecycleWitnessStager
         );
         _assertAdminTransfers(deployment, governanceAdmin);
+        _assertExecutionVenues(deployment, bootstrap, governanceAdmin, governanceOperator, guardian);
 
         assertEq(NATIVE_USDC.codehash, usdcCodeHashBefore, "native USDC code must be unchanged");
         assertEq(_totalSupply(), usdcSupplyBefore, "native USDC supply must be unchanged");
@@ -175,6 +176,136 @@ contract ArbitrumOneDeploymentRehearsalForkTest is Test, DeploySetryn {
         _assertCode(address(d.calendarSpreadPayoffModule), "calendarSpreadPayoffModule");
         _assertCode(address(d.windowAverageScalarPayoffModule), "windowAverageScalarPayoffModule");
         _assertCode(address(d.correlationDispersionScalarPayoffModule), "correlationDispersionScalarPayoffModule");
+        _assertCode(address(d.capacityReservationRegistry), "capacityReservationRegistry");
+        _assertCode(address(d.streamCapacityManager), "streamCapacityManager");
+        _assertCode(address(d.batchCapacityManager), "batchCapacityManager");
+        _assertCode(address(d.auctionValidationGate), "auctionValidationGate");
+        _assertCode(address(d.sealedAuctionHouse), "sealedAuctionHouse");
+        _assertCode(address(d.streamingQuoteEngine), "streamingQuoteEngine");
+        _assertCode(address(d.batchClearingEngine), "batchClearingEngine");
+        _assertCode(address(d.routeLiquiditySource), "routeLiquiditySource");
+        _assertCode(address(d.routeEngine), "routeEngine");
+    }
+
+    function _assertExecutionVenues(
+        Deployment memory d,
+        address bootstrap,
+        address governanceAdmin,
+        address governanceOperator,
+        address guardian
+    ) private view {
+        address source = address(d.routeLiquiditySource);
+        address[4] memory fundingRequesters = [
+            address(d.privateRfqBook),
+            address(d.sealedAuctionHouse),
+            address(d.streamCapacityManager),
+            address(d.batchCapacityManager)
+        ];
+        for (uint256 i; i < fundingRequesters.length; ++i) {
+            assertTrue(
+                d.positionEngine.hasRole(d.positionEngine.FUNDING_REQUESTER_ROLE(), fundingRequesters[i]),
+                "capacity venue must request position funding locks"
+            );
+        }
+        assertFalse(
+            d.positionEngine.hasRole(d.positionEngine.FUNDING_REQUESTER_ROLE(), bootstrap),
+            "bootstrap funding requester role must be revoked"
+        );
+        assertTrue(
+            d.collateralVault.hasRole(d.collateralVault.COLLATERAL_LOCKER_ROLE(), address(d.sealedAuctionHouse)),
+            "auction house must lock bid bonds"
+        );
+        assertTrue(
+            d.collateralVault.hasRole(d.collateralVault.COLLATERAL_SETTLER_ROLE(), address(d.sealedAuctionHouse)),
+            "auction house must settle bid bonds"
+        );
+        assertTrue(
+            d.capacityReservationRegistry.hasRole(d.capacityReservationRegistry.CAPACITY_CLAIMANT_ROLE(), source),
+            "liquidity source must claim capacity references"
+        );
+        assertTrue(
+            d.streamCapacityManager
+                .hasRole(d.streamCapacityManager.STREAM_ENGINE_ROLE(), address(d.streamingQuoteEngine)),
+            "stream engine must drive stream capacity"
+        );
+        assertFalse(
+            d.streamCapacityManager.hasRole(d.streamCapacityManager.STREAM_ENGINE_ROLE(), bootstrap),
+            "bootstrap stream engine role must be revoked"
+        );
+        assertTrue(
+            d.batchCapacityManager.hasRole(d.batchCapacityManager.BATCH_ENGINE_ROLE(), address(d.batchClearingEngine)),
+            "batch engine must drive batch capacity"
+        );
+        assertTrue(
+            d.sealedAuctionHouse.hasRole(d.sealedAuctionHouse.CLEARING_ENGINE_ROLE(), address(d.atomicClearingEngine)),
+            "clearing engine must consume auction handoffs"
+        );
+        assertTrue(
+            d.sealedAuctionHouse.hasRole(d.sealedAuctionHouse.CLEARING_ENGINE_ROLE(), address(d.batchClearingEngine)),
+            "batch engine must settle auctions"
+        );
+        assertTrue(
+            d.sealedAuctionHouse.hasRole(d.sealedAuctionHouse.AUCTION_SCHEDULER_ROLE(), governanceOperator),
+            "operator must schedule auctions"
+        );
+        assertTrue(
+            d.sealedAuctionHouse.hasRole(d.sealedAuctionHouse.AUCTION_GUARDIAN_ROLE(), guardian),
+            "guardian must guard auctions"
+        );
+        assertFalse(
+            d.sealedAuctionHouse.hasRole(d.sealedAuctionHouse.AUCTION_SCHEDULER_ROLE(), bootstrap),
+            "bootstrap auction scheduler role must be revoked"
+        );
+        assertTrue(
+            d.publicOrderBook.hasRole(d.publicOrderBook.ROUTE_RESERVER_ROLE(), source),
+            "liquidity source must reserve book routes"
+        );
+        assertTrue(
+            d.privateRfqBook.hasRole(d.privateRfqBook.ROUTE_RESERVER_ROLE(), source),
+            "liquidity source must reserve rfq routes"
+        );
+        assertTrue(
+            d.streamingQuoteEngine.hasRole(d.streamingQuoteEngine.ROUTE_RESERVER_ROLE(), source),
+            "liquidity source must reserve stream routes"
+        );
+        assertTrue(
+            d.sealedAuctionHouse.hasRole(d.sealedAuctionHouse.ROUTE_RESERVER_ROLE(), source),
+            "liquidity source must reserve auction routes"
+        );
+        assertTrue(
+            d.routeLiquiditySource.hasRole(d.routeLiquiditySource.ROUTE_ENGINE_ROLE(), address(d.routeEngine)),
+            "route engine must drive the liquidity source"
+        );
+        assertTrue(
+            d.routeEngine.hasRole(d.routeEngine.ROUTE_CONSUMER_ROLE(), governanceOperator),
+            "operator must consume route handoffs"
+        );
+        assertFalse(
+            d.routeEngine.hasRole(d.routeEngine.ROUTE_CONSUMER_ROLE(), bootstrap),
+            "bootstrap route consumer role must be revoked"
+        );
+        assertTrue(
+            d.portfolioRiskEngine.hasRole(d.portfolioRiskEngine.RISK_CONSUMER_ROLE(), address(d.routeEngine)),
+            "route engine must bind and release risk admissions"
+        );
+        assertTrue(
+            d.atomicClearingEngine
+            .hasRole(d.atomicClearingEngine.MATCH_EXECUTOR_ROLE(), address(d.streamingQuoteEngine)),
+            "stream engine must clear fills"
+        );
+        assertTrue(
+            d.atomicClearingEngine
+            .hasRole(d.atomicClearingEngine.MATCH_EXECUTOR_ROLE(), address(d.batchClearingEngine)),
+            "batch engine must clear fills"
+        );
+        assertTrue(
+            d.streamingQuoteEngine.hasRole(d.streamingQuoteEngine.DEFAULT_ADMIN_ROLE(), governanceAdmin),
+            "governance must administer the stream engine"
+        );
+        assertFalse(
+            d.streamingQuoteEngine.hasRole(d.streamingQuoteEngine.DEFAULT_ADMIN_ROLE(), bootstrap),
+            "bootstrap stream engine admin must be revoked"
+        );
     }
 
     function _assertCriticalRoles(
@@ -208,9 +339,9 @@ contract ArbitrumOneDeploymentRehearsalForkTest is Test, DeploySetryn {
             d.publicOrderBook.hasRole(d.publicOrderBook.DEFAULT_ADMIN_ROLE(), governanceAdmin),
             "gov admin must hold book admin role"
         );
-        assertTrue(
+        assertFalse(
             d.publicOrderBook.hasRole(d.publicOrderBook.ROUTE_RESERVER_ROLE(), governanceOperator),
-            "operator must hold book reserver role"
+            "book route reservation must belong only to the liquidity source"
         );
         assertFalse(
             d.publicOrderBook.hasRole(d.publicOrderBook.DEFAULT_ADMIN_ROLE(), bootstrap),
@@ -220,9 +351,9 @@ contract ArbitrumOneDeploymentRehearsalForkTest is Test, DeploySetryn {
             d.publicOrderBook.hasRole(d.publicOrderBook.ROUTE_RESERVER_ROLE(), bootstrap),
             "bootstrap book reserver role must be revoked"
         );
-        assertTrue(
+        assertFalse(
             d.privateRfqBook.hasRole(d.privateRfqBook.ROUTE_RESERVER_ROLE(), governanceOperator),
-            "operator must hold rfq reserver role"
+            "rfq route reservation must belong only to the liquidity source"
         );
         assertFalse(
             d.privateRfqBook.hasRole(d.privateRfqBook.ROUTE_RESERVER_ROLE(), bootstrap),
@@ -352,6 +483,12 @@ contract ArbitrumOneDeploymentRehearsalForkTest is Test, DeploySetryn {
         _assertPendingAdmin(address(d.orderState), governanceAdmin);
         _assertPendingAdmin(address(d.atomicClearingEngine), governanceAdmin);
         _assertPendingAdmin(address(d.privateRfqBook), governanceAdmin);
+        _assertPendingAdmin(address(d.capacityReservationRegistry), governanceAdmin);
+        _assertPendingAdmin(address(d.streamCapacityManager), governanceAdmin);
+        _assertPendingAdmin(address(d.batchCapacityManager), governanceAdmin);
+        _assertPendingAdmin(address(d.sealedAuctionHouse), governanceAdmin);
+        _assertPendingAdmin(address(d.routeLiquiditySource), governanceAdmin);
+        _assertPendingAdmin(address(d.routeEngine), governanceAdmin);
     }
 
     function _assertPendingAdmin(address target, address governanceAdmin) private view {

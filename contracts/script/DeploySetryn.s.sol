@@ -7,6 +7,16 @@ import {
 } from "@openzeppelin/contracts/access/extensions/AccessControlDefaultAdminRules.sol";
 
 import {CollateralVault} from "../src/collateral/CollateralVault.sol";
+import {CapacityReservationRegistry} from "../src/capacity/CapacityReservationRegistry.sol";
+import {VaultBackedBatchCapacityManager} from "../src/capacity/VaultBackedBatchCapacityManager.sol";
+import {VaultBackedStreamCapacityManager} from "../src/capacity/VaultBackedStreamCapacityManager.sol";
+import {SealedAuctionHouse} from "../src/auction/SealedAuctionHouse.sol";
+import {BatchClearingEngine} from "../src/batch/BatchClearingEngine.sol";
+import {StreamingQuoteEngine} from "../src/stream/StreamingQuoteEngine.sol";
+import {CollateralAwareRouteEngine} from "../src/routing/CollateralAwareRouteEngine.sol";
+import {ProtocolRouteLiquiditySource} from "../src/routing/ProtocolRouteLiquiditySource.sol";
+import {AuctionValidationGate} from "../src/policy/AuctionValidationGate.sol";
+import {IAuctionVault} from "../src/interfaces/IAuctionVault.sol";
 import {CanonicalStrategyCompiler} from "../src/compiler/CanonicalStrategyCompiler.sol";
 import {DevnetSequencerUptimeFeed} from "../src/devnet/DevnetSequencerUptimeFeed.sol";
 import {OperationalAdapterExecutor} from "../src/adapters/operational/OperationalAdapterExecutor.sol";
@@ -89,6 +99,7 @@ contract DeploySetryn is Script {
     bytes32 private constant LOCAL_ENVIRONMENT = keccak256("local");
     bytes32 private constant ARBITRUM_SEPOLIA_ENVIRONMENT = keccak256("arbitrum-sepolia");
     bytes32 private constant PRIVATE_RFQ_CLEARING_CAPABILITY = keccak256("SetrynPrivateRfqClearingChannelV1");
+    bytes32 private constant SEALED_AUCTION_CLEARING_CAPABILITY = keccak256("SetrynSealedAuctionClearingChannelV1");
 
     error ArbitrumOneDeploymentDisabled();
     error EnvironmentChainMismatch(string environment, uint256 chainId);
@@ -155,6 +166,15 @@ contract DeploySetryn is Script {
         CalendarSpreadPayoffModule calendarSpreadPayoffModule;
         WindowAverageScalarPayoffModule windowAverageScalarPayoffModule;
         CorrelationDispersionScalarPayoffModule correlationDispersionScalarPayoffModule;
+        CapacityReservationRegistry capacityReservationRegistry;
+        VaultBackedStreamCapacityManager streamCapacityManager;
+        VaultBackedBatchCapacityManager batchCapacityManager;
+        AuctionValidationGate auctionValidationGate;
+        SealedAuctionHouse sealedAuctionHouse;
+        StreamingQuoteEngine streamingQuoteEngine;
+        BatchClearingEngine batchClearingEngine;
+        ProtocolRouteLiquiditySource routeLiquiditySource;
+        CollateralAwareRouteEngine routeEngine;
     }
 
     struct DeploymentConfig {
@@ -501,6 +521,7 @@ contract DeploySetryn is Script {
         deployment.calendarSpreadPayoffModule = new CalendarSpreadPayoffModule();
         deployment.windowAverageScalarPayoffModule = new WindowAverageScalarPayoffModule();
         deployment.correlationDispersionScalarPayoffModule = new CorrelationDispersionScalarPayoffModule();
+        _deployExecutionVenues(deployment, config.defaultAdminDelay, config.bootstrapAdmin);
 
         _wireInternalRoles(
             deployment,
@@ -524,6 +545,103 @@ contract DeploySetryn is Script {
         );
     }
 
+    /// Capacity-backed execution venues: sealed auctions, request-for-stream quotes, batch clearing, and the
+    /// collateral-aware route engine with its protocol liquidity source and shared capacity reservation registry.
+    function _deployExecutionVenues(Deployment memory d, uint48 defaultAdminDelay, address bootstrapAdmin) private {
+        d.capacityReservationRegistry = new CapacityReservationRegistry(defaultAdminDelay, bootstrapAdmin);
+        d.streamCapacityManager = new VaultBackedStreamCapacityManager(
+            defaultAdminDelay, bootstrapAdmin, IPositionEngine(address(d.positionEngine)), d.capacityReservationRegistry
+        );
+        d.batchCapacityManager = new VaultBackedBatchCapacityManager(
+            defaultAdminDelay, bootstrapAdmin, IPositionEngine(address(d.positionEngine)), d.capacityReservationRegistry
+        );
+        d.auctionValidationGate = new AuctionValidationGate(
+            d.seriesRegistry,
+            d.packageRegistry,
+            d.executionPolicyRegistry,
+            d.tradingSessionPolicy,
+            d.packageWitnessRegistry
+        );
+        d.sealedAuctionHouse = new SealedAuctionHouse(
+            defaultAdminDelay,
+            bootstrapAdmin,
+            IAuctionVault(address(d.collateralVault)),
+            d.auctionValidationGate,
+            address(d.atomicClearingEngine)
+        );
+        d.atomicClearingEngine
+            .activateClearingChannel(
+                ClearingChannelKind.SealedAuction, d.sealedAuctionHouse, SEALED_AUCTION_CLEARING_CAPABILITY
+            );
+        d.streamingQuoteEngine = new StreamingQuoteEngine(d.atomicClearingEngine, d.streamCapacityManager);
+        d.batchClearingEngine =
+            new BatchClearingEngine(d.atomicClearingEngine, d.sealedAuctionHouse, d.batchCapacityManager);
+        d.routeLiquiditySource = new ProtocolRouteLiquiditySource(
+            defaultAdminDelay,
+            bootstrapAdmin,
+            d.publicOrderBook,
+            d.packageRegistry,
+            d.privateRfqBook,
+            d.streamingQuoteEngine,
+            d.sealedAuctionHouse,
+            ICollateralVault(address(d.collateralVault)),
+            ISessionRegistry(address(d.sessionRegistry)),
+            d.capacityReservationRegistry
+        );
+        d.routeEngine = new CollateralAwareRouteEngine(
+            defaultAdminDelay, bootstrapAdmin, d.routeLiquiditySource, d.portfolioRiskEngine
+        );
+    }
+
+    function _wireExecutionVenueRoles(
+        Deployment memory d,
+        address bootstrap,
+        address governanceAdmin,
+        address governanceOperator,
+        address guardian
+    ) private {
+        address liquiditySource = address(d.routeLiquiditySource);
+        d.positionEngine.grantRole(d.positionEngine.FUNDING_REQUESTER_ROLE(), address(d.privateRfqBook));
+        d.positionEngine.grantRole(d.positionEngine.FUNDING_REQUESTER_ROLE(), address(d.sealedAuctionHouse));
+        d.positionEngine.grantRole(d.positionEngine.FUNDING_REQUESTER_ROLE(), address(d.streamCapacityManager));
+        d.positionEngine.grantRole(d.positionEngine.FUNDING_REQUESTER_ROLE(), address(d.batchCapacityManager));
+        d.collateralVault.grantRole(d.collateralVault.COLLATERAL_LOCKER_ROLE(), address(d.sealedAuctionHouse));
+        d.collateralVault.grantRole(d.collateralVault.COLLATERAL_SETTLER_ROLE(), address(d.sealedAuctionHouse));
+        d.capacityReservationRegistry
+            .grantRole(d.capacityReservationRegistry.CAPACITY_CLAIMANT_ROLE(), address(d.streamCapacityManager));
+        d.capacityReservationRegistry
+            .grantRole(d.capacityReservationRegistry.CAPACITY_CLAIMANT_ROLE(), address(d.batchCapacityManager));
+        d.capacityReservationRegistry.grantRole(d.capacityReservationRegistry.CAPACITY_CLAIMANT_ROLE(), liquiditySource);
+        d.streamCapacityManager.grantRole(d.streamCapacityManager.STREAM_ENGINE_ROLE(), address(d.streamingQuoteEngine));
+        d.streamCapacityManager.revokeRole(d.streamCapacityManager.STREAM_ENGINE_ROLE(), bootstrap);
+        d.batchCapacityManager.grantRole(d.batchCapacityManager.BATCH_ENGINE_ROLE(), address(d.batchClearingEngine));
+        d.batchCapacityManager.revokeRole(d.batchCapacityManager.BATCH_ENGINE_ROLE(), bootstrap);
+        d.atomicClearingEngine.grantRole(d.atomicClearingEngine.MATCH_EXECUTOR_ROLE(), address(d.streamingQuoteEngine));
+        d.atomicClearingEngine.grantRole(d.atomicClearingEngine.MATCH_EXECUTOR_ROLE(), address(d.batchClearingEngine));
+        d.sealedAuctionHouse.grantRole(d.sealedAuctionHouse.CLEARING_ENGINE_ROLE(), address(d.batchClearingEngine));
+        d.sealedAuctionHouse.grantRole(d.sealedAuctionHouse.AUCTION_SCHEDULER_ROLE(), governanceOperator);
+        d.sealedAuctionHouse.grantRole(d.sealedAuctionHouse.AUCTION_GUARDIAN_ROLE(), guardian);
+        d.sealedAuctionHouse.revokeRole(d.sealedAuctionHouse.AUCTION_SCHEDULER_ROLE(), bootstrap);
+        d.sealedAuctionHouse.revokeRole(d.sealedAuctionHouse.AUCTION_GUARDIAN_ROLE(), bootstrap);
+
+        // The protocol liquidity source is the only route reserver on every venue.
+        d.publicOrderBook.grantRole(d.publicOrderBook.ROUTE_RESERVER_ROLE(), liquiditySource);
+        d.privateRfqBook.grantRole(d.privateRfqBook.ROUTE_RESERVER_ROLE(), liquiditySource);
+        d.streamingQuoteEngine.grantRole(d.streamingQuoteEngine.ROUTE_RESERVER_ROLE(), liquiditySource);
+        d.sealedAuctionHouse.grantRole(d.sealedAuctionHouse.ROUTE_RESERVER_ROLE(), liquiditySource);
+        d.streamingQuoteEngine.revokeRole(d.streamingQuoteEngine.ROUTE_RESERVER_ROLE(), bootstrap);
+        d.sealedAuctionHouse.revokeRole(d.sealedAuctionHouse.ROUTE_RESERVER_ROLE(), bootstrap);
+        d.routeLiquiditySource.grantRole(d.routeLiquiditySource.ROUTE_ENGINE_ROLE(), address(d.routeEngine));
+        d.routeLiquiditySource.revokeRole(d.routeLiquiditySource.ROUTE_ENGINE_ROLE(), bootstrap);
+        d.routeEngine.grantRole(d.routeEngine.ROUTE_CONSUMER_ROLE(), governanceOperator);
+        d.routeEngine.revokeRole(d.routeEngine.ROUTE_CONSUMER_ROLE(), bootstrap);
+        d.portfolioRiskEngine.grantRole(d.portfolioRiskEngine.RISK_CONSUMER_ROLE(), address(d.routeEngine));
+
+        // StreamingQuoteEngine uses plain AccessControl, so its admin moves directly to governance.
+        d.streamingQuoteEngine.grantRole(d.streamingQuoteEngine.DEFAULT_ADMIN_ROLE(), governanceAdmin);
+        d.streamingQuoteEngine.revokeRole(d.streamingQuoteEngine.DEFAULT_ADMIN_ROLE(), bootstrap);
+    }
+
     function _wireInternalRoles(
         Deployment memory deployment,
         address bootstrapAdmin,
@@ -535,6 +653,7 @@ contract DeploySetryn is Script {
         address lifecycleWitnessStager
     ) private {
         _wireRegistryRoles(deployment, bootstrapAdmin, governanceOperator);
+        _wireExecutionVenueRoles(deployment, bootstrapAdmin, governanceAdmin, governanceOperator, guardian);
         deployment.executionPolicyRegistry
             .grantRole(deployment.executionPolicyRegistry.POLICY_ADMIN_ROLE(), governanceOperator);
         deployment.orderState
@@ -560,10 +679,8 @@ contract DeploySetryn is Script {
                 deployment.portfolioRiskEngine.RISK_CONSUMER_ROLE(), address(deployment.riskAdmissionBindingRegistry)
             );
         deployment.publicOrderBook.grantRole(deployment.publicOrderBook.DEFAULT_ADMIN_ROLE(), governanceAdmin);
-        deployment.publicOrderBook.grantRole(deployment.publicOrderBook.ROUTE_RESERVER_ROLE(), governanceOperator);
         deployment.publicOrderBook.revokeRole(deployment.publicOrderBook.ROUTE_RESERVER_ROLE(), bootstrapAdmin);
         deployment.publicOrderBook.revokeRole(deployment.publicOrderBook.DEFAULT_ADMIN_ROLE(), bootstrapAdmin);
-        deployment.privateRfqBook.grantRole(deployment.privateRfqBook.ROUTE_RESERVER_ROLE(), governanceOperator);
         deployment.privateRfqBook.revokeRole(deployment.privateRfqBook.ROUTE_RESERVER_ROLE(), bootstrapAdmin);
         deployment.collateralVault
             .grantRole(deployment.collateralVault.COLLATERAL_LOCKER_ROLE(), address(deployment.positionEngine));
@@ -750,6 +867,12 @@ contract DeploySetryn is Script {
         _beginAdminTransfer(address(d.orderState), governanceAdmin);
         _beginAdminTransfer(address(d.atomicClearingEngine), governanceAdmin);
         _beginAdminTransfer(address(d.privateRfqBook), governanceAdmin);
+        _beginAdminTransfer(address(d.capacityReservationRegistry), governanceAdmin);
+        _beginAdminTransfer(address(d.streamCapacityManager), governanceAdmin);
+        _beginAdminTransfer(address(d.batchCapacityManager), governanceAdmin);
+        _beginAdminTransfer(address(d.sealedAuctionHouse), governanceAdmin);
+        _beginAdminTransfer(address(d.routeLiquiditySource), governanceAdmin);
+        _beginAdminTransfer(address(d.routeEngine), governanceAdmin);
     }
 
     function _beginAdminTransfer(address target, address governanceAdmin) private {
@@ -771,7 +894,7 @@ contract DeploySetryn is Script {
         if (registryPendingAdmin != governanceAdmin || privacyPendingAdmin != governanceAdmin) {
             revert InvalidDeploymentPrincipal(governanceAdmin);
         }
-        return keccak256(
+        bytes32 coreEvidence = keccak256(
             abi.encode(
                 block.chainid,
                 governanceAdmin,
@@ -791,6 +914,26 @@ contract DeploySetryn is Script {
                 registryAcceptSchedule,
                 privacyPendingAdmin,
                 privacyAcceptSchedule
+            )
+        );
+        return keccak256(abi.encode(coreEvidence, _venueWiringEvidence(d, bootstrap)));
+    }
+
+    function _venueWiringEvidence(Deployment memory d, address bootstrap) private view returns (bytes32) {
+        address liquiditySource = address(d.routeLiquiditySource);
+        return keccak256(
+            abi.encode(
+                d.positionEngine.hasRole(d.positionEngine.FUNDING_REQUESTER_ROLE(), address(d.privateRfqBook)),
+                d.positionEngine.hasRole(d.positionEngine.FUNDING_REQUESTER_ROLE(), address(d.sealedAuctionHouse)),
+                d.capacityReservationRegistry
+                    .hasRole(d.capacityReservationRegistry.CAPACITY_CLAIMANT_ROLE(), liquiditySource),
+                d.publicOrderBook.hasRole(d.publicOrderBook.ROUTE_RESERVER_ROLE(), liquiditySource),
+                d.privateRfqBook.hasRole(d.privateRfqBook.ROUTE_RESERVER_ROLE(), liquiditySource),
+                d.streamingQuoteEngine.hasRole(d.streamingQuoteEngine.ROUTE_RESERVER_ROLE(), liquiditySource),
+                d.sealedAuctionHouse.hasRole(d.sealedAuctionHouse.ROUTE_RESERVER_ROLE(), liquiditySource),
+                d.routeLiquiditySource.hasRole(d.routeLiquiditySource.ROUTE_ENGINE_ROLE(), address(d.routeEngine)),
+                !d.streamingQuoteEngine.hasRole(d.streamingQuoteEngine.DEFAULT_ADMIN_ROLE(), bootstrap),
+                !d.routeEngine.hasRole(d.routeEngine.ROUTE_CONSUMER_ROLE(), bootstrap)
             )
         );
     }
@@ -936,5 +1079,14 @@ contract DeploySetryn is Script {
         console2.log(
             "CorrelationDispersionScalarPayoffModule", address(deployment.correlationDispersionScalarPayoffModule)
         );
+        console2.log("CapacityReservationRegistry", address(deployment.capacityReservationRegistry));
+        console2.log("VaultBackedStreamCapacityManager", address(deployment.streamCapacityManager));
+        console2.log("VaultBackedBatchCapacityManager", address(deployment.batchCapacityManager));
+        console2.log("AuctionValidationGate", address(deployment.auctionValidationGate));
+        console2.log("SealedAuctionHouse", address(deployment.sealedAuctionHouse));
+        console2.log("StreamingQuoteEngine", address(deployment.streamingQuoteEngine));
+        console2.log("BatchClearingEngine", address(deployment.batchClearingEngine));
+        console2.log("ProtocolRouteLiquiditySource", address(deployment.routeLiquiditySource));
+        console2.log("CollateralAwareRouteEngine", address(deployment.routeEngine));
     }
 }
