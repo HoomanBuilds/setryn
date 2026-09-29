@@ -78,7 +78,9 @@ contract CanonicalPayoffModuleTest is Test {
         input.kind = PayoffKind.EuropeanCall;
         input.inputMode = StrategyInputMode.Spread;
 
-        vm.expectRevert(CanonicalPayoffLib.InvalidInputMode.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(CanonicalPayoffLib.InvalidInputMode.selector, input.kind, input.inputMode)
+        );
         compiler.compileStrategy(input);
     }
 

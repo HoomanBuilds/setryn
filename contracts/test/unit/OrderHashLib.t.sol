@@ -103,7 +103,9 @@ contract OrderHashLibTest is Test {
     function test_ValidationEnforcesGtcMaximumLifetime() public {
         PublicOrder memory order = _order();
         order.deadline = uint64(NOW + MAXIMUM_LIFETIME + 1);
-        vm.expectRevert(OrderHashLib.GtcLifetimeExceeded.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(OrderHashLib.GtcLifetimeExceeded.selector, order.deadline, NOW + MAXIMUM_LIFETIME)
+        );
         harness.validate(order, NOW, MAXIMUM_LIFETIME);
     }
 

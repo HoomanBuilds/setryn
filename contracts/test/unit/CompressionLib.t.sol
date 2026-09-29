@@ -45,7 +45,14 @@ contract CompressionLibTest is Test {
             CompressionConsent[] memory consents
         ) = _fixture(firstLots, secondLots);
         successors[0].lots = Lots.wrap(firstLots - secondLots + 1);
-        vm.expectRevert(CompressionLib.ExposureNotConserved.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CompressionLib.ExposureNotConserved.selector,
+                AccountId.unwrap(inputs[0].longAccountId),
+                SeriesId.unwrap(inputs[0].seriesId),
+                inputs[0].economicsHash
+            )
+        );
         harness.validateConservation(definition, inputs, successors, replacement, consents);
     }
 
