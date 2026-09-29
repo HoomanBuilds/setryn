@@ -1,0 +1,165 @@
+@import "tailwindcss";
+
+/* The public landing is a separate root with its own stylesheet. */
+@source not "../../components/landing";
+@source not "../../lib/landing";
+@source not "../(landing)";
+
+@theme {
+  --color-app: #151618;
+  --color-panel: #1b1c1f;
+  --color-raised: #222328;
+  --color-inset: #141517;
+
+  --color-line: rgba(255, 255, 255, 0.08);
+  --color-line-soft: rgba(255, 255, 255, 0.05);
+  --color-line-strong: rgba(255, 255, 255, 0.16);
+
+  --color-ink: #f3f3f1;
+  --color-dim: #9a9ca2;
+  --color-faint: #74767c;
+  --color-off: #56585e;
+
+  --color-brand: #ff9d4d;
+  --color-brand-soft: rgba(255, 157, 77, 0.12);
+  --color-brand-edge: rgba(255, 157, 77, 0.45);
+
+  --color-up: #34bf7c;
+  --color-down: #ef5f6b;
+  --color-up-soft: rgba(52, 191, 124, 0.12);
+  --color-down-soft: rgba(239, 95, 107, 0.1);
+
+  --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 14px;
+  --text-sm--line-height: 20px;
+  --text-base: 16px;
+  --text-base--line-height: 22px;
+  --text-lg: 20px;
+  --text-lg--line-height: 26px;
+  --text-2xl: 28px;
+  --text-2xl--line-height: 32px;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+}
+
+/* Base rules stay inside @layer base so every utility still wins the cascade. */
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    /* `clip` does not create a scroll container, so sticky regions keep working. */
+    overflow-x: clip;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    background: var(--color-app);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior-y: none;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    appearance: none;
+    margin: 0;
+  }
+
+  summary::-webkit-details-marker {
+    display: none;
+  }
+}
+
+/* iOS Safari zooms a focused input below 16px, so touch widths keep the larger size. */
+@media (max-width: 1023px) {
+  input:not([type="range"]),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
+@utility tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "zero" 1;
+}
+
+@utility focus-ring {
+  outline: none;
+
+  &:focus-visible {
+    outline: 1px solid var(--color-brand);
+    outline-offset: -1px;
+  }
+}
+
+@utility scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+
+  &::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: var(--color-line-strong);
+    border-radius: 4px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+  }
+}
+
+@utility pb-safe {
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

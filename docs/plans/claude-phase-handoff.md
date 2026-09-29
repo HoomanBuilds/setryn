@@ -26,19 +26,11 @@ The canonical product scope is defined in:
 - Treat `inspiration/` and `landing-page/` as temporary reference inputs, never runtime dependencies or sources of truth.
 - Prefer fast phase progression and targeted verification at the phase gate. Do not run broad repetitive reviews after every small slice.
 
-## Immediate landing-page migration
+## Landing-page migration - complete
 
-The root `landing-page/` directory is a temporary copy of the approved Setryn landing application. It is intentionally not registered in the pnpm workspace and is not integrated into runtime code.
+The approved landing experience now lives in `apps/web` as the public root `/` under a dedicated `(landing)` root layout, with the trading platform under a separate `(platform)` root layout. Its dependencies are in the root pnpm lockfile, its fonts, artwork, and audio are local, and the header, menu, product cards, closing call, and footer enter the platform through `/trade`, `/hedges`, `/maker`, and `/activity`. The temporary `landing-page/` folder and its nested npm project were removed after targeted lint, typecheck, build, and browser checks.
 
-Complete this migration as the first bounded frontend slice:
-
-1. Move the approved landing experience into `apps/web` using the existing web application's routing, package manager, TypeScript, Tailwind, shared providers, and build conventions.
-2. Preserve the existing trading application and authenticated product routes. The landing page must become the public root experience without replacing or weakening the terminal.
-3. Preserve the landing page's appearance, motion, typography, responsive behavior, assets, and interactions. Adapt implementation details only where required by the destination application.
-4. Consolidate dependencies into the root pnpm lockfile. Do not retain the nested npm project or its lockfile.
-5. Keep landing assets local and verify that no temporary absolute path or source-repository reference remains.
-6. Run only targeted lint, typecheck, and build checks for the changed web surface.
-7. Delete `landing-page/` after the integrated route is verified and commit the migration as one logical change.
+The landing's borrowed third-party fonts, artwork, and sounds were marked by its author as local-practice material. Replace or license them before any public Sepolia or mainnet hosting.
 
 ## Current phase position
 

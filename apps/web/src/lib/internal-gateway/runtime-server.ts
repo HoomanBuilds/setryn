@@ -41,10 +41,11 @@ const HASH_FIELDS = [
   "enterActionId",
 ] as const;
 
+/** Read at request time from the local deployment; excluded from output tracing so the server bundle stays scoped. */
 function runtimePath(): string {
-  if (process.env.SETRYN_RUNTIME_PATH) return resolve(process.env.SETRYN_RUNTIME_PATH);
+  if (process.env.SETRYN_RUNTIME_PATH) return resolve(/*turbopackIgnore: true*/ process.env.SETRYN_RUNTIME_PATH);
   const suffix = process.cwd().endsWith("/apps/web") ? "../../deployments/local/runtime.json" : "deployments/local/runtime.json";
-  return resolve(process.cwd(), suffix);
+  return resolve(/*turbopackIgnore: true*/ process.cwd(), suffix);
 }
 
 function localRpcUrl(): string {
