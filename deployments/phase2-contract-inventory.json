@@ -3,9 +3,7 @@
   "qualificationSlots": ["runtimeCodeHash", "configurationHash", "capabilityHash", "evidenceHash"],
   "bootstrapRevocationPlan": ["wire exact protocol roles", "revoke deployer operational roles", "begin delayed admin transfer", "activate no economic object or adapter"],
   "deploymentPrincipals": ["SETRYN_GOVERNANCE_ADMIN", "SETRYN_GOVERNANCE_OPERATOR", "SETRYN_GUARDIAN", "SETRYN_EXCESS_RECOVERY_OPERATOR", "SETRYN_PRIVACY_KEY_PUBLISHER", "SETRYN_LIFECYCLE_WITNESS_STAGER"],
-  "productionBlockers": [
-    {"code":"RECEIPT_AUTHORITIES_NOT_WIRED","contracts":["VerifiableReceiptLedger"],"resolution":"Deploy exact subject authority adapters and bind every supported subject kind before ledger activation."}
-  ],
+  "productionBlockers": [],
   "linkedLibraries": [
     {"name": "AtomicClearingFundingLib", "source": "contracts/src/execution/AtomicClearingFundingLib.sol", "linkedBy": ["AtomicClearingEngine", "AtomicClearingPackageLib", "AtomicClearingSeriesLib"]},
     {"name": "AtomicClearingMatchLib", "source": "contracts/src/execution/AtomicClearingMatchLib.sol", "linkedBy": ["AtomicClearingEngine", "AtomicClearingPackageLib", "AtomicClearingSeriesLib"]},
@@ -103,6 +101,24 @@
     {"name":"SignedLifecycleEngine","dependencies":["PositionEngine","AccountPolicyAuthority","LifecyclePolicyValidator","PositionLifecycleExecutor","RiskDomainRegistry"],"runtimeCodeHash":null,"evidenceHash":null,"roleAuthority":["guardian"],"supported":["signed-lifecycle"],"disabled":[],"activation":"planned"},
     {"name":"CompressionCoordinator","dependencies":["PositionEngine","AccountPolicyAuthority","PositionLifecycleExecutor","RiskDomainRegistry"],"runtimeCodeHash":null,"evidenceHash":null,"roleAuthority":["guardian"],"supported":["compression"],"disabled":[],"activation":"planned"},
     {"name":"DefaultProcessEngine","dependencies":["PortfolioRiskEngine","DefaultBidderGate","PositionLifecycleExecutor"],"runtimeCodeHash":null,"evidenceHash":null,"roleAuthority":[],"supported":["objective-default","funded-insurance"],"disabled":[],"activation":"planned"},
-    {"name":"VerifiableReceiptLedger","dependencies":["ReceiptSubjectAuthorityBindings"],"runtimeCodeHash":null,"evidenceHash":null,"roleAuthority":["bound-subject-authorities"],"supported":["append-only-receipts","typed-terminal-state-adapters"],"disabled":["authoritative-sources-do-not-yet-append-through-terminal-authority-adapters","auction-fixing-stream-solver-subjects-lack-reversible-terminal-keys"],"activation":"blocked"}
+    {"name":"OrderReceiptAuthority","dependencies":["OrderState"],"runtimeCodeHash":null,"evidenceHash":null,"roleAuthority":[],"supported":["receipt-terminal-state-authority"],"disabled":[],"activation":"planned"},
+    {"name":"RfqReceiptAuthority","dependencies":["PrivateRfqBook"],"runtimeCodeHash":null,"evidenceHash":null,"roleAuthority":[],"supported":["receipt-terminal-state-authority"],"disabled":[],"activation":"planned"},
+    {"name":"BookOrderReceiptAuthority","dependencies":["PublicOrderBook"],"runtimeCodeHash":null,"evidenceHash":null,"roleAuthority":[],"supported":["receipt-terminal-state-authority"],"disabled":[],"activation":"planned"},
+    {"name":"AuctionReceiptAuthority","dependencies":["SealedAuctionHouse"],"runtimeCodeHash":null,"evidenceHash":null,"roleAuthority":[],"supported":["receipt-terminal-state-authority"],"disabled":[],"activation":"planned"},
+    {"name":"SolverReceiptAuthority","dependencies":["SealedAuctionHouse"],"runtimeCodeHash":null,"evidenceHash":null,"roleAuthority":[],"supported":["receipt-terminal-state-authority"],"disabled":[],"activation":"planned"},
+    {"name":"FillReceiptAuthority","dependencies":["AtomicClearingEngine"],"runtimeCodeHash":null,"evidenceHash":null,"roleAuthority":[],"supported":["receipt-terminal-state-authority"],"disabled":[],"activation":"planned"},
+    {"name":"FixingReceiptAuthority","dependencies":["FixingEngine"],"runtimeCodeHash":null,"evidenceHash":null,"roleAuthority":[],"supported":["receipt-terminal-state-authority"],"disabled":[],"activation":"planned"},
+    {"name":"SettlementReceiptAuthority","dependencies":["CashSettlementCoordinator"],"runtimeCodeHash":null,"evidenceHash":null,"roleAuthority":[],"supported":["receipt-terminal-state-authority"],"disabled":[],"activation":"planned"},
+    {"name":"DefaultReceiptAuthority","dependencies":["DefaultProcessEngine"],"runtimeCodeHash":null,"evidenceHash":null,"roleAuthority":[],"supported":["receipt-terminal-state-authority"],"disabled":[],"activation":"planned"},
+    {"name":"RecoveryReceiptAuthority","dependencies":["OperationalAdapterExecutor"],"runtimeCodeHash":null,"evidenceHash":null,"roleAuthority":[],"supported":["receipt-terminal-state-authority"],"disabled":[],"activation":"planned"},
+    {"name":"LifecycleReceiptAuthority","dependencies":["SignedLifecycleEngine"],"runtimeCodeHash":null,"evidenceHash":null,"roleAuthority":[],"supported":["receipt-terminal-state-authority"],"disabled":[],"activation":"planned"},
+    {"name":"StreamReceiptAuthority","dependencies":["StreamingQuoteEngine"],"runtimeCodeHash":null,"evidenceHash":null,"roleAuthority":[],"supported":["receipt-terminal-state-authority"],"disabled":[],"activation":"planned"},
+    {"name":"RouteReceiptAuthority","dependencies":["CollateralAwareRouteEngine"],"runtimeCodeHash":null,"evidenceHash":null,"roleAuthority":[],"supported":["receipt-terminal-state-authority"],"disabled":[],"activation":"planned"},
+    {"name":"PositionReceiptAuthority","dependencies":["PositionEngine"],"runtimeCodeHash":null,"evidenceHash":null,"roleAuthority":[],"supported":["receipt-terminal-state-authority"],"disabled":[],"activation":"planned"},
+    {"name":"FeeReceiptAuthority","dependencies":["FundedFeeEngine"],"runtimeCodeHash":null,"evidenceHash":null,"roleAuthority":[],"supported":["receipt-terminal-state-authority"],"disabled":[],"activation":"planned"},
+    {"name":"RiskReceiptAuthority","dependencies":["PortfolioRiskEngine"],"runtimeCodeHash":null,"evidenceHash":null,"roleAuthority":[],"supported":["receipt-terminal-state-authority"],"disabled":[],"activation":"planned"},
+    {"name":"PrivacyReceiptAuthority","dependencies":["PrivacyCommitmentRegistry"],"runtimeCodeHash":null,"evidenceHash":null,"roleAuthority":[],"supported":["receipt-terminal-state-authority"],"disabled":[],"activation":"planned"},
+    {"name":"AsyncReceiptAuthority","dependencies":["OperationalAdapterExecutor"],"runtimeCodeHash":null,"evidenceHash":null,"roleAuthority":[],"supported":["receipt-terminal-state-authority"],"disabled":[],"activation":"planned"},
+    {"name":"VerifiableReceiptLedger","dependencies":["OrderReceiptAuthority","RfqReceiptAuthority","BookOrderReceiptAuthority","AuctionReceiptAuthority","SolverReceiptAuthority","FillReceiptAuthority","FixingReceiptAuthority","SettlementReceiptAuthority","DefaultReceiptAuthority","RecoveryReceiptAuthority","LifecycleReceiptAuthority","StreamReceiptAuthority","RouteReceiptAuthority","PositionReceiptAuthority","FeeReceiptAuthority","RiskReceiptAuthority","PrivacyReceiptAuthority","AsyncReceiptAuthority","PrivacyCommitmentRegistry"],"runtimeCodeHash":null,"evidenceHash":null,"roleAuthority":["bound-subject-authorities"],"supported":["append-only-receipts","typed-terminal-state-adapters"],"disabled":[],"activation":"planned"}
   ]
 }

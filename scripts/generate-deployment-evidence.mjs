@@ -205,7 +205,11 @@ function resolveCreateIdentity(transaction, libraryAddresses) {
 }
 
 function artifactPathFor(contractName) {
-  const sourceName = contractName.endsWith("PayoffModule") ? "ProductionPayoffModules" : contractName;
+  const sourceName = contractName.endsWith("PayoffModule")
+    ? "ProductionPayoffModules"
+    : contractName.endsWith("ReceiptAuthority")
+      ? "ProtocolReceiptAuthorities"
+      : contractName;
   return `contracts/out/${sourceName}.sol/${contractName}.json`;
 }
 

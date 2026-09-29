@@ -1,6 +1,6 @@
 import type { InternalContractBinding } from "../types.ts";
 
-export const generatedBindingsHash = "sha256:2c5cd7321569b9dbae124eb428655f33f9338959bf136d13d0be77740890ceea";
+export const generatedBindingsHash = "sha256:912efdbb9d87d2bd26a488ae08e8680b72e3f7e376d02da1ce45ab4323bff18f";
 
 export const contractBindings = {
   "AssetRegistry": {
@@ -68934,6 +68934,25 @@ export const contractBindings = {
       },
       {
         "type": "function",
+        "name": "streamActive",
+        "inputs": [
+          {
+            "name": "streamId",
+            "type": "bytes32",
+            "internalType": "StreamId"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
         "name": "streamExecutable",
         "inputs": [
           {
@@ -82669,6 +82688,2251 @@ export const contractBindings = {
       {
         "type": "error",
         "name": "ZeroSalt",
+        "inputs": []
+      }
+    ]
+  },
+  "OrderReceiptAuthority": {
+    "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/OrderReceiptAuthority.json",
+    "sourceName": "src/evidence/ProtocolReceiptAuthorities.sol",
+    "contractName": "OrderReceiptAuthority",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "source_",
+            "type": "address",
+            "internalType": "contract IOrderState"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "receiptSubjectTerminalState",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "subjectId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "tuple",
+            "internalType": "struct ReceiptSubjectTerminalState",
+            "components": [
+              {
+                "name": "stateHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "outcomeHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "terminal",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "transitionValid",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "source",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IOrderState"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "subjectKindId",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "error",
+        "name": "DependencyHasNoCode",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "UnsupportedSubjectKind",
+        "inputs": [
+          {
+            "name": "supplied",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroDependency",
+        "inputs": []
+      }
+    ]
+  },
+  "RfqReceiptAuthority": {
+    "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/RfqReceiptAuthority.json",
+    "sourceName": "src/evidence/ProtocolReceiptAuthorities.sol",
+    "contractName": "RfqReceiptAuthority",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "source_",
+            "type": "address",
+            "internalType": "contract IPrivateRfqBook"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "receiptSubjectTerminalState",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "subjectId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "tuple",
+            "internalType": "struct ReceiptSubjectTerminalState",
+            "components": [
+              {
+                "name": "stateHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "outcomeHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "terminal",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "transitionValid",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "source",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IPrivateRfqBook"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "subjectKindId",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "error",
+        "name": "DependencyHasNoCode",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "UnsupportedSubjectKind",
+        "inputs": [
+          {
+            "name": "supplied",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroDependency",
+        "inputs": []
+      }
+    ]
+  },
+  "BookOrderReceiptAuthority": {
+    "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/BookOrderReceiptAuthority.json",
+    "sourceName": "src/evidence/ProtocolReceiptAuthorities.sol",
+    "contractName": "BookOrderReceiptAuthority",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "source_",
+            "type": "address",
+            "internalType": "contract IPublicOrderBook"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "receiptSubjectTerminalState",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "subjectId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "tuple",
+            "internalType": "struct ReceiptSubjectTerminalState",
+            "components": [
+              {
+                "name": "stateHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "outcomeHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "terminal",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "transitionValid",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "source",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IPublicOrderBook"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "subjectKindId",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "error",
+        "name": "DependencyHasNoCode",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "UnsupportedSubjectKind",
+        "inputs": [
+          {
+            "name": "supplied",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroDependency",
+        "inputs": []
+      }
+    ]
+  },
+  "AuctionReceiptAuthority": {
+    "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/AuctionReceiptAuthority.json",
+    "sourceName": "src/evidence/ProtocolReceiptAuthorities.sol",
+    "contractName": "AuctionReceiptAuthority",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "source_",
+            "type": "address",
+            "internalType": "contract ISealedAuctionHouse"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "AUCTION_SUBJECT_TYPEHASH",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "deriveSubjectId",
+        "inputs": [
+          {
+            "name": "auctionId",
+            "type": "bytes32",
+            "internalType": "AuctionId"
+          },
+          {
+            "name": "version",
+            "type": "uint32",
+            "internalType": "uint32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "receiptSubjectTerminalState",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "subjectId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "tuple",
+            "internalType": "struct ReceiptSubjectTerminalState",
+            "components": [
+              {
+                "name": "stateHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "outcomeHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "terminal",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "transitionValid",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "registerSubject",
+        "inputs": [
+          {
+            "name": "auctionId",
+            "type": "bytes32",
+            "internalType": "AuctionId"
+          },
+          {
+            "name": "version",
+            "type": "uint32",
+            "internalType": "uint32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "subjectId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "source",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract ISealedAuctionHouse"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "subjectKindId",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "event",
+        "name": "AuctionReceiptSubjectRegistered",
+        "inputs": [
+          {
+            "name": "subjectId",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "auctionId",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "AuctionId"
+          },
+          {
+            "name": "version",
+            "type": "uint32",
+            "indexed": false,
+            "internalType": "uint32"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "error",
+        "name": "DependencyHasNoCode",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "UnsupportedSubjectKind",
+        "inputs": [
+          {
+            "name": "supplied",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroDependency",
+        "inputs": []
+      }
+    ]
+  },
+  "SolverReceiptAuthority": {
+    "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/SolverReceiptAuthority.json",
+    "sourceName": "src/evidence/ProtocolReceiptAuthorities.sol",
+    "contractName": "SolverReceiptAuthority",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "source_",
+            "type": "address",
+            "internalType": "contract ISealedAuctionHouse"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "receiptSubjectTerminalState",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "subjectId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "tuple",
+            "internalType": "struct ReceiptSubjectTerminalState",
+            "components": [
+              {
+                "name": "stateHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "outcomeHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "terminal",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "transitionValid",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "source",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract ISealedAuctionHouse"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "subjectKindId",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "error",
+        "name": "DependencyHasNoCode",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "UnsupportedSubjectKind",
+        "inputs": [
+          {
+            "name": "supplied",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroDependency",
+        "inputs": []
+      }
+    ]
+  },
+  "FillReceiptAuthority": {
+    "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/FillReceiptAuthority.json",
+    "sourceName": "src/evidence/ProtocolReceiptAuthorities.sol",
+    "contractName": "FillReceiptAuthority",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "source_",
+            "type": "address",
+            "internalType": "contract IAtomicClearingEngine"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "receiptSubjectTerminalState",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "subjectId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "tuple",
+            "internalType": "struct ReceiptSubjectTerminalState",
+            "components": [
+              {
+                "name": "stateHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "outcomeHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "terminal",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "transitionValid",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "source",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IAtomicClearingEngine"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "subjectKindId",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "error",
+        "name": "DependencyHasNoCode",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "UnsupportedSubjectKind",
+        "inputs": [
+          {
+            "name": "supplied",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroDependency",
+        "inputs": []
+      }
+    ]
+  },
+  "FixingReceiptAuthority": {
+    "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/FixingReceiptAuthority.json",
+    "sourceName": "src/evidence/ProtocolReceiptAuthorities.sol",
+    "contractName": "FixingReceiptAuthority",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "source_",
+            "type": "address",
+            "internalType": "contract IFixingEngine"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "receiptSubjectTerminalState",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "subjectId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "tuple",
+            "internalType": "struct ReceiptSubjectTerminalState",
+            "components": [
+              {
+                "name": "stateHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "outcomeHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "terminal",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "transitionValid",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "registerSubject",
+        "inputs": [
+          {
+            "name": "seriesId",
+            "type": "bytes32",
+            "internalType": "SeriesId"
+          },
+          {
+            "name": "seriesVersion",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "slot",
+            "type": "uint8",
+            "internalType": "uint8"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "fixingKey",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "source",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IFixingEngine"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "subjectKindId",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "event",
+        "name": "FixingReceiptSubjectRegistered",
+        "inputs": [
+          {
+            "name": "fixingKey",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "seriesId",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "SeriesId"
+          },
+          {
+            "name": "seriesVersion",
+            "type": "uint32",
+            "indexed": false,
+            "internalType": "uint32"
+          },
+          {
+            "name": "slot",
+            "type": "uint8",
+            "indexed": false,
+            "internalType": "uint8"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "error",
+        "name": "DependencyHasNoCode",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "UnknownFixing",
+        "inputs": [
+          {
+            "name": "fixingKey",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "UnsupportedSubjectKind",
+        "inputs": [
+          {
+            "name": "supplied",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroDependency",
+        "inputs": []
+      }
+    ]
+  },
+  "SettlementReceiptAuthority": {
+    "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/SettlementReceiptAuthority.json",
+    "sourceName": "src/evidence/ProtocolReceiptAuthorities.sol",
+    "contractName": "SettlementReceiptAuthority",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "source_",
+            "type": "address",
+            "internalType": "contract ICashSettlementCoordinator"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "receiptSubjectTerminalState",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "subjectId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "tuple",
+            "internalType": "struct ReceiptSubjectTerminalState",
+            "components": [
+              {
+                "name": "stateHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "outcomeHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "terminal",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "transitionValid",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "source",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract ICashSettlementCoordinator"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "subjectKindId",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "error",
+        "name": "DependencyHasNoCode",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "UnsupportedSubjectKind",
+        "inputs": [
+          {
+            "name": "supplied",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroDependency",
+        "inputs": []
+      }
+    ]
+  },
+  "DefaultReceiptAuthority": {
+    "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/DefaultReceiptAuthority.json",
+    "sourceName": "src/evidence/ProtocolReceiptAuthorities.sol",
+    "contractName": "DefaultReceiptAuthority",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "source_",
+            "type": "address",
+            "internalType": "contract IDefaultProcessEngine"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "receiptSubjectTerminalState",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "subjectId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "tuple",
+            "internalType": "struct ReceiptSubjectTerminalState",
+            "components": [
+              {
+                "name": "stateHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "outcomeHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "terminal",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "transitionValid",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "source",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IDefaultProcessEngine"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "subjectKindId",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "error",
+        "name": "DependencyHasNoCode",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "UnsupportedSubjectKind",
+        "inputs": [
+          {
+            "name": "supplied",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroDependency",
+        "inputs": []
+      }
+    ]
+  },
+  "RecoveryReceiptAuthority": {
+    "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/RecoveryReceiptAuthority.json",
+    "sourceName": "src/evidence/ProtocolReceiptAuthorities.sol",
+    "contractName": "RecoveryReceiptAuthority",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "source_",
+            "type": "address",
+            "internalType": "contract IOperationalAdapterExecutor"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "receiptSubjectTerminalState",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "subjectId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "tuple",
+            "internalType": "struct ReceiptSubjectTerminalState",
+            "components": [
+              {
+                "name": "stateHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "outcomeHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "terminal",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "transitionValid",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "source",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IOperationalAdapterExecutor"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "subjectKindId",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "error",
+        "name": "DependencyHasNoCode",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "UnsupportedSubjectKind",
+        "inputs": [
+          {
+            "name": "supplied",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroDependency",
+        "inputs": []
+      }
+    ]
+  },
+  "LifecycleReceiptAuthority": {
+    "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/LifecycleReceiptAuthority.json",
+    "sourceName": "src/evidence/ProtocolReceiptAuthorities.sol",
+    "contractName": "LifecycleReceiptAuthority",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "source_",
+            "type": "address",
+            "internalType": "contract ISignedLifecycleEngine"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "receiptSubjectTerminalState",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "subjectId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "tuple",
+            "internalType": "struct ReceiptSubjectTerminalState",
+            "components": [
+              {
+                "name": "stateHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "outcomeHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "terminal",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "transitionValid",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "source",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract ISignedLifecycleEngine"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "subjectKindId",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "error",
+        "name": "DependencyHasNoCode",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "UnsupportedSubjectKind",
+        "inputs": [
+          {
+            "name": "supplied",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroDependency",
+        "inputs": []
+      }
+    ]
+  },
+  "StreamReceiptAuthority": {
+    "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/StreamReceiptAuthority.json",
+    "sourceName": "src/evidence/ProtocolReceiptAuthorities.sol",
+    "contractName": "StreamReceiptAuthority",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "source_",
+            "type": "address",
+            "internalType": "contract IStreamingQuoteEngine"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "receiptSubjectTerminalState",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "subjectId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "tuple",
+            "internalType": "struct ReceiptSubjectTerminalState",
+            "components": [
+              {
+                "name": "stateHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "outcomeHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "terminal",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "transitionValid",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "source",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IStreamingQuoteEngine"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "subjectKindId",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "error",
+        "name": "DependencyHasNoCode",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "UnsupportedSubjectKind",
+        "inputs": [
+          {
+            "name": "supplied",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroDependency",
+        "inputs": []
+      }
+    ]
+  },
+  "RouteReceiptAuthority": {
+    "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/RouteReceiptAuthority.json",
+    "sourceName": "src/evidence/ProtocolReceiptAuthorities.sol",
+    "contractName": "RouteReceiptAuthority",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "source_",
+            "type": "address",
+            "internalType": "contract ICollateralAwareRouteEngine"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "receiptSubjectTerminalState",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "subjectId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "tuple",
+            "internalType": "struct ReceiptSubjectTerminalState",
+            "components": [
+              {
+                "name": "stateHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "outcomeHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "terminal",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "transitionValid",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "source",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract ICollateralAwareRouteEngine"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "subjectKindId",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "error",
+        "name": "DependencyHasNoCode",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "UnsupportedSubjectKind",
+        "inputs": [
+          {
+            "name": "supplied",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroDependency",
+        "inputs": []
+      }
+    ]
+  },
+  "PositionReceiptAuthority": {
+    "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/PositionReceiptAuthority.json",
+    "sourceName": "src/evidence/ProtocolReceiptAuthorities.sol",
+    "contractName": "PositionReceiptAuthority",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "source_",
+            "type": "address",
+            "internalType": "contract IPositionEngine"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "receiptSubjectTerminalState",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "subjectId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "tuple",
+            "internalType": "struct ReceiptSubjectTerminalState",
+            "components": [
+              {
+                "name": "stateHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "outcomeHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "terminal",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "transitionValid",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "source",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IPositionEngine"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "subjectKindId",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "error",
+        "name": "DependencyHasNoCode",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "UnsupportedSubjectKind",
+        "inputs": [
+          {
+            "name": "supplied",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroDependency",
+        "inputs": []
+      }
+    ]
+  },
+  "FeeReceiptAuthority": {
+    "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/FeeReceiptAuthority.json",
+    "sourceName": "src/evidence/ProtocolReceiptAuthorities.sol",
+    "contractName": "FeeReceiptAuthority",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "source_",
+            "type": "address",
+            "internalType": "contract IFundedFeeEngine"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "receiptSubjectTerminalState",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "subjectId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "tuple",
+            "internalType": "struct ReceiptSubjectTerminalState",
+            "components": [
+              {
+                "name": "stateHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "outcomeHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "terminal",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "transitionValid",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "source",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IFundedFeeEngine"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "subjectKindId",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "error",
+        "name": "DependencyHasNoCode",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "UnsupportedSubjectKind",
+        "inputs": [
+          {
+            "name": "supplied",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroDependency",
+        "inputs": []
+      }
+    ]
+  },
+  "RiskReceiptAuthority": {
+    "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/RiskReceiptAuthority.json",
+    "sourceName": "src/evidence/ProtocolReceiptAuthorities.sol",
+    "contractName": "RiskReceiptAuthority",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "source_",
+            "type": "address",
+            "internalType": "contract IPortfolioRiskEngine"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "receiptSubjectTerminalState",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "subjectId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "tuple",
+            "internalType": "struct ReceiptSubjectTerminalState",
+            "components": [
+              {
+                "name": "stateHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "outcomeHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "terminal",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "transitionValid",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "source",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IPortfolioRiskEngine"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "subjectKindId",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "error",
+        "name": "DependencyHasNoCode",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "UnsupportedSubjectKind",
+        "inputs": [
+          {
+            "name": "supplied",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroDependency",
+        "inputs": []
+      }
+    ]
+  },
+  "PrivacyReceiptAuthority": {
+    "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/PrivacyReceiptAuthority.json",
+    "sourceName": "src/evidence/ProtocolReceiptAuthorities.sol",
+    "contractName": "PrivacyReceiptAuthority",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "source_",
+            "type": "address",
+            "internalType": "contract IPrivacyCommitmentRegistry"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "receiptSubjectTerminalState",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "subjectId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "tuple",
+            "internalType": "struct ReceiptSubjectTerminalState",
+            "components": [
+              {
+                "name": "stateHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "outcomeHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "terminal",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "transitionValid",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "source",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IPrivacyCommitmentRegistry"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "subjectKindId",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "error",
+        "name": "DependencyHasNoCode",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "UnsupportedSubjectKind",
+        "inputs": [
+          {
+            "name": "supplied",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroDependency",
+        "inputs": []
+      }
+    ]
+  },
+  "AsyncReceiptAuthority": {
+    "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/AsyncReceiptAuthority.json",
+    "sourceName": "src/evidence/ProtocolReceiptAuthorities.sol",
+    "contractName": "AsyncReceiptAuthority",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "source_",
+            "type": "address",
+            "internalType": "contract IOperationalAdapterExecutor"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "receiptSubjectTerminalState",
+        "inputs": [
+          {
+            "name": "kind",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "subjectId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "tuple",
+            "internalType": "struct ReceiptSubjectTerminalState",
+            "components": [
+              {
+                "name": "stateHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "outcomeHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "terminal",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "transitionValid",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "source",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IOperationalAdapterExecutor"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "subjectKindId",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "error",
+        "name": "DependencyHasNoCode",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "UnsupportedSubjectKind",
+        "inputs": [
+          {
+            "name": "supplied",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroDependency",
         "inputs": []
       }
     ]

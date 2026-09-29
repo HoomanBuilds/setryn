@@ -82,7 +82,11 @@ function latestDryRun() {
 // differs from the standalone artifact. Identify it by an exact linked-artifact match, else by the unique production
 // contract whose complete external selector set appears in the init code.
 function artifactPathFor(contractName) {
-  const sourceName = contractName.endsWith("PayoffModule") ? "ProductionPayoffModules" : contractName;
+  const sourceName = contractName.endsWith("PayoffModule")
+    ? "ProductionPayoffModules"
+    : contractName.endsWith("ReceiptAuthority")
+      ? "ProtocolReceiptAuthorities"
+      : contractName;
   return resolve(repositoryRoot, `contracts/out/${sourceName}.sol/${contractName}.json`);
 }
 
