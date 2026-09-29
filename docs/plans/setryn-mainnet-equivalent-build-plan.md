@@ -21,7 +21,7 @@ Status date: 2026-09-29
 - Phase 0 passed its targeted gate review on 2026-09-25. The canonical economic schema and rules, role and state-machine model, and threat and invariant model are defined in the corresponding Setryn specifications.
 - Phase 1 passed its targeted gate review and verification on 2026-09-25. The verified foundation includes canonical TypeScript schemas, internal generated contract bindings, deterministic event projections, guarded deployment manifests and scripts, qualified market, instrument, and series registries, terminal-liability collateral accounting, local fixtures, fork profiles, and collateral-conservation coverage.
 - The Phase 1 gate passed contract compilation, generated-binding drift checks, internal typechecks, 3 schema tests, 7 indexer tests, deployment-manifest validation, contract formatting, and 425 contract tests with 0 failures. One pinned Arbitrum One read-only fork case was skipped because no RPC URL or block number was supplied; no network call, deployment, broadcast, or mainnet write occurred.
-- Phase 2 source implementation completed on 2026-09-25. The public order path was connected to its production policy gates, risk admission, atomic clearing, and public books on 2026-09-28. The complete graph now deploys and produces role evidence on a local chain within production code-size limits.
+- Phase 2 source implementation completed on 2026-09-25. The public order path was connected to its production policy gates, risk admission, atomic clearing, and public books on 2026-09-28. The complete graph, including sealed auctions, request-for-stream, batch clearing, collateral-aware routing, and the verifiable receipt ledger, now deploys and produces role evidence on a local chain within production code-size limits.
 - Phase 4 passed its targeted gate on 2026-09-29 at pinned Arbitrum One block 509990000.
   - Thirteen oversized contracts were modularized into DELEGATECALL-linked libraries with byte-identical ABIs, and the production profile builds with every runtime at or below 24,576 bytes and every initcode at or below 49,152 bytes.
   - The local deployment rehearsal runs without any code-size override, and the evidence records all 24 linked libraries.
@@ -29,7 +29,13 @@ Status date: 2026-09-29
   - The production manifest validates at the pinned and latest blocks.
   - The complete unsigned intent has 219 operations. Its sequential, L1-aware gas budget comes to a 0.02201017 ETH deployer requirement including the 2x reserve.
   - No mainnet write occurred. Evidence is in `docs/plans/claude-phase-handoff.md` and `deployments/arbitrum-one/qualification/`.
-- The Phase 2 verification gate remains open. The code-size blocker is resolved. Phase 2 must not be described as verification-passed until the 35 pre-existing contract-test failures and the remaining capacity and receipt-authority wiring blockers are resolved.
+- The Phase 2 verification gate passed on 2026-09-29 with the following evidence:
+  - 744/744 contract tests;
+  - 23/23 invariants, including the compression-conservation invariant, which now runs through a conservation-preserving handler;
+  - the pinned fork suite at 26/26;
+  - a local deployment with on-chain role evidence.
+
+  All 35 former contract-test failures were fixed, and no production blockers remain. The fixes include a solver-route capacity lock defect, route-engine griefing authorization, and a terminal-disruption settlement deadlock. The capacity-backed venues and the receipt ledger with all 18 subject authorities are deployed.
 - Phase 3 source implementation completed on 2026-09-29. The first-party platform now includes wallet-signed collateral, public-book and private-RFQ execution, firm maker capacity, contract-restored orders, RFQs, fills, positions and receipts, signed full-position exits, portfolio and lifecycle workspaces, strategy and hedge construction, maker and operations workspaces, internal projection and organization services, accounting export, and live local-runtime health. Catalog-only markets and modeled analytics remain explicitly labeled and are not represented as executable evidence.
 - The Phase 3 verification gate remains open. It must not be described as verification-passed until the targeted mobile, keyboard, accessibility, wallet rejection, RPC failure, replacement, and complete fresh-wallet journey checks run. Public persistence, public operators, and Arbitrum Sepolia infrastructure are Phase 5 release-candidate work.
 - Public APIs, external SDKs, webhooks, embedded widgets, and partner tooling are post-user-platform work and do not block the Phase 1 through Phase 7 product gates.

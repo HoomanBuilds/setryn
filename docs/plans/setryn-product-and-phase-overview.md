@@ -10,7 +10,7 @@ Public release-candidate network: Arbitrum Sepolia
 
 Current build phase: Phase 4 gate passed; completing the first-party trading platform before the Arbitrum Sepolia release candidate
 
-Current deployment status: the complete production graph, including 24 linked libraries, deploys locally within the EIP-170 and EIP-3860 limits with separated principals and generated evidence. It passes the pinned Arbitrum One fork suite, and has a complete read-only unsigned Arbitrum One deployment intent and gas budget. Arbitrum Sepolia deployment remains Phase 5 release-candidate work. It still requires the Phase 2 capacity and receipt-authority wiring blockers to be resolved. Browser preview state is legacy scaffolding and is not an accepted platform execution path.
+Current deployment status: the complete production graph deploys locally within the EIP-170 and EIP-3860 limits, with separated principals and generated evidence. The graph covers the public book, private RFQ, sealed auctions, request-for-stream, batch clearing, collateral-aware routing, and the verifiable receipt ledger with 18 subject authorities, backed by 29 linked libraries. It passes the pinned Arbitrum One fork suite and has a complete read-only unsigned Arbitrum One deployment intent and gas budget. Arbitrum Sepolia deployment is Phase 5 release-candidate work. Browser preview state is legacy scaffolding and is not an accepted platform execution path.
 
 Detailed references:
 
@@ -402,7 +402,7 @@ Lock the product schema, payoffs, rounding, fixing, margin, settlement, roles, s
 
 Build the monorepo, contracts project, web application, internal schemas, bindings, indexer foundation, registries, collateral vault, deployment manifests, fixtures, and fork profile.
 
-### Phase 2: complete core exchange - implementation complete, gate deferred
+### Phase 2: complete core exchange - passed
 
 Implement instruments, execution modes, positions, collateral, fees, portfolio risk, lifecycle, netting, compression, fixing, settlement, privacy, evidence, default, and recovery. Run its targeted verification gate before calling it verification-passed.
 
