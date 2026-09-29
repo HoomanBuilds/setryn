@@ -7,6 +7,7 @@ import {IPositionEngine} from "../../src/interfaces/IPositionEngine.sol";
 import {IPortfolioRiskEngine} from "../../src/interfaces/IPortfolioRiskEngine.sol";
 import {IExactLotsPayoffModuleV1} from "../../src/interfaces/IExactLotsPayoffModuleV1.sol";
 import {PositionLifecycleExecutor} from "../../src/lifecycle/PositionLifecycleExecutor.sol";
+import {SeriesDefinitionLib} from "../../src/libraries/SeriesDefinitionLib.sol";
 import {PositionEngine} from "../../src/position/PositionEngine.sol";
 import {CollateralLock, TerminalLiabilityReservation} from "../../src/types/CollateralTypes.sol";
 import {LockStatus, TerminalLiabilityReservationStatus, TerminalOutcomeKind} from "../../src/types/Enums.sol";
@@ -16,6 +17,7 @@ import {
     CollateralLockId,
     PackageId,
     PositionId,
+    SeriesId,
     TerminalLiabilityReservationId
 } from "../../src/types/Identifiers.sol";
 import {
@@ -23,10 +25,13 @@ import {
     PositionEconomics,
     PositionFunding,
     PositionLifecycle,
+    PositionLiabilitySide,
     PositionProvenance,
     PositionStatus
 } from "../../src/types/PositionTypes.sol";
 import {CompressionPosition} from "../../src/types/CompressionTypes.sol";
+import {SeriesDefinition} from "../../src/types/SeriesDefinition.sol";
+import {SeriesDateProof, SeriesQualificationData} from "../../src/types/SeriesQualification.sol";
 import {
     LifecycleAction,
     LifecycleActionId,
@@ -67,6 +72,7 @@ contract PositionEngineTest is SetrynLocalFixture {
         fixture.collateralVault.grantRole(fixture.collateralVault.TERMINAL_RESERVATION_CREATOR_ROLE(), address(engine));
         fixture.collateralVault.grantRole(fixture.collateralVault.TERMINAL_RESERVATION_RESOLVER_ROLE(), address(engine));
         fixture.collateralVault.grantRole(fixture.collateralVault.COLLATERAL_LOCKER_ROLE(), address(engine));
+        fixture.collateralVault.grantRole(fixture.collateralVault.COLLATERAL_SETTLER_ROLE(), address(engine));
 
         vm.prank(fixture.trader);
         fixture.collateralVault.setLockOperator(fixture.traderAccountId, address(engine), true);
@@ -119,7 +125,11 @@ contract PositionEngineTest is SetrynLocalFixture {
             lockId: lockId, lockReference: lockReference, expectedRemainingAmount: 99_999, expectedExpiry: expiry
         });
 
-        vm.expectRevert(IPositionEngine.PositionFundingMismatch.selector);
+        PositionId positionId = engine.derivePositionId(creation);
+        bytes32 longLiabilityKey = engine.deriveLiabilityKey(positionId, uint8(PositionLiabilitySide.Long));
+        vm.expectRevert(
+            abi.encodeWithSelector(IPositionEngine.PositionFundingMismatch.selector, longLiabilityKey, lockId)
+        );
         engine.createPosition(creation);
     }
 
@@ -135,7 +145,8 @@ contract PositionEngineTest is SetrynLocalFixture {
     }
 
     function test_PausedDependencyDoesNotDeadlockHistoricalFixingAndSettlement() public {
-        PositionId positionId = engine.createPosition(_creation(FILL, 0, 2));
+        SeriesId automaticSeriesId = _registerAutomaticExerciseSeries();
+        PositionId positionId = engine.createPosition(_creationFor(automaticSeriesId, FILL, 0, 2));
         fixture.adapterRegistry.pauseAdapter(fixture.payoffAdapterId, 1);
         vm.warp(fixture.seriesDefinition.fixingWindowOpen);
         engine.beginFixing(positionId);
@@ -165,7 +176,8 @@ contract PositionEngineTest is SetrynLocalFixture {
     }
 
     function test_PayoffAboveStoredDebitBoundCannotBecomeSettlementReady() public {
-        PositionId positionId = engine.createPosition(_creation(FILL, 0, 1));
+        SeriesId automaticSeriesId = _registerAutomaticExerciseSeries();
+        PositionId positionId = engine.createPosition(_creationFor(automaticSeriesId, FILL, 0, 1));
         vm.warp(fixture.seriesDefinition.fixingWindowOpen);
         engine.beginFixing(positionId);
         bytes memory finalFixings = abi.encode(int256(1));
@@ -177,8 +189,16 @@ contract PositionEngineTest is SetrynLocalFixture {
             ),
             abi.encode(int256(100_001))
         );
+        (PositionEconomics memory economics,) = engine.getPosition(positionId);
 
-        vm.expectRevert(IPositionEngine.PayoffOutsideDebitBounds.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IPositionEngine.PayoffOutsideDebitBounds.selector,
+                int256(100_001),
+                economics.maxLongDebitMinorPerLot,
+                economics.maxShortDebitMinorPerLot
+            )
+        );
         engine.acceptFinalFixing(positionId, FIXING, finalFixings);
         assertEq(uint8(engine.positionStatus(positionId)), uint8(PositionStatus.Fixing));
     }
@@ -196,7 +216,14 @@ contract PositionEngineTest is SetrynLocalFixture {
         assertEq(uint8(engine.terminalState(economics.longLiabilityKey).outcome), uint8(TerminalOutcomeKind.Flat));
         assertEq(uint8(engine.terminalState(economics.shortLiabilityKey).outcome), uint8(TerminalOutcomeKind.Flat));
 
-        vm.expectRevert(IPositionEngine.InvalidPositionTransition.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IPositionEngine.InvalidPositionTransition.selector,
+                positionId,
+                PositionStatus.Settled,
+                PositionStatus.TerminalClaim
+            )
+        );
         engine.applyTerminalFallback(positionId);
     }
 
@@ -205,13 +232,27 @@ contract PositionEngineTest is SetrynLocalFixture {
         engine.recordZeroLiabilityAlternative(positionId, PositionStatus.ClosedByUnwind, keccak256("authorized-unwind"));
         assertEq(uint8(engine.positionStatus(positionId)), uint8(PositionStatus.ClosedByUnwind));
 
-        vm.expectRevert(IPositionEngine.InvalidPositionTransition.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IPositionEngine.InvalidPositionTransition.selector,
+                positionId,
+                PositionStatus.ClosedByUnwind,
+                PositionStatus.Replaced
+            )
+        );
         engine.recordZeroLiabilityAlternative(positionId, PositionStatus.Replaced, keccak256("replacement"));
     }
 
     function test_BeginFixingRejectsEarlyCall() public {
         PositionId positionId = engine.createPosition(_creation(FILL, 0, 1));
-        vm.expectRevert(IPositionEngine.FixingWindowNotOpen.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IPositionEngine.FixingWindowNotOpen.selector,
+                positionId,
+                fixture.seriesDefinition.fixingWindowOpen,
+                uint64(vm.getBlockTimestamp())
+            )
+        );
         engine.beginFixing(positionId);
     }
 
@@ -276,8 +317,12 @@ contract PositionEngineTest is SetrynLocalFixture {
 
     function test_PartialExerciseUsesExactLotsAndAccumulatesTransfer() public {
         PositionId positionId = engine.createPosition(_creation(FILL, 0, 5));
-        vm.warp(fixture.seriesDefinition.exerciseOpensAt);
         bytes memory finalFixings = abi.encode(int256(123));
+        vm.warp(fixture.seriesDefinition.fixingWindowOpen);
+        engine.beginFixing(positionId);
+        engine.acceptFinalFixing(positionId, FIXING, finalFixings);
+        assertEq(uint8(engine.positionStatus(positionId)), uint8(PositionStatus.Live));
+        vm.warp(fixture.seriesDefinition.exerciseOpensAt);
         vm.mockCall(
             address(fixture.adapterImplementation),
             abi.encodeCall(
@@ -344,14 +389,55 @@ contract PositionEngineTest is SetrynLocalFixture {
         );
     }
 
+    /// Registers a sibling of the fixture series whose exercise is automatic, so final fixing alone makes it
+    /// settlement ready. The fixture series uses holder election, which records the fixing and returns to live.
+    function _registerAutomaticExerciseSeries() internal returns (SeriesId seriesId) {
+        SeriesDefinition memory definition = fixture.seriesDefinition;
+        definition.seriesKey = keccak256("position.engine.automatic.series");
+        definition.exercisePolicyId = SeriesDefinitionLib.EXERCISE_POLICY_AUTOMATIC;
+        definition.exerciseOpensAt = 0;
+        definition.exerciseCutoffAt = 0;
+        SeriesQualificationData memory qualification = fixture.seriesQualification;
+        qualification.dateProofs = _scheduledDateProofs(definition, qualification.dateProofs);
+        definition.fixingSlotsHash = fixture.seriesRegistry.hashFixingSlots(definition, qualification.fixingSlots, 4);
+        definition.dateAdjustmentEvidenceHash =
+            fixture.seriesRegistry.hashDateProofs(definition, qualification.dateProofs);
+        (seriesId,) = fixture.seriesRegistry.registerSeries(definition, qualification);
+        fixture.seriesRegistry.activateSeries(seriesId, 1, qualification);
+    }
+
+    function _scheduledDateProofs(SeriesDefinition memory definition, SeriesDateProof[] memory proofs)
+        internal
+        pure
+        returns (SeriesDateProof[] memory scheduled)
+    {
+        uint256 count;
+        for (uint256 i; i < proofs.length; ++i) {
+            if (SeriesDefinitionLib.timestampForKind(definition, proofs[i].kind) != 0) ++count;
+        }
+        scheduled = new SeriesDateProof[](count);
+        count = 0;
+        for (uint256 i; i < proofs.length; ++i) {
+            if (SeriesDefinitionLib.timestampForKind(definition, proofs[i].kind) != 0) scheduled[count++] = proofs[i];
+        }
+    }
+
     function _creation(bytes32 fillIdentity, uint32 ordinal, uint128 lots)
+        internal
+        view
+        returns (PositionCreation memory)
+    {
+        return _creationFor(fixture.seriesId, fillIdentity, ordinal, lots);
+    }
+
+    function _creationFor(SeriesId seriesId, bytes32 fillIdentity, uint32 ordinal, uint128 lots)
         internal
         view
         returns (PositionCreation memory)
     {
         return PositionCreation({
             fillIdentity: fillIdentity,
-            seriesId: fixture.seriesId,
+            seriesId: seriesId,
             seriesVersion: 1,
             longAccountId: fixture.traderAccountId,
             shortAccountId: shortAccount,
