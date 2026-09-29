@@ -3,80 +3,27 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronDown, Menu, Wallet, X } from "lucide-react";
+import { ChevronDown, Menu, Search, Wallet, X } from "lucide-react";
 import { DataRow, SectionLabel, StatusDot } from "@/components/terminal/primitives";
 import { useGatewaySnapshot, useInternalGateway } from "@/components/gateway/InternalGatewayProvider";
 import { formatCompactUsd } from "@/lib/terminal/format";
-import { DEFAULT_TRADE_HREF } from "@/lib/terminal/markets";
 import SetrynMark from "@/components/landing/SetrynMark";
-
-interface NavItem {
-  id: string;
-  label: string;
-  prefix: string;
-  href: string;
-}
-
-interface NavGroup {
-  id: string;
-  label: string;
-  items: NavItem[];
-}
-
-const PRIMARY_NAV: NavItem[] = [
-  { id: "trade", label: "Trade", prefix: "/trade", href: DEFAULT_TRADE_HREF },
-  { id: "markets", label: "Markets", prefix: "/markets", href: "/markets" },
-  { id: "portfolio", label: "Portfolio", prefix: "/portfolio", href: "/portfolio" },
-];
-
-const NAV_GROUPS: NavGroup[] = [
-  {
-    id: "build",
-    label: "Build",
-    items: [
-      { id: "strategies", label: "Strategies", prefix: "/strategies", href: "/strategies" },
-      { id: "hedges", label: "Hedges", prefix: "/hedges", href: "/hedges" },
-    ],
-  },
-  {
-    id: "monitor",
-    label: "Monitor",
-    items: [
-      { id: "rfqs", label: "RFQs", prefix: "/rfqs", href: "/rfqs" },
-      { id: "activity", label: "Activity", prefix: "/activity", href: "/activity" },
-      { id: "lifecycle", label: "Lifecycle", prefix: "/lifecycle", href: "/lifecycle" },
-    ],
-  },
-  {
-    id: "operate",
-    label: "Operate",
-    items: [
-      { id: "maker", label: "Maker", prefix: "/maker", href: "/maker" },
-      { id: "operations", label: "Operations", prefix: "/operations", href: "/operations" },
-    ],
-  },
-];
+import { CommandPalette, openCommandPalette } from "@/components/shell/CommandPalette";
+import { NotificationBell } from "@/components/shell/NotificationBell";
+import {
+  HOME_ITEM,
+  NAV_GROUPS,
+  PRIMARY_NAV,
+  hrefFor,
+  isActive,
+  isGroupActive,
+  type NavGroup,
+} from "@/components/shell/routes";
 
 const MOBILE_NAV: NavGroup[] = [
-  { id: "trade", label: "Trade", items: PRIMARY_NAV.slice(0, 2) },
-  { id: "manage", label: "Manage", items: [PRIMARY_NAV[2], ...NAV_GROUPS[1].items] },
-  NAV_GROUPS[0],
-  NAV_GROUPS[2],
+  { id: "trade", label: "Trade", items: [HOME_ITEM, ...PRIMARY_NAV] },
+  ...NAV_GROUPS,
 ];
-
-function isActive(item: NavItem, pathname: string): boolean {
-  return pathname === item.prefix || pathname.startsWith(`${item.prefix}/`);
-}
-
-/** Trade keeps the market already on screen, so the tab never jumps markets. */
-function hrefFor(item: NavItem, pathname: string): string {
-  if (item.id === "trade" && isActive(item, pathname)) return pathname;
-  return item.href;
-}
-
-function isGroupActive(group: NavGroup, pathname: string): boolean {
-  return group.items.some((item) => isActive(item, pathname));
-}
 
 /** The landing's egg, slash, and orbit dot, drawn in the brand lime. */
 function Mark() {
@@ -178,10 +125,10 @@ export function GlobalHeader() {
           {menuOpen ? <X size={18} aria-hidden="true" /> : <Menu size={18} aria-hidden="true" />}
         </button>
 
-        <span className="flex shrink-0 items-center gap-2">
+        <Link href="/app" aria-label="Setryn home" className="focus-ring flex shrink-0 items-center gap-2 rounded-sm">
           <Mark />
           <span className="font-serif text-[19px] leading-none font-medium tracking-[-0.01em] text-ink">Setryn</span>
-        </span>
+        </Link>
 
         <nav aria-label="Primary" className="ml-3 hidden items-center lg:flex">
           {PRIMARY_NAV.map((item) => {
@@ -239,7 +186,7 @@ export function GlobalHeader() {
                   <div
                     role="menu"
                     aria-label={`${group.label} navigation`}
-                    className="absolute top-full left-0 z-50 mt-1 w-48 rounded-md border border-line-strong bg-panel p-1 shadow-[0_24px_48px_rgba(0,0,0,0.55)]"
+                    className="menu-pop absolute top-full left-0 z-50 mt-1 w-72 rounded-lg border border-line-strong bg-panel p-1 shadow-[0_24px_48px_rgba(0,0,0,0.55)]"
                   >
                     {group.items.map((item) => {
                       const itemActive = isActive(item, pathname);
@@ -250,12 +197,13 @@ export function GlobalHeader() {
                           href={hrefFor(item, pathname)}
                           aria-current={itemActive ? "page" : undefined}
                           onClick={closeNavigation}
-                          className={`focus-ring relative flex h-9 items-center rounded-sm px-2.5 text-sm transition-colors ${
-                            itemActive ? "bg-raised text-ink" : "text-dim hover:bg-raised hover:text-ink"
+                          className={`focus-ring relative flex flex-col rounded-md px-3 py-2 transition-colors ${
+                            itemActive ? "bg-raised" : "hover:bg-raised"
                           }`}
                         >
-                          {itemActive ? <span aria-hidden="true" className="absolute inset-y-2 left-0 w-px bg-brand" /> : null}
-                          {item.label}
+                          {itemActive ? <span aria-hidden="true" className="absolute inset-y-2.5 left-0 w-px bg-brand" /> : null}
+                          <span className={`text-sm ${itemActive ? "text-ink" : "text-dim"}`}>{item.label}</span>
+                          <span className="text-xs leading-snug text-faint">{item.description}</span>
                         </Link>
                       );
                     })}
@@ -266,8 +214,20 @@ export function GlobalHeader() {
           })}
         </nav>
 
-        <div className="ml-auto flex min-w-0 items-center gap-2 lg:gap-3">
-          <EnvironmentChip label={snapshot.environment.label} className="hidden lg:flex" />
+        <div className="ml-auto flex min-w-0 items-center gap-1 lg:gap-2">
+          <button
+            type="button"
+            onClick={openCommandPalette}
+            aria-label="Search markets, pages, and actions"
+            aria-keyshortcuts="Control+K Meta+K"
+            className="focus-ring flex h-11 items-center gap-2 rounded-md text-faint transition-colors hover:text-ink max-lg:w-11 max-lg:justify-center lg:h-9 lg:w-56 lg:border lg:border-line lg:bg-inset lg:px-2.5 xl:w-64"
+          >
+            <Search size={15} aria-hidden="true" className="shrink-0" />
+            <span className="hidden flex-1 text-left text-xs lg:inline">Search markets, pages</span>
+            <kbd className="hidden rounded border border-line px-1 font-mono text-[10px] text-off lg:inline">Ctrl K</kbd>
+          </button>
+          <NotificationBell />
+          <EnvironmentChip label={snapshot.environment.label} className="hidden xl:flex" />
 
           <div className="relative shrink-0">
             <button
@@ -433,6 +393,7 @@ export function GlobalHeader() {
           </div>
         </>
       ) : null}
+      <CommandPalette />
     </header>
   );
 }
