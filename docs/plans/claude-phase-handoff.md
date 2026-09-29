@@ -2,7 +2,7 @@
 
 Date: 2026-09-29
 
-Status: Phase 4 gate passed; Phase 5 first-party trading workflows in progress
+Status: Phase 4 gate passed; Phase 5 in progress (venue graph, receipts, and blockers done; trading surfaces next)
 
 Repository: `Shreyassp002/setryn-temp`
 
@@ -132,10 +132,47 @@ The suite also covers the complete user and settlement journey, the deployment g
 - The bundle totals 274,113,018 gas. At 2 x base fee plus priority (0.0401 gwei), the maximum network cost is 0.01100508 ETH, and the deployer requirement with the 2x reserve is 0.02201017 ETH. See `deployments/arbitrum-one/qualification/arbitrum-one-gas-report.md`. Protocol capital is outside this estimate.
 - Before any approved signing, re-check that each library CREATE2 address is still empty or already holds the identical runtime code.
 
-The remaining Phase 2 production blockers are unchanged:
+At the Phase 4 gate, the Phase 2 capacity-graph and receipt-authority blockers were still open. Both are resolved in Phase 5 below.
 
-- `CAPACITY_GRAPH_NOT_WIRED`
-- `RECEIPT_AUTHORITIES_NOT_WIRED`
+## Phase 5 progress
+
+### Contract and deployment foundations for the complete venue set
+
+- **Pre-existing contract-test failures resolved.** All 35 now pass, with no weakened assertions. Most were stale tests: bare-selector expectations, or pranks consumed by view calls. One was a contract defect: sealed-auction solver routes could never be revealed, because the capacity lock reference hashed the route id, and the route id itself commits to the lock. `AuctionHashLib.capacityLockReference` now commits to every other route field.
+- **Route-engine authorization.** `CollateralAwareRouteEngine.selectAndReserve` was permissionless and bound any account's reserved risk admission, which `invalidateRoute` could later release (griefing). `validateCoincidence` let anyone reserve two public-book orders for a caller-chosen consumer and expiry. Route selection now requires `ROUTE_CONSUMER_ROLE` or the vault controller of every bound account. Coincidence reservation requires `ROUTE_CONSUMER_ROLE`.
+- **Terminal disruption deadlock.** `CashSettlementCoordinator.finalizeTerminalDisruption` expected the precommitted disruption transfer on every unresolved lot. `PositionEngine` applies it only under automatic exercise, or automatic-unless-abandoned at or above the threshold. With a non-zero disruption value, holder-election and below-threshold positions could never resolve. The coordinator now mirrors the engine's exercise-policy rule, and regression tests fail on the old code.
+- **Capacity graph wired.** `DeploySetryn` now deploys `CapacityReservationRegistry`, the vault-backed stream and batch capacity managers, `AuctionValidationGate`, `SealedAuctionHouse` (activated sealed-auction clearing channel), `StreamingQuoteEngine`, `BatchClearingEngine`, `ProtocolRouteLiquiditySource`, and `CollateralAwareRouteEngine`. Their roles are least-privilege:
+  - The liquidity source is the only route reserver on the book, RFQ, stream, and auction venues.
+  - The route engine drives the liquidity source.
+  - The capacity managers and auction house request position funding locks.
+  - Bootstrap roles are revoked, and admin transfers begin to governance.
+  - This also closes a pre-existing gap: `PrivateRfqBook` was never granted `FUNDING_REQUESTER_ROLE`, so firm RFQ capacity reverted on every deployment.
+- **Receipt ledger.** New Auction, Solver, Fixing, Stream, and Recovery authorities complete the 18 receipt subject kinds:
+  - Auction and Fixing subjects use permissionless, self-validating registration of their composite keys.
+  - `StreamingQuoteEngine.streamActive` is a new view.
+  - `VerifiableReceiptLedger` is deployed with an immutable, sorted binding for every kind.
+- **No production blockers remain** in `deployments/phase2-contract-inventory.json`.
+
+Evidence:
+
+| Check | Result |
+| --- | --- |
+| Contract tests, excluding invariant and fork | 744 passed, 0 failed, 0 skipped |
+| Pinned fork suite | 26/26, including the deployment rehearsal with venue-role and receipt-binding assertions, and the complete journey |
+| Local deployment on plain Anvil | Deploys and generates evidence: 111 transactions, 29 CREATE2 libraries, 70 qualified Phase 2 deployments, every venue role verified on chain |
+| Unsigned Arbitrum One intent | 290 operations (81 contracts, 29 libraries, 180 calls); deployer requirement 0.02328280 ETH including the 2x reserve |
+
+### Deployment bytecode reproducibility (Sepolia prerequisite)
+
+Under via-IR, the creation code that `DeploySetryn` embeds for `new X(...)` is compiled inside the script's job and can differ from the standalone artifact. `FixingEngine` measured 22,052, 23,910, and 24,016 initcode bytes across three compile contexts.
+
+What was checked against which code:
+
+- Deployment rehearsals (local Anvil and the pinned fork) enforce EIP-170 on the code actually deployed, and both pass.
+- The intent and the evidence identify script-embedded creations by exact linked code, or else by their complete selector set.
+- Evidence records runtime code hashes read from the chain.
+
+Explorer verification on Arbitrum Sepolia needs the deployed bytecode to equal the verified artifacts. The deployment should therefore create contracts from standalone artifacts (linked `deployCode`) before the release candidate.
 
 ## Phase sequence
 
@@ -149,4 +186,4 @@ The remaining Phase 2 production blockers are unchanged:
 
 ## Implementation prompt
 
-Work through Setryn phase by phase from the current Phase 5 position. The landing migration and the Phase 4 gate are complete. Continue with the first-party trading workflows, then the maker, solver, risk, and operations workspaces, then the Arbitrum Sepolia release candidate. Keep the remaining Phase 2 capacity and receipt-authority wiring blockers and the deferred Phase 2 and Phase 3 gates visible until they pass. Do not reduce protocol scope or weaken security. Make logical one-line conventional commits after bounded slices. Keep verification targeted to changed surfaces, and run the full phase gate only when a phase's deliverables are complete. Never perform a mainnet write. Do not start public API or SDK work until the user product is complete.
+Work through Setryn phase by phase from the current Phase 5 position. The landing migration and the Phase 4 gate are complete. Continue with the first-party trading workflows, then the maker, solver, risk, and operations workspaces, then the Arbitrum Sepolia release candidate. Keep the deferred Phase 3 gate visible until it passes, and deploy from standalone artifacts before the Sepolia release candidate. Do not reduce protocol scope or weaken security. Make logical one-line conventional commits after bounded slices. Keep verification targeted to changed surfaces, and run the full phase gate only when a phase's deliverables are complete. Never perform a mainnet write. Do not start public API or SDK work until the user product is complete.
