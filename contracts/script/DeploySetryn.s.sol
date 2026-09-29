@@ -157,6 +157,28 @@ contract DeploySetryn is Script {
         CorrelationDispersionScalarPayoffModule correlationDispersionScalarPayoffModule;
     }
 
+    struct DeploymentConfig {
+        address bootstrapAdmin;
+        address governanceAdmin;
+        address governanceOperator;
+        address guardian;
+        address excessRecovery;
+        address privacyKeyPublisher;
+        address lifecycleWitnessStager;
+        uint48 defaultAdminDelay;
+        uint64 maxLockDuration;
+        uint64 evaluationGasHardCap;
+        uint64 maximumRiskAdapterGas;
+        uint64 maximumRiskObservationAge;
+        uint64 operationalReadGas;
+        uint64 operationalExecutionGas;
+        uint64 maximumOrderLifetime;
+        uint64 maximumRfqCapacityTail;
+        uint64 sequencerRecoveryGrace;
+        bytes32 deploymentId;
+        ISequencerUptimeFeed sequencerFeed;
+    }
+
     function run() external returns (Deployment memory deployment) {
         string memory environment = vm.envString("SETRYN_DEPLOYMENT_ENVIRONMENT");
         _requireAllowedTarget(environment);
@@ -190,47 +212,117 @@ contract DeploySetryn is Script {
         uint64 sequencerRecoveryGrace = _envUint64("SETRYN_SEQUENCER_RECOVERY_GRACE", 1 hours);
         bytes32 deploymentId = vm.envBytes32("SETRYN_DEPLOYMENT_ID");
 
-        vm.startBroadcast(deployer);
+        ISequencerUptimeFeed sequencerFeed;
+        if (keccak256(bytes(environment)) == LOCAL_ENVIRONMENT) {
+            sequencerFeed = ISequencerUptimeFeed(address(0));
+        } else {
+            sequencerFeed = _deployOrResolveSequencerFeed(environment);
+        }
 
-        deployment.assetRegistry = new AssetRegistry(defaultAdminDelay, initialAdmin);
-        deployment.adapterRegistry = new AdapterRegistry(defaultAdminDelay, initialAdmin);
-        deployment.calendarRegistry = new CalendarRegistry(defaultAdminDelay, initialAdmin);
+        DeploymentConfig memory config = DeploymentConfig({
+            bootstrapAdmin: deployer,
+            governanceAdmin: governanceAdmin,
+            governanceOperator: governanceOperator,
+            guardian: guardian,
+            excessRecovery: excessRecovery,
+            privacyKeyPublisher: privacyKeyPublisher,
+            lifecycleWitnessStager: lifecycleWitnessStager,
+            defaultAdminDelay: defaultAdminDelay,
+            maxLockDuration: maxLockDuration,
+            evaluationGasHardCap: evaluationGasHardCap,
+            maximumRiskAdapterGas: maximumRiskAdapterGas,
+            maximumRiskObservationAge: maximumRiskObservationAge,
+            operationalReadGas: operationalReadGas,
+            operationalExecutionGas: operationalExecutionGas,
+            maximumOrderLifetime: maximumOrderLifetime,
+            maximumRfqCapacityTail: maximumRfqCapacityTail,
+            sequencerRecoveryGrace: sequencerRecoveryGrace,
+            deploymentId: deploymentId,
+            sequencerFeed: sequencerFeed
+        });
+
+        vm.startBroadcast(deployer);
+        bytes32 postWiringEvidence;
+        (deployment, postWiringEvidence) = _deployAndWire(config);
+        vm.stopBroadcast();
+
+        _logDeployment(deployment);
+        console2.log("POST_WIRING_EVIDENCE_HASH");
+        console2.logBytes32(postWiringEvidence);
+    }
+
+    function _deployAndWire(DeploymentConfig memory config)
+        internal
+        returns (Deployment memory deployment, bytes32 postWiringEvidence)
+    {
+        if (config.bootstrapAdmin == address(0)) revert InvalidDeploymentPrincipal(address(0));
+        _requireSeparatedPrincipal(config.bootstrapAdmin, config.governanceAdmin, config.governanceOperator);
+        _requireSeparatedPrincipal(config.bootstrapAdmin, config.governanceAdmin, config.guardian);
+        _requireSeparatedPrincipal(config.bootstrapAdmin, config.governanceAdmin, config.excessRecovery);
+        _requireSeparatedPrincipal(config.bootstrapAdmin, config.governanceAdmin, config.privacyKeyPublisher);
+        _requireSeparatedPrincipal(config.bootstrapAdmin, config.governanceAdmin, config.lifecycleWitnessStager);
+        _requireDistinctOperationalPrincipals(
+            config.governanceOperator,
+            config.guardian,
+            config.excessRecovery,
+            config.privacyKeyPublisher,
+            config.lifecycleWitnessStager
+        );
+
+        ISequencerUptimeFeed resolvedFeed;
+        if (address(config.sequencerFeed) == address(0)) {
+            resolvedFeed = ISequencerUptimeFeed(address(new DevnetSequencerUptimeFeed()));
+        } else {
+            if (address(config.sequencerFeed).code.length == 0) {
+                revert InvalidSequencerUptimeFeed(address(config.sequencerFeed));
+            }
+            resolvedFeed = config.sequencerFeed;
+        }
+
+        deployment.assetRegistry = new AssetRegistry(config.defaultAdminDelay, config.bootstrapAdmin);
+        deployment.adapterRegistry = new AdapterRegistry(config.defaultAdminDelay, config.bootstrapAdmin);
+        deployment.calendarRegistry = new CalendarRegistry(config.defaultAdminDelay, config.bootstrapAdmin);
         deployment.sessionRegistry = new SessionRegistry(
-            defaultAdminDelay, initialAdmin, ICalendarRegistry(address(deployment.calendarRegistry))
+            config.defaultAdminDelay, config.bootstrapAdmin, ICalendarRegistry(address(deployment.calendarRegistry))
         );
         deployment.settlementAssetRegistry = new SettlementAssetRegistry(
-            defaultAdminDelay, initialAdmin, IAssetRegistry(address(deployment.assetRegistry))
+            config.defaultAdminDelay, config.bootstrapAdmin, IAssetRegistry(address(deployment.assetRegistry))
         );
         deployment.benchmarkRegistry = new BenchmarkRegistry(
-            defaultAdminDelay,
-            initialAdmin,
+            config.defaultAdminDelay,
+            config.bootstrapAdmin,
             IAssetRegistry(address(deployment.assetRegistry)),
             IAdapterRegistry(address(deployment.adapterRegistry)),
             ICalendarRegistry(address(deployment.calendarRegistry)),
             ISessionRegistry(address(deployment.sessionRegistry))
         );
         deployment.feeScheduleRegistry = new FeeScheduleRegistry(
-            defaultAdminDelay, initialAdmin, ISettlementAssetRegistry(address(deployment.settlementAssetRegistry))
+            config.defaultAdminDelay,
+            config.bootstrapAdmin,
+            ISettlementAssetRegistry(address(deployment.settlementAssetRegistry))
         );
         deployment.riskDomainRegistry = new RiskDomainRegistry(
-            defaultAdminDelay,
-            initialAdmin,
+            config.defaultAdminDelay,
+            config.bootstrapAdmin,
             ISettlementAssetRegistry(address(deployment.settlementAssetRegistry)),
             IAdapterRegistry(address(deployment.adapterRegistry))
         );
         deployment.instrumentRegistry = new InstrumentRegistry(
-            defaultAdminDelay, initialAdmin, IAdapterRegistry(address(deployment.adapterRegistry)), evaluationGasHardCap
+            config.defaultAdminDelay,
+            config.bootstrapAdmin,
+            IAdapterRegistry(address(deployment.adapterRegistry)),
+            config.evaluationGasHardCap
         );
         deployment.collateralVault = new CollateralVault(
-            defaultAdminDelay,
-            initialAdmin,
+            config.defaultAdminDelay,
+            config.bootstrapAdmin,
             ISettlementAssetRegistry(address(deployment.settlementAssetRegistry)),
             IRiskDomainRegistry(address(deployment.riskDomainRegistry)),
-            maxLockDuration
+            config.maxLockDuration
         );
         deployment.marketRegistry = new MarketRegistry(
-            defaultAdminDelay,
-            initialAdmin,
+            config.defaultAdminDelay,
+            config.bootstrapAdmin,
             IAssetRegistry(address(deployment.assetRegistry)),
             ISettlementAssetRegistry(address(deployment.settlementAssetRegistry)),
             ICollateralVault(address(deployment.collateralVault)),
@@ -241,45 +333,47 @@ contract DeploySetryn is Script {
             IFeeScheduleRegistry(address(deployment.feeScheduleRegistry))
         );
         deployment.seriesRegistry = new SeriesRegistry(
-            defaultAdminDelay,
-            initialAdmin,
+            config.defaultAdminDelay,
+            config.bootstrapAdmin,
             IMarketRegistry(address(deployment.marketRegistry)),
             IInstrumentRegistry(address(deployment.instrumentRegistry))
         );
-        deployment.packageRegistry =
-            new PackageRegistry(defaultAdminDelay, initialAdmin, ISeriesRegistry(address(deployment.seriesRegistry)));
+        deployment.packageRegistry = new PackageRegistry(
+            config.defaultAdminDelay, config.bootstrapAdmin, ISeriesRegistry(address(deployment.seriesRegistry))
+        );
         deployment.strategyCompiler = new CanonicalStrategyCompiler();
         deployment.positionEngine = new PositionEngine(
-            defaultAdminDelay,
-            initialAdmin,
+            config.defaultAdminDelay,
+            config.bootstrapAdmin,
             ISeriesRegistry(address(deployment.seriesRegistry)),
             ICollateralVault(address(deployment.collateralVault))
         );
         deployment.fixingEngine = new FixingEngine(ISeriesRegistry(address(deployment.seriesRegistry)));
         deployment.fundedFeeEngine = new FundedFeeEngine(
-            defaultAdminDelay,
-            initialAdmin,
+            config.defaultAdminDelay,
+            config.bootstrapAdmin,
             IFeeScheduleRegistry(address(deployment.feeScheduleRegistry)),
             ICollateralVault(address(deployment.collateralVault))
         );
         deployment.portfolioRiskEngine = new PortfolioRiskEngine(
-            defaultAdminDelay,
-            initialAdmin,
+            config.defaultAdminDelay,
+            config.bootstrapAdmin,
             IRiskDomainRegistry(address(deployment.riskDomainRegistry)),
             IAdapterRegistry(address(deployment.adapterRegistry)),
             ICollateralVault(address(deployment.collateralVault)),
             IPositionEngine(address(deployment.positionEngine)),
-            maximumRiskAdapterGas,
-            maximumRiskObservationAge
+            config.maximumRiskAdapterGas,
+            config.maximumRiskObservationAge
         );
-        deployment.sequencerUptimeFeed = _deployOrResolveSequencerFeed(environment);
-        deployment.executionPolicyRegistry = new ExecutionPolicyRegistry(defaultAdminDelay, initialAdmin);
+        deployment.sequencerUptimeFeed = resolvedFeed;
+        deployment.executionPolicyRegistry =
+            new ExecutionPolicyRegistry(config.defaultAdminDelay, config.bootstrapAdmin);
         deployment.tradingSessionPolicy = new TradingSessionPolicy(
             ISessionRegistry(address(deployment.sessionRegistry)),
             deployment.sequencerUptimeFeed,
             WindowKindId.wrap(keccak256("SetrynWindowKindV1:Trading")),
             WindowKindId.wrap(keccak256("SetrynWindowKindV1:Maintenance")),
-            sequencerRecoveryGrace
+            config.sequencerRecoveryGrace
         );
         deployment.packageWitnessRegistry = new PackageWitnessRegistry(deployment.packageRegistry);
         deployment.riskAdmissionBindingRegistry =
@@ -292,8 +386,9 @@ contract DeploySetryn is Script {
             deployment.packageWitnessRegistry,
             deployment.riskAdmissionBindingRegistry
         );
-        deployment.orderState =
-            new OrderState(defaultAdminDelay, initialAdmin, deployment.orderValidationGate, maximumOrderLifetime);
+        deployment.orderState = new OrderState(
+            config.defaultAdminDelay, config.bootstrapAdmin, deployment.orderValidationGate, config.maximumOrderLifetime
+        );
         deployment.riskAdmissionBindingRegistry.bindOrderVerifyingContract(address(deployment.orderState));
         deployment.clearingAdmissionGate = new ClearingAdmissionGate(
             deployment.seriesRegistry,
@@ -304,8 +399,8 @@ contract DeploySetryn is Script {
             deployment.riskAdmissionBindingRegistry
         );
         deployment.atomicClearingEngine = new AtomicClearingEngine(
-            defaultAdminDelay,
-            initialAdmin,
+            config.defaultAdminDelay,
+            config.bootstrapAdmin,
             deployment.orderState,
             deployment.seriesRegistry,
             deployment.packageRegistry,
@@ -322,16 +417,17 @@ contract DeploySetryn is Script {
             deployment.packageWitnessRegistry
         );
         deployment.privateRfqBook = new PrivateRfqBook(
-            defaultAdminDelay,
-            initialAdmin,
+            config.defaultAdminDelay,
+            config.bootstrapAdmin,
             IFirmCapacityVault(address(deployment.collateralVault)),
             deployment.privateRfqValidationGate,
             address(deployment.atomicClearingEngine),
-            maximumRfqCapacityTail
+            config.maximumRfqCapacityTail
         );
-        deployment.atomicClearingEngine.activateClearingChannel(
-            ClearingChannelKind.PrivateRfq, deployment.privateRfqBook, PRIVATE_RFQ_CLEARING_CAPABILITY
-        );
+        deployment.atomicClearingEngine
+            .activateClearingChannel(
+                ClearingChannelKind.PrivateRfq, deployment.privateRfqBook, PRIVATE_RFQ_CLEARING_CAPABILITY
+            );
         deployment.publicBookEligibilityGate = new PublicBookEligibilityGate(
             deployment.orderState,
             deployment.seriesRegistry,
@@ -344,8 +440,8 @@ contract DeploySetryn is Script {
             deployment.orderState, deployment.atomicClearingEngine, deployment.publicBookEligibilityGate
         );
         deployment.positionLifecycleExecutor = new PositionLifecycleExecutor(
-            defaultAdminDelay,
-            initialAdmin,
+            config.defaultAdminDelay,
+            config.bootstrapAdmin,
             IPositionEngine(address(deployment.positionEngine)),
             deployment.portfolioRiskEngine
         );
@@ -355,8 +451,8 @@ contract DeploySetryn is Script {
             IPositionEngine(address(deployment.positionEngine)), deployment.packageRegistry
         );
         deployment.signedLifecycleEngine = new SignedLifecycleEngine(
-            defaultAdminDelay,
-            initialAdmin,
+            config.defaultAdminDelay,
+            config.bootstrapAdmin,
             deployment.positionEngine,
             deployment.accountPolicyAuthority,
             deployment.lifecyclePolicyValidator,
@@ -364,8 +460,8 @@ contract DeploySetryn is Script {
             IRiskDomainRegistry(address(deployment.riskDomainRegistry))
         );
         deployment.compressionCoordinator = new CompressionCoordinator(
-            defaultAdminDelay,
-            initialAdmin,
+            config.defaultAdminDelay,
+            config.bootstrapAdmin,
             deployment.positionEngine,
             deployment.accountPolicyAuthority,
             deployment.positionLifecycleExecutor,
@@ -384,12 +480,13 @@ contract DeploySetryn is Script {
             deployment.fundedFeeEngine,
             deployment.portfolioRiskEngine
         );
-        deployment.privacyCommitmentRegistry = new PrivacyCommitmentRegistry(defaultAdminDelay, initialAdmin);
+        deployment.privacyCommitmentRegistry =
+            new PrivacyCommitmentRegistry(config.defaultAdminDelay, config.bootstrapAdmin);
         deployment.operationalAdapterExecutor = new OperationalAdapterExecutor(
             IAdapterRegistry(address(deployment.adapterRegistry)),
-            deploymentId,
-            operationalReadGas,
-            operationalExecutionGas
+            config.deploymentId,
+            config.operationalReadGas,
+            config.operationalExecutionGas
         );
         deployment.cappedForwardPayoffModule = new CappedForwardPayoffModule();
         deployment.ndfPayoffModule = new NdfPayoffModule();
@@ -407,29 +504,24 @@ contract DeploySetryn is Script {
 
         _wireInternalRoles(
             deployment,
-            deployer,
-            governanceAdmin,
-            governanceOperator,
-            guardian,
-            excessRecovery,
-            privacyKeyPublisher,
-            lifecycleWitnessStager
+            config.bootstrapAdmin,
+            config.governanceAdmin,
+            config.governanceOperator,
+            config.guardian,
+            config.excessRecovery,
+            config.privacyKeyPublisher,
+            config.lifecycleWitnessStager
         );
-        bytes32 postWiringEvidence = _postWiringEvidence(
+        postWiringEvidence = _postWiringEvidence(
             deployment,
-            deployer,
-            governanceAdmin,
-            governanceOperator,
-            guardian,
-            excessRecovery,
-            privacyKeyPublisher,
-            lifecycleWitnessStager
+            config.bootstrapAdmin,
+            config.governanceAdmin,
+            config.governanceOperator,
+            config.guardian,
+            config.excessRecovery,
+            config.privacyKeyPublisher,
+            config.lifecycleWitnessStager
         );
-        vm.stopBroadcast();
-
-        _logDeployment(deployment);
-        console2.log("POST_WIRING_EVIDENCE_HASH");
-        console2.logBytes32(postWiringEvidence);
     }
 
     function _wireInternalRoles(
@@ -463,9 +555,10 @@ contract DeploySetryn is Script {
             .grantRole(deployment.portfolioRiskEngine.RISK_CONSUMER_ROLE(), address(deployment.atomicClearingEngine));
         deployment.portfolioRiskEngine
             .grantRole(deployment.portfolioRiskEngine.RISK_CONSUMER_ROLE(), governanceOperator);
-        deployment.portfolioRiskEngine.grantRole(
-            deployment.portfolioRiskEngine.RISK_CONSUMER_ROLE(), address(deployment.riskAdmissionBindingRegistry)
-        );
+        deployment.portfolioRiskEngine
+            .grantRole(
+                deployment.portfolioRiskEngine.RISK_CONSUMER_ROLE(), address(deployment.riskAdmissionBindingRegistry)
+            );
         deployment.publicOrderBook.grantRole(deployment.publicOrderBook.DEFAULT_ADMIN_ROLE(), governanceAdmin);
         deployment.publicOrderBook.grantRole(deployment.publicOrderBook.ROUTE_RESERVER_ROLE(), governanceOperator);
         deployment.publicOrderBook.revokeRole(deployment.publicOrderBook.ROUTE_RESERVER_ROLE(), bootstrapAdmin);
