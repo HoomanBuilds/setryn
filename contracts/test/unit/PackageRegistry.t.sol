@@ -210,7 +210,7 @@ contract PackageRegistryTest is Test {
         legs[0] = legs[1];
         legs[1] = first;
         PackageDefinition memory definition = _uncheckedPackageDefinition(legs);
-        vm.expectRevert(InvalidPackageOrientation.selector);
+        vm.expectRevert(abi.encodeWithSelector(InvalidPackageOrientation.selector, legs[0].ratio));
         vm.prank(qualifier);
         registry.registerPackage(definition, legs);
 
@@ -218,7 +218,7 @@ contract PackageRegistryTest is Test {
         legs[1].seriesId = legs[0].seriesId;
         legs[1].seriesVersion = legs[0].seriesVersion;
         definition = _uncheckedPackageDefinition(legs);
-        vm.expectRevert(InvalidPackageLegOrder.selector);
+        vm.expectRevert(abi.encodeWithSelector(InvalidPackageLegOrder.selector, uint256(1)));
         vm.prank(qualifier);
         registry.registerPackage(definition, legs);
 
@@ -226,7 +226,7 @@ contract PackageRegistryTest is Test {
         legs[0].ratio = 2;
         legs[1].ratio = -4;
         definition = _uncheckedPackageDefinition(legs);
-        vm.expectRevert(NonPrimitivePackageRatios.selector);
+        vm.expectRevert(abi.encodeWithSelector(NonPrimitivePackageRatios.selector, uint256(2)));
         vm.prank(qualifier);
         registry.registerPackage(definition, legs);
     }
@@ -273,8 +273,9 @@ contract PackageRegistryTest is Test {
             _seriesDefinition(keccak256("low.series.b"), lowMarketB, B_LONG, B_SHORT), VERSION, true, true
         );
         PackageRegistry lowRegistry = new PackageRegistry(3 days, admin, ISeriesRegistry(address(lowSeries)));
+        bytes32 qualifierRole = lowRegistry.PACKAGE_QUALIFIER_ROLE();
         vm.prank(admin);
-        lowRegistry.grantRole(lowRegistry.PACKAGE_QUALIFIER_ROLE(), qualifier);
+        lowRegistry.grantRole(qualifierRole, qualifier);
         legs = _sortedLegs(lowA, lowB);
         definition = _packageDefinitionFor(legs, lowSeries);
         vm.expectPartialRevert(IPackageRegistry.PackageLiabilityExceedsRiskCap.selector);
@@ -287,7 +288,9 @@ contract PackageRegistryTest is Test {
         legs[1].ratio = type(int32).min;
         PackageDefinition memory definition = _uncheckedPackageDefinition(legs);
         definition.maxOrderLots = Lots.wrap(type(uint128).max);
-        vm.expectRevert(PackageLegLotsOverflow.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(PackageLegLotsOverflow.selector, Lots.unwrap(definition.maxOrderLots), legs[1].ratio)
+        );
         vm.prank(qualifier);
         registry.registerPackage(definition, legs);
     }
