@@ -34,8 +34,9 @@ has_argument_pair() {
     local index
     for ((index = 0; index + 1 < ${#command_parts[@]}; index++)); do
         if [[ "${command_parts[$index]}" == "$expected_name" ]]; then
+            # An explicit status: a bare return inside a trap handler reports the command that fired the trap.
             [[ "${command_parts[$((index + 1))]}" == "$expected_value" ]]
-            return
+            return $?
         fi
     done
     return 1
@@ -58,12 +59,15 @@ managed_identity_matches() {
     local expected_start_identity="$2"
     local expected_command_hash="$3"
 
+    # The start time pins one process instance of the PID, and the live command line must still be this script's
+    # anvil invocation. The recorded command hash is kept for audit but not compared, because a hash taken during
+    # exec can describe the pre-exec command line.
     [[ "$managed_pid" =~ ^[0-9]+$ ]] &&
+        [[ -n "$expected_command_hash" ]] &&
         kill -0 "$managed_pid" 2>/dev/null &&
         [[ -r "/proc/$managed_pid/stat" ]] &&
         [[ -r "/proc/$managed_pid/cmdline" ]] &&
         [[ "$(process_start_identity "$managed_pid")" == "$expected_start_identity" ]] &&
-        [[ "$(process_command_hash "$managed_pid")" == "$expected_command_hash" ]] &&
         managed_command_matches "$managed_pid"
 }
 
@@ -91,7 +95,7 @@ stop_managed_anvil() {
         exit 1
     fi
     if ! managed_identity_matches "$managed_pid" "${managed_identity[1]}" "${managed_identity[2]}"; then
-        # The recorded start time or command differs, so the managed anvil is gone and the PID was reused
+        # The recorded start time or anvil command differs, so the managed anvil is gone and the PID was reused
         # (for example after a container restart). Nothing is stopped; the stale record is dropped and the port
         # check below still refuses to start over an occupied port.
         printf 'Discarding stale managed anvil record for reused PID %s.\n' "$managed_pid" >&2
@@ -170,8 +174,9 @@ anvil --silent --host "$rpc_bind_host" --port "$rpc_port" --chain-id "$chain_id"
 anvil_pid=$!
 trap cleanup_failed_start ERR INT TERM
 
-for _ in {1..20}; do
-    if [[ -r "/proc/$anvil_pid/stat" ]] && [[ -r "/proc/$anvil_pid/cmdline" ]]; then
+for _ in {1..100}; do
+    # Record the identity only after exec, once the command line is the anvil invocation itself.
+    if [[ -r "/proc/$anvil_pid/stat" ]] && [[ -r "/proc/$anvil_pid/cmdline" ]] && managed_command_matches "$anvil_pid"; then
         write_managed_identity "$anvil_pid"
         break
     fi
