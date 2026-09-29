@@ -192,19 +192,14 @@ contract BootstrapSetrynDevnet is Script {
         _registerSettlementBinding(c, runtime);
         runtime.benchmarkId = _registerBenchmark(c, runtime);
         runtime.feeRecipientAccountId = c.collateralVault.createAccount(keccak256("SETRYN_PROTOCOL_FEES_DEVNET_V1"));
-        (FeeRule[] memory feeRules, FeeRecipientSet memory feeRecipients) =
-            _feeWitness(runtime.feeRecipientAccountId);
+        (FeeRule[] memory feeRules, FeeRecipientSet memory feeRecipients) = _feeWitness(runtime.feeRecipientAccountId);
         runtime.feeScheduleId = _registerFeeSchedule(c, runtime, feeRules, feeRecipients);
         c.fundedFeeEngine.installScheduleWitness(runtime.feeScheduleId, VERSION, feeRules, feeRecipients);
         runtime.riskDomainId = _registerRiskDomain(c, runtime);
         runtime.instrumentId = _registerInstrument(c, runtime);
         runtime.marketId = _registerMarket(c, runtime);
-        (
-            runtime.seriesId,
-            runtime.payoffTerms,
-            runtime.maxLongDebitMinorPerLot,
-            runtime.maxShortDebitMinorPerLot
-        ) = _registerSeries(c, runtime, schedule);
+        (runtime.seriesId, runtime.payoffTerms, runtime.maxLongDebitMinorPerLot, runtime.maxShortDebitMinorPerLot) =
+            _registerSeries(c, runtime, schedule);
         c.executionPolicy.setExecutionMode(EXECUTION_MODE_SET, EXECUTION_MODE_PUBLIC_BOOK, true);
         c.executionPolicy.setExecutionMode(EXECUTION_MODE_SET, EXECUTION_MODE_PRIVATE_RFQ, true);
         c.executionPolicy.setPolicyTag(PRIVACY_MODE_POLICY, PRIVACY_MODE_BLIND, true);
@@ -435,9 +430,7 @@ contract BootstrapSetrynDevnet is Script {
         FeeRecipient[] memory entries = new FeeRecipient[](1);
         entries[0] = FeeRecipient({accountId: recipientAccountId, sharePpm: 1_000_000});
         recipients = FeeRecipientSet({
-            remainderPolicyId: FeeRemainderPolicyId.wrap(
-                keccak256("SetrynFeeRemainderPolicyV1:DesignatedRecipient")
-            ),
+            remainderPolicyId: FeeRemainderPolicyId.wrap(keccak256("SetrynFeeRemainderPolicyV1:DesignatedRecipient")),
             remainderRecipientIndex: 0,
             recipients: entries
         });
@@ -823,9 +816,7 @@ contract BootstrapSetrynDevnet is Script {
         vm.serializeBytes32(objectKey, "privateRfqPrivacyModeId", PRIVACY_MODE_BLIND);
         vm.serializeBytes32(objectKey, "privateRfqDisclosurePolicyHash", DISCLOSURE_BLIND_QUALIFIED);
         vm.serializeBytes32(
-            objectKey,
-            "privateRfqEligibleMakerSetHash",
-            keccak256(bytes.concat(keccak256(abi.encode(operator))))
+            objectKey, "privateRfqEligibleMakerSetHash", keccak256(bytes.concat(keccak256(abi.encode(operator))))
         );
         vm.serializeBytes(objectKey, "payoffTerms", runtime.payoffTerms);
         string memory json = vm.serializeBytes32(

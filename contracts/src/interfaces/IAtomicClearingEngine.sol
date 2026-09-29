@@ -69,10 +69,7 @@ interface IAtomicClearingEngine {
         address requester
     );
     event OrderFeeFundingReleased(
-        bytes32 indexed orderHash,
-        bytes32 indexed consumptionId,
-        CollateralLockId indexed lockId,
-        address requester
+        bytes32 indexed orderHash, bytes32 indexed consumptionId, CollateralLockId indexed lockId, address requester
     );
     event ClearingChannelActivated(
         ClearingChannelKind indexed channelKind, address indexed adapter, bytes32 indexed capabilityHash
