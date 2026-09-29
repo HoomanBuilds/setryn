@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { ChevronDown, FileText } from "lucide-react";
 import { MarketSwitcher } from "@/components/terminal/MarketSwitcher";
+import { FlashValue } from "@/components/terminal/motion";
 import { Delta, QUALIFICATION_LABEL, SectionLabel } from "@/components/terminal/primitives";
 import {
   changePercent,
@@ -110,9 +111,9 @@ export function MarketHeader({
         <span aria-hidden="true" className="hidden h-6 w-px bg-line lg:block" />
 
         <span className="hidden items-baseline gap-2 lg:flex">
-          <span className="tnum font-mono text-[17px] tracking-[-0.01em] text-ink">
+          <FlashValue value={market.netPrice} className="tnum font-mono text-[17px] tracking-[-0.01em] text-ink">
             {formatPrice(market.netPrice, market)}
-          </span>
+          </FlashValue>
           <span className="text-xs text-faint">{unit}</span>
           <Delta value={change} className="text-xs" />
         </span>
@@ -127,7 +128,7 @@ export function MarketHeader({
 
       <div className="ml-auto flex shrink-0 flex-col items-end justify-center pr-3 lg:hidden">
         <span className="tnum font-mono text-[15px] text-ink">
-          {`${formatPrice(market.netPrice, market)} `}
+          <FlashValue value={market.netPrice}>{`${formatPrice(market.netPrice, market)} `}</FlashValue>
           <span className="text-xs text-faint">{unit}</span>
         </span>
         <Delta value={change} className="text-xs" />

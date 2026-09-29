@@ -36,7 +36,7 @@ export function StatusStrip() {
         className="flex h-full shrink-0 items-center gap-2 border-r border-line px-3 text-faint"
         title={`${snapshot.environment.label}: collateral and public orders settle onchain. Market observations use the development feed. Mainnet writes are disabled.`}
       >
-        <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-up shadow-[0_0_6px_var(--color-up)]" />
+        <span aria-hidden="true" className="live-dot h-1.5 w-1.5 rounded-full bg-up text-up shadow-[0_0_6px_var(--color-up)]" />
         <span className="text-dim">{snapshot.environment.label}</span>
         <span className="tnum font-mono">{`chain ${snapshot.environment.chainId}`}</span>
         <span className="text-off">·</span>

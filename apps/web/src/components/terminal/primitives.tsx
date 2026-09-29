@@ -218,8 +218,8 @@ export function Tabs({
             ) : null}
             <span
               aria-hidden="true"
-              className={`absolute inset-x-2 bottom-0 h-[2px] rounded-t-sm ${
-                selected ? "bg-brand" : "bg-transparent"
+              className={`absolute inset-x-2 bottom-0 h-[2px] origin-center rounded-t-sm bg-brand transition-transform duration-200 ease-out ${
+                selected ? "scale-x-100" : "scale-x-0"
               }`}
             />
           </button>

@@ -265,10 +265,11 @@ export function ConsolePanel({
       </div>
 
       <div
+        key={tab}
         id={`console-panel-${tab}`}
         role="tabpanel"
         aria-labelledby={`console-tab-${tab}`}
-        className="min-h-0 min-w-0 flex-1"
+        className="panel-in min-h-0 min-w-0 flex-1"
       >
         {tab === "strategies" ? (
           (

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, ChevronDown, Info } from "lucide-react";
+import { FlashValue } from "@/components/terminal/motion";
 import { usePreviewTrades } from "@/components/terminal/PreviewMarketProvider";
 import { FIRMNESS_LABEL, SOURCE_LABEL, SourceMark } from "@/components/terminal/primitives";
 import {
@@ -210,18 +211,23 @@ function Menu<T extends string | number>({
 }
 
 function TradesTape({ market, trades }: { market: PackageMarket; trades: PreviewTrade[] }) {
+  // The seeded history renders still; only prints that arrive while the tape is open animate in.
+  const [firstId] = useState(() => trades[0]?.id ?? null);
+  const animateHead = trades[0]?.id !== firstId;
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="panel-in flex min-h-0 flex-1 flex-col">
       <div className="grid h-7 shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,0.8fr)] items-center gap-2 px-3 text-[11px] text-faint">
         <span>{`Price (${priceUnitSuffix(market.priceUnit)})`}</span>
         <span className="text-right">Size (lots)</span>
         <span className="text-right">Time</span>
       </div>
       <ol className="scroll-thin min-h-0 flex-1 overflow-y-auto" aria-label="Recent trades">
-        {trades.map((trade) => (
+        {trades.map((trade, index) => (
           <li
             key={trade.id}
-            className="grid h-[22px] grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,0.8fr)] items-center gap-2 px-3"
+            className={`grid h-[22px] grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,0.8fr)] items-center gap-2 px-3 ${
+              index === 0 && animateHead ? (trade.side === "BUY" ? "trade-in-up" : "trade-in-down") : ""
+            }`}
           >
             <span className={`tnum font-mono text-xs ${trade.side === "BUY" ? "text-up" : "text-down"}`}>
               {formatPrice(trade.price, market)}
@@ -346,7 +352,7 @@ export function OrderBookPanel({
       {tab === "TRADES" ? (
         <TradesTape market={market} trades={trades} />
       ) : (
-        <>
+        <div className="panel-in flex min-h-0 flex-1 flex-col">
           <div className="flex h-8 shrink-0 items-center gap-1 px-2">
             {(["BOTH", "BIDS", "ASKS"] as BookView[]).map((option) => (
               <button
@@ -416,7 +422,7 @@ export function OrderBookPanel({
 
             <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-y border-line bg-inset px-3">
               <span className={`tnum flex items-center gap-1 font-mono text-base font-medium ${lastUp ? "text-up" : "text-down"}`}>
-                {formatPrice(last?.price ?? mid, market)}
+                <FlashValue value={last?.price ?? mid}>{formatPrice(last?.price ?? mid, market)}</FlashValue>
                 {lastUp ? <ArrowUp size={14} aria-hidden="true" /> : <ArrowDown size={14} aria-hidden="true" />}
               </span>
               <span className="text-[11px] text-faint">
@@ -452,7 +458,7 @@ export function OrderBookPanel({
             </div>
             <span className="tnum font-mono text-[11px] text-down">{`${100 - bidPercent}% S`}</span>
           </div>
-        </>
+        </div>
       )}
     </section>
   );

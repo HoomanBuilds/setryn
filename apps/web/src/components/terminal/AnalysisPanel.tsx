@@ -54,7 +54,7 @@ export function AnalysisPanel({
           className="hidden shrink-0 items-center gap-1.5 text-xs text-off sm:flex"
           title="Deterministic preview feed. No value is read from a live venue or chain."
         >
-          <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-up" />
+          <span aria-hidden="true" className="live-dot h-1.5 w-1.5 rounded-full bg-up text-up" />
           <span>Preview stream</span>
           <span className="tnum font-mono text-faint">
             {`${formatUtcClock(previewEpochSeconds)} UTC`}
@@ -63,10 +63,11 @@ export function AnalysisPanel({
       </div>
 
       <div
+        key={tab}
         id={`viz-panel-${tab}`}
         role="tabpanel"
         aria-labelledby={`viz-tab-${tab}`}
-        className={`flex min-h-0 min-w-0 flex-1 flex-col ${
+        className={`panel-in flex min-h-0 min-w-0 flex-1 flex-col ${
           tab === "price" ? "p-0" : "px-3 py-3 lg:px-4"
         }`}
       >
