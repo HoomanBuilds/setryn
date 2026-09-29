@@ -78,6 +78,62 @@ function latestDryRun() {
   return JSON.parse(readFileSync(files[0], "utf8"));
 }
 
+// Foundry leaves a creation unnamed when the init code embedded in the script (compiled in the script's via-IR job)
+// differs from the standalone artifact. Identify it by an exact linked-artifact match, else by the unique production
+// contract whose complete external selector set appears in the init code.
+function artifactPathFor(contractName) {
+  const sourceName = contractName.endsWith("PayoffModule") ? "ProductionPayoffModules" : contractName;
+  return resolve(repositoryRoot, `contracts/out/${sourceName}.sol/${contractName}.json`);
+}
+
+function linkedCreationCode(artifact, libraryAddresses) {
+  let code = artifact.bytecode.object.toLowerCase();
+  for (const [source, libraries] of Object.entries(artifact.bytecode.linkReferences ?? {})) {
+    for (const [library, references] of Object.entries(libraries)) {
+      const address = libraryAddresses.get(`${source}:${library}`);
+      if (!address) throw new Error(`Library ${library} was not deployed by the simulation.`);
+      for (const { start, length } of references) {
+        const offset = 2 + start * 2;
+        code = code.slice(0, offset) + address.slice(2) + code.slice(offset + length * 2);
+      }
+    }
+  }
+  return code;
+}
+
+function resolveUnnamedCreation(input, libraryAddresses, candidateNames) {
+  const artifacts = candidateNames
+    .map((name) => ({ name, path: artifactPathFor(name) }))
+    .filter(({ path }) => {
+      try {
+        return statSync(path).isFile();
+      } catch {
+        return false;
+      }
+    })
+    .map(({ name, path }) => ({ name, artifact: JSON.parse(readFileSync(path, "utf8")) }))
+    .filter(({ artifact }) => artifact.bytecode?.object?.length > 2);
+  const exact = artifacts.filter(({ artifact }) => {
+    try {
+      return input.startsWith(linkedCreationCode(artifact, libraryAddresses));
+    } catch {
+      return false;
+    }
+  });
+  if (exact.length === 1) return exact[0].name;
+  const bySelectors = artifacts
+    .map(({ name, artifact }) => {
+      const selectors = Object.values(artifact.methodIdentifiers ?? {}).map((selector) => selector.toLowerCase());
+      return { name, count: selectors.length, complete: selectors.every((selector) => input.includes(selector)) };
+    })
+    .filter(({ count, complete }) => count >= 4 && complete)
+    .sort((left, right) => right.count - left.count);
+  if (bySelectors.length === 0 || bySelectors[0].count === bySelectors[1]?.count) {
+    throw new Error("Unable to identify an unnamed contract creation.");
+  }
+  return bySelectors[0].name;
+}
+
 function main() {
   const options = parseArguments(process.argv.slice(2));
   const rpcUrl = assertExplicitRpcUrl(options["rpc-url"]);
@@ -128,6 +184,12 @@ function main() {
   const names = new Map(manifest.externalDependencies.map(({ name, address }) => [address.toLowerCase(), name]));
   const operations = [];
   const counts = new Map();
+  const libraryAddresses = new Map(
+    (dryRun.libraries ?? []).map((entry) => {
+      const [source, name, address] = entry.split(":");
+      return [`${source}:${name}`, address.toLowerCase()];
+    }),
+  );
   let expectedNonce = senderNonce;
   for (const entry of dryRun.transactions) {
     const transaction = entry.transaction;
@@ -140,10 +202,16 @@ function main() {
     if (BigInt(value) !== 0n) throw new Error("Deployment graph must not transfer value.");
     let op;
     if (entry.transactionType === "CREATE") {
-      if (!entry.contractName) throw new Error(`Unnamed contract creation at nonce ${Number(transaction.nonce)}.`);
+      const contractName =
+        entry.contractName ??
+        resolveUnnamedCreation(
+          transaction.input.toLowerCase(),
+          libraryAddresses,
+          inventory.contracts.map(({ name }) => name),
+        );
       const address = entry.contractAddress.toLowerCase();
-      names.set(address, entry.contractName);
-      op = { kind: "CREATE", base: entry.contractName, initCode: transaction.input.toLowerCase(), expectedAddress: address };
+      names.set(address, contractName);
+      op = { kind: "CREATE", base: contractName, initCode: transaction.input.toLowerCase(), expectedAddress: address };
     } else if (entry.transactionType === "CREATE2") {
       if (!libraryNames.has(entry.contractName)) {
         throw new Error(`CREATE2 deployment of ${entry.contractName} is not a declared linked library.`);
