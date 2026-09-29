@@ -260,8 +260,8 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
             )
         });
 
-        _consumeRiskAdmissions(context, matchData, settlement, 1);
         _consumeOrders(context, matchData.fillLots);
+        _consumeRiskAdmissions(context, matchData, settlement, 1);
         _validateChannelMatch(context, matchData, request.channelKind, channelClaim, bytes32(0));
         _applyFunding(context, matchData, settlement, request.channelKind, channelClaim);
         FeeContext memory fees = _consumeFees(context, matchData, settlement, request.channelKind);
@@ -386,8 +386,8 @@ contract AtomicClearingEngine is IAtomicClearingEngine, AccessControlDefaultAdmi
                 definition.maxShortDebitMinorPerPackageLot, matchData.fillLots
             )
         });
-        _consumeRiskAdmissions(context, matchData, settlement, uint16(request.legs.length));
         _consumeOrders(context, matchData.fillLots);
+        _consumeRiskAdmissions(context, matchData, settlement, uint16(request.legs.length));
         _validateChannelMatch(context, matchData, request.channelKind, channelClaim, legsHash);
         _applyFunding(context, matchData, settlement, request.channelKind, channelClaim);
         FeeContext memory fees = _consumeFees(context, matchData, settlement, request.channelKind);
