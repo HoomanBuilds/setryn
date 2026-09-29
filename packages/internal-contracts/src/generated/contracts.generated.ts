@@ -1,6 +1,6 @@
 import type { InternalContractBinding } from "../types.ts";
 
-export const generatedBindingsHash = "sha256:b44d59ab92d69b4d7c81d1bed13567384c3cad2045db4648bd7a094dc101a198";
+export const generatedBindingsHash = "sha256:4a94deb4cb2af06182651899c443fe8cf2884a32ba7e84e9ef25d3a0fb5512a8";
 
 export const contractBindings = {
   "AssetRegistry": {
@@ -27960,22 +27960,6 @@ export const contractBindings = {
       },
       {
         "type": "error",
-        "name": "PositionAmountOverflow",
-        "inputs": [
-          {
-            "name": "perLot",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "lots",
-            "type": "uint256",
-            "internalType": "uint256"
-          }
-        ]
-      },
-      {
-        "type": "error",
         "name": "PositionFundingMismatch",
         "inputs": [
           {
@@ -32829,6 +32813,17 @@ export const contractBindings = {
       },
       {
         "type": "error",
+        "name": "UnknownFeeRecipient",
+        "inputs": [
+          {
+            "name": "accountId",
+            "type": "bytes32",
+            "internalType": "AccountId"
+          }
+        ]
+      },
+      {
+        "type": "error",
         "name": "UnknownFeeScheduleVersion",
         "inputs": [
           {
@@ -35040,29 +35035,8 @@ export const contractBindings = {
       },
       {
         "type": "error",
-        "name": "InvalidObservations",
-        "inputs": []
-      },
-      {
-        "type": "error",
         "name": "InvalidPortfolioWitness",
         "inputs": []
-      },
-      {
-        "type": "error",
-        "name": "InvalidPortfolioWitness",
-        "inputs": []
-      },
-      {
-        "type": "error",
-        "name": "InvalidRiskAdapterReturn",
-        "inputs": [
-          {
-            "name": "length",
-            "type": "uint256",
-            "internalType": "uint256"
-          }
-        ]
       },
       {
         "type": "error",
@@ -35094,11 +35068,6 @@ export const contractBindings = {
       {
         "type": "error",
         "name": "ReentrancyGuardReentrantCall",
-        "inputs": []
-      },
-      {
-        "type": "error",
-        "name": "RiskAdapterCallFailed",
         "inputs": []
       },
       {
@@ -49996,6 +49965,63 @@ export const contractBindings = {
       },
       {
         "type": "function",
+        "name": "previewSeriesFillId",
+        "inputs": [
+          {
+            "name": "takerOrderHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "makerOrderHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "fillLots",
+            "type": "uint128",
+            "internalType": "Lots"
+          },
+          {
+            "name": "executionPriceTicks",
+            "type": "int128",
+            "internalType": "PriceTicks"
+          },
+          {
+            "name": "payoffTerms",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "fillId",
+            "type": "bytes32",
+            "internalType": "FillId"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "releaseOrderFeeFunding",
+        "inputs": [
+          {
+            "name": "orderHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "consumptionId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
         "name": "releaseOrderFunding",
         "inputs": [
           {
@@ -50033,6 +50059,55 @@ export const contractBindings = {
           }
         ],
         "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "reserveOrderFeeFunding",
+        "inputs": [
+          {
+            "name": "orderHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "parentActionId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "actionId",
+            "type": "bytes32",
+            "internalType": "FeeActionId"
+          },
+          {
+            "name": "actionOrdinal",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "notionalMinor",
+            "type": "uint128",
+            "internalType": "uint128"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "consumptionId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "lockId",
+            "type": "bytes32",
+            "internalType": "CollateralLockId"
+          },
+          {
+            "name": "chargeMinor",
+            "type": "uint128",
+            "internalType": "uint128"
+          }
+        ],
         "stateMutability": "nonpayable"
       },
       {
@@ -50498,6 +50573,86 @@ export const contractBindings = {
       },
       {
         "type": "event",
+        "name": "OrderFeeFundingReleased",
+        "inputs": [
+          {
+            "name": "orderHash",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "consumptionId",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "lockId",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "CollateralLockId"
+          },
+          {
+            "name": "requester",
+            "type": "address",
+            "indexed": false,
+            "internalType": "address"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "OrderFeeFundingReserved",
+        "inputs": [
+          {
+            "name": "orderHash",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "consumptionId",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "actionId",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "FeeActionId"
+          },
+          {
+            "name": "lockId",
+            "type": "bytes32",
+            "indexed": false,
+            "internalType": "CollateralLockId"
+          },
+          {
+            "name": "amount",
+            "type": "uint128",
+            "indexed": false,
+            "internalType": "uint128"
+          },
+          {
+            "name": "expiry",
+            "type": "uint64",
+            "indexed": false,
+            "internalType": "uint64"
+          },
+          {
+            "name": "requester",
+            "type": "address",
+            "indexed": false,
+            "internalType": "address"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
         "name": "OrderFundingReleased",
         "inputs": [
           {
@@ -50798,24 +50953,30 @@ export const contractBindings = {
       },
       {
         "type": "error",
-        "name": "ExecutionModeMismatch",
+        "name": "FeeFundingAboveOrderMaximum",
         "inputs": [
           {
-            "name": "takerMode",
-            "type": "bytes32",
-            "internalType": "bytes32"
+            "name": "maximum",
+            "type": "uint128",
+            "internalType": "uint128"
           },
           {
-            "name": "makerMode",
-            "type": "bytes32",
-            "internalType": "bytes32"
+            "name": "actual",
+            "type": "uint128",
+            "internalType": "uint128"
           }
         ]
       },
       {
         "type": "error",
-        "name": "FeeScheduleMismatch",
-        "inputs": []
+        "name": "FeeRebateFundingUnsupported",
+        "inputs": [
+          {
+            "name": "rebateAmount",
+            "type": "uint128",
+            "internalType": "uint128"
+          }
+        ]
       },
       {
         "type": "error",
@@ -50888,8 +51049,14 @@ export const contractBindings = {
       },
       {
         "type": "error",
-        "name": "IdenticalOrderHashes",
-        "inputs": []
+        "name": "InvalidFeeFundingAction",
+        "inputs": [
+          {
+            "name": "actionId",
+            "type": "bytes32",
+            "internalType": "FeeActionId"
+          }
+        ]
       },
       {
         "type": "error",
@@ -51003,16 +51170,6 @@ export const contractBindings = {
       },
       {
         "type": "error",
-        "name": "OrderSideMismatch",
-        "inputs": []
-      },
-      {
-        "type": "error",
-        "name": "OrderTargetMismatch",
-        "inputs": []
-      },
-      {
-        "type": "error",
         "name": "OrderTargetMismatch",
         "inputs": []
       },
@@ -51077,27 +51234,6 @@ export const contractBindings = {
             "name": "actual",
             "type": "uint256",
             "internalType": "uint256"
-          }
-        ]
-      },
-      {
-        "type": "error",
-        "name": "PriceDoesNotCross",
-        "inputs": [
-          {
-            "name": "buyerLimit",
-            "type": "int128",
-            "internalType": "int128"
-          },
-          {
-            "name": "sellerLimit",
-            "type": "int128",
-            "internalType": "int128"
-          },
-          {
-            "name": "executionPrice",
-            "type": "int128",
-            "internalType": "int128"
           }
         ]
       },
@@ -53677,6 +53813,1477 @@ export const contractBindings = {
       }
     ]
   },
+  "PrivateRfqValidationGate": {
+    "artifact": "contracts/out/PrivateRfqValidationGate.sol/PrivateRfqValidationGate.json",
+    "sourceName": "src/policy/PrivateRfqValidationGate.sol",
+    "contractName": "PrivateRfqValidationGate",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "seriesRegistry_",
+            "type": "address",
+            "internalType": "contract ISeriesRegistry"
+          },
+          {
+            "name": "packageRegistry_",
+            "type": "address",
+            "internalType": "contract IPackageRegistry"
+          },
+          {
+            "name": "policyRegistry_",
+            "type": "address",
+            "internalType": "contract IExecutionPolicyRegistry"
+          },
+          {
+            "name": "sessionPolicy_",
+            "type": "address",
+            "internalType": "contract ITradingSessionPolicy"
+          },
+          {
+            "name": "packageWitnessRegistry_",
+            "type": "address",
+            "internalType": "contract IPackageWitnessRegistry"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "DISCLOSURE_POLICY",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "PRIVACY_MODE_POLICY",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "marketRegistry",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IMarketRegistry"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "packageRegistry",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IPackageRegistry"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "packageWitnessRegistry",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IPackageWitnessRegistry"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "policyRegistry",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IExecutionPolicyRegistry"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "seriesRegistry",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract ISeriesRegistry"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "sessionPolicy",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract ITradingSessionPolicy"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "validateHandoff",
+        "inputs": [
+          {
+            "name": "request",
+            "type": "tuple",
+            "internalType": "struct PrivateRfqRequest",
+            "components": [
+              {
+                "name": "taker",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "takerAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "takerOrderHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "targetKind",
+                "type": "uint8",
+                "internalType": "enum RfqTargetKind"
+              },
+              {
+                "name": "seriesId",
+                "type": "bytes32",
+                "internalType": "SeriesId"
+              },
+              {
+                "name": "packageId",
+                "type": "bytes32",
+                "internalType": "PackageId"
+              },
+              {
+                "name": "targetVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "hasPackageLegCommitment",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "packageLegsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "sidePolicy",
+                "type": "uint8",
+                "internalType": "enum RfqSidePolicy"
+              },
+              {
+                "name": "lots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "allowPartialFills",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "minimumFillLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "remainderPolicy",
+                "type": "uint8",
+                "internalType": "enum RemainderPolicy"
+              },
+              {
+                "name": "feeScheduleId",
+                "type": "bytes32",
+                "internalType": "FeeScheduleId"
+              },
+              {
+                "name": "feeScheduleVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "maxFeeMinor",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "riskDomainId",
+                "type": "bytes32",
+                "internalType": "RiskDomainId"
+              },
+              {
+                "name": "riskDomainVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "privacyModeId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "executionModeId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "disclosurePolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "eligibleMakerSetHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "deadline",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "permittedExecutor",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "nonce",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "salt",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "quote",
+            "type": "tuple",
+            "internalType": "struct MakerQuote",
+            "components": [
+              {
+                "name": "rfqId",
+                "type": "bytes32",
+                "internalType": "RfqId"
+              },
+              {
+                "name": "maker",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "makerAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "takerAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "makerOrderHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "targetKind",
+                "type": "uint8",
+                "internalType": "enum RfqTargetKind"
+              },
+              {
+                "name": "seriesId",
+                "type": "bytes32",
+                "internalType": "SeriesId"
+              },
+              {
+                "name": "packageId",
+                "type": "bytes32",
+                "internalType": "PackageId"
+              },
+              {
+                "name": "targetVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "hasPackageLegCommitment",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "packageLegsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "sidePolicy",
+                "type": "uint8",
+                "internalType": "enum RfqSidePolicy"
+              },
+              {
+                "name": "lots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "allowPartialFills",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "minimumFillLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "remainderPolicy",
+                "type": "uint8",
+                "internalType": "enum RemainderPolicy"
+              },
+              {
+                "name": "bidPriceTicks",
+                "type": "int128",
+                "internalType": "PriceTicks"
+              },
+              {
+                "name": "askPriceTicks",
+                "type": "int128",
+                "internalType": "PriceTicks"
+              },
+              {
+                "name": "feeScheduleId",
+                "type": "bytes32",
+                "internalType": "FeeScheduleId"
+              },
+              {
+                "name": "feeScheduleVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "maxFeeMinor",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "riskDomainId",
+                "type": "bytes32",
+                "internalType": "RiskDomainId"
+              },
+              {
+                "name": "riskDomainVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "collateralAssetId",
+                "type": "bytes32",
+                "internalType": "AssetId"
+              },
+              {
+                "name": "collateralBindingVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "maximumLiability",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "privacyModeId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "executionModeId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "disclosurePolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "eligibleMakerSetHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "deadline",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "capacityExpiry",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "permittedExecutor",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "nonce",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "salt",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "clearingEngine",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "fillLots",
+            "type": "uint128",
+            "internalType": "Lots"
+          },
+          {
+            "name": "liabilityAmount",
+            "type": "uint128",
+            "internalType": "uint128"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "validateQuote",
+        "inputs": [
+          {
+            "name": "request",
+            "type": "tuple",
+            "internalType": "struct PrivateRfqRequest",
+            "components": [
+              {
+                "name": "taker",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "takerAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "takerOrderHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "targetKind",
+                "type": "uint8",
+                "internalType": "enum RfqTargetKind"
+              },
+              {
+                "name": "seriesId",
+                "type": "bytes32",
+                "internalType": "SeriesId"
+              },
+              {
+                "name": "packageId",
+                "type": "bytes32",
+                "internalType": "PackageId"
+              },
+              {
+                "name": "targetVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "hasPackageLegCommitment",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "packageLegsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "sidePolicy",
+                "type": "uint8",
+                "internalType": "enum RfqSidePolicy"
+              },
+              {
+                "name": "lots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "allowPartialFills",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "minimumFillLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "remainderPolicy",
+                "type": "uint8",
+                "internalType": "enum RemainderPolicy"
+              },
+              {
+                "name": "feeScheduleId",
+                "type": "bytes32",
+                "internalType": "FeeScheduleId"
+              },
+              {
+                "name": "feeScheduleVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "maxFeeMinor",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "riskDomainId",
+                "type": "bytes32",
+                "internalType": "RiskDomainId"
+              },
+              {
+                "name": "riskDomainVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "privacyModeId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "executionModeId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "disclosurePolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "eligibleMakerSetHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "deadline",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "permittedExecutor",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "nonce",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "salt",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "quote",
+            "type": "tuple",
+            "internalType": "struct MakerQuote",
+            "components": [
+              {
+                "name": "rfqId",
+                "type": "bytes32",
+                "internalType": "RfqId"
+              },
+              {
+                "name": "maker",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "makerAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "takerAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "makerOrderHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "targetKind",
+                "type": "uint8",
+                "internalType": "enum RfqTargetKind"
+              },
+              {
+                "name": "seriesId",
+                "type": "bytes32",
+                "internalType": "SeriesId"
+              },
+              {
+                "name": "packageId",
+                "type": "bytes32",
+                "internalType": "PackageId"
+              },
+              {
+                "name": "targetVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "hasPackageLegCommitment",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "packageLegsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "sidePolicy",
+                "type": "uint8",
+                "internalType": "enum RfqSidePolicy"
+              },
+              {
+                "name": "lots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "allowPartialFills",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "minimumFillLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "remainderPolicy",
+                "type": "uint8",
+                "internalType": "enum RemainderPolicy"
+              },
+              {
+                "name": "bidPriceTicks",
+                "type": "int128",
+                "internalType": "PriceTicks"
+              },
+              {
+                "name": "askPriceTicks",
+                "type": "int128",
+                "internalType": "PriceTicks"
+              },
+              {
+                "name": "feeScheduleId",
+                "type": "bytes32",
+                "internalType": "FeeScheduleId"
+              },
+              {
+                "name": "feeScheduleVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "maxFeeMinor",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "riskDomainId",
+                "type": "bytes32",
+                "internalType": "RiskDomainId"
+              },
+              {
+                "name": "riskDomainVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "collateralAssetId",
+                "type": "bytes32",
+                "internalType": "AssetId"
+              },
+              {
+                "name": "collateralBindingVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "maximumLiability",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "privacyModeId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "executionModeId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "disclosurePolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "eligibleMakerSetHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "deadline",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "capacityExpiry",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "permittedExecutor",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "nonce",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "salt",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "eligibleMakerProof",
+            "type": "bytes32[]",
+            "internalType": "bytes32[]"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "validateRequest",
+        "inputs": [
+          {
+            "name": "request",
+            "type": "tuple",
+            "internalType": "struct PrivateRfqRequest",
+            "components": [
+              {
+                "name": "taker",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "takerAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "takerOrderHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "targetKind",
+                "type": "uint8",
+                "internalType": "enum RfqTargetKind"
+              },
+              {
+                "name": "seriesId",
+                "type": "bytes32",
+                "internalType": "SeriesId"
+              },
+              {
+                "name": "packageId",
+                "type": "bytes32",
+                "internalType": "PackageId"
+              },
+              {
+                "name": "targetVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "hasPackageLegCommitment",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "packageLegsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "sidePolicy",
+                "type": "uint8",
+                "internalType": "enum RfqSidePolicy"
+              },
+              {
+                "name": "lots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "allowPartialFills",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "minimumFillLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "remainderPolicy",
+                "type": "uint8",
+                "internalType": "enum RemainderPolicy"
+              },
+              {
+                "name": "feeScheduleId",
+                "type": "bytes32",
+                "internalType": "FeeScheduleId"
+              },
+              {
+                "name": "feeScheduleVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "maxFeeMinor",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "riskDomainId",
+                "type": "bytes32",
+                "internalType": "RiskDomainId"
+              },
+              {
+                "name": "riskDomainVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "privacyModeId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "executionModeId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "disclosurePolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "eligibleMakerSetHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "deadline",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "permittedExecutor",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "nonce",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "salt",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "packageLegs",
+            "type": "tuple[]",
+            "internalType": "struct PackageLeg[]",
+            "components": [
+              {
+                "name": "seriesId",
+                "type": "bytes32",
+                "internalType": "SeriesId"
+              },
+              {
+                "name": "seriesVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "ratio",
+                "type": "int32",
+                "internalType": "int32"
+              }
+            ]
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "validateSelection",
+        "inputs": [
+          {
+            "name": "request",
+            "type": "tuple",
+            "internalType": "struct PrivateRfqRequest",
+            "components": [
+              {
+                "name": "taker",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "takerAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "takerOrderHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "targetKind",
+                "type": "uint8",
+                "internalType": "enum RfqTargetKind"
+              },
+              {
+                "name": "seriesId",
+                "type": "bytes32",
+                "internalType": "SeriesId"
+              },
+              {
+                "name": "packageId",
+                "type": "bytes32",
+                "internalType": "PackageId"
+              },
+              {
+                "name": "targetVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "hasPackageLegCommitment",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "packageLegsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "sidePolicy",
+                "type": "uint8",
+                "internalType": "enum RfqSidePolicy"
+              },
+              {
+                "name": "lots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "allowPartialFills",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "minimumFillLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "remainderPolicy",
+                "type": "uint8",
+                "internalType": "enum RemainderPolicy"
+              },
+              {
+                "name": "feeScheduleId",
+                "type": "bytes32",
+                "internalType": "FeeScheduleId"
+              },
+              {
+                "name": "feeScheduleVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "maxFeeMinor",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "riskDomainId",
+                "type": "bytes32",
+                "internalType": "RiskDomainId"
+              },
+              {
+                "name": "riskDomainVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "privacyModeId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "executionModeId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "disclosurePolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "eligibleMakerSetHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "deadline",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "permittedExecutor",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "nonce",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "salt",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "quote",
+            "type": "tuple",
+            "internalType": "struct MakerQuote",
+            "components": [
+              {
+                "name": "rfqId",
+                "type": "bytes32",
+                "internalType": "RfqId"
+              },
+              {
+                "name": "maker",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "makerAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "takerAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "makerOrderHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "targetKind",
+                "type": "uint8",
+                "internalType": "enum RfqTargetKind"
+              },
+              {
+                "name": "seriesId",
+                "type": "bytes32",
+                "internalType": "SeriesId"
+              },
+              {
+                "name": "packageId",
+                "type": "bytes32",
+                "internalType": "PackageId"
+              },
+              {
+                "name": "targetVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "hasPackageLegCommitment",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "packageLegsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "sidePolicy",
+                "type": "uint8",
+                "internalType": "enum RfqSidePolicy"
+              },
+              {
+                "name": "lots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "allowPartialFills",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "minimumFillLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "remainderPolicy",
+                "type": "uint8",
+                "internalType": "enum RemainderPolicy"
+              },
+              {
+                "name": "bidPriceTicks",
+                "type": "int128",
+                "internalType": "PriceTicks"
+              },
+              {
+                "name": "askPriceTicks",
+                "type": "int128",
+                "internalType": "PriceTicks"
+              },
+              {
+                "name": "feeScheduleId",
+                "type": "bytes32",
+                "internalType": "FeeScheduleId"
+              },
+              {
+                "name": "feeScheduleVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "maxFeeMinor",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "riskDomainId",
+                "type": "bytes32",
+                "internalType": "RiskDomainId"
+              },
+              {
+                "name": "riskDomainVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "collateralAssetId",
+                "type": "bytes32",
+                "internalType": "AssetId"
+              },
+              {
+                "name": "collateralBindingVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "maximumLiability",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "privacyModeId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "executionModeId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "disclosurePolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "eligibleMakerSetHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "deadline",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "capacityExpiry",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "permittedExecutor",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "nonce",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "salt",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "selection",
+            "type": "tuple",
+            "internalType": "struct RfqSelectionAuthorization",
+            "components": [
+              {
+                "name": "rfqId",
+                "type": "bytes32",
+                "internalType": "RfqId"
+              },
+              {
+                "name": "quoteId",
+                "type": "bytes32",
+                "internalType": "MakerQuoteId"
+              },
+              {
+                "name": "taker",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "executor",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "nonce",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "deadline",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "salt",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "view"
+      },
+      {
+        "type": "error",
+        "name": "InvalidMarketOrder",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "InvalidPackageOrderLots",
+        "inputs": [
+          {
+            "name": "lots",
+            "type": "uint128",
+            "internalType": "Lots"
+          },
+          {
+            "name": "lotStep",
+            "type": "uint128",
+            "internalType": "Lots"
+          },
+          {
+            "name": "minimum",
+            "type": "uint128",
+            "internalType": "Lots"
+          },
+          {
+            "name": "maximum",
+            "type": "uint128",
+            "internalType": "Lots"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "InvalidPackageOrderPrice",
+        "inputs": [
+          {
+            "name": "priceTicks",
+            "type": "int128",
+            "internalType": "PriceTicks"
+          },
+          {
+            "name": "minimum",
+            "type": "int128",
+            "internalType": "PriceTicks"
+          },
+          {
+            "name": "maximum",
+            "type": "int128",
+            "internalType": "PriceTicks"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "InvalidPackageWitness",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "InvalidPolicyDependency",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "InvalidRfqPolicy",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "TargetDependencyMismatch",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "TargetNotOpen",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "UnsupportedExecutionMode",
+        "inputs": [
+          {
+            "name": "executionModeId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroPolicyDependency",
+        "inputs": [
+          {
+            "name": "dependency",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      }
+    ]
+  },
   "PrivateRfqBook": {
     "artifact": "contracts/out/PrivateRfqBook.sol/PrivateRfqBook.json",
     "sourceName": "src/rfq/PrivateRfqBook.sol",
@@ -56189,6 +57796,25 @@ export const contractBindings = {
         "inputs": [],
         "outputs": [],
         "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "selectedHandoffCommitment",
+        "inputs": [
+          {
+            "name": "rfqId",
+            "type": "bytes32",
+            "internalType": "RfqId"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "commitment",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
       },
       {
         "type": "function",
@@ -67268,6 +68894,376 @@ export const contractBindings = {
       },
       {
         "type": "function",
+        "name": "derivePolicyContext",
+        "inputs": [
+          {
+            "name": "action",
+            "type": "tuple",
+            "internalType": "struct LifecycleAction",
+            "components": [
+              {
+                "name": "kind",
+                "type": "uint8",
+                "internalType": "enum LifecycleActionKind"
+              },
+              {
+                "name": "actor",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "actorAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "policyContextHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "inputsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "successorsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "collateralReplacementsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "participantSetHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "consentsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "riskDomainId",
+                "type": "bytes32",
+                "internalType": "RiskDomainId"
+              },
+              {
+                "name": "riskDomainVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "feeScheduleId",
+                "type": "bytes32",
+                "internalType": "FeeScheduleId"
+              },
+              {
+                "name": "feeScheduleVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "economicTransitionHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "compressionPlanId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "breaksPackageProvenance",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "packageBreakPermissionHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "actorMaximumLiabilityIncreaseBaseUnits",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "actorMaximumCollateralIncreaseBaseUnits",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "inputCount",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "successorCount",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "participantCount",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "deadline",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "nonce",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "permittedExecutor",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "salt",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "inputs",
+            "type": "tuple[]",
+            "internalType": "struct LifecyclePositionSnapshot[]",
+            "components": [
+              {
+                "name": "positionId",
+                "type": "bytes32",
+                "internalType": "PositionId"
+              },
+              {
+                "name": "immutableHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "lifecycleHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "seriesId",
+                "type": "bytes32",
+                "internalType": "SeriesId"
+              },
+              {
+                "name": "seriesVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "longAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "shortAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "riskDomainId",
+                "type": "bytes32",
+                "internalType": "RiskDomainId"
+              },
+              {
+                "name": "riskDomainVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "feeScheduleId",
+                "type": "bytes32",
+                "internalType": "FeeScheduleId"
+              },
+              {
+                "name": "feeScheduleVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "collateralId",
+                "type": "bytes32",
+                "internalType": "CollateralId"
+              },
+              {
+                "name": "positionLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "remainingExerciseLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "entryPriceTicks",
+                "type": "int128",
+                "internalType": "PriceTicks"
+              },
+              {
+                "name": "economicsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "packageProvenanceHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "exercisePolicyId",
+                "type": "bytes32",
+                "internalType": "ExercisePolicyId"
+              },
+              {
+                "name": "exerciseState",
+                "type": "uint8",
+                "internalType": "enum PositionExerciseState"
+              },
+              {
+                "name": "automaticExerciseThresholdMinor",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "expiryAt",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "exerciseOpensAt",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "exerciseCutoffAt",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "lapseEligibleAt",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "longTerminalLiabilityBaseUnits",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "shortTerminalLiabilityBaseUnits",
+                "type": "uint128",
+                "internalType": "uint128"
+              }
+            ]
+          },
+          {
+            "name": "successors",
+            "type": "tuple[]",
+            "internalType": "struct LifecycleSuccessor[]",
+            "components": [
+              {
+                "name": "successorKey",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "seriesId",
+                "type": "bytes32",
+                "internalType": "SeriesId"
+              },
+              {
+                "name": "seriesVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "longAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "shortAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "riskDomainId",
+                "type": "bytes32",
+                "internalType": "RiskDomainId"
+              },
+              {
+                "name": "riskDomainVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "collateralId",
+                "type": "bytes32",
+                "internalType": "CollateralId"
+              },
+              {
+                "name": "lots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "entryPriceTicks",
+                "type": "int128",
+                "internalType": "PriceTicks"
+              },
+              {
+                "name": "economicsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "packageProvenanceHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "longTerminalLiabilityBaseUnits",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "shortTerminalLiabilityBaseUnits",
+                "type": "uint128",
+                "internalType": "uint128"
+              }
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "policyContextHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "packageBreakPermissionHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
         "name": "feeScheduleRegistry",
         "inputs": [],
         "outputs": [
@@ -69118,6 +71114,543 @@ export const contractBindings = {
           }
         ],
         "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "hashLifecycleAction",
+        "inputs": [
+          {
+            "name": "action",
+            "type": "tuple",
+            "internalType": "struct LifecycleAction",
+            "components": [
+              {
+                "name": "kind",
+                "type": "uint8",
+                "internalType": "enum LifecycleActionKind"
+              },
+              {
+                "name": "actor",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "actorAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "policyContextHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "inputsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "successorsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "collateralReplacementsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "participantSetHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "consentsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "riskDomainId",
+                "type": "bytes32",
+                "internalType": "RiskDomainId"
+              },
+              {
+                "name": "riskDomainVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "feeScheduleId",
+                "type": "bytes32",
+                "internalType": "FeeScheduleId"
+              },
+              {
+                "name": "feeScheduleVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "economicTransitionHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "compressionPlanId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "breaksPackageProvenance",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "packageBreakPermissionHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "actorMaximumLiabilityIncreaseBaseUnits",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "actorMaximumCollateralIncreaseBaseUnits",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "inputCount",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "successorCount",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "participantCount",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "deadline",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "nonce",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "permittedExecutor",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "salt",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "actionHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "actionId",
+            "type": "bytes32",
+            "internalType": "LifecycleActionId"
+          },
+          {
+            "name": "digest",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "hashLifecycleCollateralReplacements",
+        "inputs": [
+          {
+            "name": "collateralReplacements",
+            "type": "tuple[]",
+            "internalType": "struct LifecycleCollateralReplacement[]",
+            "components": [
+              {
+                "name": "accountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "collateralId",
+                "type": "bytes32",
+                "internalType": "CollateralId"
+              },
+              {
+                "name": "terminalLiabilityBaseUnits",
+                "type": "uint128",
+                "internalType": "uint128"
+              }
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "pure"
+      },
+      {
+        "type": "function",
+        "name": "hashLifecycleConsent",
+        "inputs": [
+          {
+            "name": "consent",
+            "type": "tuple",
+            "internalType": "struct LifecycleConsent",
+            "components": [
+              {
+                "name": "actionId",
+                "type": "bytes32",
+                "internalType": "LifecycleActionId"
+              },
+              {
+                "name": "accountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "signer",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "nonce",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "deadline",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "maximumLiabilityIncreaseBaseUnits",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "maximumCollateralIncreaseBaseUnits",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "allowsPackageBreak",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "salt",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "digest",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "hashLifecycleConsentTerms",
+        "inputs": [
+          {
+            "name": "consents",
+            "type": "tuple[]",
+            "internalType": "struct LifecycleConsent[]",
+            "components": [
+              {
+                "name": "actionId",
+                "type": "bytes32",
+                "internalType": "LifecycleActionId"
+              },
+              {
+                "name": "accountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "signer",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "nonce",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "deadline",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "maximumLiabilityIncreaseBaseUnits",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "maximumCollateralIncreaseBaseUnits",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "allowsPackageBreak",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "salt",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "pure"
+      },
+      {
+        "type": "function",
+        "name": "hashLifecycleInputs",
+        "inputs": [
+          {
+            "name": "inputs",
+            "type": "tuple[]",
+            "internalType": "struct LifecycleInput[]",
+            "components": [
+              {
+                "name": "positionId",
+                "type": "bytes32",
+                "internalType": "PositionId"
+              },
+              {
+                "name": "expectedImmutableHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "expectedLifecycleHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "expectedPositionLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "actionLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              }
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "pure"
+      },
+      {
+        "type": "function",
+        "name": "hashLifecycleParticipantSet",
+        "inputs": [
+          {
+            "name": "actorAccountId",
+            "type": "bytes32",
+            "internalType": "AccountId"
+          },
+          {
+            "name": "consents",
+            "type": "tuple[]",
+            "internalType": "struct LifecycleConsent[]",
+            "components": [
+              {
+                "name": "actionId",
+                "type": "bytes32",
+                "internalType": "LifecycleActionId"
+              },
+              {
+                "name": "accountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "signer",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "nonce",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "deadline",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "maximumLiabilityIncreaseBaseUnits",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "maximumCollateralIncreaseBaseUnits",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "allowsPackageBreak",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "salt",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "pure"
+      },
+      {
+        "type": "function",
+        "name": "hashLifecycleSuccessors",
+        "inputs": [
+          {
+            "name": "successors",
+            "type": "tuple[]",
+            "internalType": "struct LifecycleSuccessor[]",
+            "components": [
+              {
+                "name": "successorKey",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "seriesId",
+                "type": "bytes32",
+                "internalType": "SeriesId"
+              },
+              {
+                "name": "seriesVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "longAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "shortAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "riskDomainId",
+                "type": "bytes32",
+                "internalType": "RiskDomainId"
+              },
+              {
+                "name": "riskDomainVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "collateralId",
+                "type": "bytes32",
+                "internalType": "CollateralId"
+              },
+              {
+                "name": "lots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "entryPriceTicks",
+                "type": "int128",
+                "internalType": "PriceTicks"
+              },
+              {
+                "name": "economicsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "packageProvenanceHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "longTerminalLiabilityBaseUnits",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "shortTerminalLiabilityBaseUnits",
+                "type": "uint128",
+                "internalType": "uint128"
+              }
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "pure"
       },
       {
         "type": "function",

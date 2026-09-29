@@ -43,6 +43,7 @@ const contracts = [
   ["OrderState", "contracts/out/OrderState.sol/OrderState.json"],
   ["AtomicClearingEngine", "contracts/out/AtomicClearingEngine.sol/AtomicClearingEngine.json"],
   ["PublicOrderBook", "contracts/out/PublicOrderBook.sol/PublicOrderBook.json"],
+  ["PrivateRfqValidationGate", "contracts/out/PrivateRfqValidationGate.sol/PrivateRfqValidationGate.json"],
   ["PrivateRfqBook", "contracts/out/PrivateRfqBook.sol/PrivateRfqBook.json"],
   ["SealedAuctionHouse", "contracts/out/SealedAuctionHouse.sol/SealedAuctionHouse.json"],
   ["StreamingQuoteEngine", "contracts/out/StreamingQuoteEngine.sol/StreamingQuoteEngine.json"],
