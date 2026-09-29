@@ -499,10 +499,49 @@ async function main() {
     {contractName: "PrivacyCommitmentRegistry", role: "EPOCH_KEY_PUBLISHER_ROLE", label: "SETRYN_PRIVACY_EPOCH_KEY_PUBLISHER_ROLE", member: principalValues.privacyKeyPublisher},
     {contractName: "OrderState", role: "ORDER_CONSUMER_ROLE", label: "SETRYN_ORDER_CONSUMER_ROLE", memberContract: "AtomicClearingEngine"},
     {contractName: "AtomicClearingEngine", role: "MATCH_EXECUTOR_ROLE", label: "SETRYN_MATCH_EXECUTOR_ROLE", memberContract: "PublicOrderBook"},
-    {contractName: "PublicOrderBook", role: "ROUTE_RESERVER_ROLE", label: "SETRYN_BOOK_ROUTE_RESERVER_ROLE", member: principalValues.governanceOperator},
+    {contractName: "PositionEngine", role: "FUNDING_REQUESTER_ROLE", label: "SETRYN_POSITION_FUNDING_REQUESTER_ROLE", memberContract: "PrivateRfqBook"},
+    {contractName: "PositionEngine", role: "FUNDING_REQUESTER_ROLE", label: "SETRYN_POSITION_FUNDING_REQUESTER_ROLE", memberContract: "SealedAuctionHouse"},
+    {contractName: "PositionEngine", role: "FUNDING_REQUESTER_ROLE", label: "SETRYN_POSITION_FUNDING_REQUESTER_ROLE", memberContract: "VaultBackedStreamCapacityManager"},
+    {contractName: "PositionEngine", role: "FUNDING_REQUESTER_ROLE", label: "SETRYN_POSITION_FUNDING_REQUESTER_ROLE", memberContract: "VaultBackedBatchCapacityManager"},
+    {contractName: "CollateralVault", role: "COLLATERAL_LOCKER_ROLE", label: "SETRYN_COLLATERAL_LOCKER_ROLE", memberContract: "SealedAuctionHouse"},
+    {contractName: "CollateralVault", role: "COLLATERAL_SETTLER_ROLE", label: "SETRYN_COLLATERAL_SETTLER_ROLE", memberContract: "SealedAuctionHouse"},
+    {contractName: "CapacityReservationRegistry", role: "CAPACITY_CLAIMANT_ROLE", label: "SETRYN_CAPACITY_CLAIMANT_ROLE", memberContract: "VaultBackedStreamCapacityManager"},
+    {contractName: "CapacityReservationRegistry", role: "CAPACITY_CLAIMANT_ROLE", label: "SETRYN_CAPACITY_CLAIMANT_ROLE", memberContract: "VaultBackedBatchCapacityManager"},
+    {contractName: "CapacityReservationRegistry", role: "CAPACITY_CLAIMANT_ROLE", label: "SETRYN_CAPACITY_CLAIMANT_ROLE", memberContract: "ProtocolRouteLiquiditySource"},
+    {contractName: "VaultBackedStreamCapacityManager", role: "STREAM_ENGINE_ROLE", label: "SETRYN_STREAM_ENGINE_ROLE", memberContract: "StreamingQuoteEngine"},
+    {contractName: "VaultBackedBatchCapacityManager", role: "BATCH_ENGINE_ROLE", label: "SETRYN_BATCH_ENGINE_ROLE", memberContract: "BatchClearingEngine"},
+    {contractName: "AtomicClearingEngine", role: "MATCH_EXECUTOR_ROLE", label: "SETRYN_MATCH_EXECUTOR_ROLE", memberContract: "StreamingQuoteEngine"},
+    {contractName: "AtomicClearingEngine", role: "MATCH_EXECUTOR_ROLE", label: "SETRYN_MATCH_EXECUTOR_ROLE", memberContract: "BatchClearingEngine"},
+    {contractName: "SealedAuctionHouse", role: "CLEARING_ENGINE_ROLE", label: "SETRYN_AUCTION_CLEARING_ENGINE_ROLE", memberContract: "AtomicClearingEngine"},
+    {contractName: "SealedAuctionHouse", role: "CLEARING_ENGINE_ROLE", label: "SETRYN_AUCTION_CLEARING_ENGINE_ROLE", memberContract: "BatchClearingEngine"},
+    {contractName: "SealedAuctionHouse", role: "AUCTION_SCHEDULER_ROLE", label: "SETRYN_AUCTION_SCHEDULER_ROLE", member: principalValues.governanceOperator},
+    {contractName: "SealedAuctionHouse", role: "AUCTION_GUARDIAN_ROLE", label: "SETRYN_AUCTION_GUARDIAN_ROLE", member: principalValues.guardian},
+    {contractName: "PublicOrderBook", role: "ROUTE_RESERVER_ROLE", label: "SETRYN_BOOK_ROUTE_RESERVER_ROLE", memberContract: "ProtocolRouteLiquiditySource"},
+    {contractName: "PrivateRfqBook", role: "ROUTE_RESERVER_ROLE", label: "SETRYN_RFQ_ROUTE_RESERVER_ROLE", memberContract: "ProtocolRouteLiquiditySource"},
+    {contractName: "StreamingQuoteEngine", role: "ROUTE_RESERVER_ROLE", label: "SETRYN_STREAM_ROUTE_RESERVER_ROLE", memberContract: "ProtocolRouteLiquiditySource"},
+    {contractName: "SealedAuctionHouse", role: "ROUTE_RESERVER_ROLE", label: "SETRYN_AUCTION_ROUTE_RESERVER_ROLE", memberContract: "ProtocolRouteLiquiditySource"},
+    {contractName: "ProtocolRouteLiquiditySource", role: "ROUTE_ENGINE_ROLE", label: "SETRYN_ROUTE_ENGINE_ROLE", memberContract: "CollateralAwareRouteEngine"},
+    {contractName: "CollateralAwareRouteEngine", role: "ROUTE_CONSUMER_ROLE", label: "SETRYN_ROUTE_CONSUMER_ROLE", member: principalValues.governanceOperator},
+    {contractName: "PortfolioRiskEngine", role: "RISK_CONSUMER_ROLE", label: "SETRYN_RISK_CONSUMER_ROLE", memberContract: "CollateralAwareRouteEngine"},
   ];
   const verifiedRoles = [];
   for (const check of roleChecks) verifiedRoles.push(await verifyRole(rpcUrl, addresses, blockTag, check, bootstrap));
+  for (const [contractName, label] of [
+    ["PublicOrderBook", "SETRYN_BOOK_ROUTE_RESERVER_ROLE"],
+    ["PrivateRfqBook", "SETRYN_RFQ_ROUTE_RESERVER_ROLE"],
+  ]) {
+    const held = await ethCall(
+      rpcUrl, addresses.get(contractName), calldata("hasRole(bytes32,address)", [roleId(label), principalValues.governanceOperator]), blockTag,
+    );
+    if (BigInt(held) !== 0n) throw new Error(`${contractName} route reservation must belong only to the liquidity source`);
+  }
+  for (const [contractName, member] of [
+    ["StreamingQuoteEngine", principalValues.governanceAdmin],
+  ]) {
+    const adminHeld = await ethCall(rpcUrl, addresses.get(contractName), calldata("hasRole(bytes32,address)", [`0x${"0".repeat(64)}`, member]), blockTag);
+    const bootstrapHeld = await ethCall(rpcUrl, addresses.get(contractName), calldata("hasRole(bytes32,address)", [`0x${"0".repeat(64)}`, bootstrap]), blockTag);
+    if (BigInt(adminHeld) !== 1n || BigInt(bootstrapHeld) !== 0n) throw new Error(`${contractName} admin was not handed to governance`);
+  }
   for (const check of [
     ["PositionEngine", "FUNDING_REQUESTER_ROLE", "SETRYN_POSITION_FUNDING_REQUESTER_ROLE"],
   ]) {
@@ -526,7 +565,9 @@ async function main() {
     "SeriesRegistry", "CollateralVault", "PackageRegistry", "PositionEngine", "FundedFeeEngine",
     "PortfolioRiskEngine", "PositionLifecycleExecutor", "SignedLifecycleEngine", "CompressionCoordinator",
     "PrivacyCommitmentRegistry",
-    "ExecutionPolicyRegistry", "OrderState", "AtomicClearingEngine",
+    "ExecutionPolicyRegistry", "OrderState", "AtomicClearingEngine", "PrivateRfqBook",
+    "CapacityReservationRegistry", "VaultBackedStreamCapacityManager", "VaultBackedBatchCapacityManager",
+    "SealedAuctionHouse", "ProtocolRouteLiquiditySource", "CollateralAwareRouteEngine",
   ];
   const pendingAdmins = [];
   for (const contractName of adminContracts) {

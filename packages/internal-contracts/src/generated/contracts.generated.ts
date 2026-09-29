@@ -1,6 +1,6 @@
 import type { InternalContractBinding } from "../types.ts";
 
-export const generatedBindingsHash = "sha256:4a94deb4cb2af06182651899c443fe8cf2884a32ba7e84e9ef25d3a0fb5512a8";
+export const generatedBindingsHash = "sha256:2c5cd7321569b9dbae124eb428655f33f9338959bf136d13d0be77740890ceea";
 
 export const contractBindings = {
   "AssetRegistry": {
@@ -59392,6 +59392,4315 @@ export const contractBindings = {
       }
     ]
   },
+  "CapacityReservationRegistry": {
+    "artifact": "contracts/out/CapacityReservationRegistry.sol/CapacityReservationRegistry.json",
+    "sourceName": "src/capacity/CapacityReservationRegistry.sol",
+    "contractName": "CapacityReservationRegistry",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "defaultAdminDelay",
+            "type": "uint48",
+            "internalType": "uint48"
+          },
+          {
+            "name": "initialAdmin",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "CAPACITY_CLAIMANT_ROLE",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "DEFAULT_ADMIN_ROLE",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "acceptDefaultAdminTransfer",
+        "inputs": [],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "beginDefaultAdminTransfer",
+        "inputs": [
+          {
+            "name": "newAdmin",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "cancelDefaultAdminTransfer",
+        "inputs": [],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "capacityReference",
+        "inputs": [
+          {
+            "name": "reservationKey",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "capacityId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "lockId",
+            "type": "bytes32",
+            "internalType": "CollateralLockId"
+          },
+          {
+            "name": "claimant",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "closed",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "changeDefaultAdminDelay",
+        "inputs": [
+          {
+            "name": "newDelay",
+            "type": "uint48",
+            "internalType": "uint48"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "claimCapacityReference",
+        "inputs": [
+          {
+            "name": "reservationKey",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "capacityId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "lockId",
+            "type": "bytes32",
+            "internalType": "CollateralLockId"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "closeCapacityReference",
+        "inputs": [
+          {
+            "name": "reservationKey",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "closeReference",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "defaultAdmin",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "defaultAdminDelay",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "uint48",
+            "internalType": "uint48"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "defaultAdminDelayIncreaseWait",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "uint48",
+            "internalType": "uint48"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "getRoleAdmin",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "grantRole",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "account",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "hasRole",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "account",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "owner",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "pendingDefaultAdmin",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "newAdmin",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "schedule",
+            "type": "uint48",
+            "internalType": "uint48"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "pendingDefaultAdminDelay",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "newDelay",
+            "type": "uint48",
+            "internalType": "uint48"
+          },
+          {
+            "name": "schedule",
+            "type": "uint48",
+            "internalType": "uint48"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "renounceRole",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "account",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "revokeRole",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "account",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "rollbackDefaultAdminDelay",
+        "inputs": [],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "supportsInterface",
+        "inputs": [
+          {
+            "name": "interfaceId",
+            "type": "bytes4",
+            "internalType": "bytes4"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "event",
+        "name": "CapacityReferenceClaimed",
+        "inputs": [
+          {
+            "name": "reservationKey",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "capacityId",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "lockId",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "CollateralLockId"
+          },
+          {
+            "name": "claimant",
+            "type": "address",
+            "indexed": false,
+            "internalType": "address"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "CapacityReferenceClosed",
+        "inputs": [
+          {
+            "name": "reservationKey",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "closeReference",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "claimant",
+            "type": "address",
+            "indexed": false,
+            "internalType": "address"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "DefaultAdminDelayChangeCanceled",
+        "inputs": [],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "DefaultAdminDelayChangeScheduled",
+        "inputs": [
+          {
+            "name": "newDelay",
+            "type": "uint48",
+            "indexed": false,
+            "internalType": "uint48"
+          },
+          {
+            "name": "effectSchedule",
+            "type": "uint48",
+            "indexed": false,
+            "internalType": "uint48"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "DefaultAdminTransferCanceled",
+        "inputs": [],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "DefaultAdminTransferScheduled",
+        "inputs": [
+          {
+            "name": "newAdmin",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          },
+          {
+            "name": "acceptSchedule",
+            "type": "uint48",
+            "indexed": false,
+            "internalType": "uint48"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "RoleAdminChanged",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "previousAdminRole",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "newAdminRole",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "RoleGranted",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "account",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          },
+          {
+            "name": "sender",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "RoleRevoked",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "account",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          },
+          {
+            "name": "sender",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "error",
+        "name": "AccessControlBadConfirmation",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "AccessControlEnforcedDefaultAdminDelay",
+        "inputs": [
+          {
+            "name": "schedule",
+            "type": "uint48",
+            "internalType": "uint48"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "AccessControlEnforcedDefaultAdminRules",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "AccessControlInvalidDefaultAdmin",
+        "inputs": [
+          {
+            "name": "defaultAdmin",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "AccessControlUnauthorizedAccount",
+        "inputs": [
+          {
+            "name": "account",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "neededRole",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "CapacityReferenceAlreadyClaimed",
+        "inputs": [
+          {
+            "name": "reservationKey",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "capacityId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "InvalidCapacityReference",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "SafeCastOverflowedUintDowncast",
+        "inputs": [
+          {
+            "name": "bits",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "value",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "UnauthorizedCapacityClaimant",
+        "inputs": [
+          {
+            "name": "claimant",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroInitialAdmin",
+        "inputs": []
+      }
+    ]
+  },
+  "VaultBackedStreamCapacityManager": {
+    "artifact": "contracts/out/VaultBackedStreamCapacityManager.sol/VaultBackedStreamCapacityManager.json",
+    "sourceName": "src/capacity/VaultBackedStreamCapacityManager.sol",
+    "contractName": "VaultBackedStreamCapacityManager",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "defaultAdminDelay",
+            "type": "uint48",
+            "internalType": "uint48"
+          },
+          {
+            "name": "initialAdmin",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "positionEngine_",
+            "type": "address",
+            "internalType": "contract IPositionEngine"
+          },
+          {
+            "name": "reservationRegistry_",
+            "type": "address",
+            "internalType": "contract ICapacityReservationRegistry"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "DEFAULT_ADMIN_ROLE",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "STREAM_ENGINE_ROLE",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "acceptDefaultAdminTransfer",
+        "inputs": [],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "beginDefaultAdminTransfer",
+        "inputs": [
+          {
+            "name": "newAdmin",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "cancelDefaultAdminTransfer",
+        "inputs": [],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "changeDefaultAdminDelay",
+        "inputs": [
+          {
+            "name": "newDelay",
+            "type": "uint48",
+            "internalType": "uint48"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "collateralVault",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract ICollateralVault"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "consumeStreamCapacity",
+        "inputs": [
+          {
+            "name": "streamId",
+            "type": "bytes32",
+            "internalType": "StreamId"
+          },
+          {
+            "name": "sequence",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "makerSide",
+            "type": "uint8",
+            "internalType": "enum Side"
+          },
+          {
+            "name": "fillLots",
+            "type": "uint128",
+            "internalType": "Lots"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "consumption",
+            "type": "tuple",
+            "internalType": "struct StreamCapacityConsumption",
+            "components": [
+              {
+                "name": "inventoryBeforeLots",
+                "type": "int128",
+                "internalType": "int128"
+              },
+              {
+                "name": "inventoryAfterLots",
+                "type": "int128",
+                "internalType": "int128"
+              },
+              {
+                "name": "liabilityConsumed",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "consumptionHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "defaultAdmin",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "defaultAdminDelay",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "uint48",
+            "internalType": "uint48"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "defaultAdminDelayIncreaseWait",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "uint48",
+            "internalType": "uint48"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "expireStreamCapacity",
+        "inputs": [
+          {
+            "name": "streamId",
+            "type": "bytes32",
+            "internalType": "StreamId"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "finalizeStreamCapacity",
+        "inputs": [
+          {
+            "name": "streamId",
+            "type": "bytes32",
+            "internalType": "StreamId"
+          },
+          {
+            "name": "sequence",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "fillId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "consumptionHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "getRoleAdmin",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "getStreamCapacity",
+        "inputs": [
+          {
+            "name": "streamId",
+            "type": "bytes32",
+            "internalType": "StreamId"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "state",
+            "type": "tuple",
+            "internalType": "struct StreamCapacityState",
+            "components": [
+              {
+                "name": "capacity",
+                "type": "tuple",
+                "internalType": "struct ManagedCapacity",
+                "components": [
+                  {
+                    "name": "owner",
+                    "type": "address",
+                    "internalType": "address"
+                  },
+                  {
+                    "name": "accountId",
+                    "type": "bytes32",
+                    "internalType": "AccountId"
+                  },
+                  {
+                    "name": "collateralAssetId",
+                    "type": "bytes32",
+                    "internalType": "AssetId"
+                  },
+                  {
+                    "name": "collateralId",
+                    "type": "bytes32",
+                    "internalType": "CollateralId"
+                  },
+                  {
+                    "name": "riskDomainId",
+                    "type": "bytes32",
+                    "internalType": "RiskDomainId"
+                  },
+                  {
+                    "name": "lockId",
+                    "type": "bytes32",
+                    "internalType": "CollateralLockId"
+                  },
+                  {
+                    "name": "lockReference",
+                    "type": "bytes32",
+                    "internalType": "bytes32"
+                  },
+                  {
+                    "name": "collateralBindingVersion",
+                    "type": "uint32",
+                    "internalType": "uint32"
+                  },
+                  {
+                    "name": "riskDomainVersion",
+                    "type": "uint32",
+                    "internalType": "uint32"
+                  },
+                  {
+                    "name": "expiry",
+                    "type": "uint64",
+                    "internalType": "uint64"
+                  },
+                  {
+                    "name": "status",
+                    "type": "uint8",
+                    "internalType": "enum ManagedCapacityStatus"
+                  },
+                  {
+                    "name": "initialLiability",
+                    "type": "uint128",
+                    "internalType": "uint128"
+                  },
+                  {
+                    "name": "remainingLiability",
+                    "type": "uint128",
+                    "internalType": "uint128"
+                  }
+                ]
+              },
+              {
+                "name": "streamId",
+                "type": "bytes32",
+                "internalType": "StreamId"
+              },
+              {
+                "name": "consumedSequence",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "inventoryLots",
+                "type": "int128",
+                "internalType": "int128"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "getStreamConsumption",
+        "inputs": [
+          {
+            "name": "streamId",
+            "type": "bytes32",
+            "internalType": "StreamId"
+          },
+          {
+            "name": "sequence",
+            "type": "uint64",
+            "internalType": "uint64"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "record",
+            "type": "tuple",
+            "internalType": "struct CapacityConsumptionRecord",
+            "components": [
+              {
+                "name": "capacityId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "consumptionHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "fillId",
+                "type": "bytes32",
+                "internalType": "FillId"
+              },
+              {
+                "name": "sequence",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "liabilityConsumed",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "remainingLiability",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "finalized",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "grantRole",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "account",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "hasRole",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "account",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "owner",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "pendingDefaultAdmin",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "newAdmin",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "schedule",
+            "type": "uint48",
+            "internalType": "uint48"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "pendingDefaultAdminDelay",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "newDelay",
+            "type": "uint48",
+            "internalType": "uint48"
+          },
+          {
+            "name": "schedule",
+            "type": "uint48",
+            "internalType": "uint48"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "positionEngine",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IPositionEngine"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "releaseStreamCapacity",
+        "inputs": [
+          {
+            "name": "streamId",
+            "type": "bytes32",
+            "internalType": "StreamId"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "renounceRole",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "account",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "reservationRegistry",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract ICapacityReservationRegistry"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "reserveStreamCapacity",
+        "inputs": [
+          {
+            "name": "streamId",
+            "type": "bytes32",
+            "internalType": "StreamId"
+          },
+          {
+            "name": "policy",
+            "type": "tuple",
+            "internalType": "struct StreamPolicy",
+            "components": [
+              {
+                "name": "maker",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "makerAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "makerOrderHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "targetKind",
+                "type": "uint8",
+                "internalType": "enum OrderTargetKind"
+              },
+              {
+                "name": "seriesId",
+                "type": "bytes32",
+                "internalType": "SeriesId"
+              },
+              {
+                "name": "packageId",
+                "type": "bytes32",
+                "internalType": "PackageId"
+              },
+              {
+                "name": "targetVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "packageWitnessHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "makerSide",
+                "type": "uint8",
+                "internalType": "enum Side"
+              },
+              {
+                "name": "pricingKind",
+                "type": "uint8",
+                "internalType": "enum StreamPricingKind"
+              },
+              {
+                "name": "sizeBandsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "ladderHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "baseBidPriceTicks",
+                "type": "int128",
+                "internalType": "PriceTicks"
+              },
+              {
+                "name": "baseAskPriceTicks",
+                "type": "int128",
+                "internalType": "PriceTicks"
+              },
+              {
+                "name": "sizeSlopeTicksPerLot",
+                "type": "int128",
+                "internalType": "int128"
+              },
+              {
+                "name": "inventorySkewTicksPerLot",
+                "type": "int128",
+                "internalType": "int128"
+              },
+              {
+                "name": "maximumAbsoluteInventoryLots",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "maximumAbsoluteSkewTicks",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "refreshInterval",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "quoteLifetime",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "validAfter",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "expiry",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "feeScheduleId",
+                "type": "bytes32",
+                "internalType": "FeeScheduleId"
+              },
+              {
+                "name": "feeScheduleVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "riskDomainId",
+                "type": "bytes32",
+                "internalType": "RiskDomainId"
+              },
+              {
+                "name": "riskDomainVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "collateralAssetId",
+                "type": "bytes32",
+                "internalType": "AssetId"
+              },
+              {
+                "name": "collateralBindingVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "maximumLiability",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "liabilityPerLot",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "capacityExpiry",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "executionModeId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "permittedExecutor",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "capacityPolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "capacityReservationId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "nonce",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "salt",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "lockId",
+            "type": "bytes32",
+            "internalType": "CollateralLockId"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "revokeRole",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "account",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "rollbackDefaultAdminDelay",
+        "inputs": [],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "supportsInterface",
+        "inputs": [
+          {
+            "name": "interfaceId",
+            "type": "bytes4",
+            "internalType": "bytes4"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "event",
+        "name": "DefaultAdminDelayChangeCanceled",
+        "inputs": [],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "DefaultAdminDelayChangeScheduled",
+        "inputs": [
+          {
+            "name": "newDelay",
+            "type": "uint48",
+            "indexed": false,
+            "internalType": "uint48"
+          },
+          {
+            "name": "effectSchedule",
+            "type": "uint48",
+            "indexed": false,
+            "internalType": "uint48"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "DefaultAdminTransferCanceled",
+        "inputs": [],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "DefaultAdminTransferScheduled",
+        "inputs": [
+          {
+            "name": "newAdmin",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          },
+          {
+            "name": "acceptSchedule",
+            "type": "uint48",
+            "indexed": false,
+            "internalType": "uint48"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "RoleAdminChanged",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "previousAdminRole",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "newAdminRole",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "RoleGranted",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "account",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          },
+          {
+            "name": "sender",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "RoleRevoked",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "account",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          },
+          {
+            "name": "sender",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "error",
+        "name": "AccessControlBadConfirmation",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "AccessControlEnforcedDefaultAdminDelay",
+        "inputs": [
+          {
+            "name": "schedule",
+            "type": "uint48",
+            "internalType": "uint48"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "AccessControlEnforcedDefaultAdminRules",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "AccessControlInvalidDefaultAdmin",
+        "inputs": [
+          {
+            "name": "defaultAdmin",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "AccessControlUnauthorizedAccount",
+        "inputs": [
+          {
+            "name": "account",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "neededRole",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "CapacityAlreadyReserved",
+        "inputs": [
+          {
+            "name": "streamId",
+            "type": "bytes32",
+            "internalType": "StreamId"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "CapacityExceeded",
+        "inputs": [
+          {
+            "name": "remaining",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "requested",
+            "type": "uint128",
+            "internalType": "uint128"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "CapacityLockMismatch",
+        "inputs": [
+          {
+            "name": "lockId",
+            "type": "bytes32",
+            "internalType": "CollateralLockId"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "InvalidCapacityConsumption",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "InvalidCapacityPolicy",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "InvalidCapacitySequence",
+        "inputs": [
+          {
+            "name": "expected",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "actual",
+            "type": "uint64",
+            "internalType": "uint64"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "InvalidCapacityState",
+        "inputs": [
+          {
+            "name": "streamId",
+            "type": "bytes32",
+            "internalType": "StreamId"
+          },
+          {
+            "name": "status",
+            "type": "uint8",
+            "internalType": "enum ManagedCapacityStatus"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "InventoryExceeded",
+        "inputs": [
+          {
+            "name": "inventory",
+            "type": "int128",
+            "internalType": "int128"
+          },
+          {
+            "name": "maximum",
+            "type": "uint128",
+            "internalType": "uint128"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ReentrancyGuardReentrantCall",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "SafeCastOverflowedUintDowncast",
+        "inputs": [
+          {
+            "name": "bits",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "value",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "UnknownCapacity",
+        "inputs": [
+          {
+            "name": "streamId",
+            "type": "bytes32",
+            "internalType": "StreamId"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroDependency",
+        "inputs": [
+          {
+            "name": "dependency",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroInitialAdmin",
+        "inputs": []
+      }
+    ]
+  },
+  "VaultBackedBatchCapacityManager": {
+    "artifact": "contracts/out/VaultBackedBatchCapacityManager.sol/VaultBackedBatchCapacityManager.json",
+    "sourceName": "src/capacity/VaultBackedBatchCapacityManager.sol",
+    "contractName": "VaultBackedBatchCapacityManager",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "defaultAdminDelay",
+            "type": "uint48",
+            "internalType": "uint48"
+          },
+          {
+            "name": "initialAdmin",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "positionEngine_",
+            "type": "address",
+            "internalType": "contract IPositionEngine"
+          },
+          {
+            "name": "reservationRegistry_",
+            "type": "address",
+            "internalType": "contract ICapacityReservationRegistry"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "BATCH_ENGINE_ROLE",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "DEFAULT_ADMIN_ROLE",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "acceptDefaultAdminTransfer",
+        "inputs": [],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "beginDefaultAdminTransfer",
+        "inputs": [
+          {
+            "name": "newAdmin",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "cancelDefaultAdminTransfer",
+        "inputs": [],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "changeDefaultAdminDelay",
+        "inputs": [
+          {
+            "name": "newDelay",
+            "type": "uint48",
+            "internalType": "uint48"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "collateralVault",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract ICollateralVault"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "consumeBatchCapacity",
+        "inputs": [
+          {
+            "name": "batchExecutionId",
+            "type": "bytes32",
+            "internalType": "BatchExecutionId"
+          },
+          {
+            "name": "allocationId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "bidId",
+            "type": "bytes32",
+            "internalType": "BidCommitmentId"
+          },
+          {
+            "name": "allocatedLots",
+            "type": "uint128",
+            "internalType": "Lots"
+          },
+          {
+            "name": "fundingHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "disposition",
+            "type": "tuple",
+            "internalType": "struct BatchCapacityDisposition",
+            "components": [
+              {
+                "name": "reservationId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "capacityPolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "capacityEvidenceHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "accountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "collateralAssetId",
+                "type": "bytes32",
+                "internalType": "AssetId"
+              },
+              {
+                "name": "collateralBindingVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "riskDomainId",
+                "type": "bytes32",
+                "internalType": "RiskDomainId"
+              },
+              {
+                "name": "riskDomainVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "lockId",
+                "type": "bytes32",
+                "internalType": "CollateralLockId"
+              },
+              {
+                "name": "lockReference",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "expiry",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "reservedLiability",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "consumedLiability",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "expectedRemainingLiability",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "remainderDisposition",
+                "type": "uint8",
+                "internalType": "enum BatchRemainderDisposition"
+              }
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "consumptionHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "defaultAdmin",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "defaultAdminDelay",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "uint48",
+            "internalType": "uint48"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "defaultAdminDelayIncreaseWait",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "uint48",
+            "internalType": "uint48"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "expireBatchCapacity",
+        "inputs": [
+          {
+            "name": "allocationId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "finalizeBatchCapacity",
+        "inputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "BatchExecutionId"
+          },
+          {
+            "name": "allocationId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "fillId",
+            "type": "bytes32",
+            "internalType": "FillId"
+          },
+          {
+            "name": "consumptionHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "getBatchCapacity",
+        "inputs": [
+          {
+            "name": "allocationId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "capacity",
+            "type": "tuple",
+            "internalType": "struct ManagedCapacity",
+            "components": [
+              {
+                "name": "owner",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "accountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "collateralAssetId",
+                "type": "bytes32",
+                "internalType": "AssetId"
+              },
+              {
+                "name": "collateralId",
+                "type": "bytes32",
+                "internalType": "CollateralId"
+              },
+              {
+                "name": "riskDomainId",
+                "type": "bytes32",
+                "internalType": "RiskDomainId"
+              },
+              {
+                "name": "lockId",
+                "type": "bytes32",
+                "internalType": "CollateralLockId"
+              },
+              {
+                "name": "lockReference",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "collateralBindingVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "riskDomainVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "expiry",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "status",
+                "type": "uint8",
+                "internalType": "enum ManagedCapacityStatus"
+              },
+              {
+                "name": "initialLiability",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "remainingLiability",
+                "type": "uint128",
+                "internalType": "uint128"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "getBatchConsumption",
+        "inputs": [
+          {
+            "name": "allocationId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "record",
+            "type": "tuple",
+            "internalType": "struct CapacityConsumptionRecord",
+            "components": [
+              {
+                "name": "capacityId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "consumptionHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "fillId",
+                "type": "bytes32",
+                "internalType": "FillId"
+              },
+              {
+                "name": "sequence",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "liabilityConsumed",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "remainingLiability",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "finalized",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "getRoleAdmin",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "grantRole",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "account",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "hasRole",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "account",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "owner",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "pendingDefaultAdmin",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "newAdmin",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "schedule",
+            "type": "uint48",
+            "internalType": "uint48"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "pendingDefaultAdminDelay",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "newDelay",
+            "type": "uint48",
+            "internalType": "uint48"
+          },
+          {
+            "name": "schedule",
+            "type": "uint48",
+            "internalType": "uint48"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "positionEngine",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IPositionEngine"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "renounceRole",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "account",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "reservationRegistry",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract ICapacityReservationRegistry"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "revokeRole",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "account",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "rollbackDefaultAdminDelay",
+        "inputs": [],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "supportsInterface",
+        "inputs": [
+          {
+            "name": "interfaceId",
+            "type": "bytes4",
+            "internalType": "bytes4"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "event",
+        "name": "DefaultAdminDelayChangeCanceled",
+        "inputs": [],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "DefaultAdminDelayChangeScheduled",
+        "inputs": [
+          {
+            "name": "newDelay",
+            "type": "uint48",
+            "indexed": false,
+            "internalType": "uint48"
+          },
+          {
+            "name": "effectSchedule",
+            "type": "uint48",
+            "indexed": false,
+            "internalType": "uint48"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "DefaultAdminTransferCanceled",
+        "inputs": [],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "DefaultAdminTransferScheduled",
+        "inputs": [
+          {
+            "name": "newAdmin",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          },
+          {
+            "name": "acceptSchedule",
+            "type": "uint48",
+            "indexed": false,
+            "internalType": "uint48"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "RoleAdminChanged",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "previousAdminRole",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "newAdminRole",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "RoleGranted",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "account",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          },
+          {
+            "name": "sender",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "RoleRevoked",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "account",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          },
+          {
+            "name": "sender",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "error",
+        "name": "AccessControlBadConfirmation",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "AccessControlEnforcedDefaultAdminDelay",
+        "inputs": [
+          {
+            "name": "schedule",
+            "type": "uint48",
+            "internalType": "uint48"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "AccessControlEnforcedDefaultAdminRules",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "AccessControlInvalidDefaultAdmin",
+        "inputs": [
+          {
+            "name": "defaultAdmin",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "AccessControlUnauthorizedAccount",
+        "inputs": [
+          {
+            "name": "account",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "neededRole",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "BatchCapacityAlreadyExists",
+        "inputs": [
+          {
+            "name": "allocationId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "CapacityLockMismatch",
+        "inputs": [
+          {
+            "name": "lockId",
+            "type": "bytes32",
+            "internalType": "CollateralLockId"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "InvalidBatchCapacity",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "InvalidBatchCapacityState",
+        "inputs": [
+          {
+            "name": "allocationId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "status",
+            "type": "uint8",
+            "internalType": "enum ManagedCapacityStatus"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ReentrancyGuardReentrantCall",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "SafeCastOverflowedUintDowncast",
+        "inputs": [
+          {
+            "name": "bits",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "value",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "UnknownBatchCapacity",
+        "inputs": [
+          {
+            "name": "allocationId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroDependency",
+        "inputs": [
+          {
+            "name": "dependency",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroInitialAdmin",
+        "inputs": []
+      }
+    ]
+  },
+  "AuctionValidationGate": {
+    "artifact": "contracts/out/AuctionValidationGate.sol/AuctionValidationGate.json",
+    "sourceName": "src/policy/AuctionValidationGate.sol",
+    "contractName": "AuctionValidationGate",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "seriesRegistry_",
+            "type": "address",
+            "internalType": "contract ISeriesRegistry"
+          },
+          {
+            "name": "packageRegistry_",
+            "type": "address",
+            "internalType": "contract IPackageRegistry"
+          },
+          {
+            "name": "policyRegistry_",
+            "type": "address",
+            "internalType": "contract IExecutionPolicyRegistry"
+          },
+          {
+            "name": "sessionPolicy_",
+            "type": "address",
+            "internalType": "contract ITradingSessionPolicy"
+          },
+          {
+            "name": "packageWitnessRegistry_",
+            "type": "address",
+            "internalType": "contract IPackageWitnessRegistry"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "ALLOCATION_POLICY",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "BOND_POLICY",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "CAPACITY_POLICY",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "GUARANTEE_POLICY",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "marketRegistry",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IMarketRegistry"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "packageRegistry",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IPackageRegistry"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "packageWitnessRegistry",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IPackageWitnessRegistry"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "policyRegistry",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IExecutionPolicyRegistry"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "seriesRegistry",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract ISeriesRegistry"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "sessionPolicy",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract ITradingSessionPolicy"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "validateBid",
+        "inputs": [
+          {
+            "name": "definition",
+            "type": "tuple",
+            "internalType": "struct AuctionDefinition",
+            "components": [
+              {
+                "name": "namespaceId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "auctionKey",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "initiatorOrderHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "initiatorAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "initiatorMaximumFeeMinor",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "executionModeId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "kind",
+                "type": "uint8",
+                "internalType": "enum AuctionKind"
+              },
+              {
+                "name": "targetKind",
+                "type": "uint8",
+                "internalType": "enum AuctionTargetKind"
+              },
+              {
+                "name": "seriesId",
+                "type": "bytes32",
+                "internalType": "SeriesId"
+              },
+              {
+                "name": "packageId",
+                "type": "bytes32",
+                "internalType": "PackageId"
+              },
+              {
+                "name": "targetVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "hasPackageLegCommitment",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "packageLegsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "auctionSide",
+                "type": "uint8",
+                "internalType": "enum Side"
+              },
+              {
+                "name": "settlementAssetId",
+                "type": "bytes32",
+                "internalType": "AssetId"
+              },
+              {
+                "name": "settlementAssetVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "riskDomainId",
+                "type": "bytes32",
+                "internalType": "RiskDomainId"
+              },
+              {
+                "name": "riskDomainVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "feeScheduleId",
+                "type": "bytes32",
+                "internalType": "FeeScheduleId"
+              },
+              {
+                "name": "feeScheduleVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "eligibilityPolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "capacityPolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "bondPolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "allocationPolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "guaranteeClassId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "priceRule",
+                "type": "uint8",
+                "internalType": "enum AuctionPriceRule"
+              },
+              {
+                "name": "tieBreakRule",
+                "type": "uint8",
+                "internalType": "enum AuctionTieBreakRule"
+              },
+              {
+                "name": "noBidTreatment",
+                "type": "uint8",
+                "internalType": "enum NoBidTreatment"
+              },
+              {
+                "name": "unrevealedBondOutcome",
+                "type": "uint8",
+                "internalType": "enum BondOutcome"
+              },
+              {
+                "name": "losingBondOutcome",
+                "type": "uint8",
+                "internalType": "enum BondOutcome"
+              },
+              {
+                "name": "settlementFailureBondOutcome",
+                "type": "uint8",
+                "internalType": "enum BondOutcome"
+              },
+              {
+                "name": "totalLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "lotStep",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "maximumBids",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "commitOpensAt",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "commitClosesAt",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "revealClosesAt",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "clearDeadline",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "settlementDeadline",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "bondExpiry",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "bondAssetId",
+                "type": "bytes32",
+                "internalType": "AssetId"
+              },
+              {
+                "name": "bondBindingVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "requiredBondAmount",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "slashRecipientAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "maximumKeeperRewardMinor",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "qualificationEvidenceHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "bid",
+            "type": "tuple",
+            "internalType": "struct SealedBid",
+            "components": [
+              {
+                "name": "auctionId",
+                "type": "bytes32",
+                "internalType": "AuctionId"
+              },
+              {
+                "name": "auctionVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "bidder",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "bidderAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "bidderOrderHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "nonce",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "side",
+                "type": "uint8",
+                "internalType": "enum Side"
+              },
+              {
+                "name": "lots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "allowPartialAllocation",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "minimumFillLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "priceTicks",
+                "type": "int128",
+                "internalType": "PriceTicks"
+              },
+              {
+                "name": "maximumFeeMinor",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "solverRouteId",
+                "type": "bytes32",
+                "internalType": "SolverRouteId"
+              },
+              {
+                "name": "capacityEvidenceHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "revealSalt",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "validateCommit",
+        "inputs": [
+          {
+            "name": "definition",
+            "type": "tuple",
+            "internalType": "struct AuctionDefinition",
+            "components": [
+              {
+                "name": "namespaceId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "auctionKey",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "initiatorOrderHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "initiatorAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "initiatorMaximumFeeMinor",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "executionModeId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "kind",
+                "type": "uint8",
+                "internalType": "enum AuctionKind"
+              },
+              {
+                "name": "targetKind",
+                "type": "uint8",
+                "internalType": "enum AuctionTargetKind"
+              },
+              {
+                "name": "seriesId",
+                "type": "bytes32",
+                "internalType": "SeriesId"
+              },
+              {
+                "name": "packageId",
+                "type": "bytes32",
+                "internalType": "PackageId"
+              },
+              {
+                "name": "targetVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "hasPackageLegCommitment",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "packageLegsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "auctionSide",
+                "type": "uint8",
+                "internalType": "enum Side"
+              },
+              {
+                "name": "settlementAssetId",
+                "type": "bytes32",
+                "internalType": "AssetId"
+              },
+              {
+                "name": "settlementAssetVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "riskDomainId",
+                "type": "bytes32",
+                "internalType": "RiskDomainId"
+              },
+              {
+                "name": "riskDomainVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "feeScheduleId",
+                "type": "bytes32",
+                "internalType": "FeeScheduleId"
+              },
+              {
+                "name": "feeScheduleVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "eligibilityPolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "capacityPolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "bondPolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "allocationPolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "guaranteeClassId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "priceRule",
+                "type": "uint8",
+                "internalType": "enum AuctionPriceRule"
+              },
+              {
+                "name": "tieBreakRule",
+                "type": "uint8",
+                "internalType": "enum AuctionTieBreakRule"
+              },
+              {
+                "name": "noBidTreatment",
+                "type": "uint8",
+                "internalType": "enum NoBidTreatment"
+              },
+              {
+                "name": "unrevealedBondOutcome",
+                "type": "uint8",
+                "internalType": "enum BondOutcome"
+              },
+              {
+                "name": "losingBondOutcome",
+                "type": "uint8",
+                "internalType": "enum BondOutcome"
+              },
+              {
+                "name": "settlementFailureBondOutcome",
+                "type": "uint8",
+                "internalType": "enum BondOutcome"
+              },
+              {
+                "name": "totalLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "lotStep",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "maximumBids",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "commitOpensAt",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "commitClosesAt",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "revealClosesAt",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "clearDeadline",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "settlementDeadline",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "bondExpiry",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "bondAssetId",
+                "type": "bytes32",
+                "internalType": "AssetId"
+              },
+              {
+                "name": "bondBindingVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "requiredBondAmount",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "slashRecipientAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "maximumKeeperRewardMinor",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "qualificationEvidenceHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "authorization",
+            "type": "tuple",
+            "internalType": "struct BidCommitAuthorization",
+            "components": [
+              {
+                "name": "auctionId",
+                "type": "bytes32",
+                "internalType": "AuctionId"
+              },
+              {
+                "name": "auctionVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "bidder",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "bidderAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "nonce",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "sealedBidHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "eligibilityProofHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "deadline",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "salt",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "eligibilityProof",
+            "type": "bytes32[]",
+            "internalType": "bytes32[]"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "validateDefinition",
+        "inputs": [
+          {
+            "name": "definition",
+            "type": "tuple",
+            "internalType": "struct AuctionDefinition",
+            "components": [
+              {
+                "name": "namespaceId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "auctionKey",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "initiatorOrderHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "initiatorAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "initiatorMaximumFeeMinor",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "executionModeId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "kind",
+                "type": "uint8",
+                "internalType": "enum AuctionKind"
+              },
+              {
+                "name": "targetKind",
+                "type": "uint8",
+                "internalType": "enum AuctionTargetKind"
+              },
+              {
+                "name": "seriesId",
+                "type": "bytes32",
+                "internalType": "SeriesId"
+              },
+              {
+                "name": "packageId",
+                "type": "bytes32",
+                "internalType": "PackageId"
+              },
+              {
+                "name": "targetVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "hasPackageLegCommitment",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "packageLegsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "auctionSide",
+                "type": "uint8",
+                "internalType": "enum Side"
+              },
+              {
+                "name": "settlementAssetId",
+                "type": "bytes32",
+                "internalType": "AssetId"
+              },
+              {
+                "name": "settlementAssetVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "riskDomainId",
+                "type": "bytes32",
+                "internalType": "RiskDomainId"
+              },
+              {
+                "name": "riskDomainVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "feeScheduleId",
+                "type": "bytes32",
+                "internalType": "FeeScheduleId"
+              },
+              {
+                "name": "feeScheduleVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "eligibilityPolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "capacityPolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "bondPolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "allocationPolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "guaranteeClassId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "priceRule",
+                "type": "uint8",
+                "internalType": "enum AuctionPriceRule"
+              },
+              {
+                "name": "tieBreakRule",
+                "type": "uint8",
+                "internalType": "enum AuctionTieBreakRule"
+              },
+              {
+                "name": "noBidTreatment",
+                "type": "uint8",
+                "internalType": "enum NoBidTreatment"
+              },
+              {
+                "name": "unrevealedBondOutcome",
+                "type": "uint8",
+                "internalType": "enum BondOutcome"
+              },
+              {
+                "name": "losingBondOutcome",
+                "type": "uint8",
+                "internalType": "enum BondOutcome"
+              },
+              {
+                "name": "settlementFailureBondOutcome",
+                "type": "uint8",
+                "internalType": "enum BondOutcome"
+              },
+              {
+                "name": "totalLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "lotStep",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "maximumBids",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "commitOpensAt",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "commitClosesAt",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "revealClosesAt",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "clearDeadline",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "settlementDeadline",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "bondExpiry",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "bondAssetId",
+                "type": "bytes32",
+                "internalType": "AssetId"
+              },
+              {
+                "name": "bondBindingVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "requiredBondAmount",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "slashRecipientAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "maximumKeeperRewardMinor",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "qualificationEvidenceHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "packageLegs",
+            "type": "tuple[]",
+            "internalType": "struct PackageLeg[]",
+            "components": [
+              {
+                "name": "seriesId",
+                "type": "bytes32",
+                "internalType": "SeriesId"
+              },
+              {
+                "name": "seriesVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "ratio",
+                "type": "int32",
+                "internalType": "int32"
+              }
+            ]
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "validateRoute",
+        "inputs": [
+          {
+            "name": "definition",
+            "type": "tuple",
+            "internalType": "struct AuctionDefinition",
+            "components": [
+              {
+                "name": "namespaceId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "auctionKey",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "initiatorOrderHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "initiatorAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "initiatorMaximumFeeMinor",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "executionModeId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "kind",
+                "type": "uint8",
+                "internalType": "enum AuctionKind"
+              },
+              {
+                "name": "targetKind",
+                "type": "uint8",
+                "internalType": "enum AuctionTargetKind"
+              },
+              {
+                "name": "seriesId",
+                "type": "bytes32",
+                "internalType": "SeriesId"
+              },
+              {
+                "name": "packageId",
+                "type": "bytes32",
+                "internalType": "PackageId"
+              },
+              {
+                "name": "targetVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "hasPackageLegCommitment",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "packageLegsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "auctionSide",
+                "type": "uint8",
+                "internalType": "enum Side"
+              },
+              {
+                "name": "settlementAssetId",
+                "type": "bytes32",
+                "internalType": "AssetId"
+              },
+              {
+                "name": "settlementAssetVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "riskDomainId",
+                "type": "bytes32",
+                "internalType": "RiskDomainId"
+              },
+              {
+                "name": "riskDomainVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "feeScheduleId",
+                "type": "bytes32",
+                "internalType": "FeeScheduleId"
+              },
+              {
+                "name": "feeScheduleVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "eligibilityPolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "capacityPolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "bondPolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "allocationPolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "guaranteeClassId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "priceRule",
+                "type": "uint8",
+                "internalType": "enum AuctionPriceRule"
+              },
+              {
+                "name": "tieBreakRule",
+                "type": "uint8",
+                "internalType": "enum AuctionTieBreakRule"
+              },
+              {
+                "name": "noBidTreatment",
+                "type": "uint8",
+                "internalType": "enum NoBidTreatment"
+              },
+              {
+                "name": "unrevealedBondOutcome",
+                "type": "uint8",
+                "internalType": "enum BondOutcome"
+              },
+              {
+                "name": "losingBondOutcome",
+                "type": "uint8",
+                "internalType": "enum BondOutcome"
+              },
+              {
+                "name": "settlementFailureBondOutcome",
+                "type": "uint8",
+                "internalType": "enum BondOutcome"
+              },
+              {
+                "name": "totalLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "lotStep",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "maximumBids",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "commitOpensAt",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "commitClosesAt",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "revealClosesAt",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "clearDeadline",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "settlementDeadline",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "bondExpiry",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "bondAssetId",
+                "type": "bytes32",
+                "internalType": "AssetId"
+              },
+              {
+                "name": "bondBindingVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "requiredBondAmount",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "slashRecipientAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "maximumKeeperRewardMinor",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "qualificationEvidenceHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "route",
+            "type": "tuple",
+            "internalType": "struct SolverRoute",
+            "components": [
+              {
+                "name": "auctionId",
+                "type": "bytes32",
+                "internalType": "AuctionId"
+              },
+              {
+                "name": "auctionVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "solver",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "solverAccountId",
+                "type": "bytes32",
+                "internalType": "AccountId"
+              },
+              {
+                "name": "routeId",
+                "type": "bytes32",
+                "internalType": "SolverRouteId"
+              },
+              {
+                "name": "packageLegsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "actionGraphHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "legCount",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "actionCount",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "packageOutcomeTicks",
+                "type": "int128",
+                "internalType": "PriceTicks"
+              },
+              {
+                "name": "maximumFeeMinor",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "capacityLockId",
+                "type": "bytes32",
+                "internalType": "CollateralLockId"
+              },
+              {
+                "name": "capacityCollateralId",
+                "type": "bytes32",
+                "internalType": "CollateralId"
+              },
+              {
+                "name": "capacityAmount",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "capacityEvidenceHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "expiry",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "guaranteeClassId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "salt",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "routeLegs",
+            "type": "tuple[]",
+            "internalType": "struct PackageLeg[]",
+            "components": [
+              {
+                "name": "seriesId",
+                "type": "bytes32",
+                "internalType": "SeriesId"
+              },
+              {
+                "name": "seriesVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "ratio",
+                "type": "int32",
+                "internalType": "int32"
+              }
+            ]
+          },
+          {
+            "name": "actions",
+            "type": "tuple[]",
+            "internalType": "struct SolverAction[]",
+            "components": [
+              {
+                "name": "actionTypeId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "adapterId",
+                "type": "bytes32",
+                "internalType": "AdapterId"
+              },
+              {
+                "name": "adapterVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "adapterCapabilityHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "inputAssetId",
+                "type": "bytes32",
+                "internalType": "AssetId"
+              },
+              {
+                "name": "outputAssetId",
+                "type": "bytes32",
+                "internalType": "AssetId"
+              },
+              {
+                "name": "maximumInput",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "minimumOutput",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "dependencyMask",
+                "type": "uint32",
+                "internalType": "uint32"
+              }
+            ]
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "view"
+      },
+      {
+        "type": "error",
+        "name": "InvalidAuctionPolicy",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "InvalidMarketOrder",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "InvalidPackageOrderLots",
+        "inputs": [
+          {
+            "name": "lots",
+            "type": "uint128",
+            "internalType": "Lots"
+          },
+          {
+            "name": "lotStep",
+            "type": "uint128",
+            "internalType": "Lots"
+          },
+          {
+            "name": "minimum",
+            "type": "uint128",
+            "internalType": "Lots"
+          },
+          {
+            "name": "maximum",
+            "type": "uint128",
+            "internalType": "Lots"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "InvalidPackageOrderPrice",
+        "inputs": [
+          {
+            "name": "priceTicks",
+            "type": "int128",
+            "internalType": "PriceTicks"
+          },
+          {
+            "name": "minimum",
+            "type": "int128",
+            "internalType": "PriceTicks"
+          },
+          {
+            "name": "maximum",
+            "type": "int128",
+            "internalType": "PriceTicks"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "InvalidPackageWitness",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "InvalidPolicyDependency",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "TargetDependencyMismatch",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "TargetNotOpen",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "UnsupportedExecutionMode",
+        "inputs": [
+          {
+            "name": "executionModeId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroPolicyDependency",
+        "inputs": [
+          {
+            "name": "dependency",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      }
+    ]
+  },
   "SealedAuctionHouse": {
     "artifact": "contracts/out/SealedAuctionHouse.sol/SealedAuctionHouse.json",
     "sourceName": "src/auction/SealedAuctionHouse.sol",
@@ -66505,6 +70814,1771 @@ export const contractBindings = {
             "internalType": "uint256"
           }
         ]
+      }
+    ]
+  },
+  "ProtocolRouteLiquiditySource": {
+    "artifact": "contracts/out/ProtocolRouteLiquiditySource.sol/ProtocolRouteLiquiditySource.json",
+    "sourceName": "src/routing/ProtocolRouteLiquiditySource.sol",
+    "contractName": "ProtocolRouteLiquiditySource",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "defaultAdminDelay",
+            "type": "uint48",
+            "internalType": "uint48"
+          },
+          {
+            "name": "initialAdmin",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "publicOrderBook_",
+            "type": "address",
+            "internalType": "contract IPublicOrderBook"
+          },
+          {
+            "name": "packageRegistry_",
+            "type": "address",
+            "internalType": "contract IPackageRegistry"
+          },
+          {
+            "name": "privateRfqBook_",
+            "type": "address",
+            "internalType": "contract IPrivateRfqBook"
+          },
+          {
+            "name": "streamingQuoteEngine_",
+            "type": "address",
+            "internalType": "contract IStreamingQuoteEngine"
+          },
+          {
+            "name": "sealedAuctionHouse_",
+            "type": "address",
+            "internalType": "contract ISealedAuctionHouse"
+          },
+          {
+            "name": "collateralVault_",
+            "type": "address",
+            "internalType": "contract ICollateralVault"
+          },
+          {
+            "name": "sessionRegistry_",
+            "type": "address",
+            "internalType": "contract ISessionRegistry"
+          },
+          {
+            "name": "reservationRegistry_",
+            "type": "address",
+            "internalType": "contract ICapacityReservationRegistry"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "DEFAULT_ADMIN_ROLE",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "ROUTE_ENGINE_ROLE",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "acceptDefaultAdminTransfer",
+        "inputs": [],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "beginDefaultAdminTransfer",
+        "inputs": [
+          {
+            "name": "newAdmin",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "cancelDefaultAdminTransfer",
+        "inputs": [],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "changeDefaultAdminDelay",
+        "inputs": [
+          {
+            "name": "newDelay",
+            "type": "uint48",
+            "internalType": "uint48"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "collateralVault",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract ICollateralVault"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "componentsRemainExecutable",
+        "inputs": [
+          {
+            "name": "routeId",
+            "type": "bytes32",
+            "internalType": "RouteId"
+          },
+          {
+            "name": "reservationHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "route",
+            "type": "tuple",
+            "internalType": "struct ExecutableRoute",
+            "components": [
+              {
+                "name": "packageId",
+                "type": "bytes32",
+                "internalType": "PackageId"
+              },
+              {
+                "name": "packageVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "packageWitnessHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "userSide",
+                "type": "uint8",
+                "internalType": "enum Side"
+              },
+              {
+                "name": "provenance",
+                "type": "uint8",
+                "internalType": "enum LiquidityProvenance"
+              },
+              {
+                "name": "packageLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "netPackagePriceTicks",
+                "type": "int128",
+                "internalType": "PriceTicks"
+              },
+              {
+                "name": "packageTickSizeMinor",
+                "type": "uint128",
+                "internalType": "TickSizeMinor"
+              },
+              {
+                "name": "totalFeeMinor",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "feeScheduleId",
+                "type": "bytes32",
+                "internalType": "FeeScheduleId"
+              },
+              {
+                "name": "feeScheduleVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "riskDomainId",
+                "type": "bytes32",
+                "internalType": "RiskDomainId"
+              },
+              {
+                "name": "riskDomainVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "guaranteeClassId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "expiry",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "sourceBlock",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "componentsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "riskBindingsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "salt",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "packageLegs",
+            "type": "tuple[]",
+            "internalType": "struct PackageLeg[]",
+            "components": [
+              {
+                "name": "seriesId",
+                "type": "bytes32",
+                "internalType": "SeriesId"
+              },
+              {
+                "name": "seriesVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "ratio",
+                "type": "int32",
+                "internalType": "int32"
+              }
+            ]
+          },
+          {
+            "name": "components",
+            "type": "tuple[]",
+            "internalType": "struct RouteComponent[]",
+            "components": [
+              {
+                "name": "sourceKind",
+                "type": "uint8",
+                "internalType": "enum RouteSourceKind"
+              },
+              {
+                "name": "firmness",
+                "type": "uint8",
+                "internalType": "enum LiquidityFirmness"
+              },
+              {
+                "name": "sourceId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "sourceSnapshotHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "reservationKey",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "orderHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "seriesId",
+                "type": "bytes32",
+                "internalType": "SeriesId"
+              },
+              {
+                "name": "seriesVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "side",
+                "type": "uint8",
+                "internalType": "enum Side"
+              },
+              {
+                "name": "packageRatio",
+                "type": "int32",
+                "internalType": "int32"
+              },
+              {
+                "name": "componentLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "priceTicks",
+                "type": "int128",
+                "internalType": "PriceTicks"
+              },
+              {
+                "name": "tickSizeMinor",
+                "type": "uint128",
+                "internalType": "TickSizeMinor"
+              },
+              {
+                "name": "feeMinor",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "capacityLockId",
+                "type": "bytes32",
+                "internalType": "CollateralLockId"
+              },
+              {
+                "name": "capacityLockReference",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "fundingLockId",
+                "type": "bytes32",
+                "internalType": "CollateralLockId"
+              },
+              {
+                "name": "fundingLockReference",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "expiry",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "sourceBlock",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "dependencyMask",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "sessionId",
+                "type": "bytes32",
+                "internalType": "SessionId"
+              },
+              {
+                "name": "sessionVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "guaranteeClassId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "intendedClearingConsumer",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "executable",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "defaultAdmin",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "defaultAdminDelay",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "uint48",
+            "internalType": "uint48"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "defaultAdminDelayIncreaseWait",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "uint48",
+            "internalType": "uint48"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "getRoleAdmin",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "grantRole",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "account",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "hasRole",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "account",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "owner",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "packageRegistry",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IPackageRegistry"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "pendingDefaultAdmin",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "newAdmin",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "schedule",
+            "type": "uint48",
+            "internalType": "uint48"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "pendingDefaultAdminDelay",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "newDelay",
+            "type": "uint48",
+            "internalType": "uint48"
+          },
+          {
+            "name": "schedule",
+            "type": "uint48",
+            "internalType": "uint48"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "privateRfqBook",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IPrivateRfqBook"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "publicOrderBook",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IPublicOrderBook"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "releaseComponents",
+        "inputs": [
+          {
+            "name": "routeId",
+            "type": "bytes32",
+            "internalType": "RouteId"
+          },
+          {
+            "name": "reservationHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "releaseReference",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "renounceRole",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "account",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "reservationRegistry",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract ICapacityReservationRegistry"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "reserveCoincidence",
+        "inputs": [
+          {
+            "name": "routeId",
+            "type": "bytes32",
+            "internalType": "RouteId"
+          },
+          {
+            "name": "plan",
+            "type": "tuple",
+            "internalType": "struct CoincidencePlan",
+            "components": [
+              {
+                "name": "leftOrderHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "rightOrderHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "packageId",
+                "type": "bytes32",
+                "internalType": "PackageId"
+              },
+              {
+                "name": "packageVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "packageWitnessHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "leftSide",
+                "type": "uint8",
+                "internalType": "enum Side"
+              },
+              {
+                "name": "rightSide",
+                "type": "uint8",
+                "internalType": "enum Side"
+              },
+              {
+                "name": "leftLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "rightLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "matchedLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "leftResidualLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "rightResidualLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "leftPriceTicks",
+                "type": "int128",
+                "internalType": "PriceTicks"
+              },
+              {
+                "name": "rightPriceTicks",
+                "type": "int128",
+                "internalType": "PriceTicks"
+              },
+              {
+                "name": "economicsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "leftReservationKey",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "rightReservationKey",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "intendedClearingConsumer",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "reservationExpiry",
+                "type": "uint64",
+                "internalType": "uint64"
+              }
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "reservationHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "reserveComponents",
+        "inputs": [
+          {
+            "name": "routeId",
+            "type": "bytes32",
+            "internalType": "RouteId"
+          },
+          {
+            "name": "route",
+            "type": "tuple",
+            "internalType": "struct ExecutableRoute",
+            "components": [
+              {
+                "name": "packageId",
+                "type": "bytes32",
+                "internalType": "PackageId"
+              },
+              {
+                "name": "packageVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "packageWitnessHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "userSide",
+                "type": "uint8",
+                "internalType": "enum Side"
+              },
+              {
+                "name": "provenance",
+                "type": "uint8",
+                "internalType": "enum LiquidityProvenance"
+              },
+              {
+                "name": "packageLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "netPackagePriceTicks",
+                "type": "int128",
+                "internalType": "PriceTicks"
+              },
+              {
+                "name": "packageTickSizeMinor",
+                "type": "uint128",
+                "internalType": "TickSizeMinor"
+              },
+              {
+                "name": "totalFeeMinor",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "feeScheduleId",
+                "type": "bytes32",
+                "internalType": "FeeScheduleId"
+              },
+              {
+                "name": "feeScheduleVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "riskDomainId",
+                "type": "bytes32",
+                "internalType": "RiskDomainId"
+              },
+              {
+                "name": "riskDomainVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "guaranteeClassId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "expiry",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "sourceBlock",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "componentsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "riskBindingsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "salt",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "packageLegs",
+            "type": "tuple[]",
+            "internalType": "struct PackageLeg[]",
+            "components": [
+              {
+                "name": "seriesId",
+                "type": "bytes32",
+                "internalType": "SeriesId"
+              },
+              {
+                "name": "seriesVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "ratio",
+                "type": "int32",
+                "internalType": "int32"
+              }
+            ]
+          },
+          {
+            "name": "components",
+            "type": "tuple[]",
+            "internalType": "struct RouteComponent[]",
+            "components": [
+              {
+                "name": "sourceKind",
+                "type": "uint8",
+                "internalType": "enum RouteSourceKind"
+              },
+              {
+                "name": "firmness",
+                "type": "uint8",
+                "internalType": "enum LiquidityFirmness"
+              },
+              {
+                "name": "sourceId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "sourceSnapshotHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "reservationKey",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "orderHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "seriesId",
+                "type": "bytes32",
+                "internalType": "SeriesId"
+              },
+              {
+                "name": "seriesVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "side",
+                "type": "uint8",
+                "internalType": "enum Side"
+              },
+              {
+                "name": "packageRatio",
+                "type": "int32",
+                "internalType": "int32"
+              },
+              {
+                "name": "componentLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "priceTicks",
+                "type": "int128",
+                "internalType": "PriceTicks"
+              },
+              {
+                "name": "tickSizeMinor",
+                "type": "uint128",
+                "internalType": "TickSizeMinor"
+              },
+              {
+                "name": "feeMinor",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "capacityLockId",
+                "type": "bytes32",
+                "internalType": "CollateralLockId"
+              },
+              {
+                "name": "capacityLockReference",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "fundingLockId",
+                "type": "bytes32",
+                "internalType": "CollateralLockId"
+              },
+              {
+                "name": "fundingLockReference",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "expiry",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "sourceBlock",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "dependencyMask",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "sessionId",
+                "type": "bytes32",
+                "internalType": "SessionId"
+              },
+              {
+                "name": "sessionVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "guaranteeClassId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "intendedClearingConsumer",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "executable",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "reservationHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "revokeRole",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "account",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "rollbackDefaultAdminDelay",
+        "inputs": [],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "sealedAuctionHouse",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract ISealedAuctionHouse"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "sessionRegistry",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract ISessionRegistry"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "settleComponents",
+        "inputs": [
+          {
+            "name": "routeId",
+            "type": "bytes32",
+            "internalType": "RouteId"
+          },
+          {
+            "name": "reservationHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "settlementReference",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "streamingQuoteEngine",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IStreamingQuoteEngine"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "supportsInterface",
+        "inputs": [
+          {
+            "name": "interfaceId",
+            "type": "bytes4",
+            "internalType": "bytes4"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "validateComponents",
+        "inputs": [
+          {
+            "name": "routeId",
+            "type": "bytes32",
+            "internalType": "RouteId"
+          },
+          {
+            "name": "route",
+            "type": "tuple",
+            "internalType": "struct ExecutableRoute",
+            "components": [
+              {
+                "name": "packageId",
+                "type": "bytes32",
+                "internalType": "PackageId"
+              },
+              {
+                "name": "packageVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "packageWitnessHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "userSide",
+                "type": "uint8",
+                "internalType": "enum Side"
+              },
+              {
+                "name": "provenance",
+                "type": "uint8",
+                "internalType": "enum LiquidityProvenance"
+              },
+              {
+                "name": "packageLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "netPackagePriceTicks",
+                "type": "int128",
+                "internalType": "PriceTicks"
+              },
+              {
+                "name": "packageTickSizeMinor",
+                "type": "uint128",
+                "internalType": "TickSizeMinor"
+              },
+              {
+                "name": "totalFeeMinor",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "feeScheduleId",
+                "type": "bytes32",
+                "internalType": "FeeScheduleId"
+              },
+              {
+                "name": "feeScheduleVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "riskDomainId",
+                "type": "bytes32",
+                "internalType": "RiskDomainId"
+              },
+              {
+                "name": "riskDomainVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "guaranteeClassId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "expiry",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "sourceBlock",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "componentsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "riskBindingsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "salt",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "packageLegs",
+            "type": "tuple[]",
+            "internalType": "struct PackageLeg[]",
+            "components": [
+              {
+                "name": "seriesId",
+                "type": "bytes32",
+                "internalType": "SeriesId"
+              },
+              {
+                "name": "seriesVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "ratio",
+                "type": "int32",
+                "internalType": "int32"
+              }
+            ]
+          },
+          {
+            "name": "components",
+            "type": "tuple[]",
+            "internalType": "struct RouteComponent[]",
+            "components": [
+              {
+                "name": "sourceKind",
+                "type": "uint8",
+                "internalType": "enum RouteSourceKind"
+              },
+              {
+                "name": "firmness",
+                "type": "uint8",
+                "internalType": "enum LiquidityFirmness"
+              },
+              {
+                "name": "sourceId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "sourceSnapshotHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "reservationKey",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "orderHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "seriesId",
+                "type": "bytes32",
+                "internalType": "SeriesId"
+              },
+              {
+                "name": "seriesVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "side",
+                "type": "uint8",
+                "internalType": "enum Side"
+              },
+              {
+                "name": "packageRatio",
+                "type": "int32",
+                "internalType": "int32"
+              },
+              {
+                "name": "componentLots",
+                "type": "uint128",
+                "internalType": "Lots"
+              },
+              {
+                "name": "priceTicks",
+                "type": "int128",
+                "internalType": "PriceTicks"
+              },
+              {
+                "name": "tickSizeMinor",
+                "type": "uint128",
+                "internalType": "TickSizeMinor"
+              },
+              {
+                "name": "feeMinor",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "capacityLockId",
+                "type": "bytes32",
+                "internalType": "CollateralLockId"
+              },
+              {
+                "name": "capacityLockReference",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "fundingLockId",
+                "type": "bytes32",
+                "internalType": "CollateralLockId"
+              },
+              {
+                "name": "fundingLockReference",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "expiry",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "sourceBlock",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "dependencyMask",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "sessionId",
+                "type": "bytes32",
+                "internalType": "SessionId"
+              },
+              {
+                "name": "sessionVersion",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "guaranteeClassId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "intendedClearingConsumer",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "executable",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "currentSnapshotHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "event",
+        "name": "DefaultAdminDelayChangeCanceled",
+        "inputs": [],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "DefaultAdminDelayChangeScheduled",
+        "inputs": [
+          {
+            "name": "newDelay",
+            "type": "uint48",
+            "indexed": false,
+            "internalType": "uint48"
+          },
+          {
+            "name": "effectSchedule",
+            "type": "uint48",
+            "indexed": false,
+            "internalType": "uint48"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "DefaultAdminTransferCanceled",
+        "inputs": [],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "DefaultAdminTransferScheduled",
+        "inputs": [
+          {
+            "name": "newAdmin",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          },
+          {
+            "name": "acceptSchedule",
+            "type": "uint48",
+            "indexed": false,
+            "internalType": "uint48"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "RoleAdminChanged",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "previousAdminRole",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "newAdminRole",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "RoleGranted",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "account",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          },
+          {
+            "name": "sender",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "RoleRevoked",
+        "inputs": [
+          {
+            "name": "role",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "account",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          },
+          {
+            "name": "sender",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "RouteSourcesClosed",
+        "inputs": [
+          {
+            "name": "routeId",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "RouteId"
+          },
+          {
+            "name": "reservationHash",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "closeReference",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "RouteSourcesReserved",
+        "inputs": [
+          {
+            "name": "routeId",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "RouteId"
+          },
+          {
+            "name": "reservationHash",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "lockCount",
+            "type": "uint16",
+            "indexed": false,
+            "internalType": "uint16"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "error",
+        "name": "AccessControlBadConfirmation",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "AccessControlEnforcedDefaultAdminDelay",
+        "inputs": [
+          {
+            "name": "schedule",
+            "type": "uint48",
+            "internalType": "uint48"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "AccessControlEnforcedDefaultAdminRules",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "AccessControlInvalidDefaultAdmin",
+        "inputs": [
+          {
+            "name": "defaultAdmin",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "AccessControlUnauthorizedAccount",
+        "inputs": [
+          {
+            "name": "account",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "neededRole",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "CapacityLockAlreadyReserved",
+        "inputs": [
+          {
+            "name": "lockId",
+            "type": "bytes32",
+            "internalType": "CollateralLockId"
+          },
+          {
+            "name": "routeId",
+            "type": "bytes32",
+            "internalType": "RouteId"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "InvalidRouteSource",
+        "inputs": [
+          {
+            "name": "index",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ReentrancyGuardReentrantCall",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "RouteAlreadyReserved",
+        "inputs": [
+          {
+            "name": "routeId",
+            "type": "bytes32",
+            "internalType": "RouteId"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "RouteReservationMismatch",
+        "inputs": [
+          {
+            "name": "routeId",
+            "type": "bytes32",
+            "internalType": "RouteId"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "SafeCastOverflowedUintDowncast",
+        "inputs": [
+          {
+            "name": "bits",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "value",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroDependency",
+        "inputs": [
+          {
+            "name": "dependency",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "ZeroInitialAdmin",
+        "inputs": []
       }
     ]
   },
