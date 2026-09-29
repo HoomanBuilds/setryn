@@ -402,7 +402,14 @@ contract ArbitrumOneControlRehearsalForkTest is Test, DeploySetryn {
         (bytes32 actionR1, ExternalVenueResult memory resultR1) = executor.submitExternal(newRef, requestR1);
         assertEq(uint8(resultR1.state), uint8(OperationalActionState.Submitted));
 
-        vm.expectRevert(OperationalAdapterExecutor.RecoveryNotAvailable.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                OperationalAdapterExecutor.RecoveryNotAvailable.selector,
+                requestR1.timeoutAt,
+                requestR1.recoveryDeadline,
+                vm.getBlockTimestamp()
+            )
+        );
         executor.recoverExternal(actionR1);
 
         vm.warp(requestR1.timeoutAt);
@@ -411,16 +418,29 @@ contract ArbitrumOneControlRehearsalForkTest is Test, DeploySetryn {
         assertEq(recoveredR1.postconditionsHash, bindingR1.expectedPostconditionsHash);
         assertTrue(recoveredR1.recoveryOutcomeHash != bytes32(0));
         assertEq(uint8(executor.getExternalAction(actionR1).state), uint8(OperationalActionState.Recovered));
-        vm.expectRevert(OperationalAdapterExecutor.TerminalAction.selector);
+        vm.expectRevert(abi.encodeWithSelector(OperationalAdapterExecutor.TerminalAction.selector, actionR1));
         executor.reconcileExternal(actionR1);
 
         OperationalBinding memory bindingR2 = _binding(executor, 11);
         ExternalVenueRequest memory requestR2 = _asyncRequest(bindingR2, 11);
         (bytes32 actionR2,) = executor.submitExternal(newRef, requestR2);
         vm.warp(requestR2.recoveryDeadline + 1);
-        vm.expectRevert(OperationalAdapterExecutor.RecoveryNotAvailable.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                OperationalAdapterExecutor.RecoveryNotAvailable.selector,
+                requestR2.timeoutAt,
+                requestR2.recoveryDeadline,
+                vm.getBlockTimestamp()
+            )
+        );
         executor.recoverExternal(actionR2);
-        vm.expectRevert(OperationalAdapterExecutor.RecoveryDeadlineElapsed.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                OperationalAdapterExecutor.RecoveryDeadlineElapsed.selector,
+                requestR2.recoveryDeadline,
+                vm.getBlockTimestamp()
+            )
+        );
         executor.reconcileExternal(actionR2);
         ExternalVenueResult memory terminalR2 = executor.terminalizeExternal(actionR2);
         assertEq(uint8(terminalR2.state), uint8(OperationalActionState.NoEffect));
@@ -440,12 +460,17 @@ contract ArbitrumOneControlRehearsalForkTest is Test, DeploySetryn {
 
         implAtomic.setShouldRevert(true);
         uint256 ledgerBefore = implAtomic.ledgerBalance();
-        vm.expectRevert(OperationalAdapterExecutor.AdapterCallFailed.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                OperationalAdapterExecutor.AdapterCallFailed.selector,
+                IExternalVenueExecutionAdapterV1.submitExternalAction.selector
+            )
+        );
         executor.submitExternal(atomicRef, requestAtom);
         assertFalse(executor.actionConsumed(atomActionId), "consumption must roll back");
         assertEq(implAtomic.ledgerBalance(), ledgerBefore, "ledger movement must roll back");
         assertEq(implAtomic.reservationBalance(), 0, "reservation movement must roll back");
-        vm.expectRevert(OperationalAdapterExecutor.UnknownExternalAction.selector);
+        vm.expectRevert(abi.encodeWithSelector(OperationalAdapterExecutor.UnknownExternalAction.selector, atomActionId));
         executor.getExternalAction(atomActionId);
 
         implAtomic.setShouldRevert(false);
@@ -508,7 +533,7 @@ contract ArbitrumOneControlRehearsalForkTest is Test, DeploySetryn {
             packageVersion: 1,
             actionHash: keccak256(abi.encode("control-action", nonce)),
             nonce: nonce,
-            deadline: uint64(block.timestamp + 1 hours),
+            deadline: uint64(vm.getBlockTimestamp() + 1 hours),
             minValue: 0,
             maxValue: 1_000,
             recipientPolicyHash: keccak256("control-recipient"),

@@ -216,9 +216,13 @@ contract ArbitrumOneAaveV3SupplyWithdrawForkTest is Test {
         assertEq(uint8(supplyResult.state), uint8(OperationalActionState.Complete), "fork supply must complete");
         assertEq(supplyResult.residualValue, 0, "atomic supply must leave zero residual");
         assertEq(IERC20(usdc).allowance(address(adapter), pool), 0, "allowance must be cleared after supply");
-        assertGt(IERC20(ausdc).balanceOf(address(adapter)), 0, "adapter must hold the aToken position");
+        // Aave scales supplies by the liquidity index, so the observable aToken balance can round down by one unit.
+        uint256 aTokenBalance = IERC20(ausdc).balanceOf(address(adapter));
+        assertLe(aTokenBalance, fixtureAmount + 1, "aToken position must not exceed the fixture beyond rounding");
+        assertGe(aTokenBalance + 1, fixtureAmount, "aToken position must match the fixture within one unit");
+        uint256 withdrawAmount = aTokenBalance < fixtureAmount ? aTokenBalance : fixtureAmount;
 
-        bytes32 withdrawHash = adapter.stageWithdraw(usdc, fixtureAmount, address(this), deadline, policy);
+        bytes32 withdrawHash = adapter.stageWithdraw(usdc, withdrawAmount, address(this), deadline, policy);
         OperationalBinding memory withdrawBinding = OperationalBinding({
             chainId: block.chainid,
             deploymentId: keccak256("fork-qualification"),
@@ -231,11 +235,11 @@ contract ArbitrumOneAaveV3SupplyWithdrawForkTest is Test {
             actionHash: withdrawHash,
             nonce: 2,
             deadline: deadline,
-            minValue: int256(fixtureAmount),
+            minValue: int256(withdrawAmount),
             maxValue: type(int256).max,
             recipientPolicyHash: policy,
             expectedPostconditionsHash: adapter.hashWithdrawPostconditions(
-                withdrawHash, usdc, fixtureAmount, address(this), deadline, policy, pool
+                withdrawHash, usdc, withdrawAmount, address(this), deadline, policy, pool
             )
         });
         ExternalVenueRequest memory withdrawRequest = ExternalVenueRequest({
@@ -260,7 +264,7 @@ contract ArbitrumOneAaveV3SupplyWithdrawForkTest is Test {
         assertEq(uint8(withdrawResult.state), uint8(OperationalActionState.Complete), "fork withdraw must complete");
         assertEq(
             IERC20(usdc).balanceOf(address(this)) - recipientBefore,
-            fixtureAmount,
+            withdrawAmount,
             "recipient must receive the exact underlying"
         );
 
