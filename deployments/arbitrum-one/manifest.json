@@ -6,7 +6,7 @@
   "status": "disabled",
   "generatedAt": null,
   "sourceCommit": null,
-  "blockReference": {"number": null, "hash": null, "mode": "pinned"},
+  "blockReference": {"number": 509990000, "hash": "0xd5edd6e1c8caac1a8bba0aadc5f3d52aecc6cf360dbeded39e898ce101433e72", "mode": "pinned"},
   "compiler": {
     "name": "solc",
     "version": "0.8.37",
@@ -307,21 +307,286 @@
       ],
       "caps": [{"name": "maxLockDuration", "unit": "seconds", "value": 2592000}],
       "dependencies": ["SettlementAssetRegistry", "RiskDomainRegistry"]
+    },
+    {
+      "name": "ChainlinkHistoricalRoundFixingAdapter",
+      "artifact": "contracts/out/ChainlinkHistoricalRoundFixingAdapter.sol/ChainlinkHistoricalRoundFixingAdapter.json",
+      "address": null,
+      "implementation": null,
+      "constructorArguments": [
+        {"name": "expectedChainId", "type": "uint256", "value": 42161},
+        {"name": "feed", "type": "address", "value": null},
+        {"name": "feedKey", "type": "bytes32", "value": null},
+        {"name": "capabilityHash", "type": "bytes32", "value": null},
+        {"name": "expectedDecimals", "type": "uint8", "value": null},
+        {"name": "sequencerFeed", "type": "address", "value": null},
+        {"name": "recoveryGracePeriod", "type": "uint64", "value": null}
+      ],
+      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
+      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
+      "owner": {"address": null, "source": "launch-approved Safe address, pending"},
+      "roles": [],
+      "caps": [],
+      "dependencies": []
+    },
+    {
+      "name": "ChainlinkSequencerHealthAdapter",
+      "artifact": "contracts/out/ChainlinkSequencerHealthAdapter.sol/ChainlinkSequencerHealthAdapter.json",
+      "address": null,
+      "implementation": null,
+      "constructorArguments": [
+        {"name": "expectedChainId", "type": "uint256", "value": 42161},
+        {"name": "feed", "type": "address", "value": null},
+        {"name": "recoveryGracePeriod", "type": "uint64", "value": null}
+      ],
+      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
+      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
+      "owner": {"address": null, "source": "launch-approved Safe address, pending"},
+      "roles": [],
+      "caps": [],
+      "dependencies": []
+    },
+    {
+      "name": "UniswapV3ExactInputSingleAdapter",
+      "artifact": "contracts/out/UniswapV3ExactInputSingleAdapter.sol/UniswapV3ExactInputSingleAdapter.json",
+      "address": null,
+      "implementation": null,
+      "constructorArguments": [
+        {"name": "expectedChainId", "type": "uint256", "value": 42161},
+        {"name": "router", "type": "address", "value": null},
+        {"name": "executor", "type": "address", "value": null},
+        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
+        {"name": "initialAdmin", "type": "address", "value": null},
+        {"name": "actionStager", "type": "address", "value": null},
+        {"name": "inventoryManager", "type": "address", "value": null}
+      ],
+      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
+      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
+      "owner": {"address": null, "source": "launch-approved Safe address, pending"},
+      "roles": [],
+      "caps": [],
+      "dependencies": []
+    },
+    {
+      "name": "AaveV3SupplyWithdrawAdapter",
+      "artifact": "contracts/out/AaveV3SupplyWithdrawAdapter.sol/AaveV3SupplyWithdrawAdapter.json",
+      "address": null,
+      "implementation": null,
+      "constructorArguments": [
+        {"name": "expectedChainId", "type": "uint256", "value": 42161},
+        {"name": "provider", "type": "address", "value": null},
+        {"name": "expectedPool", "type": "address", "value": null},
+        {"name": "executor", "type": "address", "value": null},
+        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
+        {"name": "initialAdmin", "type": "address", "value": null},
+        {"name": "actionStager", "type": "address", "value": null},
+        {"name": "inventoryManager", "type": "address", "value": null}
+      ],
+      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
+      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
+      "owner": {"address": null, "source": "launch-approved Safe address, pending"},
+      "roles": [],
+      "caps": [],
+      "dependencies": []
+    },
+    {
+      "name": "GmxV2OrderAdapter",
+      "artifact": "contracts/out/GmxV2OrderAdapter.sol/GmxV2OrderAdapter.json",
+      "address": null,
+      "implementation": null,
+      "constructorArguments": [
+        {"name": "expectedChainId", "type": "uint256", "value": 42161},
+        {"name": "exchangeRouter", "type": "address", "value": null},
+        {"name": "tokenTransferRouter", "type": "address", "value": null},
+        {"name": "orderVault", "type": "address", "value": null},
+        {"name": "orderHandler", "type": "address", "value": null},
+        {"name": "dataStore", "type": "address", "value": null},
+        {"name": "reader", "type": "address", "value": null},
+        {"name": "wnt", "type": "address", "value": null},
+        {"name": "executor", "type": "address", "value": null},
+        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
+        {"name": "initialAdmin", "type": "address", "value": null},
+        {"name": "actionStager", "type": "address", "value": null},
+        {"name": "inventoryManager", "type": "address", "value": null},
+        {"name": "callbackGasLimit", "type": "uint256", "value": null}
+      ],
+      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
+      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
+      "owner": {"address": null, "source": "launch-approved Safe address, pending"},
+      "roles": [],
+      "caps": [],
+      "dependencies": []
     }
   ],
   "externalDependencies": [
     {
       "name": "Circle native USDC",
       "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
-      "purpose": "Candidate settlement token for qualification before any launch approval",
+      "purpose": "Settlement and venue inventory token bound only after qualification; no activation",
       "provenance": {
         "kind": "official-documentation",
         "reference": "https://developers.circle.com/stablecoins/usdc-contract-addresses",
-        "verifiedAt": null
+        "verifiedAt": "2026-09-29T00:00:00Z"
       },
-      "runtimeCodeHash": null,
-      "qualificationStatus": "pending",
-      "consumers": ["SettlementAssetRegistry"]
+      "runtimeCodeHash": "0xad30d819dbc47814b7e6cb837fd7cc57fcb591479a38596ee93de4fc52e8c435",
+      "qualificationStatus": "code-hash-recorded",
+      "consumers": ["SettlementAssetRegistry", "AaveV3SupplyWithdrawAdapter"]
+    },
+    {
+      "name": "Chainlink ETH/USD feed",
+      "address": "0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612",
+      "purpose": "Historical fixing source for the Chainlink historical-round adapter; read-only observation",
+      "provenance": {
+        "kind": "official-documentation",
+        "reference": "https://docs.chain.link/data-feeds/price-feeds/addresses",
+        "verifiedAt": "2026-09-29T00:00:00Z"
+      },
+      "runtimeCodeHash": "0xbd6f524cdc4268b6bd1bb6f77a8821faeea9c52ee9e0afa0b6d948ce82c966c2",
+      "qualificationStatus": "code-hash-recorded",
+      "consumers": ["ChainlinkHistoricalRoundFixingAdapter"]
+    },
+    {
+      "name": "Chainlink Arbitrum sequencer uptime feed",
+      "address": "0xFdB631F5EE196F0ed6FAa767959853A9F217697D",
+      "purpose": "Sequencer health source for operational and fixing adapters; read-only observation",
+      "provenance": {
+        "kind": "official-documentation",
+        "reference": "https://docs.chain.link/data-feeds/l2-sequencer-feeds",
+        "verifiedAt": "2026-09-29T00:00:00Z"
+      },
+      "runtimeCodeHash": "0xbd6f524cdc4268b6bd1bb6f77a8821faeea9c52ee9e0afa0b6d948ce82c966c2",
+      "qualificationStatus": "code-hash-recorded",
+      "consumers": ["ChainlinkSequencerHealthAdapter", "ChainlinkHistoricalRoundFixingAdapter"]
+    },
+    {
+      "name": "Uniswap V3 SwapRouter02",
+      "address": "0x68b3465833fb72A70ecDF485E0e4C7Bd8665Fc45",
+      "purpose": "Exact-input execution target for the Uniswap V3 adapter; read-only observation",
+      "provenance": {
+        "kind": "official-documentation",
+        "reference": "https://docs.uniswap.org/contracts/v3/reference/deployments",
+        "verifiedAt": "2026-09-29T00:00:00Z"
+      },
+      "runtimeCodeHash": "0x209f9820ed7257d51c2f96ee837e8ec057b44774899f4be16fc45bd30cbb16f6",
+      "qualificationStatus": "code-hash-recorded",
+      "consumers": ["UniswapV3ExactInputSingleAdapter"]
+    },
+    {
+      "name": "Aave V3 PoolAddressesProvider",
+      "address": "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb",
+      "purpose": "Pool resolution source for the Aave V3 adapter; read-only observation",
+      "provenance": {
+        "kind": "official-documentation",
+        "reference": "https://github.com/aave-dao/aave-address-book",
+        "verifiedAt": "2026-09-29T00:00:00Z"
+      },
+      "runtimeCodeHash": "0x1a95f317ee56e0b9aedc4f4b7abd9e546dc45c26d1d77e95bcf62b789d9a5486",
+      "qualificationStatus": "code-hash-recorded",
+      "consumers": ["AaveV3SupplyWithdrawAdapter"]
+    },
+    {
+      "name": "Aave V3 Pool",
+      "address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD",
+      "purpose": "Supply and withdraw execution target for the Aave V3 adapter; read-only observation",
+      "provenance": {
+        "kind": "official-documentation",
+        "reference": "https://github.com/aave-dao/aave-address-book",
+        "verifiedAt": "2026-09-29T00:00:00Z"
+      },
+      "runtimeCodeHash": "0xf168c2e9e4d04292c7d5d526a9a917175a44369ab63a2f9997537acf0ffaaf2e",
+      "qualificationStatus": "code-hash-recorded",
+      "consumers": ["AaveV3SupplyWithdrawAdapter"]
+    },
+    {
+      "name": "GMX V2 ExchangeRouter",
+      "address": "0x7dE39FF2e232A2203196788d37e234cF8F1b83f1",
+      "purpose": "Order submission entrypoint for the GMX V2 adapter; read-only observation",
+      "provenance": {
+        "kind": "official-documentation",
+        "reference": "https://docs.gmx.io/docs/api/contracts/addresses/",
+        "verifiedAt": "2026-09-29T00:00:00Z"
+      },
+      "runtimeCodeHash": "0x8d85c91f9f96ee11a2395f2a218554fa0c675ad0ecd7d0fdcbfe61f62991fe04",
+      "qualificationStatus": "code-hash-recorded",
+      "consumers": ["GmxV2OrderAdapter"]
+    },
+    {
+      "name": "GMX V2 Router",
+      "address": "0x7452c558d45f8afC8c83dAe62C3f8A5BE19c71f6",
+      "purpose": "Token-transfer plugin target for the GMX V2 adapter; read-only observation",
+      "provenance": {
+        "kind": "official-documentation",
+        "reference": "https://docs.gmx.io/docs/api/contracts/addresses/",
+        "verifiedAt": "2026-09-29T00:00:00Z"
+      },
+      "runtimeCodeHash": "0xc25e44eb982bdc5ffbd44db5438231ea7bc038b2fcc675520974453bf2a00d5f",
+      "qualificationStatus": "code-hash-recorded",
+      "consumers": ["GmxV2OrderAdapter"]
+    },
+    {
+      "name": "GMX V2 OrderVault",
+      "address": "0x31eF83a530Fde1B38EE9A18093A333D8Bbbc40D5",
+      "purpose": "Fee and collateral receiver for the GMX V2 adapter; read-only observation",
+      "provenance": {
+        "kind": "official-documentation",
+        "reference": "https://docs.gmx.io/docs/api/contracts/addresses/",
+        "verifiedAt": "2026-09-29T00:00:00Z"
+      },
+      "runtimeCodeHash": "0x34d8332a92711cb1ce9a31be362ca68f9b4d34963e5c7c10d6134c86d832edb3",
+      "qualificationStatus": "code-hash-recorded",
+      "consumers": ["GmxV2OrderAdapter"]
+    },
+    {
+      "name": "GMX V2 OrderHandler",
+      "address": "0xa5D2d45228ee2E3A18AB122B2cE84997d008f4Eb",
+      "purpose": "Callback sender for the GMX V2 adapter; read-only observation",
+      "provenance": {
+        "kind": "official-documentation",
+        "reference": "https://docs.gmx.io/docs/api/contracts/addresses/",
+        "verifiedAt": "2026-09-29T00:00:00Z"
+      },
+      "runtimeCodeHash": "0xc35bbb9387b097e5b397a4901fa60cdbf4255d5c2bf71f942f938d9ddd989452",
+      "qualificationStatus": "code-hash-recorded",
+      "consumers": ["GmxV2OrderAdapter"]
+    },
+    {
+      "name": "GMX V2 DataStore",
+      "address": "0xFD70de6b91282D8017aA4E741e9Ae325CAb992d8",
+      "purpose": "Order existence source for the GMX V2 adapter; read-only observation",
+      "provenance": {
+        "kind": "official-documentation",
+        "reference": "https://docs.gmx.io/docs/api/contracts/addresses/",
+        "verifiedAt": "2026-09-29T00:00:00Z"
+      },
+      "runtimeCodeHash": "0x3e7aea6e62b75671681b0d3006b146c7f02681a65fd5cc663909104de9d5088e",
+      "qualificationStatus": "code-hash-recorded",
+      "consumers": ["GmxV2OrderAdapter"]
+    },
+    {
+      "name": "GMX V2 Reader",
+      "address": "0xfA26cBb46e2614609406de08CA1Dc7f70a684184",
+      "purpose": "Market state source for the GMX V2 adapter; read-only observation",
+      "provenance": {
+        "kind": "official-documentation",
+        "reference": "https://docs.gmx.io/docs/api/contracts/addresses/",
+        "verifiedAt": "2026-09-29T00:00:00Z"
+      },
+      "runtimeCodeHash": "0x49ed1cb374dfbcea8c73fb50821b5e0bb3fbbe83f4324d954ef07c38758ac04a",
+      "qualificationStatus": "code-hash-recorded",
+      "consumers": ["GmxV2OrderAdapter"]
+    },
+    {
+      "name": "GMX V2 WNT",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "purpose": "Execution-fee wrapping reference for the GMX V2 adapter; read-only observation",
+      "provenance": {
+        "kind": "official-documentation",
+        "reference": "https://docs.gmx.io/docs/api/contracts/addresses/",
+        "verifiedAt": "2026-09-29T00:00:00Z"
+      },
+      "runtimeCodeHash": "0x2d240bb4510ed1acfeaba905eb4bcc4524d63c8ae66e48fcccac55ea714db7a7",
+      "qualificationStatus": "code-hash-recorded",
+      "consumers": ["GmxV2OrderAdapter"]
     }
   ]
 }

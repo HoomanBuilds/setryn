@@ -32,6 +32,32 @@ const requiredContracts = [
   "SeriesRegistry",
   "CollateralVault",
 ];
+const allowedAdapterContracts = [
+  "ChainlinkHistoricalRoundFixingAdapter",
+  "ChainlinkSequencerHealthAdapter",
+  "UniswapV3ExactInputSingleAdapter",
+  "AaveV3SupplyWithdrawAdapter",
+  "GmxV2OrderAdapter",
+];
+const arbitrumOnePinnedBlockNumber = 509990000;
+const arbitrumOnePinnedBlockHash = "0xd5edd6e1c8caac1a8bba0aadc5f3d52aecc6cf360dbeded39e898ce101433e72";
+const arbitrumOneExpectedCodeHashes = new Map([
+  ["0xaf88d065e77c8cc2239327c5edb3a432268e5831", "0xad30d819dbc47814b7e6cb837fd7cc57fcb591479a38596ee93de4fc52e8c435"],
+  ["0x639fe6ab55c921f74e7fac1ee960c0b6293ba612", "0xbd6f524cdc4268b6bd1bb6f77a8821faeea9c52ee9e0afa0b6d948ce82c966c2"],
+  ["0xfdb631f5ee196f0ed6faa767959853a9f217697d", "0xbd6f524cdc4268b6bd1bb6f77a8821faeea9c52ee9e0afa0b6d948ce82c966c2"],
+  ["0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45", "0x209f9820ed7257d51c2f96ee837e8ec057b44774899f4be16fc45bd30cbb16f6"],
+  ["0xa97684ead0e402dc232d5a977953df7ecbab3cdb", "0x1a95f317ee56e0b9aedc4f4b7abd9e546dc45c26d1d77e95bcf62b789d9a5486"],
+  ["0x794a61358d6845594f94dc1db02a252b5b4814ad", "0xf168c2e9e4d04292c7d5d526a9a917175a44369ab63a2f9997537acf0ffaaf2e"],
+  ["0x7de39ff2e232a2203196788d37e234cf8f1b83f1", "0x8d85c91f9f96ee11a2395f2a218554fa0c675ad0ecd7d0fdcbfe61f62991fe04"],
+  ["0x7452c558d45f8afc8c83dae62c3f8a5be19c71f6", "0xc25e44eb982bdc5ffbd44db5438231ea7bc038b2fcc675520974453bf2a00d5f"],
+  ["0x31ef83a530fde1b38ee9a18093a333d8bbbc40d5", "0x34d8332a92711cb1ce9a31be362ca68f9b4d34963e5c7c10d6134c86d832edb3"],
+  ["0xa5d2d45228ee2e3a18ab122b2ce84997d008f4eb", "0xc35bbb9387b097e5b397a4901fa60cdbf4255d5c2bf71f942f938d9ddd989452"],
+  ["0xfd70de6b91282d8017aa4e741e9ae325cab992d8", "0x3e7aea6e62b75671681b0d3006b146c7f02681a65fd5cc663909104de9d5088e"],
+  ["0xfa26cbb46e2614609406de08ca1dc7f70a684184", "0x49ed1cb374dfbcea8c73fb50821b5e0bb3fbbe83f4324d954ef07c38758ac04a"],
+  ["0x82af49447d8a07e3bd95bd0d56f35241523fbab1", "0x2d240bb4510ed1acfeaba905eb4bcc4524d63c8ae66e48fcccac55ea714db7a7"],
+]);
+const bytes32Pattern = /^0x[0-9a-fA-F]{64}$/;
+const zeroHash = "0x0000000000000000000000000000000000000000000000000000000000000000";
 const vaultRoles = [
   ["COLLATERAL_LOCKER_ROLE", "SETRYN_COLLATERAL_LOCKER_ROLE"],
   ["COLLATERAL_SETTLER_ROLE", "SETRYN_COLLATERAL_SETTLER_ROLE"],
@@ -111,8 +137,20 @@ function validateManifest(manifestPath) {
     throw new Error(`${manifestPath}: contract names must be unique`);
   }
   const names = [...contracts.keys()];
-  if (JSON.stringify(names) !== JSON.stringify(requiredContracts)) {
+  if (JSON.stringify(names.slice(0, requiredContracts.length)) !== JSON.stringify(requiredContracts)) {
     throw new Error(`${manifestPath}: contract order or membership drifted from the Phase 1 deployment graph`);
+  }
+  const adapterNames = names.slice(requiredContracts.length);
+  if (new Set(adapterNames).size !== adapterNames.length) {
+    throw new Error(`${manifestPath}: adapter contract names must be unique`);
+  }
+  for (const name of adapterNames) {
+    if (!allowedAdapterContracts.includes(name)) {
+      throw new Error(`${manifestPath}: unexpected adapter contract ${name}`);
+    }
+  }
+  if (JSON.stringify(adapterNames) !== JSON.stringify(allowedAdapterContracts.filter((name) => adapterNames.includes(name)))) {
+    throw new Error(`${manifestPath}: adapter contract order drifted`);
   }
   if (
     manifest.environment === "arbitrum-sepolia" &&
@@ -121,8 +159,81 @@ function validateManifest(manifestPath) {
   ) {
     throw new Error(`${manifestPath}: planned Sepolia deployment must keep broadcast disabled and unsigned`);
   }
-  if (manifest.environment === "arbitrum-one" && (manifest.status !== "disabled" || manifest.broadcast.enabled)) {
+  if (
+    manifest.environment === "arbitrum-one" &&
+    (manifest.status !== "disabled" ||
+      manifest.broadcast.enabled !== false ||
+      manifest.broadcast.signed !== false ||
+      manifest.broadcast.transactionCount !== 0)
+  ) {
     throw new Error(`${manifestPath}: Arbitrum One broadcast must remain disabled`);
+  }
+  if (manifest.environment === "arbitrum-one") {
+    if (
+      manifest.blockReference?.number !== arbitrumOnePinnedBlockNumber ||
+      typeof manifest.blockReference?.hash !== "string" ||
+      manifest.blockReference.hash.toLowerCase() !== arbitrumOnePinnedBlockHash ||
+      manifest.blockReference?.mode !== "pinned"
+    ) {
+      throw new Error(
+        `${manifestPath}: Arbitrum One block reference must pin ${arbitrumOnePinnedBlockNumber} with the observed hash`,
+      );
+    }
+    const externalDependencies = manifest.externalDependencies ?? [];
+    if (externalDependencies.length !== arbitrumOneExpectedCodeHashes.size) {
+      throw new Error(`${manifestPath}: Arbitrum One must declare every Phase 4 external dependency`);
+    }
+    const seenExternalAddresses = new Set();
+    for (const dependency of externalDependencies) {
+      if (typeof dependency.address !== "string") {
+        throw new Error(`${manifestPath}: Arbitrum One external dependency is missing its address`);
+      }
+      const normalizedAddress = dependency.address.toLowerCase();
+      if (seenExternalAddresses.has(normalizedAddress)) {
+        throw new Error(`${manifestPath}: Arbitrum One declares a duplicate external dependency address`);
+      }
+      seenExternalAddresses.add(normalizedAddress);
+      const expectedHash = arbitrumOneExpectedCodeHashes.get(normalizedAddress);
+      if (!expectedHash) {
+        throw new Error(`${manifestPath}: Arbitrum One declares an unexpected external dependency ${dependency.address}`);
+      }
+      if (typeof dependency.runtimeCodeHash !== "string" || !bytes32Pattern.test(dependency.runtimeCodeHash)) {
+        throw new Error(`${manifestPath}: Arbitrum One external dependency ${dependency.name} is missing its code hash`);
+      }
+      if (dependency.runtimeCodeHash.toLowerCase() === zeroHash) {
+        throw new Error(`${manifestPath}: Arbitrum One external dependency ${dependency.name} has a zero code hash`);
+      }
+      if (dependency.runtimeCodeHash.toLowerCase() !== expectedHash) {
+        throw new Error(`${manifestPath}: Arbitrum One external dependency ${dependency.name} code hash mismatch`);
+      }
+      if (dependency.qualificationStatus !== "code-hash-recorded") {
+        throw new Error(
+          `${manifestPath}: Arbitrum One external dependency ${dependency.name} must use code-hash-recorded status`,
+        );
+      }
+      if (dependency.qualificationStatus === "qualified") {
+        throw new Error(`${manifestPath}: Arbitrum One external dependency ${dependency.name} must never be qualified`);
+      }
+      if (!dependency.provenance?.reference || dependency.provenance.verifiedAt !== "2026-09-29T00:00:00Z") {
+        throw new Error(`${manifestPath}: Arbitrum One external dependency ${dependency.name} provenance is incomplete`);
+      }
+      if (!Array.isArray(dependency.consumers) || dependency.consumers.length === 0) {
+        throw new Error(`${manifestPath}: Arbitrum One external dependency ${dependency.name} must list consumers`);
+      }
+      for (const consumer of dependency.consumers) {
+        if (!contracts.has(consumer)) {
+          throw new Error(`${manifestPath}: Arbitrum One external dependency ${dependency.name} lists unknown consumer ${consumer}`);
+        }
+      }
+    }
+    for (const contract of manifest.contracts) {
+      if (contract.address !== null || contract.implementation !== null) {
+        throw new Error(`${manifestPath}: Arbitrum One contract ${contract.name} must remain non-deployed`);
+      }
+      if (contract.deploymentTransaction?.broadcast !== false) {
+        throw new Error(`${manifestPath}: Arbitrum One contract ${contract.name} must never record a broadcast`);
+      }
+    }
   }
   if (manifest.status === "broadcast" && (!manifest.broadcast.enabled || manifest.broadcast.transactionCount === 0)) {
     throw new Error(`${manifestPath}: broadcast evidence must record broadcast transactions`);

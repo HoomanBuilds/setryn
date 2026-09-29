@@ -298,25 +298,24 @@ function assertProductionManifestHygiene(manifest, manifestPath) {
         `${manifestPath}: unexpected qualification status for external dependency ${dependency.name}.`,
       );
     }
-    if (dependency.runtimeCodeHash !== null && dependency.runtimeCodeHash !== undefined) {
-      if (typeof dependency.runtimeCodeHash !== "string" || !BYTES32_PATTERN.test(dependency.runtimeCodeHash)) {
-        throw new Error(
-          `${manifestPath}: malformed runtime code hash for external dependency ${dependency.name}.`,
-        );
-      }
-      if (dependency.runtimeCodeHash.toLowerCase() === ZERO_HASH) {
-        throw new Error(
-          `${manifestPath}: rejected zero runtime code hash for external dependency ${dependency.name}.`,
-        );
-      }
-    }
-    if (
-      (dependency.qualificationStatus === "qualified" ||
-        dependency.qualificationStatus === "code-hash-recorded") &&
-      (dependency.runtimeCodeHash === null || dependency.runtimeCodeHash === undefined)
-    ) {
+    if (dependency.qualificationStatus === "qualified") {
       throw new Error(
-        `${manifestPath}: unexpected qualification evidence for ${dependency.name}: status ${dependency.qualificationStatus} requires a runtime code hash.`,
+        `${manifestPath}: unexpected qualified status for external dependency ${dependency.name}; must remain code-hash-recorded.`,
+      );
+    }
+    if (dependency.qualificationStatus !== "code-hash-recorded") {
+      throw new Error(
+        `${manifestPath}: unexpected qualification status for external dependency ${dependency.name}; expected code-hash-recorded.`,
+      );
+    }
+    if (typeof dependency.runtimeCodeHash !== "string" || !BYTES32_PATTERN.test(dependency.runtimeCodeHash)) {
+      throw new Error(
+        `${manifestPath}: missing-code configuration: ${dependency.name} must declare an exact runtime code hash.`,
+      );
+    }
+    if (dependency.runtimeCodeHash.toLowerCase() === ZERO_HASH) {
+      throw new Error(
+        `${manifestPath}: rejected zero runtime code hash for external dependency ${dependency.name}.`,
       );
     }
   }
@@ -377,6 +376,16 @@ async function main() {
       `Pinned block ${pinnedBlockNumber} is ahead of latest block ${latestBlock.number}.`,
     );
   }
+  if (
+    manifest.blockReference?.number !== pinnedBlockNumber ||
+    typeof manifest.blockReference?.hash !== "string" ||
+    manifest.blockReference.hash.toLowerCase() !== pinnedBlock.hash ||
+    manifest.blockReference?.mode !== "pinned"
+  ) {
+    throw new Error(
+      `${manifestRelative}: pinned block reference must match observed block ${pinnedBlockNumber} (${pinnedBlock.hash}).`,
+    );
+  }
 
   const dependencies = [];
   for (const dependency of [...manifest.externalDependencies].sort((a, b) => a.name.localeCompare(b.name))) {
@@ -412,17 +421,20 @@ async function main() {
     }
     const declared = dependency.runtimeCodeHash ?? null;
     const normalizedDeclared = declared === null ? null : declared.toLowerCase();
-    if (normalizedDeclared !== null) {
-      if (pinnedCodeHash !== normalizedDeclared) {
-        throw new Error(
-          `${manifestRelative}: runtime code hash mismatch for ${dependency.name} at pinned block ${pinnedBlockNumber}.`,
-        );
-      }
-      if (latestCodeHash !== normalizedDeclared) {
-        throw new Error(
-          `${manifestRelative}: runtime code hash mismatch for ${dependency.name} at latest block ${latestBlock.number}.`,
-        );
-      }
+    if (normalizedDeclared === null) {
+      throw new Error(
+        `${manifestRelative}: missing-code configuration: ${dependency.name} must declare an exact runtime code hash.`,
+      );
+    }
+    if (pinnedCodeHash !== normalizedDeclared) {
+      throw new Error(
+        `${manifestRelative}: runtime code hash mismatch for ${dependency.name} at pinned block ${pinnedBlockNumber}.`,
+      );
+    }
+    if (latestCodeHash !== normalizedDeclared) {
+      throw new Error(
+        `${manifestRelative}: runtime code hash mismatch for ${dependency.name} at latest block ${latestBlock.number}.`,
+      );
     }
     dependencies.push({
       address: dependency.address,
@@ -438,6 +450,9 @@ async function main() {
   }
 
   const manifestHashesComplete = dependencies.every((entry) => entry.manifestRuntimeCodeHash !== null);
+  if (!manifestHashesComplete) {
+    throw new Error(`${manifestRelative}: incomplete runtime code hash evidence; every dependency must declare an exact hash.`);
+  }
 
   const report = {
     chainId: EXPECTED_CHAIN_ID,
