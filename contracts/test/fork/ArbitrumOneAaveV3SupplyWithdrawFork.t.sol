@@ -156,7 +156,21 @@ contract ArbitrumOneAaveV3SupplyWithdrawForkTest is Test {
                 "Set SETRYN_AAVE_FORK_FIXTURE_AMOUNT to run the value-moving fork supply/withdraw case; read-only qualification above already passed"
             );
         }
-        deal(usdc, address(adapter), fixtureAmount, true);
+        // Fund from a real native-USDC holder at the pinned block instead of rewriting FiatToken storage.
+        address holder = vm.envOr("SETRYN_AAVE_FORK_USDC_HOLDER", address(0));
+        assertTrue(holder != address(0), "SETRYN_AAVE_FORK_USDC_HOLDER must name a funded native USDC holder");
+        assertEq(holder.code.length, 0, "fixture holder must be an externally owned account");
+        uint256 holderBefore = IERC20(usdc).balanceOf(holder);
+        uint256 adapterBefore = IERC20(usdc).balanceOf(address(adapter));
+        assertGe(holderBefore, fixtureAmount, "fixture holder must hold the fixture amount at the pinned block");
+        vm.prank(holder);
+        assertTrue(IERC20(usdc).transfer(address(adapter), fixtureAmount), "fixture transfer must succeed");
+        assertEq(IERC20(usdc).balanceOf(holder), holderBefore - fixtureAmount, "holder must lose the exact fixture");
+        assertEq(
+            IERC20(usdc).balanceOf(address(adapter)),
+            adapterBefore + fixtureAmount,
+            "adapter must gain the exact fixture"
+        );
         adapter.syncInventory(usdc);
 
         bytes32 policy = keccak256("fork-recipient-policy");

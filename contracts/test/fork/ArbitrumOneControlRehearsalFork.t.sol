@@ -352,7 +352,9 @@ contract ArbitrumOneControlRehearsalForkTest is Test, DeploySetryn {
         AdapterReference memory newRef = AdapterReference({adapterId: lineageId, adapterVersion: 2});
         OperationalBinding memory bindingOld = _binding(executor, 1);
         ExternalVenueRequest memory requestOld = _asyncRequest(bindingOld, 1);
-        vm.expectRevert(OperationalAdapterExecutor.AdapterUnavailable.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(OperationalAdapterExecutor.AdapterUnavailable.selector, lineageId, uint32(1))
+        );
         executor.submitExternal(oldRef, requestOld);
 
         OperationalBinding memory bindingA = _binding(executor, 2);
@@ -378,7 +380,9 @@ contract ArbitrumOneControlRehearsalForkTest is Test, DeploySetryn {
 
         OperationalBinding memory bindingC = _binding(executor, 4);
         ExternalVenueRequest memory requestC = _asyncRequest(bindingC, 4);
-        vm.expectRevert(OperationalAdapterExecutor.AdapterUnavailable.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(OperationalAdapterExecutor.AdapterUnavailable.selector, lineageId, uint32(2))
+        );
         executor.submitExternal(newRef, requestC);
 
         ExternalVenueResult memory reconciledB = executor.reconcileExternal(actionB);

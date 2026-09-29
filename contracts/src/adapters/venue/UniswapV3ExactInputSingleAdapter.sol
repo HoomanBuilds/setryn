@@ -20,14 +20,15 @@ import {
     OperationalBinding
 } from "../../types/OperationalAdapterTypes.sol";
 
-/// @notice Minimal Uniswap V3 swap-router surface required for exact-input-single execution.
+/// @notice Minimal Uniswap V3 SwapRouter02 (IV3SwapRouter) surface required for exact-input-single execution.
+/// @dev SwapRouter02 takes no deadline in the swap tuple. The adapter enforces the staged deadline itself before
+///      calling the router, inside the same transaction.
 interface IUniswapV3ExactInputSingleRouter {
     struct ExactInputSingleParams {
         address tokenIn;
         address tokenOut;
         uint24 fee;
         address recipient;
-        uint256 deadline;
         uint256 amountIn;
         uint256 amountOutMinimum;
         uint160 sqrtPriceLimitX96;
@@ -435,7 +436,6 @@ contract UniswapV3ExactInputSingleAdapter is
                 tokenOut: tokenOut,
                 fee: fee,
                 recipient: recipient,
-                deadline: swapDeadline,
                 amountIn: amountIn,
                 amountOutMinimum: minimumOut,
                 sqrtPriceLimitX96: 0
