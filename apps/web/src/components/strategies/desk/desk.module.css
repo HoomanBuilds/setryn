@@ -1,0 +1,235 @@
+/*
+ * Motion and control styling for the builder, maker and operations desks.
+ * Kept local so globals.css stays untouched. Every animation is short and
+ * ease-out, and all of it is disabled under prefers-reduced-motion.
+ */
+
+.rise {
+  animation: rise 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: var(--rise-delay, 0ms);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.fade {
+  animation: fade 180ms ease-out both;
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.slideDown {
+  animation: slideDown 200ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Value-change highlight: a brief tint that settles back to the row. */
+.flashUp {
+  animation: flashUp 700ms ease-out;
+}
+
+.flashDown {
+  animation: flashDown 700ms ease-out;
+}
+
+.flashNeutral {
+  animation: flashNeutral 700ms ease-out;
+}
+
+@keyframes flashUp {
+  from {
+    background-color: var(--color-up-soft);
+    box-shadow: 0 0 0 2px var(--color-up-soft);
+  }
+  to {
+    background-color: transparent;
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+
+@keyframes flashDown {
+  from {
+    background-color: var(--color-down-soft);
+    box-shadow: 0 0 0 2px var(--color-down-soft);
+  }
+  to {
+    background-color: transparent;
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+
+@keyframes flashNeutral {
+  from {
+    background-color: var(--color-brand-soft);
+    box-shadow: 0 0 0 2px var(--color-brand-soft);
+  }
+  to {
+    background-color: transparent;
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+
+/* Live indicator: a soft ring that breathes out of the dot. */
+.pulse {
+  position: relative;
+}
+
+.pulse::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: currentColor;
+  animation: pulse 1.8s ease-out infinite;
+}
+
+@keyframes pulse {
+  from {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(2.8);
+  }
+}
+
+/* Range: thin track, lime fill between --lo and --hi, round paper thumb. */
+.range {
+  appearance: none;
+  width: 100%;
+  height: 20px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.range:focus-visible {
+  outline: none;
+}
+
+.range::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--color-line-strong) var(--lo, 0%),
+    var(--color-brand) var(--lo, 0%),
+    var(--color-brand) var(--hi, 0%),
+    var(--color-line-strong) var(--hi, 0%)
+  );
+}
+
+.range::-moz-range-track {
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--color-line-strong) var(--lo, 0%),
+    var(--color-brand) var(--lo, 0%),
+    var(--color-brand) var(--hi, 0%),
+    var(--color-line-strong) var(--hi, 0%)
+  );
+}
+
+.range::-webkit-slider-thumb {
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  margin-top: -5px;
+  border-radius: 999px;
+  background: var(--color-ink);
+  border: 2px solid var(--color-brand);
+  transition:
+    transform 140ms ease-out,
+    box-shadow 140ms ease-out;
+}
+
+.range::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  background: var(--color-ink);
+  border: 2px solid var(--color-brand);
+  transition:
+    transform 140ms ease-out,
+    box-shadow 140ms ease-out;
+}
+
+.range:hover::-webkit-slider-thumb,
+.range:active::-webkit-slider-thumb {
+  transform: scale(1.15);
+}
+
+.range:hover::-moz-range-thumb,
+.range:active::-moz-range-thumb {
+  transform: scale(1.15);
+}
+
+.range:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 4px var(--color-brand-soft);
+}
+
+.range:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 4px var(--color-brand-soft);
+}
+
+.range:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Hairline stripes for indicative (non-executable) capacity. */
+.hatch {
+  background-image: repeating-linear-gradient(
+    135deg,
+    var(--color-line-strong) 0 1px,
+    transparent 1px 4px
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise,
+  .fade,
+  .slideDown,
+  .flashUp,
+  .flashDown,
+  .flashNeutral {
+    animation: none;
+  }
+
+  .pulse::after {
+    animation: none;
+    opacity: 0;
+  }
+
+  .range::-webkit-slider-thumb,
+  .range::-moz-range-thumb {
+    transition: none;
+  }
+}

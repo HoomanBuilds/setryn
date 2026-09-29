@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { MetaLine } from "@/components/terminal/primitives";
+import { usePreviewBoard } from "@/components/terminal/PreviewMarketProvider";
+import { Chip, LiveDot, Panel, PanelHead, Row, deskMotion } from "@/components/strategies/desk/Desk";
 import { SCENARIO_CLOCK_ISO } from "@/lib/terminal/format";
 import {
   HEDGE_ENV_LABEL,
@@ -9,6 +10,7 @@ import {
   handoffFor,
   horizonDays,
   rankCandidates,
+  referenceAssetById,
   scenarioFor,
   stableExposureId,
   validateExposure,
@@ -22,6 +24,8 @@ import { CandidateTable } from "./CandidateTable";
 import { CashflowTimeline } from "./CashflowTimeline";
 import { ExposureForm } from "./ExposureForm";
 import { HandoffBar } from "./HandoffBar";
+import { HedgePayoff, hedgeCurves } from "./HedgePayoff";
+import { HedgeSummary } from "./HedgeSummary";
 import { ImpactScenario } from "./ImpactScenario";
 
 export function HedgeWorkspace() {
@@ -32,6 +36,8 @@ export function HedgeWorkspace() {
   const [exposureDateIso, setExposureDateIso] = useState("2026-12-30");
   const [riskObjective, setRiskObjective] = useState<RiskObjective>("LOCK_RATE");
   const [selectedMarketId, setSelectedMarketId] = useState<string | null>(null);
+  const [scenarioMove, setScenarioMove] = useState(-10);
+  const board = usePreviewBoard();
 
   const exposure: ExposureInput = useMemo(
     () => ({
@@ -46,7 +52,8 @@ export function HedgeWorkspace() {
   );
 
   const validation = useMemo(() => validateExposure(exposure), [exposure]);
-  const candidates = useMemo(() => rankCandidates(exposure), [exposure]);
+  // Executable prices come from the shared preview board so they match the terminal book.
+  const candidates = useMemo(() => rankCandidates(exposure, board.markets), [exposure, board.markets]);
   const candidate =
     candidates.find((entry) => entry.market.id === selectedMarketId) ??
     candidates[0] ??
@@ -56,43 +63,55 @@ export function HedgeWorkspace() {
     () => (candidate && validation.valid ? scenarioFor(candidate, exposure) : []),
     [candidate, exposure, validation.valid],
   );
+  const curves = useMemo(
+    () => (candidate && validation.valid ? hedgeCurves(candidate, exposure) : null),
+    [candidate, exposure, validation.valid],
+  );
   const handoff = useMemo(
     () => (candidate ? handoffFor(candidate, exposure, validation) : null),
     [candidate, exposure, validation],
   );
   const exposureId = useMemo(
-    () => (validation.valid ? stableExposureId(exposure) : "—"),
+    () => (validation.valid ? stableExposureId(exposure) : "-"),
     [exposure, validation.valid],
   );
+  const referenceLabel = referenceAssetById(referenceAssetId)?.label ?? referenceAssetId;
+  const move = curves ? Math.min(curves.moveMax, Math.max(curves.moveMin, scenarioMove)) : scenarioMove;
 
   return (
-    <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-app">
-      <section className="shrink-0 border-b border-line bg-panel">
-        <div className="flex min-h-12 flex-col px-3 py-2 lg:h-12 lg:flex-row lg:items-center lg:gap-4 lg:px-4 lg:py-0">
+    <main className="scroll-thin flex min-h-0 min-w-0 flex-1 flex-col gap-1 overflow-y-auto bg-app p-1 xl:overflow-hidden">
+      <header className={`${deskMotion.rise} shrink-0 rounded-lg border border-line bg-panel`}>
+        <div className="flex flex-col gap-2 px-3 py-2 lg:flex-row lg:items-center lg:gap-4">
           <div className="flex min-w-0 items-center gap-3">
-            <h1 className="shrink-0 text-sm font-semibold text-ink lg:text-base">Hedge builder</h1>
-            <MetaLine
-              className="hidden min-w-0 truncate xl:flex"
-              items={[
-                exposureId,
-                HEDGE_SOURCE_LABEL,
-                `snapshot ${candidate ? `${candidate.market.snapshotAgeSeconds}s` : "—"}`,
-                HEDGE_ENV_LABEL,
-              ]}
-            />
+            <h1 className="shrink-0 font-serif text-[22px] leading-7 text-ink">Hedge builder</h1>
+            <span className="tnum truncate font-mono text-xs text-dim">{exposureId}</span>
           </div>
-          <p className="mt-1 text-xs text-faint lg:ml-auto lg:mt-0">
-            Goal-first package hedge. Scenario clock {SCENARIO_CLOCK_ISO.slice(0, 10)}.
-          </p>
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <Chip title={HEDGE_SOURCE_LABEL}>Preview fixture</Chip>
+            <Chip tone="dim" title={HEDGE_ENV_LABEL}>
+              Local simulation
+            </Chip>
+            <Chip tone="down" title="Mainnet writes are disabled in this environment">
+              Mainnet writes off
+            </Chip>
+          </div>
+          <div className="flex items-center gap-4 text-[11px] text-faint lg:ml-auto">
+            <span className="flex items-center gap-1.5">
+              <LiveDot tone="up" live />
+              {`Snapshot ${candidate ? `${candidate.market.snapshotAgeSeconds}s` : "-"}`}
+            </span>
+            <span className="tnum font-mono">{`Scenario clock ${SCENARIO_CLOCK_ISO.slice(0, 10)}`}</span>
+          </div>
         </div>
-      </section>
+      </header>
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto xl:grid xl:grid-cols-[300px_minmax(0,1fr)_340px] xl:overflow-hidden">
-        <aside className="shrink-0 border-b border-line bg-panel p-3 xl:min-h-0 xl:overflow-y-auto xl:border-r xl:border-b-0">
+      <div className="flex min-w-0 flex-col gap-1 xl:grid xl:min-h-0 xl:flex-1 xl:grid-cols-[296px_minmax(0,1fr)_340px]">
+        <aside className="scroll-thin flex min-w-0 flex-col gap-1 xl:min-h-0 xl:overflow-y-auto">
           <ExposureForm
             exposure={exposure}
             amountInput={amountInput}
             validation={validation}
+            horizonDays={horizon}
             onDirection={setDirection}
             onReference={setReferenceAssetId}
             onSettlement={setSettlementAssetId}
@@ -100,30 +119,36 @@ export function HedgeWorkspace() {
             onDate={setExposureDateIso}
             onObjective={setRiskObjective}
           />
-          <div className="mt-3 border border-line bg-app px-3 py-2.5">
-            <span className="text-xs font-medium tracking-[0.08em] text-faint uppercase">
-              Source and freshness
-            </span>
-            <dl className="mt-2 space-y-1.5 text-xs">
-              <div className="flex items-baseline justify-between gap-3">
-                <dt className="text-faint">Market data</dt>
-                <dd className="tnum text-right font-mono text-dim">{HEDGE_SOURCE_LABEL}</dd>
+          <Panel label="Source and freshness" delay={60}>
+            <PanelHead title="Source and freshness" />
+            <div className="px-3 py-1.5">
+              <div className="py-1.5">
+                <div className="text-[11px] text-faint">Market data</div>
+                <div className="mt-0.5 text-xs leading-snug text-dim">{HEDGE_SOURCE_LABEL}</div>
               </div>
-              <div className="flex items-baseline justify-between gap-3">
-                <dt className="text-faint">Snapshot age</dt>
-                <dd className="tnum text-right font-mono text-dim">
-                  {candidate ? `${candidate.market.snapshotAgeSeconds}s` : "—"}
-                </dd>
+              <Row
+                label="Snapshot age"
+                value={candidate ? `${candidate.market.snapshotAgeSeconds}s / live board` : "-"}
+                tone="dim"
+                className="border-t border-line-soft"
+              />
+              <div className="border-t border-line-soft py-2">
+                <div className="text-[11px] text-faint">Environment</div>
+                <div className="mt-0.5 text-xs leading-snug text-dim">{HEDGE_ENV_LABEL}</div>
               </div>
-              <div className="flex items-baseline justify-between gap-3">
-                <dt className="text-faint">Environment</dt>
-                <dd className="text-right text-dim">{HEDGE_ENV_LABEL}</dd>
-              </div>
-            </dl>
-          </div>
+            </div>
+          </Panel>
         </aside>
 
-        <section className="min-w-0 space-y-3 border-b border-line bg-app p-3 xl:min-h-0 xl:overflow-y-auto xl:border-r xl:border-b-0">
+        <section className="scroll-thin flex min-w-0 flex-col gap-1 xl:min-h-0 xl:overflow-y-auto" aria-label="Hedge analysis">
+          <HedgePayoff
+            candidate={validation.valid ? candidate : null}
+            exposure={exposure}
+            curves={curves}
+            move={move}
+            onMove={setScenarioMove}
+            referenceLabel={referenceLabel}
+          />
           <CashflowTimeline exposure={exposure} candidate={candidate} horizonDays={horizon} />
           <CandidateTable
             candidates={candidates}
@@ -132,8 +157,14 @@ export function HedgeWorkspace() {
           />
         </section>
 
-        <aside className="space-y-3 bg-panel p-3 xl:min-h-0 xl:overflow-y-auto">
-          <ImpactScenario candidate={validation.valid ? candidate : null} rows={rows} />
+        <aside className="scroll-thin flex min-w-0 flex-col gap-1 xl:min-h-0 xl:overflow-y-auto">
+          <HedgeSummary candidate={validation.valid ? candidate : null} curves={curves} />
+          <ImpactScenario
+            candidate={validation.valid ? candidate : null}
+            rows={rows}
+            activeMove={move}
+            onSelectMove={setScenarioMove}
+          />
           <HandoffBar candidate={candidate} validation={validation} handoff={handoff} />
         </aside>
       </div>

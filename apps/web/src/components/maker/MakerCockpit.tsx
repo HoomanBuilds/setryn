@@ -1,747 +1,91 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
-import { CirclePause, CirclePlay, ShieldAlert, SlidersHorizontal } from "lucide-react";
-import {
-  useGatewaySnapshot,
-  useInternalGateway,
-} from "@/components/gateway/InternalGatewayProvider";
+import { useMemo, useState } from "react";
+import { usePreviewBoard } from "@/components/terminal/PreviewMarketProvider";
+import { Chip, Flash, LiveDot, Meter, Metric, deskMotion } from "@/components/strategies/desk/Desk";
 import { makerCockpitSnapshot } from "@/lib/maker/fixtures";
-import type {
-  CapacityKind,
-  ConnectivityState,
-  KillSwitchScope,
-  MakerSeries,
-  QuoteLevel,
-  QuoteSessionState,
-} from "@/lib/maker/types";
-import type {
-  FirmRfqQuote,
-  RfqRequest as GatewayRfqRequest,
-} from "@/lib/internal-gateway/types";
+import type { KillSwitchScope, MakerSeries, QuoteSessionState } from "@/lib/maker/types";
+import { MARKETS } from "@/lib/terminal/markets";
+import type { PackageMarket } from "@/lib/terminal/types";
+import { signedUsd, usd } from "./format";
+import {
+  CapitalPlane,
+  Inventory,
+  KillSwitches,
+  QuotePolicy,
+  RiskLimits,
+  SessionBadge,
+  SessionHealth,
+} from "./MakerPanels";
+import { QuoteLadder } from "./QuoteLadder";
+import { RfqBlotter } from "./RfqBlotter";
 
-const money = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 0,
-});
-
-const signedMoney = (value: number) => `${value >= 0 ? "+" : "-"}${money.format(Math.abs(value))}`;
-const signedNumber = (value: number, digits = 0) => `${value >= 0 ? "+" : "-"}${Math.abs(value).toFixed(digits)}`;
-
-function OriginTag({ label = "SIMULATED" }: { label?: string }) {
-  return (
-    <span className="inline-flex h-5 items-center border border-line-strong px-1.5 font-mono text-[10px] tracking-[0.06em] text-dim uppercase">
-      {label}
-    </span>
-  );
+/** A scope covers a series when it is the all-series stop or names that series. */
+function scopeCovers(scope: KillSwitchScope, series: MakerSeries): boolean {
+  return scope.id === "all" || scope.label === series.displayName;
 }
 
-function StateDot({ state }: { state: ConnectivityState }) {
-  const tone = state === "HEALTHY" ? "bg-up" : state === "DEGRADED" ? "bg-brand" : "bg-down";
-  return <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${tone}`} />;
-}
-
-function SessionState({ state }: { state: QuoteSessionState }) {
-  const stateLabel = state === "QUOTING" ? "Quoting" : state === "PAUSED" ? "Paused" : "Risk paused";
-  const stateTone = state === "QUOTING" ? "text-up" : state === "PAUSED" ? "text-dim" : "text-down";
-
-  return (
-    <span className={`inline-flex items-center gap-1.5 font-mono text-xs ${stateTone}`}>
-      <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${state === "QUOTING" ? "bg-up" : state === "PAUSED" ? "bg-dim" : "bg-down"}`} />
-      {stateLabel}
-    </span>
-  );
-}
-
-function Pane({
-  title,
-  note,
-  tools,
-  children,
-  className = "",
-}: {
-  title: string;
-  note?: string;
-  tools?: ReactNode;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <section className={`min-w-0 border border-line bg-panel ${className}`}>
-      <header className="flex min-h-10 items-center justify-between gap-3 border-b border-line px-3 lg:px-4">
-        <div className="min-w-0">
-          <h2 className="text-xs font-medium tracking-[0.08em] text-faint uppercase">{title}</h2>
-          {note ? <p className="mt-0.5 truncate text-[11px] text-off">{note}</p> : null}
-        </div>
-        {tools ? <div className="flex shrink-0 items-center gap-2">{tools}</div> : null}
-      </header>
-      {children}
-    </section>
-  );
-}
-
-function AssetStrip({
-  series,
+function SeriesTabs({
   selected,
   onSelect,
+  live,
 }: {
-  series: MakerSeries[];
   selected: string;
   onSelect: (seriesId: string) => void;
+  live: (seriesId: string) => PackageMarket | null;
 }) {
   return (
-    <div className="no-scrollbar flex overflow-x-auto border-b border-line bg-inset">
-      {series.map((item) => {
+    <div role="tablist" aria-label="Maker series" className="no-scrollbar flex overflow-x-auto border-t border-line">
+      {makerCockpitSnapshot.series.map((item) => {
         const active = item.id === selected;
+        const risk = makerCockpitSnapshot.marketRisk.find((entry) => entry.seriesId === item.id);
+        const market = live(item.id);
         return (
           <button
             key={item.id}
             type="button"
+            role="tab"
+            aria-selected={active}
             onClick={() => onSelect(item.id)}
-            className={`focus-ring relative flex min-w-[204px] shrink-0 cursor-pointer flex-col gap-0.5 border-r border-line px-3 py-2 text-left transition-colors ${
-              active ? "bg-panel" : "hover:bg-raised"
+            className={`focus-ring relative flex min-w-[232px] shrink-0 flex-col gap-1 border-r border-line px-3 py-2 text-left transition-colors duration-150 ${
+              active ? "bg-raised/70" : "hover:bg-raised/40"
             }`}
           >
             <span className="flex items-center justify-between gap-2">
-              <span className="truncate text-xs font-medium text-ink">{item.displayName}</span>
-              <span className="font-mono text-[10px] text-faint">{item.expiry}</span>
+              <span className="flex min-w-0 items-center gap-1.5">
+                <LiveDot tone={item.status === "QUALIFIED" ? "up" : item.status === "CONDITIONAL" ? "brand" : "down"} />
+                <span className={`truncate text-[13px] font-medium ${active ? "text-ink" : "text-dim"}`}>{item.displayName}</span>
+              </span>
+              {market ? (
+                <span className="tnum font-mono text-xs text-ink">
+                  <Flash value={market.netPrice}>{market.netPrice.toFixed(market.priceDecimals)}</Flash>
+                </span>
+              ) : null}
             </span>
-            <span className="truncate font-mono text-[11px] text-dim">{item.template}</span>
+            <span className="flex items-center justify-between gap-2 text-[11px]">
+              <span className="truncate text-faint">{item.template}</span>
+              <span className="tnum shrink-0 font-mono text-off">{item.expiry}</span>
+            </span>
+            {risk ? (
+              <span className="flex items-center gap-2 text-[10px]">
+                <span className="text-faint">Util.</span>
+                <Meter
+                  value={risk.utilization / 100}
+                  tone={risk.state === "WITHIN_LIMIT" ? "up" : risk.state === "WATCH" ? "brand" : "down"}
+                  label={`${item.displayName} quote utilization`}
+                  height="h-[3px]"
+                  className="flex-1"
+                />
+                <span className="tnum font-mono text-dim">{`${risk.utilization.toFixed(1)}%`}</span>
+              </span>
+            ) : null}
             <span
               aria-hidden="true"
-              className={`absolute right-0 bottom-0 left-0 h-px ${active ? "bg-brand" : "bg-transparent"}`}
+              className={`absolute inset-x-3 bottom-0 h-0.5 origin-center rounded-full bg-brand transition-transform duration-200 ease-out ${
+                active ? "scale-x-100" : "scale-x-0"
+              }`}
             />
           </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function CapacityValue({ kind, amount }: { kind: CapacityKind; amount: number }) {
-  const label = kind === "FIRM" ? "Firm sim." : kind === "INDICATIVE" ? "Indicative" : "Reserved";
-  const tone = kind === "FIRM" ? "text-ink" : kind === "INDICATIVE" ? "text-dim" : "text-brand";
-
-  return (
-    <div className="flex items-baseline justify-end gap-1.5">
-      <span className={`tnum font-mono text-xs ${tone}`}>{money.format(amount)}</span>
-      <span className="text-[10px] text-off">{label}</span>
-    </div>
-  );
-}
-
-function QuoteLadder({ levels, quoteUnit }: { levels: QuoteLevel[]; quoteUnit: string }) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[760px] border-collapse text-left">
-        <caption className="sr-only">Simulated quote surface and capacity ladder</caption>
-        <thead className="border-b border-line bg-inset text-[10px] tracking-[0.07em] text-faint uppercase">
-          <tr>
-            <th className="h-8 px-3 font-medium lg:px-4">Package size</th>
-            <th className="h-8 px-2 text-right font-medium">Bid</th>
-            <th className="h-8 px-2 text-right font-medium">Ask</th>
-            <th className="h-8 px-2 text-right font-medium">Width</th>
-            <th className="h-8 px-2 text-right font-medium">Firm capacity</th>
-            <th className="h-8 px-2 text-right font-medium">Indicative depth</th>
-            <th className="h-8 px-2 text-right font-medium">Expiry</th>
-            <th className="h-8 px-3 text-right font-medium lg:px-4">Hedge cost</th>
-          </tr>
-        </thead>
-        <tbody>
-          {levels.map((level) => (
-            <tr key={level.sizeLabel} className="border-b border-line-soft last:border-0 hover:bg-raised/55">
-              <td className="h-11 px-3 lg:px-4">
-                <span className="font-mono text-xs text-ink">{level.sizeLabel}</span>
-                <span className="ml-2 text-[10px] text-off">{money.format(level.notionalUsd)}</span>
-              </td>
-              <td className="tnum px-2 text-right font-mono text-xs text-up">{level.bid.toFixed(1)}</td>
-              <td className="tnum px-2 text-right font-mono text-xs text-down">{level.ask.toFixed(1)}</td>
-              <td className="tnum px-2 text-right font-mono text-xs text-dim">{level.spreadBps.toFixed(1)} {quoteUnit}</td>
-              <td className="px-2"><CapacityValue kind="FIRM" amount={level.firmCapacityUsd} /></td>
-              <td className="px-2"><CapacityValue kind="INDICATIVE" amount={level.indicativeCapacityUsd} /></td>
-              <td className="tnum px-2 text-right font-mono text-xs text-dim">{level.expirySeconds}s</td>
-              <td className="tnum px-3 text-right font-mono text-xs text-dim lg:px-4">{level.expectedHedgeCostBps.toFixed(1)} bp</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function QuotePolicy({
-  skew,
-  expiry,
-  sessionState,
-  onSkew,
-  onExpiry,
-  onToggle,
-}: {
-  skew: number;
-  expiry: number;
-  sessionState: QuoteSessionState;
-  onSkew: (next: number) => void;
-  onExpiry: (next: number) => void;
-  onToggle: () => void;
-}) {
-  const paused = sessionState !== "QUOTING";
-
-  return (
-    <div className="p-3 lg:p-4">
-      <div className="grid gap-4">
-        <div className="flex items-center justify-between gap-3 border-b border-line-soft pb-3">
-          <div>
-            <p className="text-xs text-dim">Current session</p>
-            <div className="mt-1"><SessionState state={sessionState} /></div>
-          </div>
-          <button
-            type="button"
-            onClick={onToggle}
-            className={`focus-ring inline-flex h-8 cursor-pointer items-center gap-1.5 border px-2.5 text-xs font-medium transition-colors ${
-              paused ? "border-up/40 bg-up-soft text-up hover:bg-up/20" : "border-down/40 bg-down-soft text-down hover:bg-down/20"
-            }`}
-          >
-            {paused ? <CirclePlay size={14} aria-hidden="true" /> : <CirclePause size={14} aria-hidden="true" />}
-            {paused ? "Resume simulated" : "Pause simulated"}
-          </button>
-        </div>
-
-        <label className="grid gap-2">
-          <span className="flex items-center justify-between text-xs text-dim">
-            Quote skew
-            <span className="tnum font-mono text-ink">{signedNumber(skew, 1)} bp</span>
-          </span>
-          <input
-            type="range"
-            min="-20"
-            max="20"
-            step="0.5"
-            value={skew}
-            onChange={(event) => onSkew(Number(event.target.value))}
-            className="h-2 w-full cursor-pointer accent-brand"
-            aria-label="Quote skew in basis points"
-          />
-          <span className="flex justify-between font-mono text-[10px] text-off"><span>Bid support</span><span>Ask support</span></span>
-        </label>
-
-        <label className="grid gap-2">
-          <span className="flex items-center justify-between text-xs text-dim">
-            Quote expiry
-            <span className="tnum font-mono text-ink">{expiry}s</span>
-          </span>
-          <input
-            type="range"
-            min="5"
-            max="45"
-            step="1"
-            value={expiry}
-            onChange={(event) => onExpiry(Number(event.target.value))}
-            className="h-2 w-full cursor-pointer accent-brand"
-            aria-label="Quote expiry in seconds"
-          />
-          <span className="flex justify-between font-mono text-[10px] text-off"><span>5 sec</span><span>45 sec</span></span>
-        </label>
-
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-line-soft pt-3">
-          <div>
-            <dt className="text-[10px] tracking-[0.06em] text-faint uppercase">Matching</dt>
-            <dd className="mt-1 font-mono text-xs text-dim">Private RFQ + book</dd>
-          </div>
-          <div>
-            <dt className="text-[10px] tracking-[0.06em] text-faint uppercase">Reservation</dt>
-            <dd className="mt-1 font-mono text-xs text-dim">Required for firm</dd>
-          </div>
-          <div>
-            <dt className="text-[10px] tracking-[0.06em] text-faint uppercase">Hedge mode</dt>
-            <dd className="mt-1 font-mono text-xs text-dim">Bounded route</dd>
-          </div>
-          <div>
-            <dt className="text-[10px] tracking-[0.06em] text-faint uppercase">Authority</dt>
-            <dd className="mt-1 font-mono text-xs text-dim">Policy fixture</dd>
-          </div>
-        </dl>
-      </div>
-    </div>
-  );
-}
-
-function makerQuoteError(error: unknown): string {
-  if (!(error instanceof Error)) return "Local quote failed.";
-  if (error.message === "INVALID_PACKAGE_PRICE") return "Package price must be positive.";
-  if (error.message === "INVALID_FEE_CAP") return "Fee cap must be zero or more.";
-  if (error.message === "INVALID_CAPACITY") return "Capacity must be positive.";
-  if (error.message === "INVALID_TTL") return "TTL must be 5 to 45 seconds.";
-  if (error.message === "RFQ_NOT_FOUND") return "Request not found.";
-  if (error.message === "RFQ_NOT_OPEN") return "Request is not open.";
-  if (error.message === "RFQ_EXPIRED") return "Request expired.";
-  if (error.message === "RFQ_QUOTE_NOT_FOUND") return "Local quote not found.";
-  return "Local quote failed.";
-}
-
-function localMakerQuote(request: GatewayRfqRequest): FirmRfqQuote | null {
-  return [...request.quotes].reverse().find((quote) => quote.provenance === "DEVNET_MAKER") ?? null;
-}
-
-function RfqQueue({
-  selectedSeries,
-  sessionPaused,
-  riskPaused,
-  defaultTtl,
-  onNotice,
-}: {
-  selectedSeries: string;
-  sessionPaused: boolean;
-  riskPaused: boolean;
-  defaultTtl: number;
-  onNotice: (message: string) => void;
-}) {
-  const requests = makerCockpitSnapshot.rfqs.filter((rfq) => rfq.seriesId === selectedSeries);
-  const series = makerCockpitSnapshot.series.find((item) => item.id === selectedSeries);
-  const snapshot = useGatewaySnapshot();
-  const gateway = useInternalGateway();
-  const [now, setNow] = useState(() => Date.now());
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [priceInput, setPriceInput] = useState("");
-  const [capacityInput, setCapacityInput] = useState("");
-  const [feeCapInput, setFeeCapInput] = useState("");
-  const [ttlInput, setTtlInput] = useState("");
-  const [working, setWorking] = useState(false);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  const localRequests = useMemo(
-    () =>
-      [...snapshot.rfqRequests]
-        .filter((request) => request.authorization.intent.marketId.toLowerCase() === selectedSeries.toLowerCase())
-        .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)),
-    [snapshot.rfqRequests, selectedSeries],
-  );
-  const runtimeOrigin = snapshot.environment.label;
-
-  const openTicket = (request: GatewayRfqRequest) => {
-    const intent = request.authorization.intent;
-    const existing = localMakerQuote(request);
-    setPriceInput(String(existing ? existing.packagePrice : intent.limitPrice));
-    setCapacityInput(String(existing ? existing.capacityLots : intent.lots));
-    setFeeCapInput(String(existing ? existing.feeCap : intent.feeCap));
-    const clampedTtl = Math.min(45, Math.max(5, Math.round(defaultTtl)));
-    setTtlInput(String(clampedTtl));
-    setActiveId(request.id);
-  };
-
-  const closeTicket = () => {
-    if (working) return;
-    setActiveId(null);
-  };
-
-  const submitTicket = async (request: GatewayRfqRequest) => {
-    const existing = localMakerQuote(request);
-    const isReprice = existing !== null;
-    const packagePrice = Number(priceInput);
-    const capacityLots = Number(capacityInput);
-    const feeCap = Number(feeCapInput);
-    const ttlSeconds = Number(ttlInput);
-    if (working) return;
-    setWorking(true);
-    try {
-      const updated = await gateway.submitLocalMakerQuote(request.id, {
-        packagePrice,
-        capacityLots,
-        feeCap,
-        ttlSeconds,
-      });
-      const posted = localMakerQuote(updated);
-      setActiveId(null);
-      onNotice(
-        isReprice
-          ? `Local quote repriced for ${request.id} at ${posted ? posted.packagePrice : packagePrice}.`
-          : `Local quote posted for ${request.id} at ${posted ? posted.packagePrice : packagePrice}.`,
-      );
-    } catch (error) {
-      onNotice(makerQuoteError(error));
-    } finally {
-      setWorking(false);
-    }
-  };
-
-  const withdrawQuote = async (request: GatewayRfqRequest) => {
-    if (working) return;
-    setWorking(true);
-    try {
-      await gateway.withdrawLocalMakerQuote(request.id);
-      if (activeId === request.id) setActiveId(null);
-      onNotice(`Local quote withdrawn for ${request.id}.`);
-    } catch (error) {
-      onNotice(makerQuoteError(error));
-    } finally {
-      setWorking(false);
-    }
-  };
-
-  return (
-    <div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px] border-collapse text-left">
-          <caption className="sr-only">Active simulated RFQ queue</caption>
-          <thead className="border-b border-line bg-inset text-[10px] tracking-[0.07em] text-faint uppercase">
-            <tr>
-              <th className="h-8 px-3 font-medium lg:px-4">Request</th>
-              <th className="h-8 px-2 font-medium">Side</th>
-              <th className="h-8 px-2 text-right font-medium">Size</th>
-              <th className="h-8 px-2 text-right font-medium">Time left</th>
-              <th className="h-8 px-2 text-right font-medium">Hedge cost</th>
-              <th className="h-8 px-3 text-right font-medium lg:px-4">Modeled edge</th>
-            </tr>
-          </thead>
-          <tbody>
-            {requests.length > 0 ? requests.map((rfq) => (
-              <tr key={rfq.id} className="border-b border-line-soft last:border-0 hover:bg-raised/55">
-                <td className="h-11 px-3 lg:px-4">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs text-ink">{rfq.id.toUpperCase()}</span>
-                    <OriginTag label="SIMULATED" />
-                  </div>
-                  <span className="mt-0.5 block text-[10px] text-off">{rfq.counterpartyScope}</span>
-                </td>
-                <td className={`px-2 font-mono text-xs ${rfq.side === "BUY" ? "text-up" : "text-down"}`}>{rfq.side}</td>
-                <td className="tnum px-2 text-right font-mono text-xs text-dim">{rfq.sizeLabel}</td>
-                <td className="tnum px-2 text-right font-mono text-xs text-brand">{rfq.expiresInSeconds}s</td>
-                <td className="tnum px-2 text-right font-mono text-xs text-dim">{rfq.modeledHedgeCostBps.toFixed(1)} bp</td>
-                <td className="tnum px-3 text-right font-mono text-xs text-up lg:px-4">+{rfq.modeledEdgeBps.toFixed(1)} bp</td>
-              </tr>
-            )) : (
-              <tr>
-                <td colSpan={6} className="px-4 py-6 text-xs text-faint">No active simulated RFQs for {series?.displayName}.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      <div className="border-t border-line">
-        <div className="flex items-center justify-between gap-3 border-b border-line-soft px-3 py-2 lg:px-4">
-          <span className="text-[10px] tracking-[0.07em] text-faint uppercase">Local user RFQs</span>
-          <span className="tnum font-mono text-xs text-dim">{localRequests.length}</span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] border-collapse text-left">
-            <caption className="sr-only">Local user private RFQ records for the selected series</caption>
-            <thead className="border-b border-line bg-inset text-[10px] tracking-[0.07em] text-faint uppercase">
-              <tr>
-                <th className="h-8 px-3 font-medium lg:px-4">Request</th>
-                <th className="h-8 px-2 font-medium">Side</th>
-                <th className="h-8 px-2 text-right font-medium">Lots</th>
-                <th className="h-8 px-2 font-medium">State</th>
-                <th className="h-8 px-2 text-right font-medium">Request expiry</th>
-                <th className="h-8 px-2 text-right font-medium">Local quote</th>
-                <th className="h-8 px-3 text-right font-medium lg:px-4">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {localRequests.length > 0 ? localRequests.map((request) => {
-                const intent = request.authorization.intent;
-                const sideLabel = `${intent.side === "ENTER" ? "Enter" : "Exit"} ${intent.packageSide === "SHORT" ? "Short" : "Long"}`;
-                const isTerminal = request.state === "EXECUTED" || request.state === "CANCELLED";
-                const requestExpired = Date.parse(request.expiresAt) <= now;
-                const requestOpen = request.state === "OPEN" && !requestExpired;
-                const secondsLeft = Math.max(0, Math.ceil((Date.parse(request.expiresAt) - now) / 1000));
-                const expiryLabel = isTerminal
-                  ? (request.state === "EXECUTED"
-                    ? (request.receiptId ? `Executed ${request.receiptId}` : "Executed")
-                    : "Cancelled")
-                  : (requestExpired ? "Expired" : `${secondsLeft}s`);
-                const owned = localMakerQuote(request);
-                const ownedExpired = owned ? Date.parse(owned.expiresAt) <= now : false;
-                const ownedLeft = owned ? Math.max(0, Math.ceil((Date.parse(owned.expiresAt) - now) / 1000)) : 0;
-                const blockReason = sessionPaused
-                  ? "Session paused"
-                  : riskPaused
-                    ? "Risk paused"
-                    : !requestOpen
-                      ? (request.state !== "OPEN" ? `Request ${request.state.toLowerCase()}` : "Request expired")
-                      : null;
-                const quoteDisabled = blockReason !== null || working;
-                const isActive = activeId === request.id;
-                return (
-                  <Fragment key={request.id}>
-                    <tr className="border-b border-line-soft last:border-0 hover:bg-raised/55">
-                      <td className="h-11 px-3 lg:px-4">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs text-ink">{request.id}</span>
-                          <OriginTag label={runtimeOrigin.toUpperCase()} />
-                        </div>
-                        <span className="mt-0.5 block text-[10px] text-off">{intent.packageCode}</span>
-                      </td>
-                      <td className="px-2 font-mono text-xs text-dim">{sideLabel}</td>
-                      <td className="tnum px-2 text-right font-mono text-xs text-dim">{intent.lots}</td>
-                      <td className="px-2 font-mono text-xs text-dim">{requestExpired && request.state === "OPEN" ? "OPEN" : request.state}</td>
-                      <td className="tnum px-2 text-right font-mono text-xs text-dim">{expiryLabel}</td>
-                      <td className="px-2 text-right">
-                        {owned ? (
-                          <span>
-                            <span className="tnum font-mono text-xs text-ink">{owned.packagePrice}</span>
-                            <span className="tnum ml-2 font-mono text-[11px] text-dim">{owned.capacityLots} lots</span>
-                            <span className="mt-0.5 block font-mono text-[10px] text-off">
-                              {owned.feeCap} cap · {ownedExpired ? "Expired" : `${ownedLeft}s`} · DEVNET
-                            </span>
-                          </span>
-                        ) : (
-                          <span className="font-mono text-xs text-faint">-</span>
-                        )}
-                      </td>
-                      <td className="px-3 lg:px-4">
-                        <span className="flex items-center justify-end gap-1.5">
-                          {owned ? (
-                            <>
-                              <button
-                                type="button"
-                                disabled={quoteDisabled}
-                                title={blockReason ?? "Replace local quote"}
-                                onClick={() => openTicket(request)}
-                                className="focus-ring h-7 cursor-pointer border border-line px-2 font-mono text-[11px] text-ink transition-colors hover:border-line-strong disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                Reprice
-                              </button>
-                              <button
-                                type="button"
-                                disabled={!requestOpen || working}
-                                title={!requestOpen ? "Request not open" : "Withdraw local quote"}
-                                onClick={() => withdrawQuote(request)}
-                                className="focus-ring h-7 cursor-pointer border border-line px-2 font-mono text-[11px] text-dim transition-colors hover:border-line-strong hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                Withdraw
-                              </button>
-                            </>
-                          ) : (
-                            <button
-                              type="button"
-                              disabled={quoteDisabled}
-                              title={blockReason ?? "Quote this request"}
-                              onClick={() => openTicket(request)}
-                              className="focus-ring h-7 cursor-pointer border border-line px-2 font-mono text-[11px] text-ink transition-colors hover:border-line-strong disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              Quote
-                            </button>
-                          )}
-                        </span>
-                        {blockReason ? (
-                          <span className="mt-1 block text-right text-[10px] text-off">{blockReason}</span>
-                        ) : null}
-                      </td>
-                    </tr>
-                    {isActive && requestOpen ? (
-                      <tr key={`${request.id}-ticket`} className="border-b border-line-soft bg-inset">
-                        <td colSpan={7} className="px-3 py-2 lg:px-4">
-                          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                            <label className="grid gap-1">
-                              <span className="text-[10px] tracking-[0.06em] text-faint uppercase">Package price</span>
-                              <input
-                                value={priceInput}
-                                onChange={(event) => setPriceInput(event.target.value)}
-                                inputMode="decimal"
-                                className="focus-ring h-8 border border-line bg-panel px-2 font-mono text-xs text-ink"
-                                aria-label="Package price"
-                              />
-                            </label>
-                            <label className="grid gap-1">
-                              <span className="text-[10px] tracking-[0.06em] text-faint uppercase">Capacity lots</span>
-                              <input
-                                value={capacityInput}
-                                onChange={(event) => setCapacityInput(event.target.value)}
-                                inputMode="decimal"
-                                className="focus-ring h-8 border border-line bg-panel px-2 font-mono text-xs text-ink"
-                                aria-label="Capacity lots"
-                              />
-                            </label>
-                            <label className="grid gap-1">
-                              <span className="text-[10px] tracking-[0.06em] text-faint uppercase">Fee cap</span>
-                              <input
-                                value={feeCapInput}
-                                onChange={(event) => setFeeCapInput(event.target.value)}
-                                inputMode="decimal"
-                                className="focus-ring h-8 border border-line bg-panel px-2 font-mono text-xs text-ink"
-                                aria-label="Fee cap"
-                              />
-                            </label>
-                            <label className="grid gap-1">
-                              <span className="text-[10px] tracking-[0.06em] text-faint uppercase">TTL seconds, 5 to 45</span>
-                              <input
-                                value={ttlInput}
-                                onChange={(event) => setTtlInput(event.target.value)}
-                                inputMode="numeric"
-                                className="focus-ring h-8 border border-line bg-panel px-2 font-mono text-xs text-ink"
-                                aria-label="TTL seconds"
-                              />
-                            </label>
-                          </div>
-                          <span className="mt-2 flex items-center justify-end gap-1.5">
-                            <button
-                              type="button"
-                              onClick={closeTicket}
-                              disabled={working}
-                              className="focus-ring h-7 cursor-pointer border border-line px-2 font-mono text-[11px] text-dim transition-colors hover:border-line-strong hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => submitTicket(request)}
-                              disabled={working || blockReason !== null}
-                              title={blockReason ?? (owned ? "Replace local quote" : "Submit local quote")}
-                              className="focus-ring h-7 cursor-pointer border border-line-strong bg-raised px-2 font-mono text-[11px] text-ink transition-colors hover:bg-raised disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              {working ? "Working" : owned ? "Replace quote" : "Submit quote"}
-                            </button>
-                          </span>
-                        </td>
-                      </tr>
-                    ) : null}
-                  </Fragment>
-                );
-              }) : (
-                <tr>
-                  <td colSpan={7} className="px-4 py-6 text-xs text-faint">No local user RFQs for {series?.displayName} in {runtimeOrigin}.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function InventoryAndRisk({ selectedSeries }: { selectedSeries: string }) {
-  const inventory = makerCockpitSnapshot.inventory.filter((position) => position.seriesId === selectedSeries);
-  const risk = makerCockpitSnapshot.marketRisk.find((item) => item.seriesId === selectedSeries);
-
-  return (
-    <div className="grid divide-y divide-line lg:grid-cols-[1.12fr_0.88fr] lg:divide-x lg:divide-y-0">
-      <div className="min-w-0">
-        <div className="border-b border-line-soft px-3 py-2 lg:px-4">
-          <span className="text-[10px] tracking-[0.07em] text-faint uppercase">Inventory and hedge exposure</span>
-        </div>
-        {inventory.map((position) => (
-          <div key={position.id} className="grid grid-cols-[1.2fr_0.75fr_0.8fr] gap-3 px-3 py-3 lg:px-4">
-            <div className="min-w-0">
-              <p className="truncate text-xs text-ink">{position.label}</p>
-              <p className="mt-1 truncate text-[10px] text-off">{position.hedgeVenue} / {position.hedgeStatus.toLowerCase()}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-[10px] text-faint">Net packages</p>
-              <p className="tnum mt-1 font-mono text-xs text-dim">{signedNumber(position.netPackageQuantity, 2)}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-[10px] text-faint">Delta</p>
-              <p className={`tnum mt-1 font-mono text-xs ${position.deltaUsd >= 0 ? "text-up" : "text-down"}`}>{signedMoney(position.deltaUsd)}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className="p-3 lg:p-4">
-        <span className="text-[10px] tracking-[0.07em] text-faint uppercase">Per-market risk</span>
-        {risk ? (
-          <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3">
-            <div>
-              <dt className="text-[10px] text-faint">Quote utilization</dt>
-              <dd className="tnum mt-1 font-mono text-sm text-ink">{risk.utilization.toFixed(1)}%</dd>
-            </div>
-            <div>
-              <dt className="text-[10px] text-faint">Stress loss</dt>
-              <dd className="tnum mt-1 font-mono text-sm text-down">{money.format(risk.stressLossUsd)}</dd>
-            </div>
-            <div>
-              <dt className="text-[10px] text-faint">Expected hedge</dt>
-              <dd className="tnum mt-1 font-mono text-sm text-dim">{risk.expectedHedgeCostBps.toFixed(1)} bp</dd>
-            </div>
-            <div>
-              <dt className="text-[10px] text-faint">Risk state</dt>
-              <dd className={`mt-1 font-mono text-xs ${risk.state === "WITHIN_LIMIT" ? "text-up" : risk.state === "WATCH" ? "text-brand" : "text-down"}`}>{risk.state.replace("_", " ")}</dd>
-            </div>
-          </dl>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function CapitalPlane() {
-  const total = makerCockpitSnapshot.capital.reduce((sum, item) => sum + item.amountUsd, 0);
-
-  return (
-    <div className="grid divide-y divide-line lg:grid-cols-4 lg:divide-x lg:divide-y-0">
-      {makerCockpitSnapshot.capital.map((bucket) => {
-        const tone = bucket.state === "AVAILABLE" ? "text-up" : bucket.state === "RECOVERY" ? "text-brand" : "text-dim";
-        const share = Math.max(2, (bucket.amountUsd / total) * 100);
-        return (
-          <div key={bucket.state} className="px-3 py-3 lg:px-4">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs text-dim">{bucket.label}</span>
-              <span className="text-[10px] text-off">{((bucket.amountUsd / total) * 100).toFixed(0)}%</span>
-            </div>
-            <p className={`tnum mt-1 font-mono text-base ${tone}`}>{money.format(bucket.amountUsd)}</p>
-            <div aria-hidden="true" className="mt-2 h-0.5 bg-line-soft"><div className={`h-full ${bucket.state === "AVAILABLE" ? "bg-up" : bucket.state === "RECOVERY" ? "bg-brand" : "bg-dim"}`} style={{ width: `${share}%` }} /></div>
-            <p className="mt-2 text-[10px] leading-snug text-off">{bucket.description}</p>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function SessionHealth() {
-  return (
-    <div className="divide-y divide-line-soft">
-      {makerCockpitSnapshot.health.map((check) => (
-        <div key={check.id} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-3 py-2.5 lg:px-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <StateDot state={check.state} />
-              <span className="truncate text-xs text-ink">{check.label}</span>
-            </div>
-            <span className="mt-1 block truncate pl-3.5 text-[10px] text-off">{check.source}</span>
-          </div>
-          <span className="tnum font-mono text-xs text-dim">{check.latencyMs === null ? "-" : `${check.latencyMs}ms`}</span>
-          <span className="tnum font-mono text-[10px] text-faint">{check.lastUpdate}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function KillSwitches({
-  pausedScopes,
-  onToggle,
-}: {
-  pausedScopes: Set<string>;
-  onToggle: (scope: KillSwitchScope) => void;
-}) {
-  return (
-    <div className="divide-y divide-line-soft">
-      {makerCockpitSnapshot.killSwitches.map((scope) => {
-        const paused = scope.active || pausedScopes.has(scope.id);
-        return (
-          <div key={scope.id} className="flex items-center justify-between gap-3 px-3 py-2.5 lg:px-4">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className={`h-1.5 w-1.5 rounded-full ${paused ? "bg-down" : "bg-up"}`} />
-                <span className="truncate text-xs text-ink">{scope.label}</span>
-              </div>
-              <p className="mt-1 truncate pl-3.5 text-[10px] text-off">{scope.description}</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => onToggle(scope)}
-              className={`focus-ring h-7 shrink-0 cursor-pointer border px-2 font-mono text-[10px] transition-colors ${
-                paused ? "border-line-strong text-dim hover:bg-raised" : "border-down/40 text-down hover:bg-down-soft"
-              }`}
-            >
-              {paused ? "Resume sim." : "Pause sim."}
-            </button>
-          </div>
         );
       })}
     </div>
@@ -753,8 +97,10 @@ export function MakerCockpit() {
   const [skew, setSkew] = useState(1.5);
   const [expiry, setExpiry] = useState(20);
   const [sessionPaused, setSessionPaused] = useState(false);
-  const [pausedScopes, setPausedScopes] = useState<Set<string>>(new Set());
+  // Scopes whose simulated state has been flipped away from the fixture.
+  const [toggledScopes, setToggledScopes] = useState<Set<string>>(new Set());
   const [notice, setNotice] = useState("No policy changes staged.");
+  const board = usePreviewBoard();
 
   const selectedSeries = useMemo(
     () => makerCockpitSnapshot.series.find((series) => series.id === selectedSeriesId) ?? makerCockpitSnapshot.series[0],
@@ -762,132 +108,176 @@ export function MakerCockpit() {
   );
   const selectedRisk = makerCockpitSnapshot.marketRisk.find((risk) => risk.seriesId === selectedSeries.id);
   const sessionState: QuoteSessionState = sessionPaused ? "PAUSED" : makerCockpitSnapshot.session.state;
+  const levels = makerCockpitSnapshot.quoteLevels[selectedSeries.id];
+
+  const liveMarket = (seriesId: string): PackageMarket | null =>
+    board.markets.find((market) => market.id === seriesId) ?? null;
+  const baseMarket = MARKETS.find((market) => market.id === selectedSeries.id) ?? null;
+  const selectedLive = liveMarket(selectedSeries.id);
+  const drift = baseMarket && selectedLive ? selectedLive.netPrice - baseMarket.netPrice : 0;
+
+  const isPaused = (scope: KillSwitchScope) => (toggledScopes.has(scope.id) ? !scope.active : scope.active);
+  const coveringStop = makerCockpitSnapshot.killSwitches.find(
+    (scope) => isPaused(scope) && scopeCovers(scope, selectedSeries),
+  );
 
   const toggleSession = () => {
-    setSessionPaused((wasPaused) => {
-      const nextPaused = !wasPaused;
-      setNotice(nextPaused ? "Simulated quote policy paused. No external route was called." : "Simulated quote policy resumed. No external route was called.");
-      return nextPaused;
-    });
+    const nextPaused = !sessionPaused;
+    setSessionPaused(nextPaused);
+    setNotice(
+      nextPaused
+        ? "Simulated quote policy paused. No external route was called."
+        : "Simulated quote policy resumed. No external route was called.",
+    );
   };
 
   const toggleScope = (scope: KillSwitchScope) => {
-    setPausedScopes((current) => {
+    const willPause = !isPaused(scope);
+    setToggledScopes((current) => {
       const next = new Set(current);
-      if (next.has(scope.id)) {
-        next.delete(scope.id);
-        setNotice(`${scope.label} simulated pause cleared. No external route was called.`);
-      } else {
-        next.add(scope.id);
-        setNotice(`${scope.label} simulated pause staged. No external route was called.`);
-      }
+      if (next.has(scope.id)) next.delete(scope.id);
+      else next.add(scope.id);
       return next;
     });
+    setNotice(
+      willPause
+        ? `${scope.label} simulated pause staged. No external route was called.`
+        : `${scope.label} simulated pause cleared. No external route was called.`,
+    );
   };
 
+  const firmCapacity = levels.reduce((sum, level) => sum + level.firmCapacityUsd, 0);
+  const firstLevel = levels[0];
+
   return (
-    <main className="min-h-0 flex-1 overflow-y-auto bg-app" aria-label="Setryn maker cockpit">
-      <div className="mx-auto flex w-full max-w-[1720px] flex-col">
-        <div className="flex flex-col gap-3 border-b border-line bg-app px-3 py-3 lg:flex-row lg:items-end lg:justify-between lg:px-4">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] tracking-[0.08em] text-faint uppercase">
-              <span>Maker</span><span className="text-off">/</span><span>Quote operations</span><span className="text-off">/</span><span>Arbitrum Sepolia</span>
-            </div>
-            <div className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <h1 className="text-lg font-medium text-ink">{selectedSeries.displayName}</h1>
-              <span className="font-mono text-xs text-dim">{selectedSeries.template}</span>
-              <OriginTag />
-            </div>
+    <main className="scroll-thin flex min-h-0 min-w-0 flex-1 flex-col gap-1 overflow-y-auto bg-app p-1" aria-label="Setryn maker cockpit">
+      <header className={`${deskMotion.rise} shrink-0 rounded-lg border border-line bg-panel`}>
+        <div className="flex flex-col gap-2 px-3 py-2 lg:flex-row lg:items-center lg:gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <h1 className="shrink-0 font-serif text-[22px] leading-7 text-ink">Maker desk</h1>
+            <span className="hidden truncate text-xs text-faint sm:inline">Quote operations / Arbitrum Sepolia</span>
           </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
-            <span className="flex items-center gap-1.5 text-dim"><span className="text-faint">Session</span><SessionState state={sessionState} /></span>
-            <span className="tnum font-mono text-dim"><span className="font-sans text-faint">Snapshot </span>{(makerCockpitSnapshot.snapshot.ageMs / 1000).toFixed(1)}s</span>
-            <span className="font-mono text-[10px] tracking-[0.06em] text-brand uppercase">Testnet simulation</span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Chip tone="brand">Testnet simulation</Chip>
+            <Chip title={makerCockpitSnapshot.snapshot.source}>Simulated</Chip>
+            {coveringStop ? <Chip tone="down" dot>{`${coveringStop.label} stopped`}</Chip> : null}
           </div>
-        </div>
-
-        <AssetStrip series={makerCockpitSnapshot.series} selected={selectedSeriesId} onSelect={setSelectedSeriesId} />
-
-        <div className="grid border-b border-line bg-panel sm:grid-cols-2 xl:grid-cols-5 xl:divide-x xl:divide-line">
-          <div className="border-b border-line px-3 py-2.5 sm:border-r sm:border-line xl:border-b-0 lg:px-4">
-            <p className="text-[10px] tracking-[0.07em] text-faint uppercase">Firm quote capacity</p>
-            <p className="tnum mt-1 font-mono text-base text-ink">{money.format(makerCockpitSnapshot.quoteLevels[selectedSeries.id].reduce((sum, level) => sum + level.firmCapacityUsd, 0))}</p>
-            <p className="mt-0.5 text-[10px] text-off">Simulated reservation budget</p>
-          </div>
-          <div className="border-b border-line px-3 py-2.5 sm:border-b sm:border-line xl:border-b-0 lg:px-4">
-            <p className="text-[10px] tracking-[0.07em] text-faint uppercase">Available capital</p>
-            <p className="tnum mt-1 font-mono text-base text-up">{money.format(makerCockpitSnapshot.capital[0].amountUsd)}</p>
-            <p className="mt-0.5 text-[10px] text-off">Before policy buffers</p>
-          </div>
-          <div className="border-b border-line px-3 py-2.5 sm:border-r sm:border-line xl:border-b-0 lg:px-4">
-            <p className="text-[10px] tracking-[0.07em] text-faint uppercase">Quote utilization</p>
-            <p className="tnum mt-1 font-mono text-base text-ink">{selectedRisk?.utilization.toFixed(1)}%</p>
-            <p className="mt-0.5 text-[10px] text-off">{selectedRisk?.state.replace("_", " ").toLowerCase()}</p>
-          </div>
-          <div className="border-b border-line px-3 py-2.5 sm:border-b sm:border-line xl:border-b-0 lg:px-4">
-            <p className="text-[10px] tracking-[0.07em] text-faint uppercase">Expected PnL</p>
-            <p className="tnum mt-1 font-mono text-base text-up">{signedMoney(makerCockpitSnapshot.session.expectedPnlUsd)}</p>
-            <p className="mt-0.5 text-[10px] text-off">Current simulated session</p>
-          </div>
-          <div className="px-3 py-2.5 lg:px-4">
-            <p className="text-[10px] tracking-[0.07em] text-faint uppercase">Fill / toxicity</p>
-            <p className="tnum mt-1 font-mono text-base text-ink">{makerCockpitSnapshot.quoteLevels[selectedSeries.id][0].fillProbability}% <span className="text-dim">/</span> {makerCockpitSnapshot.quoteLevels[selectedSeries.id][0].toxicityScore}</p>
-            <p className="mt-0.5 text-[10px] text-off">First size level, modeled</p>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs lg:ml-auto">
+            <span className="flex items-center gap-2">
+              <span className="text-[11px] text-faint">Session</span>
+              <SessionBadge state={sessionState} />
+            </span>
+            <span className="tnum font-mono text-[11px] text-dim">
+              <span className="font-sans text-faint">Snapshot </span>
+              {`${(makerCockpitSnapshot.snapshot.ageMs / 1000).toFixed(1)}s`}
+            </span>
+            <span className="tnum font-mono text-[11px] text-off">{makerCockpitSnapshot.session.id}</span>
           </div>
         </div>
+        <SeriesTabs selected={selectedSeriesId} onSelect={setSelectedSeriesId} live={liveMarket} />
+      </header>
 
-        <div className="grid gap-3 p-3 lg:grid-cols-[minmax(0,1.64fr)_minmax(330px,0.76fr)] lg:gap-4 lg:p-4">
-          <Pane
-            title="Quote surface"
-            note={`${selectedSeries.quoteConvention} / ${selectedSeries.venueScope}`}
-            tools={<><OriginTag /><span className="font-mono text-[10px] text-faint">{makerCockpitSnapshot.quoteLevels[selectedSeries.id][0].capacityOrigin.source}</span></>}
-          >
-            <QuoteLadder levels={makerCockpitSnapshot.quoteLevels[selectedSeries.id]} quoteUnit={selectedSeries.quoteUnit} />
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line bg-inset px-3 py-2 lg:px-4">
-              <span className="text-[10px] text-faint">All capacity is simulated and cannot execute.</span>
-              <span className="text-[10px] text-off">Firm sim. requires a hypothetical reservation.</span>
-            </div>
-          </Pane>
-
-          <Pane title="Quote policy" note="Local preview controls only" tools={<SlidersHorizontal size={15} className="text-faint" aria-hidden="true" />}>
-            <QuotePolicy skew={skew} expiry={expiry} sessionState={sessionState} onSkew={setSkew} onExpiry={setExpiry} onToggle={toggleSession} />
-          </Pane>
-
-          <Pane title="Active RFQs" note="Requests remaining eligible under the simulated policy" tools={<span className="font-mono text-xs text-brand">{makerCockpitSnapshot.rfqs.filter((rfq) => rfq.seriesId === selectedSeries.id).length}</span>}>
-            <RfqQueue
-              selectedSeries={selectedSeries.id}
-              sessionPaused={sessionPaused}
-              riskPaused={selectedRisk?.state === "PAUSED"}
-              defaultTtl={expiry}
-              onNotice={setNotice}
+      <section
+        aria-label="Session metrics"
+        className={`${deskMotion.rise} grid shrink-0 grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-4 xl:grid-cols-7`}
+        style={{ ["--rise-delay" as string]: "30ms" }}
+      >
+        <Metric className="bg-panel" label="Firm quote capacity" value={usd(firmCapacity)} note="Simulated reservation budget" />
+        <Metric className="bg-panel" label="Available capital" value={usd(makerCockpitSnapshot.capital[0].amountUsd)} tone="up" note="Before policy buffers" />
+        <Metric
+          className="bg-panel"
+          label="Quote utilization"
+          value={selectedRisk ? `${selectedRisk.utilization.toFixed(1)}%` : "-"}
+          note={selectedRisk?.state.replace("_", " ").toLowerCase()}
+        >
+          {selectedRisk ? (
+            <Meter
+              value={selectedRisk.utilization / 100}
+              tone={selectedRisk.state === "WITHIN_LIMIT" ? "up" : selectedRisk.state === "WATCH" ? "brand" : "down"}
+              label="Selected series quote utilization"
             />
-          </Pane>
+          ) : null}
+        </Metric>
+        <Metric className="bg-panel" label="Expected PnL" value={signedUsd(makerCockpitSnapshot.session.expectedPnlUsd)} tone="up" note="Current simulated session" />
+        <Metric
+          className="bg-panel"
+          label="Realized PnL"
+          value={signedUsd(makerCockpitSnapshot.session.realizedPnlUsd)}
+          tone={makerCockpitSnapshot.session.realizedPnlUsd >= 0 ? "up" : "down"}
+          note="Session to date, simulated"
+        />
+        <Metric
+          className="bg-panel"
+          label="Hit rate"
+          value={`${makerCockpitSnapshot.session.hitRate.toFixed(1)}%`}
+          note={`${makerCockpitSnapshot.session.quoteCount} quotes this session`}
+        />
+        <Metric
+          className="bg-panel"
+          label="Fill / toxicity"
+          value={
+            firstLevel ? (
+              <>
+                {`${firstLevel.fillProbability}%`}
+                <span className="text-faint"> / </span>
+                {firstLevel.toxicityScore}
+              </>
+            ) : (
+              "-"
+            )
+          }
+          note="First size level, modeled"
+        />
+      </section>
 
-          <Pane title="Inventory discipline" note="Net package and hedge condition" tools={<OriginTag />}>
-            <InventoryAndRisk selectedSeries={selectedSeries.id} />
-          </Pane>
-
-          <Pane title="Capital allocation" note="Maker capacity by state" className="lg:col-span-2" tools={<span className="font-mono text-[10px] text-faint">SIMULATED LEDGER</span>}>
+      <div className="grid min-w-0 gap-1 xl:grid-cols-[minmax(0,1fr)_344px]">
+        <div className="flex min-w-0 flex-col gap-1">
+          <QuoteLadder
+            series={selectedSeries}
+            levels={levels}
+            drift={drift}
+            previewMark={selectedLive ? selectedLive.netPrice : null}
+            skew={skew}
+          />
+          <RfqBlotter
+            selectedSeries={selectedSeries.id}
+            sessionPaused={sessionPaused}
+            riskPaused={selectedRisk?.state === "PAUSED"}
+            scopeStopReason={coveringStop ? `${coveringStop.label} stopped` : null}
+            defaultTtl={expiry}
+            onNotice={setNotice}
+          />
+          <div className="grid min-w-0 gap-1 2xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
+            <Inventory selected={selectedSeries.id} />
             <CapitalPlane />
-          </Pane>
-
-          <Pane title="Session health" note="Dependency visibility, not an execution guarantee">
-            <SessionHealth />
-          </Pane>
-
-          <Pane
-            title="Scoped quote stops"
-            note="Local control state only"
-            tools={<ShieldAlert size={15} className="text-faint" aria-hidden="true" />}
-          >
-            <KillSwitches pausedScopes={pausedScopes} onToggle={toggleScope} />
-          </Pane>
+          </div>
+          <SessionHealth />
         </div>
 
-        <div className="sticky bottom-0 z-10 flex min-h-9 items-center justify-between gap-3 border-t border-line bg-inset px-3 py-2 lg:px-4">
-          <p aria-live="polite" className="min-w-0 truncate text-xs text-dim">{notice}</p>
-          <span className="shrink-0 font-mono text-[10px] text-off">{makerCockpitSnapshot.session.id} / {makerCockpitSnapshot.snapshot.source}</span>
-        </div>
+        <aside className="flex min-w-0 flex-col gap-1">
+          <QuotePolicy
+            skew={skew}
+            expiry={expiry}
+            sessionState={sessionState}
+            onSkew={setSkew}
+            onExpiry={setExpiry}
+            onToggle={toggleSession}
+          />
+          <RiskLimits selected={selectedSeries.id} onSelect={setSelectedSeriesId} />
+          <KillSwitches isPaused={isPaused} onToggle={toggleScope} />
+        </aside>
+      </div>
+
+      <div className="sticky bottom-0 z-10 flex min-h-9 shrink-0 items-center justify-between gap-3 rounded-lg border border-line bg-inset/95 px-3 py-2 backdrop-blur">
+        <p aria-live="polite" className="flex min-w-0 items-center gap-2 text-xs text-dim">
+          <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand" />
+          <span key={notice} className={`${deskMotion.fade} truncate`}>
+            {notice}
+          </span>
+        </p>
+        <span className="hidden shrink-0 font-mono text-[10px] text-off sm:inline">
+          {`${makerCockpitSnapshot.session.id} / ${makerCockpitSnapshot.snapshot.source}`}
+        </span>
       </div>
     </main>
   );
