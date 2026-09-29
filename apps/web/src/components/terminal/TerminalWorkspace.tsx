@@ -13,11 +13,14 @@ import { Disclosure, Tabs } from "@/components/terminal/primitives";
 import {
   bestReferencePrice,
   buildPreview,
+  DEFAULT_SLIPPAGE_BPS,
   defaultGtdExpiry,
   executableAction,
   isPackageSide,
   previewReference,
+  protectedPrice,
   routePrice,
+  SLIPPAGE_PRESETS_BPS,
   type Intent,
   type PackageSide,
   type StageState,
@@ -25,6 +28,7 @@ import {
 } from "@/lib/terminal/economics";
 import { parseHandoff, type HandoffContext } from "@/lib/terminal/handoff";
 import { tradeHref } from "@/lib/terminal/markets";
+import { usePersistentState } from "@/lib/terminal/use-persistent-state";
 import type { BookRow, ConsoleTabId, PackageMarket } from "@/lib/terminal/types";
 import type { OrderExecutionProgress } from "@/lib/internal-gateway/types";
 
@@ -143,6 +147,12 @@ function executionError(error: unknown): string {
   return "The trading runtime did not reach a final package outcome. No completion is claimed.";
 }
 
+const SLIPPAGE_KEY = "setryn:ticket-slippage-bps";
+
+function parseSlippage(value: unknown): number | undefined {
+  return typeof value === "number" && (SLIPPAGE_PRESETS_BPS as readonly number[]).includes(value) ? value : undefined;
+}
+
 function initialTicket(market: PackageMarket, handoff?: HandoffContext): TicketState {
   const intent = handoff?.intent ?? "ENTER";
   const side: PackageSide = handoff?.direction ?? "LONG";
@@ -189,7 +199,8 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   const [consoleTab, setConsoleTab] = useState<ConsoleTabId>("strategies");
   const [consoleScoped, setConsoleScoped] = useState(true);
   const [mobileTab, setMobileTab] = useState<MobileTab>("market");
-  const [ticket, setTicket] = useState<TicketState>(() => initialTicket(market, handoff));
+  const [rawTicket, setTicket] = useState<TicketState>(() => initialTicket(market, handoff));
+  const [slippageBps, setSlippageBps] = usePersistentState(SLIPPAGE_KEY, DEFAULT_SLIPPAGE_BPS, parseSlippage);
   const [stage, setStage] = useState<StageState>({ kind: "IDLE" });
   const [execution, setExecution] = useState<OrderExecutionProgress>({ status: "IDLE", updates: [] });
   const [rfqError, setRfqError] = useState<string | null>(null);
@@ -205,6 +216,19 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
      terminal never owns a page-local interval or stream. */
   const { liveMarket, previewEpochSeconds } = usePreviewMarket(market.id);
   const { markets } = usePreviewBoard();
+
+  /* A market order carries a protection price derived from the live route and the slippage tolerance, so it
+     tracks the feed every tick. A limit order keeps the price the trader entered. */
+  const ticket = useMemo<TicketState>(() => {
+    if (rawTicket.orderType !== "MARKETABLE_LIMIT") return rawTicket;
+    const action = executableAction(rawTicket.intent, rawTicket.side);
+    const liveRoute = liveMarket.routes.find((candidate) => candidate.id === rawTicket.routeId) ?? null;
+    const reference = liveRoute ? routePrice(liveRoute, action) : bestReferencePrice(liveMarket, action);
+    return {
+      ...rawTicket,
+      limitInput: protectedPrice(reference, action, slippageBps, liveMarket).toFixed(liveMarket.priceDecimals),
+    };
+  }, [liveMarket, rawTicket, slippageBps]);
 
   /* A route change repoints the ticket during the same render, so a limit price
      from the previous market is never painted under the new one. View
@@ -1062,10 +1086,16 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
             rfqRequest={rfqRequest}
             rfqError={rfqError}
             maxLots={maxLots}
+            slippageBps={slippageBps}
+            onSlippage={setSlippageBps}
             wallet={{
               connected: gatewaySnapshot.wallet.status === "CONNECTED",
               available: gatewaySnapshot.account.available,
               asset: gatewaySnapshot.account.collateralAsset,
+              equity: gatewaySnapshot.account.equity,
+              posted: gatewaySnapshot.account.posted,
+              reserved: gatewaySnapshot.account.reserved,
+              riskDomain: gatewaySnapshot.account.label,
             }}
             onConnect={() => {
               void gateway.connectWallet().catch(() => undefined);

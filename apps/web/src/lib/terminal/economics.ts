@@ -116,6 +116,26 @@ export function bestReferencePrice(market: PackageMarket, action: ExecutableActi
   return action === "BUY" ? market.bestAsk : market.bestBid;
 }
 
+export const SLIPPAGE_PRESETS_BPS = [10, 50, 100, 200] as const;
+export const DEFAULT_SLIPPAGE_BPS = 50;
+
+/**
+ * Worst accepted price for a market order: the executable reference moved against the trader by the slippage
+ * tolerance, at least one tick, and rounded outward onto the tick grid. It follows the live route, so a market
+ * order never carries a protection price that the feed has already moved through.
+ */
+export function protectedPrice(
+  reference: number,
+  action: ExecutableAction,
+  toleranceBps: number,
+  market: Pick<PackageMarket, "tickSize" | "priceDecimals">,
+): number {
+  const band = Math.max(market.tickSize, (Math.abs(reference) * toleranceBps) / 10_000);
+  const raw = action === "BUY" ? reference + band : reference - band;
+  const ticks = action === "BUY" ? Math.ceil(raw / market.tickSize - 1e-9) : Math.floor(raw / market.tickSize + 1e-9);
+  return Number((ticks * market.tickSize).toFixed(market.priceDecimals));
+}
+
 /**
  * A buyer improves by bidding at or above the route offer; a seller improves by
  * offering at or below the route bid. Both collapse to the same crossing test.

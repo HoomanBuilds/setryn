@@ -6,7 +6,7 @@ import { ExecutionTimeline } from "@/components/gateway/ExecutionTimeline";
 import { ROUTE_HINT_ID, RouteTable } from "@/components/terminal/RouteTable";
 import { RfqQuotePanel } from "@/components/terminal/RfqQuotePanel";
 import { TicketEconomics } from "@/components/terminal/TicketEconomics";
-import { CheckRow, SectionLabel, SourceMark } from "@/components/terminal/primitives";
+import { CheckRow, DataRow, SectionLabel, SourceMark } from "@/components/terminal/primitives";
 import type {
   EconomicsPreview,
   Intent,
@@ -22,6 +22,7 @@ import {
   executableAction,
   GTD_MAX_MS,
   routePrice,
+  SLIPPAGE_PRESETS_BPS,
 } from "@/lib/terminal/economics";
 import { formatLots, formatNumber, formatUsd, priceUnitSuffix } from "@/lib/terminal/format";
 import type { HandoffContext } from "@/lib/terminal/handoff";
@@ -134,6 +135,16 @@ function Stepper({
   );
 }
 
+export interface TicketWallet {
+  connected: boolean;
+  available: number;
+  asset: string;
+  equity?: number;
+  posted?: number;
+  reserved?: number;
+  riskDomain?: string;
+}
+
 export function OrderTicket({
   market,
   state,
@@ -142,6 +153,8 @@ export function OrderTicket({
   stage,
   execution,
   maxLots,
+  slippageBps,
+  onSlippage,
   wallet,
   onConnect,
   handoff,
@@ -166,7 +179,9 @@ export function OrderTicket({
   stage: StageState;
   execution: OrderExecutionProgress;
   maxLots: number;
-  wallet: { connected: boolean; available: number; asset: string };
+  slippageBps: number;
+  onSlippage: (bps: number) => void;
+  wallet: TicketWallet;
   onConnect: () => void;
   handoff: HandoffContext;
   closePositions: ExecutionPosition[];
@@ -256,7 +271,10 @@ export function OrderTicket({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.routeId, bestRouteId, locked, isAmending]);
   const requestedLots = Number.parseFloat(state.lotsInput) || 0;
-  const sizePercent = maxLots > 0 ? Math.min(100, Math.max(0, Math.round((requestedLots / maxLots) * 100))) : 0;
+  // Without a connected account there is no collateral to size against, so the share controls stay inert.
+  const sizingKnown = wallet.connected || state.intent === "EXIT";
+  const sizePercent =
+    sizingKnown && maxLots > 0 ? Math.min(100, Math.max(0, Math.round((requestedLots / maxLots) * 100))) : 0;
   const midPrice = (market.bestBid + market.bestAsk) / 2;
 
   return (
@@ -300,362 +318,425 @@ export function OrderTicket({
         </div>
       </div>
 
-      <fieldset
-        disabled={locked}
-        aria-busy={locked}
-        className={`scroll-thin flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto border-0 px-3 py-3 ${locked ? "opacity-65" : ""}`}
-      >
-        {handoff.present ? (
-          <div className="rounded-md border border-line bg-raised px-3 py-2">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[11px] font-medium tracking-[0.08em] text-faint uppercase">
-                {handoff.sourceLabel ? `Handoff · ${handoff.sourceLabel}` : "Handoff"}
-              </span>
-              {handoff.direction || handoff.lots !== null ? (
-                <span className="tnum font-mono text-[11px] text-dim">
-                  {[handoff.direction, handoff.lots !== null ? `${handoff.lots} lots` : null]
-                    .filter(Boolean)
-                    .join(" · ")}
+      {/* The form, its action, and the account summary share one scroll area. The action sits right under the
+          form and sticks to the bottom only when the form is taller than the panel. */}
+      <div className="scroll-thin flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <fieldset
+          disabled={locked}
+          aria-busy={locked}
+          className={`flex shrink-0 flex-col gap-3 border-0 px-3 pt-3 pb-1 ${locked ? "opacity-65" : ""}`}
+        >
+          {handoff.present ? (
+            <div className="rounded-md border border-line bg-raised px-3 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-medium tracking-[0.08em] text-faint uppercase">
+                  {handoff.sourceLabel ? `Handoff · ${handoff.sourceLabel}` : "Handoff"}
                 </span>
-              ) : null}
+                {handoff.direction || handoff.lots !== null ? (
+                  <span className="tnum font-mono text-[11px] text-dim">
+                    {[handoff.direction, handoff.lots !== null ? `${handoff.lots} lots` : null]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
+                ) : null}
+              </div>
+              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] leading-snug text-dim">
+                {handoff.draftId ? <span className="tnum font-mono">{handoff.draftId}</span> : null}
+                {handoff.lifecycleId ? <span className="tnum font-mono">{handoff.lifecycleId}</span> : null}
+                {handoff.exposureId ? <span className="tnum font-mono">{handoff.exposureId}</span> : null}
+                {handoff.legId ? <span className="tnum font-mono">{handoff.legId}</span> : null}
+                {handoff.maxCloseCost !== null ? (
+                  <span className="tnum font-mono">requested bound {formatUsd(handoff.maxCloseCost, 0)}</span>
+                ) : null}
+                {guaranteeLabel ? <span>{guaranteeLabel}</span> : null}
+                {handoff.studioMode ? <span>{handoff.studioMode}</span> : null}
+              </div>
+              <div className="mt-1 text-[11px] leading-snug text-faint">
+                Read-only context. Select a route to continue; no quote is claimed.
+              </div>
             </div>
-            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] leading-snug text-dim">
-              {handoff.draftId ? <span className="tnum font-mono">{handoff.draftId}</span> : null}
-              {handoff.lifecycleId ? <span className="tnum font-mono">{handoff.lifecycleId}</span> : null}
-              {handoff.exposureId ? <span className="tnum font-mono">{handoff.exposureId}</span> : null}
-              {handoff.legId ? <span className="tnum font-mono">{handoff.legId}</span> : null}
-              {handoff.maxCloseCost !== null ? (
-                <span className="tnum font-mono">requested bound {formatUsd(handoff.maxCloseCost, 0)}</span>
-              ) : null}
-              {guaranteeLabel ? <span>{guaranteeLabel}</span> : null}
-              {handoff.studioMode ? <span>{handoff.studioMode}</span> : null}
+          ) : null}
+          {amendment ? (
+            <div className="flex items-center justify-between gap-2 rounded-md border border-line bg-raised px-3 py-2">
+              <span className="tnum min-w-0 truncate font-mono text-[11px] text-dim">
+                {`Amend ${amendment.orderId}. Cancel and replace. Queue resets.`}
+              </span>
+              <button
+                type="button"
+                onClick={() => onDiscardAmendment?.()}
+                className="focus-ring shrink-0 rounded-sm border border-line px-1.5 py-0.5 text-[11px] text-dim transition-colors hover:text-ink"
+              >
+                Discard
+              </button>
             </div>
-            <div className="mt-1 text-[11px] leading-snug text-faint">
-              Read-only context. Select a route to continue; no quote is claimed.
-            </div>
-          </div>
-        ) : null}
-        {amendment ? (
-          <div className="flex items-center justify-between gap-2 rounded-md border border-line bg-raised px-3 py-2">
-            <span className="tnum min-w-0 truncate font-mono text-[11px] text-dim">
-              {`Amend ${amendment.orderId}. Cancel and replace. Queue resets.`}
-            </span>
-            <button
-              type="button"
-              onClick={() => onDiscardAmendment?.()}
-              className="focus-ring shrink-0 rounded-sm border border-line px-1.5 py-0.5 text-[11px] text-dim transition-colors hover:text-ink"
-            >
-              Discard
-            </button>
-          </div>
-        ) : null}
+          ) : null}
 
-        {!isExit ? (
-          <div role="radiogroup" aria-label="Package side" className="grid grid-cols-2 gap-1 rounded-md bg-inset p-1">
-            {SIDES.map((option) => {
-              const selected = state.side === option.value;
-              const long = option.value === "LONG";
-              return (
+          {!isExit ? (
+            <div role="radiogroup" aria-label="Package side" className="grid grid-cols-2 gap-1 rounded-md bg-inset p-1">
+              {SIDES.map((option) => {
+                const selected = state.side === option.value;
+                const long = option.value === "LONG";
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    disabled={isAmending}
+                    onClick={() => onChange({ side: option.value })}
+                    className={`focus-ring h-9 rounded-[5px] text-sm font-semibold transition-colors disabled:cursor-not-allowed ${
+                      selected
+                        ? long
+                          ? "bg-up text-app"
+                          : "bg-down text-app"
+                        : "text-faint hover:text-dim"
+                    }`}
+                  >
+                    {long ? "Long / Buy" : "Short / Sell"}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div>
+              <div className="mb-1.5 flex items-baseline justify-between gap-2">
+                <label htmlFor="ticket-close" className="text-xs text-dim">
+                  Position to close
+                </label>
+                <span className="tnum font-mono text-xs text-off">{`${closePositions.length} open`}</span>
+              </div>
+              <select
+                id="ticket-close"
+                value={state.closePositionId ?? ""}
+                disabled={isAmending}
+                onChange={(event) => onChange({ closePositionId: event.target.value || null })}
+                className="focus-ring tnum h-9 w-full rounded-md border border-line bg-inset px-2 font-mono text-xs text-ink disabled:cursor-not-allowed disabled:opacity-65"
+              >
+                <option value="">Select a package position</option>
+                {closePositions.map((position) => (
+                  <option key={position.id} value={position.id}>
+                    {`${position.id} · ${position.side} · ${position.lots} lots · ${Math.round(position.collateral)} USDC`}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-[11px] leading-snug text-faint">
+                {selectedClose
+                  ? `${selectedClose.side === "LONG" ? "Long" : "Short"} · ${closeActionLabel} · ${selectedClose.lots} lots · ${formatUsd(selectedClose.collateral, 0)} collateral`
+                  : closePositions.length === 0
+                    ? "No open package positions in this market."
+                    : "Quantity cannot exceed the selected position."}
+              </p>
+            </div>
+          )}
+
+          <dl className="space-y-1 text-xs">
+            <div className="flex items-baseline justify-between gap-2">
+              <dt className="text-faint">Available to trade</dt>
+              <dd className="tnum font-mono text-dim">
+                {wallet.connected ? `${formatUsd(wallet.available, 2)} ${wallet.asset}` : "–"}
+              </dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-2">
+              <dt className="text-faint">{isExit ? "Max close size" : "Max size"}</dt>
+              <dd className="tnum font-mono text-dim">{wallet.connected || isExit ? `${formatLots(maxLots)} lots` : "–"}</dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-2">
+              <dt className="text-faint">Contract</dt>
+              <dd className="tnum font-mono text-dim">{`1 lot = ${formatUsd(market.notionalPerLot, 0)}`}</dd>
+            </div>
+          </dl>
+
+          <div>
+            <div className={INPUT_SHELL}>
+              <label htmlFor="ticket-lots" className="shrink-0 text-xs text-faint">
+                Size
+              </label>
+              <input
+                id="ticket-lots"
+                inputMode="decimal"
+                autoComplete="off"
+                value={state.lotsInput}
+                onChange={(event) => onChange({ lotsInput: event.target.value })}
+                className={INPUT}
+              />
+              <span className="shrink-0 text-xs text-faint">lots</span>
+            </div>
+            <div className="mt-2.5 flex items-center gap-3">
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={sizePercent}
+                disabled={!sizingKnown}
+                aria-label="Size as a share of the maximum"
+                onChange={(event) =>
+                  onChange({
+                    lotsInput: String(Math.max(0, Math.floor((maxLots * Number(event.target.value)) / 100))),
+                  })
+                }
+                className="size-slider min-w-0 flex-1 disabled:cursor-not-allowed disabled:opacity-40"
+                style={{ ["--fill" as string]: `${sizePercent}%` }}
+              />
+              <span className="tnum w-10 shrink-0 text-right font-mono text-xs text-dim">
+                {sizingKnown ? `${sizePercent}%` : "–"}
+              </span>
+            </div>
+            <div className="mt-1.5 grid grid-cols-4 gap-1">
+              {[25, 50, 75, 100].map((percent) => (
+                <button
+                  key={percent}
+                  type="button"
+                  disabled={!sizingKnown}
+                  title={sizingKnown ? `${percent}% of ${formatLots(maxLots)} lots` : "Connect a wallet to size from available collateral"}
+                  onClick={() => onChange({ lotsInput: String(Math.max(0, Math.floor((maxLots * percent) / 100))) })}
+                  className="focus-ring tnum h-7 rounded-sm bg-inset font-mono text-[11px] text-faint transition-colors enabled:hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {percent === 100 ? "Max" : `${percent}%`}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {state.orderType === "LIMIT" ? (
+            <div>
+              <div className="mb-1.5 flex items-baseline justify-between gap-2">
+                <label
+                  htmlFor="ticket-limit"
+                  title={`${state.orderType === "LIMIT" ? "Resting limit" : "Worst accepted package price"}. One tick is ${formatNumber(market.tickSize, market.priceDecimals)} ${unit}. Selecting an executable book row sets this price.`}
+                  className="text-xs text-dim"
+                >
+                  {state.orderType === "LIMIT" ? `Limit price (${unit})` : `Worst price (${unit})`}
+                </label>
+                <span className="flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => onChange({ limitInput: midPrice.toFixed(market.priceDecimals) })}
+                    className="focus-ring rounded-sm bg-inset px-1.5 text-[11px] text-faint transition-colors hover:text-ink"
+                  >
+                    Mid
+                  </button>
+                  <button
+                    type="button"
+                    title={`${bestLabel} ${formatNumber(bestPrice, market.priceDecimals)}`}
+                    onClick={() => onChange({ limitInput: bestPrice.toFixed(market.priceDecimals) })}
+                    className="focus-ring rounded-sm bg-inset px-1.5 text-[11px] text-faint transition-colors hover:text-ink"
+                  >
+                    {action === "BUY" ? "Ask" : "Bid"}
+                  </button>
+                </span>
+              </div>
+              <div className="flex gap-1">
+                <Stepper label="Decrease price by one tick" onClick={() => stepLimit(-1)}>
+                  <Minus size={13} aria-hidden="true" />
+                </Stepper>
+                <div className={`${INPUT_SHELL} min-w-0 flex-1`}>
+                  <input
+                    id="ticket-limit"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    value={state.limitInput}
+                    onChange={(event) => onChange({ limitInput: event.target.value })}
+                    className={INPUT}
+                  />
+                  <span className="shrink-0 text-xs text-faint">{unit}</span>
+                </div>
+                <Stepper label="Increase price by one tick" onClick={() => stepLimit(1)}>
+                  <Plus size={13} aria-hidden="true" />
+                </Stepper>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <span
+                  className="text-xs text-dim"
+                  title="How far the fill may move against the live route before the order stops. The worst price follows the feed every tick."
+                >
+                  Slippage tolerance
+                </span>
+                <span role="group" aria-label="Slippage tolerance" className="flex gap-1">
+                  {SLIPPAGE_PRESETS_BPS.map((bps) => (
+                    <button
+                      key={bps}
+                      type="button"
+                      aria-pressed={slippageBps === bps}
+                      onClick={() => onSlippage(bps)}
+                      className={`focus-ring tnum h-6 rounded-sm px-1.5 font-mono text-[11px] transition-colors ${
+                        slippageBps === bps ? "bg-raised text-ink" : "bg-inset text-faint hover:text-ink"
+                      }`}
+                    >
+                      {`${(bps / 100).toFixed(bps < 100 ? 1 : 0)}%`}
+                    </button>
+                  ))}
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between gap-2 rounded-md bg-inset px-3 py-2">
+                <span className="text-xs text-faint">{`Worst price (${unit})`}</span>
+                <span className="tnum font-mono text-sm text-ink">
+                  {formatNumber(Number.parseFloat(state.limitInput) || 0, market.priceDecimals)}
+                </span>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs text-dim" title="How long the order may rest or wait for a fill.">
+              Time in force
+            </span>
+            <div role="radiogroup" aria-label="Time in force" className="flex rounded-md bg-inset p-0.5">
+              {TIFS.map((option) => (
                 <button
                   key={option.value}
                   type="button"
                   role="radio"
-                  aria-checked={selected}
+                  title={option.title}
+                  aria-checked={state.tif === option.value}
                   disabled={isAmending}
-                  onClick={() => onChange({ side: option.value })}
-                  className={`focus-ring h-9 rounded-[5px] text-sm font-semibold transition-colors disabled:cursor-not-allowed ${
-                    selected
-                      ? long
-                        ? "bg-up text-app"
-                        : "bg-down text-app"
-                      : "text-faint hover:text-dim"
+                  onClick={() => {
+                    if (option.value === "GTD") setGtdClockMs(Date.now());
+                    onChange(
+                      option.value === "GTD"
+                        ? {
+                            tif: option.value,
+                            expiresAt:
+                              state.expiresAt &&
+                              Number.isFinite(Date.parse(state.expiresAt)) &&
+                              Date.parse(state.expiresAt) > Date.now()
+                                ? state.expiresAt
+                                : defaultGtdExpiry(),
+                          }
+                        : { tif: option.value, expiresAt: null },
+                    );
+                  }}
+                  className={`focus-ring h-6 rounded-[5px] px-2 font-mono text-[11px] transition-colors disabled:cursor-not-allowed ${
+                    state.tif === option.value ? "bg-raised text-ink" : "text-faint hover:text-dim"
                   }`}
                 >
-                  {long ? "Long / Buy" : "Short / Sell"}
-                </button>
-              );
-            })}
-          </div>
-        ) : (
-          <div>
-            <div className="mb-1.5 flex items-baseline justify-between gap-2">
-              <label htmlFor="ticket-close" className="text-xs text-dim">
-                Position to close
-              </label>
-              <span className="tnum font-mono text-xs text-off">{`${closePositions.length} open`}</span>
-            </div>
-            <select
-              id="ticket-close"
-              value={state.closePositionId ?? ""}
-              disabled={isAmending}
-              onChange={(event) => onChange({ closePositionId: event.target.value || null })}
-              className="focus-ring tnum h-9 w-full rounded-md border border-line bg-inset px-2 font-mono text-xs text-ink disabled:cursor-not-allowed disabled:opacity-65"
-            >
-              <option value="">Select a package position</option>
-              {closePositions.map((position) => (
-                <option key={position.id} value={position.id}>
-                  {`${position.id} · ${position.side} · ${position.lots} lots · ${Math.round(position.collateral)} USDC`}
-                </option>
-              ))}
-            </select>
-            <p className="mt-1 text-[11px] leading-snug text-faint">
-              {selectedClose
-                ? `${selectedClose.side === "LONG" ? "Long" : "Short"} · ${closeActionLabel} · ${selectedClose.lots} lots · ${formatUsd(selectedClose.collateral, 0)} collateral`
-                : closePositions.length === 0
-                  ? "No open package positions in this market."
-                  : "Quantity cannot exceed the selected position."}
-            </p>
-          </div>
-        )}
-
-        <dl className="space-y-1 text-xs">
-          <div className="flex items-baseline justify-between gap-2">
-            <dt className="text-faint">Available to trade</dt>
-            <dd className="tnum font-mono text-dim">
-              {wallet.connected ? `${formatUsd(wallet.available, 2)} ${wallet.asset}` : "–"}
-            </dd>
-          </div>
-          <div className="flex items-baseline justify-between gap-2">
-            <dt className="text-faint">{isExit ? "Max close size" : "Max size"}</dt>
-            <dd className="tnum font-mono text-dim">{wallet.connected || isExit ? `${formatLots(maxLots)} lots` : "–"}</dd>
-          </div>
-          <div className="flex items-baseline justify-between gap-2">
-            <dt className="text-faint">Contract</dt>
-            <dd className="tnum font-mono text-dim">{`1 lot = ${formatUsd(market.notionalPerLot, 0)}`}</dd>
-          </div>
-        </dl>
-
-        <div>
-          <div className={INPUT_SHELL}>
-            <label htmlFor="ticket-lots" className="shrink-0 text-xs text-faint">
-              Size
-            </label>
-            <input
-              id="ticket-lots"
-              inputMode="decimal"
-              autoComplete="off"
-              value={state.lotsInput}
-              onChange={(event) => onChange({ lotsInput: event.target.value })}
-              className={INPUT}
-            />
-            <span className="shrink-0 text-xs text-faint">lots</span>
-          </div>
-          <div className="mt-2.5 flex items-center gap-3">
-            <input
-              type="range"
-              min={0}
-              max={100}
-              step={1}
-              value={sizePercent}
-              aria-label="Size as a share of the maximum"
-              onChange={(event) =>
-                onChange({
-                  lotsInput: String(Math.max(0, Math.floor((maxLots * Number(event.target.value)) / 100))),
-                })
-              }
-              className="size-slider min-w-0 flex-1"
-              style={{ ["--fill" as string]: `${sizePercent}%` }}
-            />
-            <span className="tnum w-10 shrink-0 text-right font-mono text-xs text-dim">{`${sizePercent}%`}</span>
-          </div>
-          <div className="mt-1.5 grid grid-cols-4 gap-1">
-            {[25, 50, 75, 100].map((percent) => (
-              <button
-                key={percent}
-                type="button"
-                title={`${percent}% of ${formatLots(maxLots)} lots`}
-                onClick={() => onChange({ lotsInput: String(Math.max(0, Math.floor((maxLots * percent) / 100))) })}
-                className="focus-ring tnum h-7 rounded-sm bg-inset font-mono text-[11px] text-faint transition-colors hover:text-ink"
-              >
-                {percent === 100 ? "Max" : `${percent}%`}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <div className="mb-1.5 flex items-baseline justify-between gap-2">
-            <label
-              htmlFor="ticket-limit"
-              title={`${state.orderType === "LIMIT" ? "Resting limit" : "Worst accepted package price"}. One tick is ${formatNumber(market.tickSize, market.priceDecimals)} ${unit}. Selecting an executable book row sets this price.`}
-              className="text-xs text-dim"
-            >
-              {state.orderType === "LIMIT" ? `Limit price (${unit})` : `Worst price (${unit})`}
-            </label>
-            <span className="flex gap-1">
-              <button
-                type="button"
-                onClick={() => onChange({ limitInput: midPrice.toFixed(market.priceDecimals) })}
-                className="focus-ring rounded-sm bg-inset px-1.5 text-[11px] text-faint transition-colors hover:text-ink"
-              >
-                Mid
-              </button>
-              <button
-                type="button"
-                title={`${bestLabel} ${formatNumber(bestPrice, market.priceDecimals)}`}
-                onClick={() => onChange({ limitInput: bestPrice.toFixed(market.priceDecimals) })}
-                className="focus-ring rounded-sm bg-inset px-1.5 text-[11px] text-faint transition-colors hover:text-ink"
-              >
-                {action === "BUY" ? "Ask" : "Bid"}
-              </button>
-            </span>
-          </div>
-          <div className="flex gap-1">
-            <Stepper label="Decrease price by one tick" onClick={() => stepLimit(-1)}>
-              <Minus size={13} aria-hidden="true" />
-            </Stepper>
-            <div className={`${INPUT_SHELL} min-w-0 flex-1`}>
-              <input
-                id="ticket-limit"
-                inputMode="decimal"
-                autoComplete="off"
-                value={state.limitInput}
-                onChange={(event) => onChange({ limitInput: event.target.value })}
-                className={INPUT}
-              />
-              <span className="shrink-0 text-xs text-faint">{unit}</span>
-            </div>
-            <Stepper label="Increase price by one tick" onClick={() => stepLimit(1)}>
-              <Plus size={13} aria-hidden="true" />
-            </Stepper>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-xs text-dim" title="How long the order may rest or wait for a fill.">
-            Time in force
-          </span>
-          <div role="radiogroup" aria-label="Time in force" className="flex rounded-md bg-inset p-0.5">
-            {TIFS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                role="radio"
-                title={option.title}
-                aria-checked={state.tif === option.value}
-                disabled={isAmending}
-                onClick={() => {
-                  if (option.value === "GTD") setGtdClockMs(Date.now());
-                  onChange(
-                    option.value === "GTD"
-                      ? {
-                          tif: option.value,
-                          expiresAt:
-                            state.expiresAt &&
-                            Number.isFinite(Date.parse(state.expiresAt)) &&
-                            Date.parse(state.expiresAt) > Date.now()
-                              ? state.expiresAt
-                              : defaultGtdExpiry(),
-                        }
-                      : { tif: option.value, expiresAt: null },
-                  );
-                }}
-                className={`focus-ring h-6 rounded-[5px] px-2 font-mono text-[11px] transition-colors disabled:cursor-not-allowed ${
-                  state.tif === option.value ? "bg-raised text-ink" : "text-faint hover:text-dim"
-                }`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        {state.tif === "GTD" ? (
-          <div className="space-y-1.5">
-            <div className="grid grid-cols-4 gap-1">
-              {GTD_PRESETS.map((preset) => (
-                <button
-                  key={preset.label}
-                  type="button"
-                  onClick={() =>
-                    onChange({ expiresAt: new Date(Date.now() + preset.minutes * 60 * 1000).toISOString() })
-                  }
-                  className="focus-ring tnum h-7 rounded-sm bg-inset font-mono text-[11px] text-faint transition-colors hover:text-ink"
-                >
-                  {preset.label}
+                  {option.label}
                 </button>
               ))}
             </div>
-            <div className={INPUT_SHELL}>
-              <label htmlFor="ticket-expiry" className="sr-only">
-                GTD expiry
-              </label>
-              <input
-                id="ticket-expiry"
-                type="datetime-local"
-                aria-label="GTD expiry"
-                min={toLocalInputValue(new Date(gtdClockMs).toISOString())}
-                max={toLocalInputValue(new Date(gtdClockMs + GTD_MAX_MS).toISOString())}
-                value={toLocalInputValue(state.expiresAt)}
-                onChange={(event) => onChange({ expiresAt: fromLocalInputValue(event.target.value) })}
-                className="tnum min-w-0 flex-1 bg-transparent font-mono text-xs text-ink outline-none"
-              />
-            </div>
           </div>
-        ) : null}
+          {state.tif === "GTD" ? (
+            <div className="space-y-1.5">
+              <div className="grid grid-cols-4 gap-1">
+                {GTD_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() =>
+                      onChange({ expiresAt: new Date(Date.now() + preset.minutes * 60 * 1000).toISOString() })
+                    }
+                    className="focus-ring tnum h-7 rounded-sm bg-inset font-mono text-[11px] text-faint transition-colors hover:text-ink"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+              <div className={INPUT_SHELL}>
+                <label htmlFor="ticket-expiry" className="sr-only">
+                  GTD expiry
+                </label>
+                <input
+                  id="ticket-expiry"
+                  type="datetime-local"
+                  aria-label="GTD expiry"
+                  min={toLocalInputValue(new Date(gtdClockMs).toISOString())}
+                  max={toLocalInputValue(new Date(gtdClockMs + GTD_MAX_MS).toISOString())}
+                  value={toLocalInputValue(state.expiresAt)}
+                  onChange={(event) => onChange({ expiresAt: fromLocalInputValue(event.target.value) })}
+                  className="tnum min-w-0 flex-1 bg-transparent font-mono text-xs text-ink outline-none"
+                />
+              </div>
+            </div>
+          ) : null}
 
-        <CheckRow
-          checked={state.privateRfq}
-          onChange={(privateRfq) => onChange({ privateRfq })}
-          label="Private RFQ to solvers"
-          title={RFQ_TITLE}
-          disabled={isAmending}
-          icon={<Lock size={13} aria-hidden="true" className="shrink-0 text-faint" />}
-        />
+          <CheckRow
+            checked={state.privateRfq}
+            onChange={(privateRfq) => onChange({ privateRfq })}
+            label="Private RFQ to solvers"
+            title={RFQ_TITLE}
+            disabled={isAmending}
+            icon={<Lock size={13} aria-hidden="true" className="shrink-0 text-faint" />}
+          />
 
-        <RouteSelector
-          market={market}
-          action={action}
-          route={route}
-          bestRoute={bestRoute}
-          privateRfq={state.privateRfq}
-          selectedId={state.routeId}
-          onSelect={(routeId) => onChange({ routeId })}
-          amendmentMode={isAmending}
-        />
+          <RouteSelector
+            market={market}
+            action={action}
+            route={route}
+            bestRoute={bestRoute}
+            privateRfq={state.privateRfq}
+            selectedId={state.routeId}
+            onSelect={(routeId) => onChange({ routeId })}
+            amendmentMode={isAmending}
+          />
 
-        <TicketEconomics market={market} preview={preview} route={route} intent={state.intent} />
-      </fieldset>
+          <TicketEconomics market={market} preview={preview} route={route} intent={state.intent} />
+        </fieldset>
 
-      <div className="shrink-0 space-y-2.5 border-t border-line bg-panel px-3 pt-3 pb-3">
-        {invalid ? (
-          <ul
-            id={BLOCKER_LIST_ID}
-            className="space-y-1.5 rounded-md border-l-2 border-down bg-down-soft px-3 py-2.5"
-          >
-            {blockers.map((blocker) => (
-              <li key={blocker} className="flex gap-2 text-xs leading-snug text-down">
-                <TriangleAlert size={13} aria-hidden="true" className="mt-[2px] shrink-0" />
-                <span>{blocker}</span>
-              </li>
-            ))}
-          </ul>
-        ) : null}
+        <div className="sticky bottom-0 z-10 shrink-0 space-y-2.5 bg-panel px-3 pt-2 pb-3">
+          {invalid ? (
+            <ul
+              id={BLOCKER_LIST_ID}
+              className="space-y-1.5 rounded-md border-l-2 border-down bg-down-soft px-3 py-2.5"
+            >
+              {blockers.map((blocker) => (
+                <li key={blocker} className="flex gap-2 text-xs leading-snug text-down">
+                  <TriangleAlert size={13} aria-hidden="true" className="mt-[2px] shrink-0" />
+                  <span>{blocker}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
 
-        <StageArea
-          market={market}
-          state={state}
-          preview={preview}
-          route={route}
-          stage={stage}
-          execution={execution}
-          blocked={blocked}
-          invalid={invalid}
-          routeMissing={preview.routeMissing}
-          rfqRequest={rfqRequest ?? null}
-          rfqError={rfqError ?? null}
-          amendment={amendment ?? null}
-          walletConnected={wallet.connected}
-          onConnect={onConnect}
-          onStage={onStage}
-          onConfirm={onConfirm}
-          onCancelResting={onCancelResting}
-          onReset={onReset}
-          onSelectRfqQuote={onSelectRfqQuote}
-          onExecuteRfqQuote={onExecuteRfqQuote}
-          onCancelRfq={onCancelRfq}
-        />
+          <StageArea
+            market={market}
+            state={state}
+            preview={preview}
+            route={route}
+            stage={stage}
+            execution={execution}
+            blocked={blocked}
+            invalid={invalid}
+            routeMissing={preview.routeMissing}
+            rfqRequest={rfqRequest ?? null}
+            rfqError={rfqError ?? null}
+            amendment={amendment ?? null}
+            walletConnected={wallet.connected}
+            onConnect={onConnect}
+            onStage={onStage}
+            onConfirm={onConfirm}
+            onCancelResting={onCancelResting}
+            onReset={onReset}
+            onSelectRfqQuote={onSelectRfqQuote}
+            onExecuteRfqQuote={onExecuteRfqQuote}
+            onCancelRfq={onCancelRfq}
+          />
+        </div>
+
+        <AccountSummary wallet={wallet} />
       </div>
     </section>
+  );
+}
+
+function AccountSummary({ wallet }: { wallet: TicketWallet }) {
+  const value = (amount: number | undefined) =>
+    wallet.connected && amount !== undefined ? `${formatUsd(amount)} ${wallet.asset}` : "–";
+  return (
+    <div className="mt-auto shrink-0 border-t border-line px-3 pt-2.5 pb-3" aria-label="Account">
+      <div className="flex items-baseline justify-between gap-2 pb-1">
+        <span className="text-[11px] font-medium tracking-[0.08em] text-faint uppercase">Account</span>
+        <span className="truncate text-[11px] text-off">
+          {wallet.connected ? (wallet.riskDomain ?? "Connected") : "Not connected"}
+        </span>
+      </div>
+      <DataRow dense label="Equity" value={value(wallet.equity)} />
+      <DataRow dense label="Posted collateral" value={value(wallet.posted)} />
+      <DataRow dense label="Reserved by orders" value={value(wallet.reserved)} />
+      <DataRow dense label="Available to trade" value={value(wallet.available)} />
+    </div>
   );
 }
 
