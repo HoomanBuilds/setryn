@@ -233,3 +233,148 @@
   }
 }
 
+
+/*
+ * Motion system. Short, eased transitions that carry state changes: menus pop from their trigger, live prices flash
+ * the direction of the last tick, new prints slide into the tape, and tab panels fade in. Reduced motion turns every
+ * one of them off through the global rule above and the block below.
+ */
+.menu-pop {
+  transform-origin: top left;
+  animation: menu-pop 140ms cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+@keyframes menu-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+
+.chip-in {
+  animation: chip-in 160ms cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+@keyframes chip-in {
+  from {
+    opacity: 0;
+    translate: 0 -4px;
+  }
+}
+
+.panel-in {
+  animation: panel-in 180ms ease-out;
+}
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
+/* Text flashes toward the tick direction, then settles back to its resting colour. */
+.flash-up {
+  animation: flash-up-text 700ms ease-out;
+}
+.flash-down {
+  animation: flash-down-text 700ms ease-out;
+}
+@keyframes flash-up-text {
+  0%,
+  25% {
+    color: var(--color-up);
+    text-shadow: 0 0 12px rgba(63, 217, 164, 0.35);
+  }
+}
+@keyframes flash-down-text {
+  0%,
+  25% {
+    color: var(--color-down);
+    text-shadow: 0 0 12px rgba(255, 93, 122, 0.35);
+  }
+}
+
+/* Row backgrounds pulse when a level's size changes. */
+.pulse-up {
+  animation: pulse-up 650ms ease-out;
+}
+.pulse-down {
+  animation: pulse-down 650ms ease-out;
+}
+@keyframes pulse-up {
+  from {
+    background-color: rgba(63, 217, 164, 0.16);
+  }
+}
+@keyframes pulse-down {
+  from {
+    background-color: rgba(255, 93, 122, 0.16);
+  }
+}
+
+.row-in {
+  animation: row-in 260ms cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-raised) 0%,
+    #221f28 50%,
+    var(--color-raised) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton 1.4s ease-in-out infinite;
+  border-radius: 4px;
+}
+@keyframes skeleton {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.live-dot {
+  position: relative;
+}
+.live-dot::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0;
+  animation: live-dot 2.4s ease-out infinite;
+}
+@keyframes live-dot {
+  0% {
+    opacity: 0.45;
+    transform: scale(0.4);
+  }
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(1.6);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu-pop,
+  .chip-in,
+  .panel-in,
+  .flash-up,
+  .flash-down,
+  .pulse-up,
+  .pulse-down,
+  .row-in,
+  .skeleton,
+  .live-dot::after {
+    animation: none;
+  }
+}
