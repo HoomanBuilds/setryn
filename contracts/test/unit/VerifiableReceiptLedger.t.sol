@@ -66,9 +66,21 @@ contract VerifiableReceiptLedgerTest is Test {
         bytes32[] memory leaves = new bytes32[](2);
         leaves[0] = keccak256("submitted");
         leaves[1] = keccak256("settled");
+        ReceiptDraft memory draft = _draft(bytes32(0));
+        authority.setTerminalState(
+            ReceiptSubjectTerminalState({
+                stateHash: draft.subjectStateHash,
+                outcomeHash: draft.onchainOutcomeHash,
+                terminal: false,
+                transitionValid: true
+            })
+        );
         bytes32 journalRoot = authority.appendJournal(ledger, kind, subjectId, leaves);
-        ReceiptDraft memory draft = _draft(journalRoot);
+        draft = _draft(journalRoot);
         ReceiptId receiptId = authority.appendReceipt(IVerifiableReceiptLedger(address(ledger)), draft);
+        vm.expectRevert(VerifiableReceiptLedger.SubjectNotTerminal.selector);
+        ledger.finalizeSubject(kind, subjectId);
+
         authority.setTerminalState(
             ReceiptSubjectTerminalState({
                 stateHash: draft.subjectStateHash,
