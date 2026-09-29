@@ -1,0 +1,213 @@
+/* hatom.com's loader: white paper, spaced labels, counter above and below the mark */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--paper);
+  color: #000;
+  cursor: progress;
+  will-change: clip-path;
+}
+
+.overlay[data-ready] {
+  cursor: pointer;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .overlay,
+  .overlay[data-ready],
+  .overlay button {
+    cursor: none;
+  }
+}
+
+/* The sound switch, top right where the header's will be */
+.soundCorner {
+  position: absolute;
+  top: 0;
+  right: var(--gutter);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  height: var(--header-h);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .overlay .soundCorner button {
+    cursor: pointer;
+  }
+
+  .overlay:has(.soundCorner:hover) .cursor {
+    opacity: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .soundCorner {
+    height: 68px;
+  }
+}
+
+.edge {
+  position: absolute;
+  left: 50%;
+  translate: -50% 0;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.top {
+  top: clamp(24px, 3.8vw, 55px);
+}
+
+.bottom {
+  bottom: clamp(24px, 3.8vw, 55px);
+}
+
+/* The painting: pen drawing on paper, colour shown only through the ink */
+.art {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(92vw, 1180px);
+  aspect-ratio: 1512 / 1015;
+  translate: -50% -50%;
+  -webkit-mask-image: radial-gradient(closest-side, #000 62%, transparent 100%);
+  mask-image: radial-gradient(closest-side, #000 62%, transparent 100%);
+  pointer-events: none;
+}
+
+.art img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.sketch {
+  opacity: 0.42;
+  mix-blend-mode: multiply;
+}
+
+.colour {
+  clip-path: circle(0);
+}
+
+@media (max-width: 640px) {
+  .art {
+    width: 170vw;
+  }
+}
+
+.center {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(28px, 4.4vw, 64px);
+  pointer-events: none;
+}
+
+.count {
+  min-width: 12ch;
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  font-variant-numeric: tabular-nums;
+}
+
+.enter {
+  padding: 8px 12px;
+  border: 0;
+  background: none;
+  pointer-events: auto;
+}
+
+.enter:disabled {
+  color: inherit;
+}
+
+.enter:focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: 2px;
+}
+
+.mark {
+  width: clamp(54px, 5vw, 76px);
+  height: auto;
+  overflow: visible;
+}
+
+.mark [data-mark="egg"],
+.mark [data-mark="slash"] {
+  stroke-dasharray: 1;
+  stroke-dashoffset: calc(1 - var(--draw, 0));
+  transition: stroke-dashoffset 0.2s linear;
+}
+
+.mark [data-mark="dot"] {
+  opacity: var(--draw, 0);
+}
+
+.overlay[data-ready] .mark {
+  animation: breathe 2.4s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  50% {
+    transform: scale(1.06);
+  }
+}
+
+/* hatom's cursor: a 60px ring with a caption under it */
+.cursor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  width: 64px;
+  height: 64px;
+  margin: -32px 0 0 -32px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .overlay:hover .cursor {
+    opacity: 1;
+  }
+}
+
+.ring {
+  width: 100%;
+  height: 100%;
+  rotate: -90deg;
+}
+
+.ring circle {
+  fill: none;
+  stroke: #000;
+  stroke-width: 1.5;
+  stroke-opacity: 0.75;
+}
+
+.ring .ringProgress {
+  stroke: var(--ink);
+  stroke-width: 4;
+  stroke-opacity: 1;
+}
+
+.cursorText {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 50%;
+  translate: -50% 0;
+  font-family: var(--font-label), sans-serif;
+  font-size: 12px;
+  white-space: nowrap;
+}

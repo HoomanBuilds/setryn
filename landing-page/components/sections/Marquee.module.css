@@ -1,0 +1,58 @@
+.marquee {
+  position: relative;
+  z-index: 2;
+  overflow: hidden;
+  padding: 2px 0;
+  background: linear-gradient(90deg, #161819, #222425 51%, #161819);
+  box-shadow: 0 4px 12px 12px rgba(0, 0, 0, 0.1);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 7%, #000 90%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 7%, #000 90%, transparent);
+}
+
+/* zk.email's dashed rails */
+.marquee::before,
+.marquee::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: repeating-linear-gradient(90deg, #606060 0 16px, transparent 16px 32px);
+}
+
+.marquee::before {
+  top: 0;
+}
+
+.marquee::after {
+  bottom: 0;
+}
+
+.track {
+  display: flex;
+  width: max-content;
+  padding: 14px 0;
+  animation: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .track {
+    will-change: transform;
+  }
+}
+
+.item {
+  display: inline-flex;
+  align-items: center;
+  gap: 50px;
+  padding-right: 50px;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.item img {
+  width: 20px;
+  height: 20px;
+}

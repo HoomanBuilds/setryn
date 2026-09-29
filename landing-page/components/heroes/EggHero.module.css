@@ -1,0 +1,270 @@
+.hero {
+  position: relative;
+  height: 240svh;
+  background: var(--warm);
+}
+
+/* dymension's hero: warm black, a square grid, grain */
+.stage {
+  position: sticky;
+  top: 0;
+  height: 100svh;
+  min-height: 620px;
+  overflow: hidden;
+  color: var(--cream);
+  background:
+    radial-gradient(60% 55% at 64% 52%, rgba(226, 139, 196, 0.12), transparent 70%),
+    linear-gradient(rgba(241, 225, 212, 0.05) 1px, transparent 1px) 0 0 / 56px 56px,
+    linear-gradient(90deg, rgba(241, 225, 212, 0.05) 1px, transparent 1px) 0 0 / 56px 56px,
+    var(--warm);
+}
+
+.egg {
+  position: absolute;
+  top: 52%;
+  left: 64%;
+  height: min(76svh, 720px);
+  aspect-ratio: 4 / 5;
+  translate: -50% -50%;
+}
+
+.float,
+.tilt {
+  position: absolute;
+  inset: 0;
+}
+
+.tilt {
+  transform-style: preserve-3d;
+  transform: perspective(1200px);
+}
+
+/* The two halves share the egg's shape and split along the mark's slash */
+.half {
+  position: absolute;
+  inset: 0;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1' preserveAspectRatio='none'%3E%3Cpath d='M.5 0C.8 0 1 .36 1 .6 1 .84.775 1 .5 1 .225 1 0 .84 0 .6 0 .36.2 0 .5 0Z'/%3E%3C/svg%3E")
+    center / 100% 100% no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1' preserveAspectRatio='none'%3E%3Cpath d='M.5 0C.8 0 1 .36 1 .6 1 .84.775 1 .5 1 .225 1 0 .84 0 .6 0 .36.2 0 .5 0Z'/%3E%3C/svg%3E")
+    center / 100% 100% no-repeat;
+}
+
+/* The slash runs from (20%, 84%) to (82.5%, 20%); each half keeps one side of it */
+.halfA {
+  clip-path: polygon(-20% -20%, 120% -20%, 120% -18.4%, -20% 124.96%);
+}
+
+.halfB {
+  clip-path: polygon(120% -18.4%, 120% 125%, -20% 125%, -20% 124.96%);
+}
+
+/* dymension's spectrum sphere as the shell, shaded and grained */
+.shell {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(55% 45% at 34% 26%, rgba(255, 255, 255, 0.34), transparent 60%),
+    radial-gradient(80% 60% at 72% 96%, rgba(20, 12, 10, 0.55), transparent 70%),
+    url(/dymension/rollapp-gradient.png) center / auto 104% no-repeat,
+    linear-gradient(95deg, #173b2b, #2d4bd0 30%, #e28ec4 55%, #e2412c 72%, #f0a02a 86%, #f6e9d6);
+}
+
+.shell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: url(/zkemail/noise.jpg) 0 0 / 120px 120px;
+  mix-blend-mode: overlay;
+  opacity: 0.55;
+}
+
+.outline {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.outline path {
+  fill: none;
+  stroke: var(--cream);
+  stroke-width: 2;
+  stroke-dasharray: 1;
+}
+
+/* The mark's dot: the seed */
+.dot {
+  position: absolute;
+  top: 68%;
+  left: 67.5%;
+  width: 7%;
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 0 0 24px 6px rgba(193, 255, 18, 0.55);
+}
+
+/* The mark's slash in hatom lime: the crack line */
+.slash {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.slash line {
+  stroke: var(--lime);
+  stroke-width: 4;
+  stroke-linecap: square;
+  stroke-dasharray: 1;
+}
+
+/* What's inside: the payout at expiry */
+.inside {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  translate: -50% -50%;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.inside :global(.label) {
+  color: rgba(241, 225, 212, 0.7);
+  font-size: 11px;
+}
+
+.insideLine {
+  font-family: var(--font-display), sans-serif;
+  font-size: clamp(48px, 7.4vw, 120px);
+  text-shadow: 0 4px 40px rgba(20, 12, 10, 0.6);
+  line-height: 0.95;
+  letter-spacing: -0.045em;
+  white-space: nowrap;
+}
+
+/* zk.email-style annotations with leader lines */
+.label {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: rgba(241, 225, 212, 0.8);
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.label::after {
+  content: "";
+  width: 56px;
+  height: 1px;
+  background: currentColor;
+}
+
+.labelShell {
+  top: 22%;
+  right: 88%;
+}
+
+.labelSeed {
+  top: 68%;
+  left: 82%;
+  flex-direction: row-reverse;
+}
+
+/* Left column: dymension's brand-label-and-title block */
+.intro {
+  position: absolute;
+  inset: auto 0 clamp(28px, 6vh, 64px);
+}
+
+.brand {
+  margin: 0 0 18px;
+  font-family: var(--font-everett), sans-serif;
+  font-size: 16px;
+}
+
+.title {
+  max-width: 50%;
+  margin: 0 0 22px;
+  text-wrap: balance;
+  font-family: var(--font-display), sans-serif;
+  font-size: clamp(48px, 6.6vw, 108px);
+  font-weight: 400;
+  line-height: 0.95;
+  letter-spacing: -0.045em;
+}
+
+.lede {
+  max-width: 400px;
+  margin: 0 0 24px;
+  color: rgba(241, 225, 212, 0.72);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* dymension's round arrow button */
+.down {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--cream);
+  border-radius: 50%;
+  font-size: 16px;
+  transition:
+    background-color 0.2s,
+    color 0.2s;
+}
+
+.down:hover {
+  background: var(--cream);
+  color: var(--warm);
+}
+
+@media (max-width: 760px) {
+  .hero {
+    height: 210svh;
+  }
+
+  .egg {
+    top: 33%;
+    left: 50%;
+    height: 42svh;
+  }
+
+  .labelShell,
+  .labelSeed {
+    display: none;
+  }
+
+  .title {
+    max-width: none;
+    font-size: clamp(44px, 13vw, 64px);
+  }
+
+  .insideLine {
+    font-size: 12vw;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero {
+    height: auto;
+  }
+}
