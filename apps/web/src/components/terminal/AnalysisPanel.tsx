@@ -51,7 +51,7 @@ export function AnalysisPanel({
           className="no-scrollbar min-w-0 overflow-x-auto"
         />
         <span
-          className="hidden shrink-0 items-center gap-1.5 text-xs text-off min-[380px]:flex"
+          className="hidden shrink-0 items-center gap-1.5 text-xs text-off sm:flex"
           title="Deterministic preview feed. No value is read from a live venue or chain."
         >
           <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-up" />

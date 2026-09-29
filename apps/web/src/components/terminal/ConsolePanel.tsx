@@ -13,7 +13,7 @@ import {
   formatUsd,
   priceUnitSuffix,
 } from "@/lib/terminal/format";
-import { findMarket, packageLabel } from "@/lib/terminal/markets";
+import { packageLabel } from "@/lib/terminal/markets";
 import { strategyPnl } from "@/lib/portfolio/model";
 import type {
   ConsoleTabId,
@@ -86,7 +86,7 @@ function tifDisplay(order: RestingPackageOrder): { text: string; title?: string 
   return { text: `GTD · ${formatDuration(remainingSeconds)} left`, title };
 }
 
-const TH = "px-3 py-2 text-left font-normal whitespace-nowrap";
+const TH = "h-8 px-3 py-2 text-left font-normal whitespace-nowrap";
 const TD = "px-3 py-2.5 align-top";
 const NUM = "tnum px-3 py-2.5 text-right align-top font-mono text-ink whitespace-nowrap";
 
@@ -94,10 +94,13 @@ function Table({
   minWidth,
   head,
   children,
+  empty = null,
 }: {
   minWidth: number;
   head: { label: string; numeric?: boolean }[];
   children: ReactNode;
+  /** Shown under the column headers when the table has no rows, like an exchange blotter. */
+  empty?: ReactNode;
 }) {
   return (
     <div className="scroll-thin h-full min-w-0 overflow-auto">
@@ -118,7 +121,17 @@ function Table({
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-line">{children}</tbody>
+        <tbody className="divide-y divide-line">
+          {empty ? (
+            <tr>
+              <td colSpan={head.length} className="p-0">
+                {empty}
+              </td>
+            </tr>
+          ) : (
+            children
+          )}
+        </tbody>
       </table>
     </div>
   );
@@ -258,10 +271,9 @@ export function ConsolePanel({
         className="min-h-0 min-w-0 flex-1"
       >
         {tab === "strategies" ? (
-          strategies.length === 0 ? (
-            empty
-          ) : (
+          (
             <Table
+              empty={strategies.length === 0 ? empty : null}
               minWidth={900}
               head={[
                 { label: "ID" },
@@ -304,10 +316,9 @@ export function ConsolePanel({
         ) : null}
 
         {tab === "orders" ? (
-          runtimeRestingOrderRows.length === 0 ? (
-            empty
-          ) : (
+          (
             <Table
+              empty={runtimeRestingOrderRows.length === 0 ? empty : null}
               minWidth={1000}
               head={[
                 { label: "ID" },
@@ -413,10 +424,9 @@ export function ConsolePanel({
         ) : null}
 
         {tab === "rfqs" ? (
-          rfqs.length === 0 ? (
-            empty
-          ) : (
+          (
             <Table
+              empty={rfqs.length === 0 ? empty : null}
               minWidth={980}
               head={[
                 { label: "ID" },
@@ -450,10 +460,9 @@ export function ConsolePanel({
         ) : null}
 
         {tab === "fills" ? (
-          fills.length === 0 ? (
-            empty
-          ) : (
+          (
             <Table
+              empty={fills.length === 0 ? empty : null}
               minWidth={900}
               head={[
                 { label: "ID" },
@@ -490,10 +499,9 @@ export function ConsolePanel({
         ) : null}
 
         {tab === "recovery" ? (
-          recovery.length === 0 ? (
-            empty
-          ) : (
+          (
             <Table
+              empty={recovery.length === 0 ? empty : null}
               minWidth={980}
               head={[
                 { label: "ID" },
@@ -521,10 +529,9 @@ export function ConsolePanel({
         ) : null}
 
         {tab === "receipts" ? (
-          receipts.length === 0 ? (
-            empty
-          ) : (
+          (
             <Table
+              empty={receipts.length === 0 ? empty : null}
               minWidth={900}
               head={[
                 { label: "ID" },

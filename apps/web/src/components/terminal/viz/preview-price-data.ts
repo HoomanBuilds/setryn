@@ -9,6 +9,8 @@ export interface PreviewCandle {
   high: number;
   low: number;
   close: number;
+  /** Traded lots in the candle. Preview volume comes from the same stream as the prices. */
+  volume: number;
 }
 
 export const INTERVAL_SECONDS: Record<ChartInterval, number> = {
@@ -55,22 +57,58 @@ function round(value: number, decimals: number): number {
   return Math.round(value * scale) / scale;
 }
 
+/** Relative trading activity by UTC hour: Asia open, the London and New York overlap, and a quiet late session. */
+function sessionActivity(epochSeconds: number): number {
+  const hour = (epochSeconds / 3_600) % 24;
+  const london = Math.exp(-(((hour - 9.5) / 3) ** 2));
+  const newYork = Math.exp(-(((hour - 15) / 2.6) ** 2)) * 1.35;
+  const asia = Math.exp(-(((hour - 2) / 2.5) ** 2)) * 0.6;
+  return 0.35 + london + newYork + asia;
+}
+
+const minuteHistoryCache = new Map<string, PreviewCandle[]>();
+
+/**
+ * Deterministic minute history for a preview market. Returns follow a volatility-clustering process with rare
+ * jumps and session-dependent activity, so candles and volume read like a traded market. The path is pinned as a
+ * bridge from the prior close to the current package price, so the last print always equals the live mark.
+ */
 export function buildPreviewMinuteHistory(market: PackageMarket): PreviewCandle[] {
+  const key = `${market.id}:${market.netPrice}:${market.priorNetPrice}:${market.priceDecimals}:${market.tickSize}`;
+  const cached = minuteHistoryCache.get(key);
+  if (cached) return cached;
+
   const count = HISTORY_MINUTES + 1;
   const end = Math.floor(Date.parse(SCENARIO_CLOCK_ISO) / 60_000) * 60;
   const random = seeded(seedFrom(market.id));
-  const raw = new Float64Array(count);
+  const normal = () => {
+    const u = Math.max(1e-12, random());
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * random());
+  };
   const moveScale = Math.max(
-    market.tickSize * 1.4,
-    Math.abs(market.netPrice - market.priorNetPrice) / 520,
-    Math.abs(market.netPrice) * 0.000025,
+    market.tickSize * 1.1,
+    Math.abs(market.netPrice - market.priorNetPrice) / 900,
+    Math.abs(market.netPrice) * 0.00002,
   );
+  const baseLots = Math.max(1, market.openInterestLots / 2_400);
 
+  const raw = new Float64Array(count);
+  const activity = new Float64Array(count);
+  const range = new Float64Array(count);
   let walk = 0;
+  let variance = 1;
   for (let index = 0; index < count; index += 1) {
-    const cycle = Math.sin(index / 187) * moveScale * 0.08;
-    walk += (random() - 0.5) * moveScale + cycle;
+    const time = end - (count - 1 - index) * 60;
+    const session = sessionActivity(time);
+    const shock = normal();
+    const jump = random() < 0.0009 ? normal() * 7 : 0;
+    const sigma = Math.sqrt(variance) * (0.55 + session * 0.3);
+    const change = (shock * sigma + jump) * moveScale * 0.5;
+    variance = 0.03 + 0.1 * shock * shock * variance + 0.87 * variance;
+    walk += change;
     raw[index] = walk;
+    activity[index] = session * (0.45 + Math.abs(change) / moveScale) * (0.55 + random() * 0.9);
+    range[index] = Math.abs(normal()) * sigma * moveScale * 0.35;
   }
 
   const terminalDeviation = raw[count - 1];
@@ -79,21 +117,16 @@ export function buildPreviewMinuteHistory(market: PackageMarket): PreviewCandle[
 
   for (let index = 0; index < count; index += 1) {
     const elapsed = index / (count - 1);
-    const trend =
-      market.priorNetPrice + (market.netPrice - market.priorNetPrice) * elapsed;
-    const close = round(
-      trend + raw[index] - terminalDeviation * elapsed,
-      market.priceDecimals,
-    );
+    const trend = market.priorNetPrice + (market.netPrice - market.priorNetPrice) * elapsed;
+    const close = round(trend + raw[index] - terminalDeviation * elapsed, market.priceDecimals);
     const open = index === 0 ? close : previousClose;
-    const wick = moveScale * (0.18 + random() * 0.42);
-
     candles.push({
       time: end - (count - 1 - index) * 60,
       open,
-      high: round(Math.max(open, close) + wick, market.priceDecimals),
-      low: round(Math.min(open, close) - wick, market.priceDecimals),
+      high: round(Math.max(open, close) + range[index], market.priceDecimals),
+      low: round(Math.min(open, close) - range[index] * (0.6 + random() * 0.8), market.priceDecimals),
       close,
+      volume: Math.max(1, Math.round(baseLots * activity[index])),
     });
     previousClose = close;
   }
@@ -102,6 +135,8 @@ export function buildPreviewMinuteHistory(market: PackageMarket): PreviewCandle[
   final.close = market.netPrice;
   final.high = Math.max(final.high, final.open, final.close);
   final.low = Math.min(final.low, final.open, final.close);
+  if (minuteHistoryCache.size > 32) minuteHistoryCache.clear();
+  minuteHistoryCache.set(key, candles);
   return candles;
 }
 
@@ -120,6 +155,7 @@ function aggregate(candles: PreviewCandle[], seconds: number): PreviewCandle[] {
     current.high = Math.max(current.high, candle.high);
     current.low = Math.min(current.low, candle.low);
     current.close = candle.close;
+    current.volume += candle.volume;
   }
 
   return result;
@@ -138,6 +174,7 @@ export function candleAtPrice(
   epochSeconds: number,
   price: number,
   interval: ChartInterval,
+  tradedLots = 0,
 ): PreviewCandle {
   const time = Math.floor(epochSeconds / INTERVAL_SECONDS[interval]) * INTERVAL_SECONDS[interval];
 
@@ -147,6 +184,7 @@ export function candleAtPrice(
       high: Math.max(previous.high, price),
       low: Math.min(previous.low, price),
       close: price,
+      volume: previous.volume + tradedLots,
     };
   }
 
@@ -156,5 +194,6 @@ export function candleAtPrice(
     high: Math.max(previous.close, price),
     low: Math.min(previous.close, price),
     close: price,
+    volume: tradedLots,
   };
 }

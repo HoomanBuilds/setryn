@@ -1,16 +1,35 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Maximize2, Minimize2, RotateCcw } from "lucide-react";
+import {
+  AreaChart,
+  Camera,
+  CandlestickChart,
+  ChevronDown,
+  Crosshair,
+  Eye,
+  EyeOff,
+  LineChart,
+  Magnet,
+  Maximize2,
+  Minimize2,
+  Minus,
+  RotateCcw,
+  Sigma,
+  Trash2,
+} from "lucide-react";
 import {
   AreaSeries,
   CandlestickSeries,
   ColorType,
   CrosshairMode,
+  HistogramSeries,
   LineSeries,
   LineStyle,
+  PriceScaleMode,
   createChart,
   type CandlestickData,
+  type HistogramData,
   type IChartApi,
   type IPriceLine,
   type ISeriesApi,
@@ -20,7 +39,10 @@ import {
   TickMarkType,
   type UTCTimestamp,
 } from "lightweight-charts";
+import { usePreviewTrades } from "@/components/terminal/PreviewMarketProvider";
+import { usePersistentState } from "@/lib/terminal/use-persistent-state";
 import {
+  formatLots,
   formatNumber,
   formatUtcClock,
   formatUtcStamp,
@@ -29,15 +51,19 @@ import {
 import type { PackageMarket } from "@/lib/terminal/types";
 import { executableAction } from "@/lib/terminal/economics";
 import { CHART_THEME } from "./chart-theme";
+import { INDICATORS, computeIndicator, type IndicatorId } from "./indicators";
 import {
   buildPreviewHistory,
   buildPreviewMinuteHistory,
   candleAtPrice,
+  INTERVAL_SECONDS,
   type ChartInterval,
   type PreviewCandle,
 } from "./preview-price-data";
 
 type ChartMode = "candles" | "line" | "area";
+type ScaleMode = "normal" | "percent" | "log";
+type Tool = "cross" | "magnet" | "hline";
 
 type ActiveSeries =
   | { mode: "candles"; api: ISeriesApi<"Candlestick"> }
@@ -45,13 +71,23 @@ type ActiveSeries =
   | { mode: "area"; api: ISeriesApi<"Area"> };
 
 const INTERVALS: ChartInterval[] = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"];
-const MODES: { id: ChartMode; label: string }[] = [
-  { id: "candles", label: "Candles" },
-  { id: "line", label: "Line" },
-  { id: "area", label: "Area" },
+const MODES: { id: ChartMode; label: string; icon: typeof CandlestickChart }[] = [
+  { id: "candles", label: "Candles", icon: CandlestickChart },
+  { id: "line", label: "Line", icon: LineChart },
+  { id: "area", label: "Area", icon: AreaChart },
+];
+const RANGES: { label: string; seconds: number | null }[] = [
+  { label: "1D", seconds: 86_400 },
+  { label: "3D", seconds: 3 * 86_400 },
+  { label: "1W", seconds: 7 * 86_400 },
+  { label: "2W", seconds: 14 * 86_400 },
+  { label: "1M", seconds: 30 * 86_400 },
+  { label: "All", seconds: null },
 ];
 
 const CHART_PREFS_KEY = "setryn:chart-prefs";
+const DRAWINGS_KEY = "setryn:chart-drawings";
+const INDICATOR_TAIL = 1_600;
 
 export interface PositionPriceOverlay {
   id: string;
@@ -94,12 +130,17 @@ function toLineData(candle: PreviewCandle): LineData<UTCTimestamp> {
   return { time: candle.time as UTCTimestamp, value: candle.close };
 }
 
+function toVolumeData(candle: PreviewCandle): HistogramData<UTCTimestamp> {
+  return {
+    time: candle.time as UTCTimestamp,
+    value: candle.volume,
+    color: candle.close >= candle.open ? CHART_THEME.upVolume : CHART_THEME.downVolume,
+  };
+}
+
 function setSeriesData(series: ActiveSeries, candles: PreviewCandle[]) {
-  if (series.mode === "candles") {
-    series.api.setData(candles.map(toCandlestickData));
-  } else {
-    series.api.setData(candles.map(toLineData));
-  }
+  if (series.mode === "candles") series.api.setData(candles.map(toCandlestickData));
+  else series.api.setData(candles.map(toLineData));
 }
 
 function updateSeries(series: ActiveSeries, candle: PreviewCandle) {
@@ -108,27 +149,75 @@ function updateSeries(series: ActiveSeries, candle: PreviewCandle) {
 }
 
 function resetVisibleRange(chart: IChartApi, points: number) {
-  const visible = Math.min(points, 140);
-  chart.timeScale().setVisibleLogicalRange({
-    from: Math.max(0, points - visible),
-    to: points + 4,
-  });
+  const visible = Math.min(points, 120);
+  chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, points - visible), to: points + 6 });
 }
 
-function ReadoutValue({
+interface ChartPrefs {
+  interval: ChartInterval;
+  mode: ChartMode;
+  indicators: IndicatorId[];
+  scale: ScaleMode;
+}
+
+const DEFAULT_PREFS: ChartPrefs = { interval: "15m", mode: "candles", indicators: ["ma7", "ma25"], scale: "normal" };
+const NO_DRAWINGS: number[] = [];
+
+function parsePrefs(value: unknown): ChartPrefs | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  return {
+    interval: (INTERVALS as string[]).includes(record.interval as string)
+      ? (record.interval as ChartInterval)
+      : DEFAULT_PREFS.interval,
+    mode: MODES.some((option) => option.id === record.mode) ? (record.mode as ChartMode) : DEFAULT_PREFS.mode,
+    indicators: Array.isArray(record.indicators)
+      ? (record.indicators as string[]).filter((id): id is IndicatorId =>
+          INDICATORS.some((indicator) => indicator.id === id),
+        )
+      : DEFAULT_PREFS.indicators,
+    scale:
+      record.scale === "normal" || record.scale === "percent" || record.scale === "log"
+        ? record.scale
+        : DEFAULT_PREFS.scale,
+  };
+}
+
+function parseDrawings(value: unknown): number[] | undefined {
+  return Array.isArray(value) ? value.filter((entry): entry is number => Number.isFinite(entry)) : undefined;
+}
+
+interface Readout {
+  candle: PreviewCandle;
+  previousClose: number;
+}
+
+function ToolbarButton({
   label,
-  value,
-  decimals,
+  active = false,
+  onClick,
+  children,
+  className = "",
 }: {
   label: string;
-  value: number;
-  decimals: number;
+  active?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+  className?: string;
 }) {
   return (
-    <span className="tnum inline-flex items-baseline gap-1 font-mono text-xs text-ink">
-      <span className="font-sans text-faint">{label}</span>
-      {formatNumber(value, decimals)}
-    </span>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      aria-pressed={active}
+      title={label}
+      className={`focus-ring grid h-7 min-w-7 shrink-0 place-items-center rounded-sm px-1.5 transition-colors ${
+        active ? "bg-raised text-ink" : "text-faint hover:bg-raised hover:text-ink"
+      } ${className}`}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -149,68 +238,42 @@ export function PackagePriceChart({
   const holder = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ActiveSeries | null>(null);
-  const currentCandleRef = useRef<PreviewCandle | null>(null);
+  const volumeRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const indicatorRefs = useRef<Map<IndicatorId, ISeriesApi<"Line">>>(new Map());
+  const candlesRef = useRef<PreviewCandle[]>([]);
   const pointsRef = useRef(0);
-  const [interval, setInterval] = useState<ChartInterval>("15m");
-  const [mode, setMode] = useState<ChartMode>("candles");
-  const [hover, setHover] = useState<PreviewCandle | null>(null);
-  const [latest, setLatest] = useState<PreviewCandle | null>(null);
+  const toolRef = useRef<Tool>("cross");
+  const lastTradeRef = useRef<string | null>(null);
+  const [prefs, setPrefs] = usePersistentState(CHART_PREFS_KEY, DEFAULT_PREFS, parsePrefs);
+  const { interval, mode, indicators, scale } = prefs;
+  const setInterval = (next: ChartInterval) => setPrefs((current) => ({ ...current, interval: next }));
+  const setMode = (next: ChartMode) => setPrefs((current) => ({ ...current, mode: next }));
+  const setScale = (next: ScaleMode) => setPrefs((current) => ({ ...current, scale: next }));
+  const [autoScale, setAutoScale] = useState(true);
+  const [indicatorMenu, setIndicatorMenu] = useState(false);
+  const [tool, setTool] = useState<Tool>("cross");
+  const [drawings, setDrawings] = usePersistentState(`${DRAWINGS_KEY}:${market.id}`, NO_DRAWINGS, parseDrawings);
+  const [drawingsVisible, setDrawingsVisible] = useState(true);
+  const [hover, setHover] = useState<Readout | null>(null);
+  const [latest, setLatest] = useState<Readout | null>(null);
+  const [indicatorValues, setIndicatorValues] = useState<Partial<Record<IndicatorId, number>>>({});
   const [fullscreen, setFullscreen] = useState(false);
-  const [prefsLoaded, setPrefsLoaded] = useState(false);
+  const trades = usePreviewTrades(market.id);
 
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(CHART_PREFS_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as { interval?: unknown; mode?: unknown };
-        if (
-          typeof parsed.interval === "string" &&
-          (INTERVALS as string[]).includes(parsed.interval)
-        ) {
-          setInterval(parsed.interval as ChartInterval);
-        }
-        if (
-          parsed.mode === "candles" ||
-          parsed.mode === "line" ||
-          parsed.mode === "area"
-        ) {
-          setMode(parsed.mode);
-        }
-      }
-    } catch {
-      setPrefsLoaded(true);
-      return;
-    }
-    setPrefsLoaded(true);
-  }, []);
-
-  useEffect(() => {
-    if (!prefsLoaded) return;
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(
-        CHART_PREFS_KEY,
-        JSON.stringify({ interval, mode }),
-      );
-    } catch {
-      return;
-    }
-  }, [interval, mode, prefsLoaded]);
+    toolRef.current = tool;
+    chartRef.current?.applyOptions({
+      crosshair: { mode: tool === "magnet" ? CrosshairMode.Magnet : CrosshairMode.Normal },
+    });
+  }, [tool]);
 
   const minuteHistory = useMemo(
     () => buildPreviewMinuteHistory(baseMarket),
-    [
-      baseMarket.id,
-      baseMarket.netPrice,
-      baseMarket.priorNetPrice,
-      baseMarket.priceDecimals,
-      baseMarket.tickSize,
-    ],
+    // The history is a pure function of these fields; the live market only moves the last candle.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [baseMarket.id, baseMarket.netPrice, baseMarket.priorNetPrice, baseMarket.priceDecimals, baseMarket.tickSize],
   );
-  const history = useMemo(
-    () => buildPreviewHistory(minuteHistory, interval),
-    [minuteHistory, interval],
-  );
+  const history = useMemo(() => buildPreviewHistory(minuteHistory, interval), [minuteHistory, interval]);
   const unit = priceUnitSuffix(market.priceUnit);
   const rising = baseMarket.netPrice >= baseMarket.priorNetPrice;
 
@@ -235,14 +298,14 @@ export function PackagePriceChart({
       rightPriceScale: {
         visible: true,
         borderColor: CHART_THEME.border,
-        scaleMargins: { top: 0.2, bottom: 0.12 },
+        scaleMargins: { top: 0.08, bottom: 0.24 },
       },
       timeScale: {
         visible: true,
         borderColor: CHART_THEME.border,
         timeVisible: true,
         secondsVisible: false,
-        rightOffset: 4,
+        rightOffset: 6,
         tickMarkFormatter: (time: Time, tickMarkType: TickMarkType) =>
           tickMarkType >= TickMarkType.Time
             ? formatUtcClock(time as number)
@@ -268,40 +331,59 @@ export function PackagePriceChart({
       },
     });
 
+    const volume = chart.addSeries(HistogramSeries, {
+      priceScaleId: "volume",
+      priceFormat: { type: "volume" },
+      lastValueVisible: false,
+      priceLineVisible: false,
+    });
+    chart.priceScale("volume").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 }, visible: false });
+    volumeRef.current = volume;
+
     const onMove = (param: MouseEventParams) => {
       const active = seriesRef.current;
       if (!active || param.time === undefined) {
         setHover(null);
         return;
       }
-
       const point = param.seriesData.get(active.api);
+      const bar = param.seriesData.get(volume) as HistogramData<Time> | undefined;
       if (!point) {
         setHover(null);
         return;
       }
-
-      if (active.mode === "candles") {
-        const candle = point as CandlestickData<Time>;
-        setHover({
-          time: param.time as number,
-          open: candle.open,
-          high: candle.high,
-          low: candle.low,
-          close: candle.close,
-        });
-      } else {
-        const line = point as LineData<Time>;
-        setHover({
-          time: param.time as number,
-          open: line.value,
-          high: line.value,
-          low: line.value,
-          close: line.value,
-        });
-      }
+      const candles = candlesRef.current;
+      const index = candles.findIndex((candle) => candle.time === param.time);
+      const hovered: PreviewCandle =
+        active.mode === "candles"
+          ? {
+              time: param.time as number,
+              open: (point as CandlestickData<Time>).open,
+              high: (point as CandlestickData<Time>).high,
+              low: (point as CandlestickData<Time>).low,
+              close: (point as CandlestickData<Time>).close,
+              volume: bar?.value ?? 0,
+            }
+          : {
+              time: param.time as number,
+              open: (point as LineData<Time>).value,
+              high: (point as LineData<Time>).value,
+              low: (point as LineData<Time>).value,
+              close: (point as LineData<Time>).value,
+              volume: bar?.value ?? 0,
+            };
+      setHover({ candle: hovered, previousClose: index > 0 ? candles[index - 1].close : hovered.open });
     };
     chart.subscribeCrosshairMove(onMove);
+
+    const onClick = (param: MouseEventParams) => {
+      if (toolRef.current !== "hline" || !param.point) return;
+      const price = seriesRef.current?.api.coordinateToPrice(param.point.y);
+      if (price === null || price === undefined || !Number.isFinite(price)) return;
+      setDrawings((current) => [...current, Number(price.toFixed(baseMarket.priceDecimals))]);
+      setTool("cross");
+    };
+    chart.subscribeClick(onClick);
 
     const observer = new ResizeObserver((entries) => {
       const box = entries[0]?.contentRect;
@@ -310,20 +392,25 @@ export function PackagePriceChart({
     });
     observer.observe(element);
     chartRef.current = chart;
+    const indicatorSeries = indicatorRefs.current;
 
     return () => {
       observer.disconnect();
       chart.unsubscribeCrosshairMove(onMove);
+      chart.unsubscribeClick(onClick);
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
+      volumeRef.current = null;
+      indicatorSeries.clear();
     };
-  }, []);
+    // The chart is created once per price precision; drawings persist through their own store.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseMarket.priceDecimals]);
 
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
-
     if (seriesRef.current) chart.removeSeries(seriesRef.current.api);
 
     const common = {
@@ -337,8 +424,8 @@ export function PackagePriceChart({
         minMove: 10 ** -baseMarket.priceDecimals,
       },
     };
+    const lineColor = rising ? CHART_THEME.up : CHART_THEME.down;
     let active: ActiveSeries;
-
     if (mode === "candles") {
       active = {
         mode,
@@ -349,11 +436,10 @@ export function PackagePriceChart({
           wickUpColor: CHART_THEME.up,
           wickDownColor: CHART_THEME.down,
           borderVisible: false,
-          priceLineColor: rising ? CHART_THEME.up : CHART_THEME.down,
+          priceLineColor: lineColor,
         }),
       };
     } else if (mode === "line") {
-      const lineColor = rising ? CHART_THEME.up : CHART_THEME.down;
       active = {
         mode,
         api: chart.addSeries(LineSeries, {
@@ -367,7 +453,6 @@ export function PackagePriceChart({
         }),
       };
     } else {
-      const lineColor = rising ? CHART_THEME.up : CHART_THEME.down;
       active = {
         mode,
         api: chart.addSeries(AreaSeries, {
@@ -384,21 +469,24 @@ export function PackagePriceChart({
       };
     }
 
-    setSeriesData(active, history);
+    const candles = history.map((candle) => ({ ...candle }));
+    candlesRef.current = candles;
+    setSeriesData(active, candles);
+    volumeRef.current?.setData(candles.map(toVolumeData));
     active.api.createPriceLine({
       price: baseMarket.priorNetPrice,
       color: CHART_THEME.off,
       lineWidth: 1,
-      lineStyle: LineStyle.Dashed,
+      lineStyle: LineStyle.Dotted,
       axisLabelVisible: true,
       title: "prior",
     });
     seriesRef.current = active;
-    currentCandleRef.current = history[history.length - 1] ?? null;
-    pointsRef.current = history.length;
-    setLatest(history[history.length - 1] ?? null);
+    pointsRef.current = candles.length;
+    const last = candles[candles.length - 1];
+    setLatest(last ? { candle: last, previousClose: candles[candles.length - 2]?.close ?? last.open } : null);
     setHover(null);
-    resetVisibleRange(chart, history.length);
+    resetVisibleRange(chart, candles.length);
 
     return () => {
       if (chartRef.current && seriesRef.current === active) {
@@ -408,17 +496,87 @@ export function PackagePriceChart({
     };
   }, [baseMarket.priceDecimals, baseMarket.priorNetPrice, history, mode, rising]);
 
+  // Indicator overlays are recomputed from the same candles the chart draws.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const existing = indicatorRefs.current;
+    for (const [id, series] of existing) {
+      if (!indicators.includes(id)) {
+        chart.removeSeries(series);
+        existing.delete(id);
+      }
+    }
+    const values: Partial<Record<IndicatorId, number>> = {};
+    for (const spec of INDICATORS) {
+      if (!indicators.includes(spec.id)) continue;
+      let series = existing.get(spec.id);
+      if (!series) {
+        series = chart.addSeries(LineSeries, {
+          color: spec.color,
+          lineWidth: 1,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+          priceFormat: {
+            type: "price",
+            precision: baseMarket.priceDecimals,
+            minMove: 10 ** -baseMarket.priceDecimals,
+          },
+        });
+        existing.set(spec.id, series);
+      }
+      const points = computeIndicator(spec.id, candlesRef.current);
+      series.setData(points.map((point) => ({ time: point.time as UTCTimestamp, value: point.value })));
+      values[spec.id] = points[points.length - 1]?.value;
+    }
+    setIndicatorValues(values);
+  }, [indicators, history, mode, baseMarket.priceDecimals]);
+
+  // Live: every preview print moves the last candle and adds its lots to the volume bar.
   useEffect(() => {
     const active = seriesRef.current;
-    const previous = currentCandleRef.current;
+    const candles = candlesRef.current;
+    const previous = candles[candles.length - 1];
     if (!active || !previous) return;
-
-    const next = candleAtPrice(previous, previewEpochSeconds, market.netPrice, interval);
-    if (next.time !== previous.time) pointsRef.current += 1;
-    currentCandleRef.current = next;
+    const print = trades[0];
+    const fresh = print && print.id !== lastTradeRef.current ? print : null;
+    if (fresh) lastTradeRef.current = fresh.id;
+    const next = candleAtPrice(previous, previewEpochSeconds, market.netPrice, interval, fresh?.lots ?? 0);
+    if (next.time !== previous.time) {
+      candles.push(next);
+      pointsRef.current += 1;
+    } else {
+      candles[candles.length - 1] = next;
+    }
     updateSeries(active, next);
-    setLatest(next);
-  }, [interval, market.netPrice, previewEpochSeconds, mode]);
+    volumeRef.current?.update(toVolumeData(next));
+    const values: Partial<Record<IndicatorId, number>> = {};
+    const tail = candles.slice(-INDICATOR_TAIL);
+    for (const [id, series] of indicatorRefs.current) {
+      const point = computeIndicator(id, tail).at(-1);
+      if (!point) continue;
+      series.update({ time: point.time as UTCTimestamp, value: point.value });
+      values[id] = point.value;
+    }
+    setIndicatorValues(values);
+    setLatest({ candle: next, previousClose: candles[candles.length - 2]?.close ?? next.open });
+    // Driven by the shared preview clock and prints only.
+  }, [interval, market.netPrice, previewEpochSeconds, trades]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    chart.priceScale("right").applyOptions({
+      mode:
+        scale === "log"
+          ? PriceScaleMode.Logarithmic
+          : scale === "percent"
+            ? PriceScaleMode.Percentage
+            : PriceScaleMode.Normal,
+      autoScale,
+    });
+  }, [scale, autoScale]);
 
   useEffect(() => {
     const active = seriesRef.current;
@@ -454,6 +612,20 @@ export function PackagePriceChart({
         }),
       );
     }
+    if (drawingsVisible) {
+      for (const price of drawings) {
+        lines.push(
+          active.api.createPriceLine({
+            price,
+            color: CHART_THEME.dim,
+            lineWidth: 1,
+            lineStyle: LineStyle.Solid,
+            axisLabelVisible: true,
+            title: "",
+          }),
+        );
+      }
+    }
     return () => {
       for (const line of lines) {
         try {
@@ -463,16 +635,7 @@ export function PackagePriceChart({
         }
       }
     };
-  }, [
-    positionOverlays,
-    orderOverlays,
-    mode,
-    history,
-    baseMarket.id,
-    baseMarket.priceDecimals,
-    baseMarket.priorNetPrice,
-    rising,
-  ]);
+  }, [positionOverlays, orderOverlays, drawings, drawingsVisible, mode, history, rising]);
 
   useEffect(() => {
     const onFullscreenChange = () => setFullscreen(document.fullscreenElement === shell.current);
@@ -480,24 +643,56 @@ export function PackagePriceChart({
     return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
   }, []);
 
-  const fit = useCallback(() => chartRef.current?.timeScale().fitContent(), []);
   const reset = useCallback(() => {
     const chart = chartRef.current;
-    if (chart) resetVisibleRange(chart, pointsRef.current);
+    if (!chart) return;
+    setAutoScale(true);
+    resetVisibleRange(chart, pointsRef.current);
   }, []);
-  const toggleFullscreen = useCallback(() => {
-    if (document.fullscreenElement === shell.current) {
-      void document.exitFullscreen();
-    } else if (!document.fullscreenElement) {
-      void shell.current?.requestFullscreen();
+  const showRange = useCallback((seconds: number | null) => {
+    const chart = chartRef.current;
+    const candles = candlesRef.current;
+    if (!chart || candles.length === 0) return;
+    if (seconds === null) {
+      chart.timeScale().fitContent();
+      return;
     }
+    const to = candles[candles.length - 1].time;
+    chart.timeScale().setVisibleRange({
+      from: Math.max(candles[0].time, to - seconds) as UTCTimestamp,
+      to: (to + INTERVAL_SECONDS[interval] * 4) as UTCTimestamp,
+    });
+  }, [interval]);
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement === shell.current) void document.exitFullscreen();
+    else if (!document.fullscreenElement) void shell.current?.requestFullscreen();
   }, []);
+  const screenshot = useCallback(() => {
+    const canvas = chartRef.current?.takeScreenshot();
+    if (!canvas) return;
+    const link = document.createElement("a");
+    link.href = canvas.toDataURL("image/png");
+    link.download = `setryn-${market.id}-${interval}.png`;
+    link.click();
+  }, [interval, market.id]);
+  const toggleIndicator = (id: IndicatorId) =>
+    setPrefs((current) => ({
+      ...current,
+      indicators: current.indicators.includes(id)
+        ? current.indicators.filter((item) => item !== id)
+        : [...current.indicators, id],
+    }));
 
-  const readout = hover ?? latest;
+  const readoutState = hover ?? latest;
+  const readout = readoutState?.candle ?? null;
+  const previousClose = readoutState?.previousClose ?? null;
+  const change = readout && previousClose !== null ? readout.close - previousClose : 0;
+  const changePercent = readout && previousClose ? (change / previousClose) * 100 : 0;
+  const changeTone = change >= 0 ? "text-up" : "text-down";
 
   return (
     <div ref={shell} className="flex min-h-0 w-full flex-1 flex-col bg-panel">
-      <div className="no-scrollbar flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-line px-2">
+      <div className="no-scrollbar flex h-9 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-line px-2">
         <div role="group" aria-label="Chart interval" className="flex items-center gap-0.5">
           {INTERVALS.map((option) => (
             <button
@@ -505,103 +700,210 @@ export function PackagePriceChart({
               type="button"
               onClick={() => setInterval(option)}
               aria-pressed={interval === option}
-              className={`focus-ring h-7 rounded-sm px-2 font-mono text-xs transition-colors ${
-                interval === option
-                  ? "bg-raised text-ink"
-                  : "text-faint hover:bg-raised hover:text-dim"
+              className={`focus-ring h-7 rounded-sm px-1.5 font-mono text-xs transition-colors ${
+                interval === option ? "text-brand" : "text-faint hover:bg-raised hover:text-dim"
               }`}
             >
               {option}
             </button>
           ))}
         </div>
+        <span aria-hidden="true" className="mx-1.5 h-4 w-px shrink-0 bg-line" />
+        <div role="group" aria-label="Chart type" className="flex items-center gap-0.5">
+          {MODES.map((option) => {
+            const Icon = option.icon;
+            return (
+              <ToolbarButton
+                key={option.id}
+                label={option.label}
+                active={mode === option.id}
+                onClick={() => setMode(option.id)}
+              >
+                <Icon size={15} aria-hidden="true" />
+              </ToolbarButton>
+            );
+          })}
+        </div>
+        <span aria-hidden="true" className="mx-1.5 h-4 w-px shrink-0 bg-line" />
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setIndicatorMenu((open) => !open)}
+            aria-expanded={indicatorMenu}
+            className="focus-ring flex h-7 items-center gap-1.5 rounded-sm px-2 text-xs text-dim transition-colors hover:bg-raised hover:text-ink"
+          >
+            <Sigma size={14} aria-hidden="true" />
+            Indicators
+            {indicators.length > 0 ? (
+              <span className="tnum rounded-sm bg-raised px-1 font-mono text-[11px] text-faint">
+                {indicators.length}
+              </span>
+            ) : null}
+            <ChevronDown size={12} aria-hidden="true" />
+          </button>
+          {indicatorMenu ? (
+            <>
+              <button
+                type="button"
+                aria-label="Close indicators"
+                className="fixed inset-0 z-40 cursor-default"
+                onClick={() => setIndicatorMenu(false)}
+              />
+              <div className="absolute top-full left-0 z-50 mt-1 w-60 rounded-md border border-line-strong bg-raised p-1 shadow-[0_18px_40px_rgba(0,0,0,0.55)]">
+                {INDICATORS.map((spec) => (
+                  <label
+                    key={spec.id}
+                    className="flex cursor-pointer items-center gap-2.5 rounded-sm px-2 py-1.5 text-xs text-dim hover:bg-panel"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={indicators.includes(spec.id)}
+                      onChange={() => toggleIndicator(spec.id)}
+                      className="accent-[var(--color-brand)]"
+                    />
+                    <span aria-hidden="true" className="h-0.5 w-3 rounded-full" style={{ background: spec.color }} />
+                    <span className="text-ink">{spec.label}</span>
+                    <span className="ml-auto truncate text-[11px] text-off">{spec.describe}</span>
+                  </label>
+                ))}
+              </div>
+            </>
+          ) : null}
+        </div>
+        <span className="flex-1" />
+        <ToolbarButton label="Save chart image" onClick={screenshot}>
+          <Camera size={14} aria-hidden="true" />
+        </ToolbarButton>
+        <ToolbarButton label="Reset view" onClick={reset}>
+          <RotateCcw size={13} aria-hidden="true" />
+        </ToolbarButton>
+        <ToolbarButton label={fullscreen ? "Exit fullscreen" : "Fullscreen"} onClick={toggleFullscreen}>
+          {fullscreen ? <Minimize2 size={14} aria-hidden="true" /> : <Maximize2 size={14} aria-hidden="true" />}
+        </ToolbarButton>
+      </div>
 
-        <span aria-hidden="true" className="mx-1 h-4 w-px shrink-0 bg-line" />
+      <div className="flex min-h-0 flex-1">
+        <div
+          role="toolbar"
+          aria-label="Chart tools"
+          aria-orientation="vertical"
+          className="hidden w-10 shrink-0 flex-col items-center gap-1 border-r border-line py-2 sm:flex"
+        >
+          <ToolbarButton label="Crosshair" active={tool === "cross"} onClick={() => setTool("cross")}>
+            <Crosshair size={15} aria-hidden="true" />
+          </ToolbarButton>
+          <ToolbarButton label="Magnet to candle values" active={tool === "magnet"} onClick={() => setTool("magnet")}>
+            <Magnet size={15} aria-hidden="true" />
+          </ToolbarButton>
+          <ToolbarButton
+            label="Horizontal line: click the chart to place"
+            active={tool === "hline"}
+            onClick={() => setTool(tool === "hline" ? "cross" : "hline")}
+          >
+            <Minus size={15} aria-hidden="true" />
+          </ToolbarButton>
+          <span aria-hidden="true" className="my-1 h-px w-5 bg-line" />
+          <ToolbarButton
+            label={drawingsVisible ? "Hide drawings" : "Show drawings"}
+            active={!drawingsVisible}
+            onClick={() => setDrawingsVisible((visible) => !visible)}
+          >
+            {drawingsVisible ? <Eye size={15} aria-hidden="true" /> : <EyeOff size={15} aria-hidden="true" />}
+          </ToolbarButton>
+          <ToolbarButton label="Remove all drawings" onClick={() => setDrawings([])}>
+            <Trash2 size={14} aria-hidden="true" />
+          </ToolbarButton>
+        </div>
 
-        <div role="group" aria-label="Chart mode" className="flex items-center gap-0.5">
-          {MODES.map((option) => (
+        <div className={`relative min-h-0 min-w-0 flex-1 ${tool === "hline" ? "cursor-crosshair" : ""}`}>
+          <div
+            ref={holder}
+            className="absolute inset-0"
+            role="img"
+            aria-label={`${interval} ${mode} chart for ${market.name}. Current package price ${formatNumber(market.netPrice, market.priceDecimals)} ${unit}.`}
+          />
+          {readout ? (
+            <div className="pointer-events-none absolute top-0 left-0 z-10 flex max-w-[calc(100%-64px)] flex-col gap-0.5 px-3 py-1.5">
+              <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 font-mono text-[11px]">
+                <span className="font-sans text-xs text-dim">{`${market.id} · ${interval} · Setryn`}</span>
+                <span className="text-faint">
+                  O <span className={changeTone}>{formatNumber(readout.open, market.priceDecimals)}</span>
+                </span>
+                <span className="text-faint">
+                  H <span className={changeTone}>{formatNumber(readout.high, market.priceDecimals)}</span>
+                </span>
+                <span className="text-faint">
+                  L <span className={changeTone}>{formatNumber(readout.low, market.priceDecimals)}</span>
+                </span>
+                <span className="text-faint">
+                  C <span className={changeTone}>{formatNumber(readout.close, market.priceDecimals)}</span>
+                </span>
+                <span className={`tnum ${changeTone}`}>
+                  {`${change >= 0 ? "+" : ""}${formatNumber(change, market.priceDecimals)} (${change >= 0 ? "+" : ""}${changePercent.toFixed(2)}%)`}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-baseline gap-x-2.5 font-mono text-[11px]">
+                <span className="text-faint">
+                  Vol <span className="text-dim">{`${formatLots(readout.volume)} lots`}</span>
+                </span>
+                {INDICATORS.filter((spec) => indicators.includes(spec.id)).map((spec) => (
+                  <span key={spec.id} className="text-faint">
+                    {spec.label}{" "}
+                    <span style={{ color: spec.color }}>
+                      {indicatorValues[spec.id] !== undefined
+                        ? formatNumber(indicatorValues[spec.id] as number, market.priceDecimals)
+                        : "–"}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="no-scrollbar flex h-8 shrink-0 items-center gap-0.5 overflow-x-auto border-t border-line px-2">
+        <div role="group" aria-label="Visible range" className="flex items-center gap-0.5">
+          {RANGES.map((range) => (
             <button
-              key={option.id}
+              key={range.label}
               type="button"
-              onClick={() => setMode(option.id)}
-              aria-pressed={mode === option.id}
-              className={`focus-ring h-7 rounded-sm px-2 text-xs transition-colors ${
-                mode === option.id
-                  ? "bg-raised text-ink"
-                  : "text-faint hover:bg-raised hover:text-dim"
-              }`}
+              onClick={() => showRange(range.seconds)}
+              className="focus-ring h-6 rounded-sm px-1.5 font-mono text-[11px] text-faint transition-colors hover:bg-raised hover:text-ink"
             >
-              {option.label}
+              {range.label}
             </button>
           ))}
         </div>
-
-        <span aria-hidden="true" className="mx-1 h-4 w-px shrink-0 bg-line" />
-
+        <span className="flex-1" />
+        <span className="tnum mr-2 shrink-0 font-mono text-[11px] text-faint">
+          {`${formatUtcClock(previewEpochSeconds)}:${String(previewEpochSeconds % 60).padStart(2, "0")} (UTC)`}
+        </span>
+        <span aria-hidden="true" className="mr-1 h-3.5 w-px shrink-0 bg-line" />
         <button
           type="button"
-          onClick={fit}
-          className="focus-ring h-7 rounded-sm px-2 text-xs text-faint transition-colors hover:bg-raised hover:text-ink"
+          onClick={() => setScale(scale === "percent" ? "normal" : "percent")}
+          aria-pressed={scale === "percent"}
+          className={`focus-ring h-6 rounded-sm px-1.5 font-mono text-[11px] ${scale === "percent" ? "text-brand" : "text-faint hover:text-ink"}`}
         >
-          Fit
+          %
         </button>
         <button
           type="button"
-          onClick={reset}
-          aria-label="Reset chart to latest prices"
-          title="Reset to latest prices"
-          className="focus-ring grid h-7 w-7 shrink-0 place-items-center rounded-sm text-faint transition-colors hover:bg-raised hover:text-ink"
+          onClick={() => setScale(scale === "log" ? "normal" : "log")}
+          aria-pressed={scale === "log"}
+          className={`focus-ring h-6 rounded-sm px-1.5 font-mono text-[11px] ${scale === "log" ? "text-brand" : "text-faint hover:text-ink"}`}
         >
-          <RotateCcw size={13} aria-hidden="true" />
+          log
         </button>
         <button
           type="button"
-          onClick={toggleFullscreen}
-          aria-label={fullscreen ? "Exit fullscreen chart" : "Open fullscreen chart"}
-          title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-          className="focus-ring grid h-7 w-7 shrink-0 place-items-center rounded-sm text-faint transition-colors hover:bg-raised hover:text-ink"
+          onClick={() => setAutoScale((value) => !value)}
+          aria-pressed={autoScale}
+          className={`focus-ring h-6 rounded-sm px-1.5 font-mono text-[11px] ${autoScale ? "text-brand" : "text-faint hover:text-ink"}`}
         >
-          {fullscreen ? (
-            <Minimize2 size={14} aria-hidden="true" />
-          ) : (
-            <Maximize2 size={14} aria-hidden="true" />
-          )}
+          auto
         </button>
-      </div>
-
-      <div className="relative min-h-0 flex-1">
-        <div
-          ref={holder}
-          className="absolute inset-0"
-          role="img"
-          aria-label={`${interval} ${mode} chart for ${market.name}. Current package price ${formatNumber(market.netPrice, market.priceDecimals)} ${unit}. Prior close ${formatNumber(market.priorNetPrice, market.priceDecimals)} ${unit}.`}
-        />
-
-        {readout ? (
-          <div className="pointer-events-none absolute top-0 left-0 z-10 flex max-w-[calc(100%-54px)] flex-wrap items-baseline gap-x-3 gap-y-0.5 bg-panel/90 px-3 py-1.5 lg:px-4">
-            <span className="tnum font-mono text-xs text-off">
-              {formatUtcStamp(readout.time)}
-            </span>
-            {mode === "candles" ? (
-              <>
-                <ReadoutValue label="O" value={readout.open} decimals={market.priceDecimals} />
-                <ReadoutValue label="H" value={readout.high} decimals={market.priceDecimals} />
-                <ReadoutValue label="L" value={readout.low} decimals={market.priceDecimals} />
-                <ReadoutValue label="C" value={readout.close} decimals={market.priceDecimals} />
-              </>
-            ) : (
-              <ReadoutValue label={unit} value={readout.close} decimals={market.priceDecimals} />
-            )}
-          </div>
-        ) : null}
-
-        <div className="pointer-events-none absolute bottom-6 left-0 z-10 hidden items-center gap-3 bg-panel/90 px-3 py-1 text-xs text-off sm:flex lg:px-4">
-          <span>{`${interval} package price, preview stream`}</span>
-          <span className="flex items-center gap-1.5">
-            <span aria-hidden="true" className="inline-block h-px w-3 bg-off" />
-            prior close
-          </span>
-        </div>
       </div>
     </div>
   );

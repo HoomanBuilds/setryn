@@ -14,5 +14,7 @@ export const CHART_THEME = {
   down: "#ef5f6b",
   upFill: "rgba(52, 191, 124, 0.16)",
   downFill: "rgba(239, 95, 107, 0.16)",
+  upVolume: "rgba(52, 191, 124, 0.38)",
+  downVolume: "rgba(239, 95, 107, 0.38)",
   transparent: "rgba(0, 0, 0, 0)",
 } as const;

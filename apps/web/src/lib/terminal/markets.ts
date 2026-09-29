@@ -76,23 +76,50 @@ interface LevelSpec {
   indicative?: boolean;
 }
 
-const ASK_LADDER: LevelSpec[] = [
-  { offsetTicks: -1, source: "SOLVER_FIRM", lots: 40, executable: true },
-  { offsetTicks: 0, source: "DIRECT", lots: 18, executable: true },
-  { offsetTicks: 1, source: "IMPLIED", lots: 26, executable: true },
-  { offsetTicks: 2, source: "DIRECT", lots: 31, executable: true },
-  { offsetTicks: 4, source: "IMPLIED", lots: 44, executable: true },
-  { offsetTicks: 7, source: "IMPLIED", lots: 60, executable: false, indicative: true },
-];
+/**
+ * The top of book (solver improvement, the best direct and implied levels) is fixed, so best prices and routes stay
+ * stable. Depth behind it alternates direct and implied liquidity with sizes that grow away from the touch, and the
+ * far tail is indicative only.
+ */
+function depthLadder(top: LevelSpec[], seedLots: number): LevelSpec[] {
+  const depth: LevelSpec[] = [...top];
+  const offsets = [3, 5, 6, 8, 9, 10, 11, 12, 13, 15, 17, 20];
+  offsets.forEach((offsetTicks, index) => {
+    const indicative = offsetTicks >= 17;
+    depth.push({
+      offsetTicks,
+      source: index % 3 === 1 ? "IMPLIED" : "DIRECT",
+      lots: Math.round(seedLots * (1 + offsetTicks * 0.16)),
+      executable: !indicative,
+      indicative: indicative || undefined,
+    });
+  });
+  return depth.sort((left, right) => left.offsetTicks - right.offsetTicks);
+}
 
-const BID_LADDER: LevelSpec[] = [
-  { offsetTicks: -1, source: "SOLVER_FIRM", lots: 35, executable: true },
-  { offsetTicks: 0, source: "DIRECT", lots: 22, executable: true },
-  { offsetTicks: 1, source: "IMPLIED", lots: 19, executable: true },
-  { offsetTicks: 2, source: "DIRECT", lots: 37, executable: true },
-  { offsetTicks: 4, source: "IMPLIED", lots: 41, executable: true },
-  { offsetTicks: 7, source: "IMPLIED", lots: 55, executable: false, indicative: true },
-];
+const ASK_LADDER: LevelSpec[] = depthLadder(
+  [
+    { offsetTicks: -1, source: "SOLVER_FIRM", lots: 40, executable: true },
+    { offsetTicks: 0, source: "DIRECT", lots: 18, executable: true },
+    { offsetTicks: 1, source: "IMPLIED", lots: 26, executable: true },
+    { offsetTicks: 2, source: "DIRECT", lots: 31, executable: true },
+    { offsetTicks: 4, source: "IMPLIED", lots: 44, executable: true },
+    { offsetTicks: 7, source: "IMPLIED", lots: 60, executable: true },
+  ],
+  22,
+);
+
+const BID_LADDER: LevelSpec[] = depthLadder(
+  [
+    { offsetTicks: -1, source: "SOLVER_FIRM", lots: 35, executable: true },
+    { offsetTicks: 0, source: "DIRECT", lots: 22, executable: true },
+    { offsetTicks: 1, source: "IMPLIED", lots: 19, executable: true },
+    { offsetTicks: 2, source: "DIRECT", lots: 37, executable: true },
+    { offsetTicks: 4, source: "IMPLIED", lots: 41, executable: true },
+    { offsetTicks: 7, source: "IMPLIED", lots: 55, executable: true },
+  ],
+  24,
+);
 
 function buildBook(spec: MarketSpec): BookRow[] {
   const rand = seeded(spec.seed);

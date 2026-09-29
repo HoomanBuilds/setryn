@@ -239,6 +239,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       (candidate) => candidate.result.receipt.marketId === market.id,
     );
     if (latest) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reconciles local workflow state with the gateway snapshot, an external store
       setExecution({ status: "COMPLETED", updates: latest.updates, result: latest.result });
       setStage({ kind: "COMPLETED", reference: latest.id, receiptId: latest.result.receipt.id });
     }
@@ -256,6 +257,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       (candidate) => candidate.id === amendmentOrderId,
     );
     if (target && (target.state === "WORKING" || target.state === "PARTIALLY_FILLED")) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reconciles local workflow state with the gateway snapshot, an external store
     setAmendmentOrderId(null);
     setStage({ kind: "IDLE" });
     setExecution({ status: "IDLE", updates: [] });
@@ -270,6 +272,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     );
     if (!order) return;
     if (order.state === "PARTIALLY_FILLED") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reconciles local workflow state with the gateway snapshot, an external store
       setExecution((current) => {
         if (current.restingOrder?.id === order.id && current.restingOrder?.state === order.state) {
           const currentFilled =
@@ -369,6 +372,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       : liveMarket.routes.some((candidate) => candidate.id === "SOLVER_RFQ")
         ? "SOLVER_RFQ"
         : null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reconciles local workflow state with the gateway snapshot, an external store
     setTicket({
       intent: intent.side,
       side: isPackageSide(intent.packageSide) ? intent.packageSide : "LONG",
@@ -764,6 +768,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     if (ticket.intent !== "EXIT") return;
     if (!selectedClosePosition) return;
     if (ticket.side === selectedClosePosition.side) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reconciles local workflow state with the gateway snapshot, an external store
     setTicket((current) => {
       if (current.intent !== "EXIT") return current;
       if (current.closePositionId !== selectedClosePosition.id) return current;
@@ -982,7 +987,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         />
       </nav>
 
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:grid lg:grid-cols-[minmax(0,1fr)_312px_368px] lg:grid-rows-[minmax(0,1fr)_minmax(196px,28%)]">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:grid lg:grid-cols-[minmax(0,1fr)_300px_344px] lg:grid-rows-[minmax(0,1fr)_minmax(220px,31%)]">
         <div
           id="mobile-panel-market"
           role="tabpanel"
@@ -1015,7 +1020,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
           id="mobile-panel-book"
           role="tabpanel"
           aria-labelledby="mobile-tab-book"
-          className={`${show("book")} min-h-0 min-w-0 flex-1 flex-col border-line lg:col-start-2 lg:row-start-1 lg:row-end-3 lg:flex lg:border-l`}
+          className={`${show("book")} min-h-0 min-w-0 flex-1 flex-col border-line lg:col-start-2 lg:row-start-1 lg:flex lg:border-l`}
         >
           <OrderBookPanel
             market={liveMarket}
@@ -1076,7 +1081,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
           id="mobile-panel-positions"
           role="tabpanel"
           aria-labelledby="mobile-tab-positions"
-          className={`${show("positions")} min-h-0 min-w-0 flex-1 flex-col lg:col-start-1 lg:col-end-2 lg:row-start-2 lg:flex`}
+          className={`${show("positions")} min-h-0 min-w-0 flex-1 flex-col lg:col-start-1 lg:col-end-3 lg:row-start-2 lg:flex lg:border-t lg:border-line`}
         >
           <ConsolePanel
             market={liveMarket}
@@ -1103,14 +1108,14 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
               onClick={() => openTicket("ENTER")}
               className="focus-ring h-12 rounded-md bg-up text-sm font-semibold text-app"
             >
-              Enter package
+              Open position
             </button>
             <button
               type="button"
               onClick={() => openTicket("EXIT")}
               className="focus-ring h-12 rounded-md bg-down text-sm font-semibold text-app"
             >
-              Exit package
+              Close position
             </button>
           </div>
         </div>

@@ -1,15 +1,12 @@
 "use client";
 
-import { Lock, Minus, Plus, TriangleAlert } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ChevronDown, Lock, Minus, Plus, TriangleAlert } from "lucide-react";
 import { ExecutionTimeline } from "@/components/gateway/ExecutionTimeline";
 import { ROUTE_HINT_ID, RouteTable } from "@/components/terminal/RouteTable";
 import { RfqQuotePanel } from "@/components/terminal/RfqQuotePanel";
 import { TicketEconomics } from "@/components/terminal/TicketEconomics";
-import {
-  CheckRow,
-  SectionLabel,
-  Segmented,
-} from "@/components/terminal/primitives";
+import { CheckRow, SectionLabel, SourceMark } from "@/components/terminal/primitives";
 import type {
   EconomicsPreview,
   Intent,
@@ -19,7 +16,13 @@ import type {
   TicketState,
   TimeInForce,
 } from "@/lib/terminal/economics";
-import { bestReferencePrice, defaultGtdExpiry, executableAction, GTD_MAX_MS } from "@/lib/terminal/economics";
+import {
+  bestReferencePrice,
+  defaultGtdExpiry,
+  executableAction,
+  GTD_MAX_MS,
+  routePrice,
+} from "@/lib/terminal/economics";
 import { formatLots, formatNumber, formatUsd, priceUnitSuffix } from "@/lib/terminal/format";
 import type { HandoffContext } from "@/lib/terminal/handoff";
 import type { PackageMarket, RouteQuote } from "@/lib/terminal/types";
@@ -230,16 +233,73 @@ export function OrderTicket({
     onChange({ limitInput: next.toFixed(market.priceDecimals) });
   };
 
+  const usableRoutes = market.routes.filter(
+    (candidate) => (isAmending ? !candidate.requiresPrivate : !candidate.requiresPrivate || state.privateRfq),
+  );
+  const bestRoute = usableRoutes.length
+    ? usableRoutes.reduce((winner, candidate) => {
+        const price = routePrice(candidate, action);
+        const winning = routePrice(winner, action);
+        return action === "BUY" ? (price < winning ? candidate : winner) : price > winning ? candidate : winner;
+      })
+    : null;
+  const bestRouteId = bestRoute?.id ?? null;
+  // Wall clock for the GTD picker bounds, refreshed when GTD is chosen rather than read during render.
+  const [gtdClockMs, setGtdClockMs] = useState(() => Date.now());
+  // Smart default: the best executable route is preselected and stays editable in the route selector.
+  useEffect(() => {
+    if (!state.routeId && bestRouteId && !locked && !isAmending) onChange({ routeId: bestRouteId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.routeId, bestRouteId, locked, isAmending]);
+  const requestedLots = Number.parseFloat(state.lotsInput) || 0;
+  const sizePercent = maxLots > 0 ? Math.min(100, Math.max(0, Math.round((requestedLots / maxLots) * 100))) : 0;
+  const midPrice = (market.bestBid + market.bestAsk) / 2;
+
   return (
-    <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-panel">
-      <div className="hidden h-9 shrink-0 items-center border-b border-line px-4 lg:flex">
-        <SectionLabel>Order ticket</SectionLabel>
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-panel" aria-label="Order ticket">
+      <div className="flex h-10 shrink-0 items-stretch border-b border-line px-1">
+        {ORDER_TYPES.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            title={option.title}
+            aria-pressed={state.orderType === option.value}
+            disabled={locked || isAmending}
+            onClick={() => onChange({ orderType: option.value })}
+            className={`focus-ring relative px-3 text-xs font-medium transition-colors disabled:cursor-not-allowed ${
+              state.orderType === option.value ? "text-ink" : "text-faint hover:text-dim"
+            }`}
+          >
+            {option.value === "MARKETABLE_LIMIT" ? "Market" : "Limit"}
+            {state.orderType === option.value ? (
+              <span aria-hidden="true" className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-brand" />
+            ) : null}
+          </button>
+        ))}
+        <span className="flex-1" />
+        <div role="radiogroup" aria-label="Package intent" className="my-2 mr-2 flex rounded-md bg-inset p-0.5">
+          {INTENTS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              role="radio"
+              aria-checked={state.intent === option.value}
+              disabled={locked || isAmending}
+              onClick={() => onChange({ intent: option.value })}
+              className={`focus-ring rounded-[5px] px-2.5 text-[11px] font-medium transition-colors disabled:cursor-not-allowed ${
+                state.intent === option.value ? "bg-raised text-ink" : "text-faint hover:text-dim"
+              }`}
+            >
+              {option.value === "ENTER" ? "Open" : "Close"}
+            </button>
+          ))}
+        </div>
       </div>
 
       <fieldset
         disabled={locked}
         aria-busy={locked}
-        className={`scroll-thin flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto border-0 px-3 py-3 lg:px-4 ${locked ? "opacity-65" : ""}`}
+        className={`scroll-thin flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto border-0 px-3 py-3 ${locked ? "opacity-65" : ""}`}
       >
         {handoff.present ? (
           <div className="rounded-md border border-line bg-raised px-3 py-2">
@@ -256,15 +316,9 @@ export function OrderTicket({
               ) : null}
             </div>
             <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] leading-snug text-dim">
-              {handoff.draftId ? (
-                <span className="tnum font-mono">{handoff.draftId}</span>
-              ) : null}
-              {handoff.lifecycleId ? (
-                <span className="tnum font-mono">{handoff.lifecycleId}</span>
-              ) : null}
-              {handoff.exposureId ? (
-                <span className="tnum font-mono">{handoff.exposureId}</span>
-              ) : null}
+              {handoff.draftId ? <span className="tnum font-mono">{handoff.draftId}</span> : null}
+              {handoff.lifecycleId ? <span className="tnum font-mono">{handoff.lifecycleId}</span> : null}
+              {handoff.exposureId ? <span className="tnum font-mono">{handoff.exposureId}</span> : null}
               {handoff.legId ? <span className="tnum font-mono">{handoff.legId}</span> : null}
               {handoff.maxCloseCost !== null ? (
                 <span className="tnum font-mono">requested bound {formatUsd(handoff.maxCloseCost, 0)}</span>
@@ -291,44 +345,46 @@ export function OrderTicket({
             </button>
           </div>
         ) : null}
-        <Segmented
-          options={INTENTS}
-          value={state.intent}
-          onChange={(intent) => onChange({ intent })}
-          label="Package intent"
-          tone="direction"
-          disabled={isAmending}
-        />
 
         {!isExit ? (
-          <Segmented
-            options={SIDES}
-            value={state.side}
-            onChange={(side) => onChange({ side })}
-            label="Package side"
-            size="sm"
-            tone="direction"
-            disabled={isAmending}
-          />
-        ) : null}
-
-        {isExit ? (
+          <div role="radiogroup" aria-label="Package side" className="grid grid-cols-2 gap-1 rounded-md bg-inset p-1">
+            {SIDES.map((option) => {
+              const selected = state.side === option.value;
+              const long = option.value === "LONG";
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  disabled={isAmending}
+                  onClick={() => onChange({ side: option.value })}
+                  className={`focus-ring h-9 rounded-[5px] text-sm font-semibold transition-colors disabled:cursor-not-allowed ${
+                    selected
+                      ? long
+                        ? "bg-up text-app"
+                        : "bg-down text-app"
+                      : "text-faint hover:text-dim"
+                  }`}
+                >
+                  {long ? "Long / Buy" : "Short / Sell"}
+                </button>
+              );
+            })}
+          </div>
+        ) : (
           <div>
             <div className="mb-1.5 flex items-baseline justify-between gap-2">
               <label htmlFor="ticket-close" className="text-xs text-dim">
-                Close strategy
+                Position to close
               </label>
-              <span className="tnum font-mono text-xs text-off">
-                {`${closePositions.length} active`}
-              </span>
+              <span className="tnum font-mono text-xs text-off">{`${closePositions.length} open`}</span>
             </div>
             <select
               id="ticket-close"
               value={state.closePositionId ?? ""}
               disabled={isAmending}
-              onChange={(event) =>
-                onChange({ closePositionId: event.target.value || null })
-              }
+              onChange={(event) => onChange({ closePositionId: event.target.value || null })}
               className="focus-ring tnum h-9 w-full rounded-md border border-line bg-inset px-2 font-mono text-xs text-ink disabled:cursor-not-allowed disabled:opacity-65"
             >
               <option value="">Select a package position</option>
@@ -338,39 +394,32 @@ export function OrderTicket({
                 </option>
               ))}
             </select>
-            {selectedClose ? (
-              <p className="mt-1 text-[11px] leading-snug text-dim">
-                {`${selectedClose.side === "LONG" ? "Long" : "Short"} position · ${closeActionLabel} · ${selectedClose.lots} lots · ${formatUsd(selectedClose.collateral, 0)} collateral.`}
-              </p>
-            ) : (
-              <p className="mt-1 text-[11px] leading-snug text-faint">
-                {closePositions.length === 0
-                  ? "No active package positions for this market. Enter a package first."
-                  : "Choose which active package this exit reduces. Quantity cannot exceed its lots."}
-              </p>
-            )}
+            <p className="mt-1 text-[11px] leading-snug text-faint">
+              {selectedClose
+                ? `${selectedClose.side === "LONG" ? "Long" : "Short"} · ${closeActionLabel} · ${selectedClose.lots} lots · ${formatUsd(selectedClose.collateral, 0)} collateral`
+                : closePositions.length === 0
+                  ? "No open package positions in this market."
+                  : "Quantity cannot exceed the selected position."}
+            </p>
           </div>
-        ) : null}
+        )}
 
-        <Segmented
-          options={ORDER_TYPES}
-          value={state.orderType}
-          onChange={(orderType) => onChange({ orderType })}
-          label="Order type"
-          size="sm"
-          disabled={isAmending}
-        />
+        <dl className="space-y-1 text-xs">
+          <div className="flex items-baseline justify-between gap-2">
+            <dt className="text-faint">{isExit ? "Max close size" : "Max size"}</dt>
+            <dd className="tnum font-mono text-dim">{`${formatLots(maxLots)} lots`}</dd>
+          </div>
+          <div className="flex items-baseline justify-between gap-2">
+            <dt className="text-faint">Contract</dt>
+            <dd className="tnum font-mono text-dim">{`1 lot = ${formatUsd(market.notionalPerLot, 0)}`}</dd>
+          </div>
+        </dl>
 
         <div>
-          <div className="mb-1.5 flex items-baseline justify-between gap-2">
-            <label htmlFor="ticket-lots" className="text-xs text-dim">
-              Quantity
-            </label>
-            <span className="tnum font-mono text-xs text-off">
-              {`1 lot = ${formatUsd(market.notionalPerLot, 0)}`}
-            </span>
-          </div>
           <div className={INPUT_SHELL}>
+            <label htmlFor="ticket-lots" className="shrink-0 text-xs text-faint">
+              Size
+            </label>
             <input
               id="ticket-lots"
               inputMode="decimal"
@@ -381,33 +430,36 @@ export function OrderTicket({
             />
             <span className="shrink-0 text-xs text-faint">lots</span>
           </div>
-          <div className="mt-1.5 grid grid-cols-4 gap-1.5">
-            {[10, 25, 50].map((value) => (
+          <div className="mt-2.5 flex items-center gap-3">
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={sizePercent}
+              aria-label="Size as a share of the maximum"
+              onChange={(event) =>
+                onChange({
+                  lotsInput: String(Math.max(0, Math.floor((maxLots * Number(event.target.value)) / 100))),
+                })
+              }
+              className="size-slider min-w-0 flex-1"
+              style={{ ["--fill" as string]: `${sizePercent}%` }}
+            />
+            <span className="tnum w-10 shrink-0 text-right font-mono text-xs text-dim">{`${sizePercent}%`}</span>
+          </div>
+          <div className="mt-1.5 grid grid-cols-4 gap-1">
+            {[25, 50, 75, 100].map((percent) => (
               <button
-                key={value}
+                key={percent}
                 type="button"
-                onClick={() => onChange({ lotsInput: String(value) })}
-                className="focus-ring tnum h-9 rounded-md border border-line bg-raised font-mono text-xs text-dim transition-colors hover:border-line-strong hover:text-ink lg:h-7"
+                title={`${percent}% of ${formatLots(maxLots)} lots`}
+                onClick={() => onChange({ lotsInput: String(Math.max(0, Math.floor((maxLots * percent) / 100))) })}
+                className="focus-ring tnum h-7 rounded-sm bg-inset font-mono text-[11px] text-faint transition-colors hover:text-ink"
               >
-                {value}
+                {percent === 100 ? "Max" : `${percent}%`}
               </button>
             ))}
-            <button
-              type="button"
-              onClick={() => onChange({ lotsInput: String(maxLots) })}
-              title={
-                state.intent === "EXIT"
-                  ? state.tif === "IOC"
-                    ? `Largest close quantity on the selected position: ${maxLots} lots`
-                    : `Largest close quantity on the selected position and route: ${maxLots} lots`
-                  : state.tif === "IOC"
-                    ? `Largest quantity this workspace can collateralise: ${maxLots} lots`
-                    : `Largest quantity this workspace can collateralise on the selected route: ${maxLots} lots`
-              }
-              className="focus-ring h-9 rounded-md border border-line bg-raised text-xs text-dim transition-colors hover:border-line-strong hover:text-ink lg:h-7"
-            >
-              Max
-            </button>
           </div>
         </div>
 
@@ -415,22 +467,32 @@ export function OrderTicket({
           <div className="mb-1.5 flex items-baseline justify-between gap-2">
             <label
               htmlFor="ticket-limit"
-              title={`One tick is ${formatNumber(market.tickSize, market.priceDecimals)} ${unit}. Selecting an executable book row sets this limit.`}
+              title={`${state.orderType === "LIMIT" ? "Resting limit" : "Worst accepted package price"}. One tick is ${formatNumber(market.tickSize, market.priceDecimals)} ${unit}. Selecting an executable book row sets this price.`}
               className="text-xs text-dim"
             >
-              Package-price limit
+              {state.orderType === "LIMIT" ? `Limit price (${unit})` : `Worst price (${unit})`}
             </label>
-            <button
-              type="button"
-              onClick={() => onChange({ limitInput: bestPrice.toFixed(market.priceDecimals) })}
-              className="focus-ring tnum rounded-sm font-mono text-xs text-dim transition-colors hover:text-ink"
-            >
-              {`${bestLabel} ${formatNumber(bestPrice, market.priceDecimals)}`}
-            </button>
+            <span className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => onChange({ limitInput: midPrice.toFixed(market.priceDecimals) })}
+                className="focus-ring rounded-sm bg-inset px-1.5 text-[11px] text-faint transition-colors hover:text-ink"
+              >
+                Mid
+              </button>
+              <button
+                type="button"
+                title={`${bestLabel} ${formatNumber(bestPrice, market.priceDecimals)}`}
+                onClick={() => onChange({ limitInput: bestPrice.toFixed(market.priceDecimals) })}
+                className="focus-ring rounded-sm bg-inset px-1.5 text-[11px] text-faint transition-colors hover:text-ink"
+              >
+                {action === "BUY" ? "Ask" : "Bid"}
+              </button>
+            </span>
           </div>
-          <div className="flex gap-1.5">
-            <Stepper label="Decrease limit by one tick" onClick={() => stepLimit(-1)}>
-              <Minus size={14} aria-hidden="true" />
+          <div className="flex gap-1">
+            <Stepper label="Decrease price by one tick" onClick={() => stepLimit(-1)}>
+              <Minus size={13} aria-hidden="true" />
             </Stepper>
             <div className={`${INPUT_SHELL} min-w-0 flex-1`}>
               <input
@@ -443,89 +505,98 @@ export function OrderTicket({
               />
               <span className="shrink-0 text-xs text-faint">{unit}</span>
             </div>
-            <Stepper label="Increase limit by one tick" onClick={() => stepLimit(1)}>
-              <Plus size={14} aria-hidden="true" />
+            <Stepper label="Increase price by one tick" onClick={() => stepLimit(1)}>
+              <Plus size={13} aria-hidden="true" />
             </Stepper>
           </div>
         </div>
 
-        <div>
-          <div className="mb-1.5 text-xs text-dim">Time in force</div>
-          <Segmented
-            options={TIFS}
-            value={state.tif}
-            onChange={(tif) =>
-              onChange(
-                tif === "GTD"
-                  ? {
-                      tif,
-                      expiresAt:
-                        state.expiresAt &&
-                        Number.isFinite(Date.parse(state.expiresAt)) &&
-                        Date.parse(state.expiresAt) > Date.now()
-                          ? state.expiresAt
-                          : defaultGtdExpiry(),
-                    }
-                  : { tif, expiresAt: null },
-              )
-            }
-            label="Time in force"
-            size="sm"
-            disabled={isAmending}
-          />
-          {state.tif === "GTD" ? (
-            <div className="mt-1.5 space-y-1.5">
-              <div className="grid grid-cols-4 gap-1.5">
-                {GTD_PRESETS.map((preset) => (
-                  <button
-                    key={preset.label}
-                    type="button"
-                    onClick={() =>
-                      onChange({
-                        expiresAt: new Date(
-                          Date.now() + preset.minutes * 60 * 1000,
-                        ).toISOString(),
-                      })
-                    }
-                    className="focus-ring tnum h-9 rounded-md border border-line bg-raised font-mono text-xs text-dim transition-colors hover:border-line-strong hover:text-ink lg:h-7"
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
-              <div className={INPUT_SHELL}>
-                <label htmlFor="ticket-expiry" className="sr-only">
-                  GTD expiry
-                </label>
-                <input
-                  id="ticket-expiry"
-                  type="datetime-local"
-                  aria-label="GTD expiry"
-                  min={toLocalInputValue(new Date().toISOString())}
-                  max={toLocalInputValue(new Date(Date.now() + GTD_MAX_MS).toISOString())}
-                  value={toLocalInputValue(state.expiresAt)}
-                  onChange={(event) =>
-                    onChange({ expiresAt: fromLocalInputValue(event.target.value) })
-                  }
-                  className="tnum min-w-0 flex-1 bg-transparent font-mono text-xs text-ink outline-none"
-                />
-              </div>
-            </div>
-          ) : null}
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs text-dim" title="How long the order may rest or wait for a fill.">
+            Time in force
+          </span>
+          <div role="radiogroup" aria-label="Time in force" className="flex rounded-md bg-inset p-0.5">
+            {TIFS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                title={option.title}
+                aria-checked={state.tif === option.value}
+                disabled={isAmending}
+                onClick={() => {
+                  if (option.value === "GTD") setGtdClockMs(Date.now());
+                  onChange(
+                    option.value === "GTD"
+                      ? {
+                          tif: option.value,
+                          expiresAt:
+                            state.expiresAt &&
+                            Number.isFinite(Date.parse(state.expiresAt)) &&
+                            Date.parse(state.expiresAt) > Date.now()
+                              ? state.expiresAt
+                              : defaultGtdExpiry(),
+                        }
+                      : { tif: option.value, expiresAt: null },
+                  );
+                }}
+                className={`focus-ring h-6 rounded-[5px] px-2 font-mono text-[11px] transition-colors disabled:cursor-not-allowed ${
+                  state.tif === option.value ? "bg-raised text-ink" : "text-faint hover:text-dim"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
         </div>
+        {state.tif === "GTD" ? (
+          <div className="space-y-1.5">
+            <div className="grid grid-cols-4 gap-1">
+              {GTD_PRESETS.map((preset) => (
+                <button
+                  key={preset.label}
+                  type="button"
+                  onClick={() =>
+                    onChange({ expiresAt: new Date(Date.now() + preset.minutes * 60 * 1000).toISOString() })
+                  }
+                  className="focus-ring tnum h-7 rounded-sm bg-inset font-mono text-[11px] text-faint transition-colors hover:text-ink"
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+            <div className={INPUT_SHELL}>
+              <label htmlFor="ticket-expiry" className="sr-only">
+                GTD expiry
+              </label>
+              <input
+                id="ticket-expiry"
+                type="datetime-local"
+                aria-label="GTD expiry"
+                min={toLocalInputValue(new Date(gtdClockMs).toISOString())}
+                max={toLocalInputValue(new Date(gtdClockMs + GTD_MAX_MS).toISOString())}
+                value={toLocalInputValue(state.expiresAt)}
+                onChange={(event) => onChange({ expiresAt: fromLocalInputValue(event.target.value) })}
+                className="tnum min-w-0 flex-1 bg-transparent font-mono text-xs text-ink outline-none"
+              />
+            </div>
+          </div>
+        ) : null}
 
         <CheckRow
           checked={state.privateRfq}
           onChange={(privateRfq) => onChange({ privateRfq })}
-          label="Private RFQ"
+          label="Private RFQ to solvers"
           title={RFQ_TITLE}
           disabled={isAmending}
           icon={<Lock size={13} aria-hidden="true" className="shrink-0 text-faint" />}
         />
 
-        <RouteTable
+        <RouteSelector
           market={market}
-          action={preview.action}
+          action={action}
+          route={route}
+          bestRoute={bestRoute}
           privateRfq={state.privateRfq}
           selectedId={state.routeId}
           onSelect={(routeId) => onChange({ routeId })}
@@ -535,7 +606,7 @@ export function OrderTicket({
         <TicketEconomics market={market} preview={preview} route={route} intent={state.intent} />
       </fieldset>
 
-      <div className="shrink-0 space-y-2.5 border-t border-line bg-panel px-3 pt-3 pb-3 lg:px-4">
+      <div className="shrink-0 space-y-2.5 border-t border-line bg-panel px-3 pt-3 pb-3">
         {invalid ? (
           <ul
             id={BLOCKER_LIST_ID}
@@ -573,6 +644,74 @@ export function OrderTicket({
         />
       </div>
     </section>
+  );
+}
+
+function RouteSelector({
+  market,
+  action,
+  route,
+  bestRoute,
+  privateRfq,
+  selectedId,
+  onSelect,
+  amendmentMode,
+}: {
+  market: PackageMarket;
+  action: "BUY" | "SELL";
+  route: RouteQuote | null;
+  bestRoute: RouteQuote | null;
+  privateRfq: boolean;
+  selectedId: string | null;
+  onSelect: (routeId: string) => void;
+  amendmentMode: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const shown = route ?? bestRoute;
+  const expanded = open || !shown;
+  return (
+    <div className="rounded-md border border-line">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setOpen((value) => !value)}
+        className="focus-ring flex w-full items-center gap-2 px-2.5 py-2 text-left"
+      >
+        <span className="text-xs text-faint">Route</span>
+        {shown ? (
+          <span className="flex min-w-0 flex-1 items-center justify-end gap-1.5 text-xs text-ink">
+            <SourceMark source={shown.source} />
+            <span className="truncate">{shown.label}</span>
+            {!route ? <span className="shrink-0 rounded-sm bg-inset px-1 text-[10px] text-faint">best</span> : null}
+            <span className="tnum shrink-0 font-mono text-dim">
+              {formatNumber(routePrice(shown, action), market.priceDecimals)}
+            </span>
+          </span>
+        ) : (
+          <span className="flex-1 text-right text-xs text-faint">No route available</span>
+        )}
+        <ChevronDown
+          size={13}
+          aria-hidden="true"
+          className={`shrink-0 text-faint transition-transform ${expanded ? "rotate-180" : ""}`}
+        />
+      </button>
+      {expanded ? (
+        <div className="border-t border-line pt-2">
+          <RouteTable
+            market={market}
+            action={action}
+            privateRfq={privateRfq}
+            selectedId={selectedId}
+            onSelect={(routeId) => {
+              onSelect(routeId);
+              setOpen(false);
+            }}
+            amendmentMode={amendmentMode}
+          />
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -629,6 +768,14 @@ function StageArea({
   const unit = priceUnitSuffix(market.priceUnit);
   const verb = state.intent === "ENTER" ? "Enter" : "Exit";
   const idleSide = preview.packageSide === "LONG" ? "Long" : "Short";
+  const idleTone =
+    state.intent === "ENTER"
+      ? preview.packageSide === "LONG"
+        ? "bg-up text-app hover:brightness-110"
+        : "bg-down text-app hover:brightness-110"
+      : preview.action === "BUY"
+        ? "bg-up text-app hover:brightness-110"
+        : "bg-down text-app hover:brightness-110";
 
   if (stage.kind === "RFQ" || stage.kind === "RFQ_SELECTED") {
     return (
@@ -650,13 +797,15 @@ function StageArea({
         disabled={blocked}
         aria-describedby={invalid ? BLOCKER_LIST_ID : routeMissing ? ROUTE_HINT_ID : undefined}
         onClick={onStage}
-        className={`focus-ring h-12 w-full rounded-md text-sm font-semibold transition-colors lg:h-10 ${
-          blocked
-            ? "cursor-not-allowed bg-raised text-dim"
-            : "bg-brand text-app hover:brightness-105"
+        className={`focus-ring h-12 w-full rounded-md text-sm font-semibold transition-[filter,colors] lg:h-10 ${
+          blocked ? "cursor-not-allowed bg-raised text-dim" : idleTone
         }`}
       >
-        {routeMissing ? "Select a route to continue" : `${verb} ${idleSide} ${market.name} ${market.tenorLabel}`}
+        {routeMissing
+          ? "Select a route to continue"
+          : state.intent === "ENTER"
+            ? `${verb} ${idleSide} · ${formatLots(preview.requestedLots)} lots`
+            : `Close ${formatLots(preview.requestedLots)} lots`}
       </button>
     );
   }

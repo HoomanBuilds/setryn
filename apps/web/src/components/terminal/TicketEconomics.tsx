@@ -32,25 +32,29 @@ export function TicketEconomics({
   const partial = preview.cancelledLots > 1e-9;
 
   return (
-    <div className="border-t border-line pt-1">
-      <div className="divide-y divide-line">
+    <div className="border-t border-line pt-2">
+      <div>
         {partial ? (
           <>
             <DataRow
+          dense
               label="Requested"
               value={`${formatLots(preview.requestedLots)} lots`}
             />
             <DataRow
+          dense
               label="Expected fill"
               value={`${formatLots(preview.fillLots)} lots`}
             />
             <DataRow
+          dense
               label="IOC remainder"
               value={`${formatLots(preview.cancelledLots)} lots cancelled`}
             />
           </>
         ) : null}
         <DataRow
+          dense
           label={isExit ? "New collateral" : "Collateral required"}
           value={isExit ? "No new collateral" : sized ? formatUsd(preview.totalCollateral, 2) : dash}
           title={
@@ -60,6 +64,7 @@ export function TicketEconomics({
           }
         />
         <DataRow
+          dense
           label="All-in fee"
           value={
             sized && route
@@ -68,6 +73,7 @@ export function TicketEconomics({
           }
         />
         <DataRow
+          dense
           label="Max exposure while filling"
           value={
             !route
@@ -80,6 +86,7 @@ export function TicketEconomics({
           title="Unhedged package value between the first and the last leg confirmation."
         />
         <DataRow
+          dense
           label="Settlement guarantee"
           value={preview.settlementGuarantee}
           tone="muted"
@@ -88,12 +95,14 @@ export function TicketEconomics({
       </div>
 
       <Disclosure summary="Advanced details">
-        <div className="divide-y divide-line">
+        <div>
           <DataRow
+          dense
             label="Package notional"
             value={sized ? formatUsd(preview.notional, 0) : dash}
           />
           <DataRow
+          dense
             label="Effective package price"
             value={
               sized
@@ -102,14 +111,17 @@ export function TicketEconomics({
             }
           />
           <DataRow
+          dense
             label="Protocol fee"
             value={sized ? formatUsd(preview.protocolFee, 2) : dash}
           />
           <DataRow
+          dense
             label={preview.counterpartyFeeLabel}
             value={sized ? formatUsd(preview.counterpartyFee, 2) : dash}
           />
           <DataRow
+          dense
             label="Terminal residual at fixing"
             value={sized ? formatSignedUsd(preview.terminalResidual, 2) : dash}
             tone={preview.terminalResidual >= 0 ? "up" : "down"}
@@ -122,7 +134,7 @@ export function TicketEconomics({
           <div className="mt-3">
             <p className="text-xs text-dim">Recovery boundary</p>
             <div className="mt-1 divide-y divide-line border-t border-line">
-              <DataRow label="Reconcile window" value={recovery.reconcileWindow} tone="muted" />
+              <DataRow dense label="Reconcile window" value={recovery.reconcileWindow} tone="muted" />
             </div>
             <p className="mt-2 text-xs leading-relaxed text-faint">{recovery.unknownPath}</p>
             <p className="mt-1.5 text-xs leading-relaxed text-faint">{recovery.fallback}</p>

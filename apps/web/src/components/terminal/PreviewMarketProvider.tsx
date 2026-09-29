@@ -16,18 +16,28 @@ import {
   initialPreviewStream,
   type PreviewStreamState,
 } from "@/lib/terminal/preview-market";
+import {
+  PREVIEW_TRADE_LIMIT,
+  nextPreviewTrade,
+  seedPreviewTrades,
+  type PreviewTrade,
+} from "@/lib/terminal/preview-trades";
 import type { PackageMarket } from "@/lib/terminal/types";
 
 interface PreviewMarketState {
   tick: number;
   streams: Record<string, PreviewStreamState>;
+  trades: Record<string, PreviewTrade[]>;
 }
 
 interface PreviewMarketContextValue {
   markets: PackageMarket[];
   tick: number;
   previewEpochSeconds: number;
+  trades: Record<string, PreviewTrade[]>;
 }
+
+const SCENARIO_EPOCH_SECONDS = Math.floor(Date.parse(SCENARIO_CLOCK_ISO) / 1_000);
 
 const PreviewMarketContext = createContext<PreviewMarketContextValue | null>(null);
 
@@ -36,6 +46,9 @@ function initialState(): PreviewMarketState {
     tick: 0,
     streams: Object.fromEntries(
       MARKETS.map((market) => [market.id, initialPreviewStream(market.id)]),
+    ),
+    trades: Object.fromEntries(
+      MARKETS.map((market) => [market.id, seedPreviewTrades(market, SCENARIO_EPOCH_SECONDS)]),
     ),
   };
 }
@@ -46,12 +59,23 @@ export function PreviewMarketProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const timer = window.setInterval(() => {
       setState((current) => {
+        const tick = current.tick + 1;
         const streams: Record<string, PreviewStreamState> = {};
+        const trades: Record<string, PreviewTrade[]> = {};
         for (const market of MARKETS) {
           const previous = current.streams[market.id] ?? initialPreviewStream(market.id);
-          streams[market.id] = advancePreviewStream(market.id, previous);
+          const next = advancePreviewStream(market.id, previous);
+          streams[market.id] = next;
+          // The print sits at the new mark, so the tape, the candle, and the book mid move together.
+          const print = nextPreviewTrade(
+            derivePreviewMarket(market, next),
+            tick,
+            derivePreviewMarket(market, previous).netPrice,
+            SCENARIO_EPOCH_SECONDS + tick,
+          );
+          trades[market.id] = [print, ...(current.trades[market.id] ?? [])].slice(0, PREVIEW_TRADE_LIMIT);
         }
-        return { tick: current.tick + 1, streams };
+        return { tick, streams, trades };
       });
     }, 1_000);
     return () => window.clearInterval(timer);
@@ -66,10 +90,9 @@ export function PreviewMarketProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<PreviewMarketContextValue>(() => {
-    const previewEpochSeconds =
-      Math.floor(Date.parse(SCENARIO_CLOCK_ISO) / 1_000) + state.tick;
-    return { markets, tick: state.tick, previewEpochSeconds };
-  }, [markets, state.tick]);
+    const previewEpochSeconds = SCENARIO_EPOCH_SECONDS + state.tick;
+    return { markets, tick: state.tick, previewEpochSeconds, trades: state.trades };
+  }, [markets, state.tick, state.trades]);
 
   return <PreviewMarketContext.Provider value={value}>{children}</PreviewMarketContext.Provider>;
 }
@@ -89,6 +112,11 @@ export function usePreviewBoard(): PreviewMarketContextValue {
 export function usePreviewTick(): { tick: number; previewEpochSeconds: number } {
   const { tick, previewEpochSeconds } = usePreviewContext();
   return { tick, previewEpochSeconds };
+}
+
+/** Recent prints for one market, newest first, from the same stream as its marks. */
+export function usePreviewTrades(marketId: string): PreviewTrade[] {
+  return usePreviewContext().trades[marketId] ?? [];
 }
 
 /** One live market from the shared board, with its static base for history. */

@@ -163,3 +163,67 @@
     transition-duration: 0.001ms !important;
   }
 }
+
+/* Size slider: a thin track filled to the chosen share, with a round thumb. */
+.size-slider {
+  appearance: none;
+  height: 16px;
+  background: transparent;
+  cursor: pointer;
+}
+.size-slider::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--color-brand) var(--fill, 0%), var(--color-line-strong) var(--fill, 0%));
+}
+.size-slider::-moz-range-track {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--color-line-strong);
+}
+.size-slider::-moz-range-progress {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--color-brand);
+}
+.size-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  margin-top: -5px;
+  border-radius: 999px;
+  background: var(--color-ink);
+  border: 2px solid var(--color-brand);
+}
+.size-slider::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  background: var(--color-ink);
+  border: 2px solid var(--color-brand);
+}
+
+/* Status-bar ticker: the tape scrolls continuously and pauses under the pointer. */
+.ticker-track {
+  animation: ticker 60s linear infinite;
+}
+.ticker-mask:hover .ticker-track {
+  animation-play-state: paused;
+}
+.ticker-mask {
+  mask-image: linear-gradient(to right, transparent, black 24px, black calc(100% - 24px), transparent);
+}
+@keyframes ticker {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ticker-track {
+    animation: none;
+  }
+}
+

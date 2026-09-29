@@ -39,8 +39,8 @@ export default function PlatformLayout({ children }: Readonly<{ children: ReactN
           <PreviewMarketProvider>
             <div className="flex h-dvh w-full flex-col overflow-hidden bg-app">
               <GlobalHeader />
-              <StatusStrip />
               {children}
+              <StatusStrip />
             </div>
           </PreviewMarketProvider>
         </InternalGatewayProvider>

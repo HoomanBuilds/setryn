@@ -130,11 +130,14 @@ export function DataRow({
   value,
   tone = "default",
   title,
+  dense = false,
 }: {
   label: ReactNode;
   value: ReactNode;
   tone?: "default" | "up" | "down" | "muted";
   title?: string;
+  /** Ticket density: smaller values and tighter rows. */
+  dense?: boolean;
 }) {
   const valueTone =
     tone === "up"
@@ -145,9 +148,9 @@ export function DataRow({
           ? "text-dim"
           : "text-ink";
   return (
-    <div className="flex items-baseline justify-between gap-4 py-[5px]" title={title}>
-      <span className="min-w-0 text-xs text-dim">{label}</span>
-      <span className={`tnum shrink-0 font-mono text-sm ${valueTone}`}>{value}</span>
+    <div className={`flex items-baseline justify-between gap-4 ${dense ? "py-[3px]" : "py-[5px]"}`} title={title}>
+      <span className={`min-w-0 text-xs ${dense ? "text-faint" : "text-dim"}`}>{label}</span>
+      <span className={`tnum shrink-0 font-mono ${dense ? "text-xs" : "text-sm"} ${valueTone}`}>{value}</span>
     </div>
   );
 }
