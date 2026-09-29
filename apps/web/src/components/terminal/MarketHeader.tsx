@@ -96,9 +96,12 @@ function statsFor(market: PackageMarket) {
 export function MarketHeader({
   market,
   onSelectMarket,
+  onchain = false,
 }: {
   market: PackageMarket;
   onSelectMarket: (market: PackageMarket) => void;
+  /** Whether orders on this market settle on the connected chain; preview markets are quoted but not executable. */
+  onchain?: boolean;
 }) {
   const change = changePercent(market.netPrice, market.priorNetPrice);
   const unit = priceUnitSuffix(market.priceUnit);
@@ -116,6 +119,19 @@ export function MarketHeader({
           </FlashValue>
           <span className="text-xs text-faint">{unit}</span>
           <Delta value={change} className="text-xs" />
+        </span>
+        <span
+          className={`hidden shrink-0 items-center gap-1.5 rounded-sm border px-1.5 py-0.5 text-[11px] lg:flex ${
+            onchain ? "border-up/30 text-up" : "border-line-strong text-faint"
+          }`}
+          title={
+            onchain
+              ? "Orders on this market are signed and settled on the connected chain."
+              : "Preview market: quotes and depth come from the preview feed and this market is not activated onchain in the current environment."
+          }
+        >
+          <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${onchain ? "bg-up" : "bg-faint"}`} />
+          {onchain ? "Onchain" : "Preview"}
         </span>
       </div>
 

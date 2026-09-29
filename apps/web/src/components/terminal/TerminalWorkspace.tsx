@@ -481,9 +481,21 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     [gatewaySnapshot.restingOrders, liveMarket.id],
   );
 
+  /* The onchain-activated market shows the public book read from the chain. Preview markets keep their preview
+     direct depth so the ladder reads like a market, marked indicative because nothing there rests onchain. */
+  const onchainMarket = gatewaySnapshot.publicBookMarketId === liveMarket.id;
   const directBookOrders = useMemo<BookRow[]>(
-    () => gatewaySnapshot.publicBookMarketId === liveMarket.id ? gatewaySnapshot.publicBookOrders : [],
-    [gatewaySnapshot.publicBookMarketId, gatewaySnapshot.publicBookOrders, liveMarket.id],
+    () =>
+      onchainMarket
+        ? gatewaySnapshot.publicBookOrders
+        : liveMarket.book
+            .filter((row) => row.source === "DIRECT")
+            .map((row) => ({
+              ...row,
+              firmness: "INDICATIVE" as const,
+              origin: "Preview book; this market is not activated onchain",
+            })),
+    [gatewaySnapshot.publicBookOrders, liveMarket.book, onchainMarket],
   );
 
   const selectedClosePosition = useMemo(
@@ -996,7 +1008,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-app">
-      <MarketHeader market={liveMarket} onSelectMarket={selectMarket} />
+      <MarketHeader market={liveMarket} onSelectMarket={selectMarket} onchain={onchainMarket} />
 
       <nav
         aria-label="Workspace sections"
