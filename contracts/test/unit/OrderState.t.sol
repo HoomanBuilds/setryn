@@ -44,8 +44,9 @@ contract OrderStateTest is Test {
         gate.setExecutionMode(EXECUTION_MODE, true);
         gate.setOrderAction(ENTER_ACTION, true);
         state = new OrderState(3 days, admin, gate, MAXIMUM_LIFETIME);
+        bytes32 consumerRole = state.ORDER_CONSUMER_ROLE();
         vm.prank(admin);
-        state.grantRole(state.ORDER_CONSUMER_ROLE(), consumer);
+        state.grantRole(consumerRole, consumer);
     }
 
     function test_RegistersEoaOrderAndConsumesNonceOnce() public {
@@ -67,15 +68,17 @@ contract OrderStateTest is Test {
         PublicOrder memory cancelled = _order(signer, 2);
         vm.prank(signer);
         state.cancelNonce(cancelled.nonce);
+        bytes memory cancelledSignature = _sign(signerKey, state.hashOrder(cancelled));
         vm.expectRevert(
             abi.encodeWithSelector(IOrderNonceManager.OrderNonceAlreadyUsed.selector, signer, cancelled.nonce)
         );
-        state.registerSignedOrder(cancelled, _sign(signerKey, state.hashOrder(cancelled)));
+        state.registerSignedOrder(cancelled, cancelledSignature);
 
         PublicOrder memory rejected = _order(signer, 3);
         gate.setRegistrationAllowed(false);
+        bytes memory rejectedSignature = _sign(signerKey, state.hashOrder(rejected));
         vm.expectRevert(OrderValidationGateMock.RegistrationRejected.selector);
-        state.registerSignedOrder(rejected, _sign(signerKey, state.hashOrder(rejected)));
+        state.registerSignedOrder(rejected, rejectedSignature);
         assertFalse(state.isNonceUsed(signer, rejected.nonce));
     }
 
@@ -83,19 +86,20 @@ contract OrderStateTest is Test {
         PublicOrder memory order = _order(signer, 4);
         OrderState other = new OrderState(3 days, admin, gate, MAXIMUM_LIFETIME);
         bytes memory wrongVerifierSignature = _sign(signerKey, other.hashOrder(order));
-        vm.expectRevert(IOrderState.InvalidOrderSignature.selector);
+        bytes32 currentDigest = state.hashOrder(order);
+        vm.expectRevert(abi.encodeWithSelector(IOrderState.InvalidOrderSignature.selector, signer, currentDigest));
         state.registerSignedOrder(order, wrongVerifierSignature);
 
-        bytes32 currentDigest = state.hashOrder(order);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, currentDigest);
         bytes32 highS = bytes32(SECP256K1_N - uint256(s));
         bytes memory malleable = abi.encodePacked(r, highS, v == 27 ? uint8(28) : uint8(27));
-        vm.expectRevert(IOrderState.InvalidOrderSignature.selector);
+        vm.expectRevert(abi.encodeWithSelector(IOrderState.InvalidOrderSignature.selector, signer, currentDigest));
         state.registerSignedOrder(order, malleable);
 
         bytes memory chainSignature = _sign(signerKey, currentDigest);
         vm.chainId(block.chainid + 1);
-        vm.expectRevert(IOrderState.InvalidOrderSignature.selector);
+        bytes32 otherChainDigest = state.hashOrder(order);
+        vm.expectRevert(abi.encodeWithSelector(IOrderState.InvalidOrderSignature.selector, signer, otherChainDigest));
         state.registerSignedOrder(order, chainSignature);
     }
 
@@ -135,14 +139,16 @@ contract OrderStateTest is Test {
         (, bytes32 cancelledHash) = _register(7);
         vm.prank(signer);
         state.cancelOrder(cancelledHash);
-        vm.expectRevert(IOrderState.OrderNotExecutable.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(IOrderState.OrderNotExecutable.selector, cancelledHash, OrderStatus.Cancelled)
+        );
         vm.prank(consumer);
         state.consumeOrderFill(cancelledHash, Lots.wrap(100), EXECUTION_REFERENCE);
 
         (, bytes32 filledHash) = _register(8);
         vm.prank(consumer);
         state.consumeOrderFill(filledHash, Lots.wrap(100), EXECUTION_REFERENCE);
-        vm.expectRevert(IOrderState.OrderNotExecutable.selector);
+        vm.expectRevert(abi.encodeWithSelector(IOrderState.OrderNotExecutable.selector, filledHash, OrderStatus.Filled));
         vm.prank(signer);
         state.cancelOrder(filledHash);
     }
@@ -181,7 +187,11 @@ contract OrderStateTest is Test {
     function test_ExpiryIsPermissionlessAfterInclusiveDeadline() public {
         (PublicOrder memory order, bytes32 orderHash) = _register(11);
         vm.warp(order.deadline);
-        vm.expectRevert(IOrderState.OrderStillLive.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IOrderState.OrderStillLive.selector, orderHash, order.deadline, vm.getBlockTimestamp()
+            )
+        );
         vm.prank(stranger);
         state.expireOrder(orderHash);
 
@@ -201,8 +211,9 @@ contract OrderStateTest is Test {
         state.consumeOrderFill(orderHash, Lots.wrap(100), EXECUTION_REFERENCE);
 
         address otherConsumer = makeAddr("other consumer");
+        bytes32 consumerRole = state.ORDER_CONSUMER_ROLE();
         vm.prank(admin);
-        state.grantRole(state.ORDER_CONSUMER_ROLE(), otherConsumer);
+        state.grantRole(consumerRole, otherConsumer);
         vm.expectRevert(
             abi.encodeWithSelector(IOrderState.UnauthorizedExecutor.selector, orderHash, consumer, otherConsumer)
         );
@@ -213,15 +224,23 @@ contract OrderStateTest is Test {
     function test_UnknownExecutionModeFailsClosed() public {
         PublicOrder memory order = _order(signer, 13);
         order.executionModeId = keccak256("unknown execution mode");
-        vm.expectRevert(OrderValidationGateMock.UnsupportedExecutionMode.selector);
-        state.registerSignedOrder(order, _sign(signerKey, state.hashOrder(order)));
+        bytes memory signature = _sign(signerKey, state.hashOrder(order));
+        vm.expectRevert(
+            abi.encodeWithSelector(OrderValidationGateMock.UnsupportedExecutionMode.selector, order.executionModeId)
+        );
+        state.registerSignedOrder(order, signature);
     }
 
     function test_UnknownActionFailsClosed() public {
         PublicOrder memory order = _order(signer, 14);
         order.actionId = OrderActionId.wrap(keccak256("unknown action"));
-        vm.expectRevert(OrderValidationGateMock.UnsupportedOrderAction.selector);
-        state.registerSignedOrder(order, _sign(signerKey, state.hashOrder(order)));
+        bytes memory signature = _sign(signerKey, state.hashOrder(order));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                OrderValidationGateMock.UnsupportedOrderAction.selector, OrderActionId.unwrap(order.actionId)
+            )
+        );
+        state.registerSignedOrder(order, signature);
     }
 
     function _register(uint256 nonce) internal returns (PublicOrder memory order, bytes32 orderHash) {

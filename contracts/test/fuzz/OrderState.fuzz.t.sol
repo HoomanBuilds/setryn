@@ -37,8 +37,9 @@ contract OrderStateFuzzTest is Test {
         gate.setExecutionMode(EXECUTION_MODE, true);
         gate.setOrderAction(ENTER_ACTION, true);
         state = new OrderState(3 days, admin, gate, 30 days);
+        bytes32 consumerRole = state.ORDER_CONSUMER_ROLE();
         vm.prank(admin);
-        state.grantRole(state.ORDER_CONSUMER_ROLE(), consumer);
+        state.grantRole(consumerRole, consumer);
     }
 
     function testFuzz_CumulativeFillsNeverExceedAuthorizedLots(uint128 firstRaw, uint128 secondRaw) public {
