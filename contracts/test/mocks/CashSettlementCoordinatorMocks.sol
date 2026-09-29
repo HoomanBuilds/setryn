@@ -147,6 +147,7 @@ contract SettlementPositionEngineMock is IPositionEngineTerminalState {
     function seed(PositionEconomics calldata economics, bytes calldata terms, int256 normalTransfer_) external {
         _economics[economics.positionId] = economics;
         _lifecycle[economics.positionId].status = PositionStatus.Live;
+        _lifecycle[economics.positionId].remainingLots = economics.lots;
         _terms[economics.positionId] = terms;
         normalTransfer = normalTransfer_;
         _stage(economics.longLiabilityKey, economics.finalResolutionAt, economics.settlementDeadline);
@@ -175,10 +176,14 @@ contract SettlementPositionEngineMock is IPositionEngineTerminalState {
 
     function applyTerminalFallback(PositionId positionId) external {
         PositionEconomics storage economics = _economics[positionId];
-        int256 total = economics.terminalDisruptionTransferMinorPerLot * int256(uint256(Lots.unwrap(economics.lots)));
         PositionLifecycle storage lifecycle = _lifecycle[positionId];
+        uint128 unresolvedLots = Lots.unwrap(lifecycle.remainingLots);
+        int256 total = lifecycle.terminalTransferMinor + economics.terminalDisruptionTransferMinorPerLot
+            * int256(uint256(unresolvedLots));
         lifecycle.status = total == 0 ? PositionStatus.Settled : PositionStatus.TerminalClaim;
         lifecycle.terminalTransferMinor = total;
+        lifecycle.closedLots = Lots.wrap(Lots.unwrap(lifecycle.closedLots) + unresolvedLots);
+        lifecycle.remainingLots = Lots.wrap(0);
         lifecycle.terminalOutcomeReference = keccak256(abi.encode("fallback", positionId, total));
         _writeTerminal(economics, total, TerminalOutcomeKind.Claim);
     }

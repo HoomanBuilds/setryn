@@ -166,8 +166,14 @@ contract CashSettlementCoordinatorTest is Test {
 
     function test_NormalSettlementRejectsAtFinalBoundary() public {
         vm.warp(FINAL_RESOLUTION);
-        vm.expectPartialRevert(ICashSettlementCoordinator.NormalSettlementClosed.selector);
-        coordinator.finalizeNormalSettlement(positionId, _currentSlots(), new FeeActionRequest[](0));
+        FixingSlot[] memory slotWitness = _currentSlots();
+        FeeActionRequest[] memory noFees = new FeeActionRequest[](0);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ICashSettlementCoordinator.NormalSettlementClosed.selector, FINAL_RESOLUTION, vm.getBlockTimestamp()
+            )
+        );
+        coordinator.finalizeNormalSettlement(positionId, slotWitness, noFees);
     }
 
     function test_LapsedPositionReleasesBothReservationsOnlyAfterObjectiveLifecycleState() public {
