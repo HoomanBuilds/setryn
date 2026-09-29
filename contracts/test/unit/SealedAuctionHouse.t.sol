@@ -102,7 +102,9 @@ contract SealedAuctionHouseTest is Test {
         vm.prank(clearing);
         AuctionClearingHandoff memory handoff = house.consumeClearingHandoff(auctionId, version, keccak256("execution"));
         assertEq(handoff.maximumKeeperRewardMinor, 50);
-        vm.expectRevert(ISealedAuctionHouse.ClearingHandoffAlreadyConsumed.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(ISealedAuctionHouse.ClearingHandoffAlreadyConsumed.selector, auctionId, version)
+        );
         vm.prank(clearing);
         house.consumeClearingHandoff(auctionId, version, keccak256("second execution"));
 
@@ -127,15 +129,20 @@ contract SealedAuctionHouseTest is Test {
     }
 
     function test_RevealAtDeadlineIsRejected() public {
-        (AuctionId auctionId, uint32 version) = _schedule(_definition(AuctionPriceRule.PayAsBid));
+        AuctionDefinition memory definition = _definition(AuctionPriceRule.PayAsBid);
+        (AuctionId auctionId, uint32 version) = _schedule(definition);
         vm.warp(NOW + 10);
         house.advanceAuction(auctionId, version);
         SealedBid memory bid = _bid(auctionId, version, firstBidder, 4, 100, 100);
         BidCommitmentId bidId = _commit(bid, firstKey);
         vm.warp(NOW + 100);
         house.advanceAuction(auctionId, version);
-        vm.warp(NOW + 200);
-        vm.expectRevert(ISealedAuctionHouse.AuctionPhaseClosed.selector);
+        vm.warp(definition.revealClosesAt);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ISealedAuctionHouse.AuctionPhaseClosed.selector, definition.revealClosesAt, vm.getBlockTimestamp()
+            )
+        );
         house.revealBid(bidId, bid);
     }
 
@@ -147,8 +154,13 @@ contract SealedAuctionHouseTest is Test {
         BidCommitmentId bidId = _commit(bid, firstKey);
         vm.warp(NOW + 100);
         house.advanceAuction(auctionId, version);
+        bytes32 committedHash = AuctionHashLib.hashBid(bid);
         bid.priceTicks = PriceTicks.wrap(101);
-        vm.expectRevert(ISealedAuctionHouse.BidCommitmentMismatch.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ISealedAuctionHouse.BidCommitmentMismatch.selector, committedHash, AuctionHashLib.hashBid(bid)
+            )
+        );
         house.revealBid(bidId, bid);
     }
 
