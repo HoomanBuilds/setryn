@@ -31,10 +31,10 @@ invariant = { runs = 1_000, depth = 2_000 }
 verbosity = 3
 
 [profile.arbitrum_one_fork]
-eth_rpc_url = "${ARBITRUM_RPC_URL}"
+eth_rpc_url = "arbitrum"
 
 [profile.arbitrum_one_current]
-eth_rpc_url = "${ARBITRUM_RPC_URL}"
+eth_rpc_url = "arbitrum"
 
 [fmt]
 line_length = 120
