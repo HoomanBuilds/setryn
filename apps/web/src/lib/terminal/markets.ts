@@ -685,11 +685,11 @@ const ANCHORS: MarketSpec[] = [
     ],
     payoff: {
       base: 118,
-      slope: 96,
-      floor: -760,
-      ceil: 980,
+      slope: 1_000,
+      floor: -19_882,
+      ceil: 20_118,
       moveUnit: "EUR/USD spot move, percent",
-      moveRange: 14,
+      moveRange: 20,
     },
   },
   {
@@ -752,9 +752,9 @@ const ANCHORS: MarketSpec[] = [
     ],
     payoff: {
       base: 64.2,
-      slope: 52,
-      floor: -560,
-      ceil: 760,
+      slope: 500,
+      floor: -9_935.8,
+      ceil: 10_064.2,
       moveUnit: "XAU/USD spot move, percent",
       moveRange: 20,
     },
