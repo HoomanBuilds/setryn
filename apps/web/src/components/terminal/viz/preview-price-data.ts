@@ -108,6 +108,23 @@ function sessionActivity(epochSeconds: number): number {
 
 const seriesCache = new Map<string, PreviewSeries>();
 
+/** `PackageMarket.priceHistory` spans the last 48 hours in evenly spaced samples. */
+const HISTORY_SPAN_MINUTES = 48 * 60;
+
+function historyAnchors(market: PackageMarket, count: number): { index: number; value: number }[] {
+  const last = count - 1;
+  const anchors = [{ index: 0, value: market.priorNetPrice }];
+  const samples = market.priceHistory ?? [];
+  const step = samples.length > 0 ? Math.round(HISTORY_SPAN_MINUTES / samples.length) : 0;
+  samples.forEach((value, sample) => {
+    const index = last - (samples.length - 1 - sample) * step;
+    if (index > anchors[anchors.length - 1].index) anchors.push({ index, value });
+  });
+  if (anchors[anchors.length - 1].index === last) anchors[anchors.length - 1].value = market.netPrice;
+  else anchors.push({ index: last, value: market.netPrice });
+  return anchors;
+}
+
 /**
  * Minute history for a preview market. Returns follow a volatility-clustering process with rare jumps and
  * session-dependent activity, so candles and volume read like a traded market.
@@ -146,14 +163,23 @@ function buildMinuteHistory(market: PackageMarket): PreviewCandle[] {
     range[index] = Math.abs(normal()) * sigma * moveScale * 0.35;
   }
 
-  const terminalDeviation = raw[count - 1];
+  // The path is a chain of bridges through anchors: the prior close at the start of the window, then every sample
+  // of the market's 48-hour history (the series the markets board draws), ending on the current package price. The
+  // chart therefore passes through the same points as every sparkline of this market.
+  const anchors = historyAnchors(market, count);
   const candles: PreviewCandle[] = [];
   let previousClose = market.priorNetPrice;
+  let segment = 0;
 
   for (let index = 0; index < count; index += 1) {
-    const elapsed = index / (count - 1);
-    const trend = market.priorNetPrice + (market.netPrice - market.priorNetPrice) * elapsed;
-    const close = round(trend + raw[index] - terminalDeviation * elapsed, market.priceDecimals);
+    while (segment < anchors.length - 2 && index > anchors[segment + 1].index) segment += 1;
+    const from = anchors[segment];
+    const to = anchors[segment + 1];
+    const span = to.index - from.index;
+    const elapsed = span > 0 ? (index - from.index) / span : 1;
+    const trend = from.value + (to.value - from.value) * elapsed;
+    const drift = raw[from.index] + (raw[to.index] - raw[from.index]) * elapsed;
+    const close = round(trend + raw[index] - drift, market.priceDecimals);
     const open = index === 0 ? close : previousClose;
     candles.push({
       time: end - (count - 1 - index) * 60,
