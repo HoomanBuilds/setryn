@@ -134,6 +134,9 @@ contract MockOperationalAdapter is
     }
 
     function _externalResult() private view returns (ExternalVenueResult memory) {
+        // Only recovery terminals carry a recovery outcome; in-flight and completed states must leave it empty.
+        bool recoveryTerminal =
+            externalState == OperationalActionState.Recovered || externalState == OperationalActionState.NoEffect;
         return ExternalVenueResult(
             externalState,
             resultValue,
@@ -141,7 +144,7 @@ contract MockOperationalAdapter is
             postconditionsHash,
             keccak256("venue-action"),
             keccak256("venue-evidence"),
-            keccak256("recovery-outcome")
+            recoveryTerminal ? keccak256("recovery-outcome") : bytes32(0)
         );
     }
 }

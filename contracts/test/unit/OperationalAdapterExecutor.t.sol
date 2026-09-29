@@ -4,6 +4,7 @@ pragma solidity 0.8.37;
 import {Test} from "forge-std/Test.sol";
 
 import {OperationalAdapterExecutor} from "../../src/adapters/operational/OperationalAdapterExecutor.sol";
+import {OperationalAdapterLib} from "../../src/libraries/OperationalAdapterLib.sol";
 import {AdapterRegistry} from "../../src/registry/AdapterRegistry.sol";
 import {AdapterDefinition} from "../../src/types/AdapterDefinition.sol";
 import {AccountId, AdapterId, AdapterKindId, MarketId, PackageId, SeriesId} from "../../src/types/Identifiers.sol";
@@ -64,7 +65,17 @@ contract OperationalAdapterExecutorTest is Test {
             CAPABILITY_NATIVE
         );
         executor.executeNativeLedger(adapterRef, binding);
-        vm.expectRevert(OperationalAdapterExecutor.ActionAlreadyConsumed.selector);
+        bytes32 actionId = keccak256(
+            abi.encode(
+                block.chainid,
+                address(executor),
+                adapterRef.adapterId,
+                adapterRef.adapterVersion,
+                OperationalAdapterLib.hashBinding(binding)
+            )
+        );
+        assertTrue(executor.actionConsumed(actionId));
+        vm.expectRevert(abi.encodeWithSelector(OperationalAdapterExecutor.ActionAlreadyConsumed.selector, actionId));
         executor.executeNativeLedger(adapterRef, binding);
     }
 
@@ -96,7 +107,7 @@ contract OperationalAdapterExecutorTest is Test {
 
         adapter.configure(OperationalActionState.Reconciling, 0, bytes32(0), true);
         executor.reconcileExternal(actionId);
-        adapter.configure(OperationalActionState.Recovered, 0, keccak256("recovered"), true);
+        adapter.configure(OperationalActionState.Recovered, 0, binding.expectedPostconditionsHash, true);
         vm.warp(request.timeoutAt);
         executor.recoverExternal(actionId);
         assertEq(uint8(executor.getExternalAction(actionId).state), uint8(OperationalActionState.Recovered));
