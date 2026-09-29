@@ -45,7 +45,8 @@ managed_command_matches() {
     local managed_pid="$1"
     local -a command_parts=()
     mapfile -d '' -t command_parts <"/proc/$managed_pid/cmdline"
-    [[ "${command_parts[0]##*/}" == "anvil" ]] &&
+    [[ "${#command_parts[@]}" -gt 0 ]] &&
+        [[ "${command_parts[0]##*/}" == "anvil" ]] &&
         has_argument_pair --host "$rpc_bind_host" "${command_parts[@]}" &&
         has_argument_pair --port "$rpc_port" "${command_parts[@]}" &&
         has_argument_pair --chain-id "$chain_id" "${command_parts[@]}" &&
@@ -85,10 +86,17 @@ stop_managed_anvil() {
         rm -f "$pid_file"
         return
     fi
-    if [[ "${#managed_identity[@]}" -ne 3 ]] ||
-        ! managed_identity_matches "$managed_pid" "${managed_identity[1]:-}" "${managed_identity[2]:-}"; then
-        printf 'Refusing to stop PID %s because its managed process identity does not match.\n' "${managed_pid:-unknown}" >&2
+    if [[ "${#managed_identity[@]}" -ne 3 ]]; then
+        printf 'Refusing to stop PID %s because the managed identity file is malformed.\n' "${managed_pid:-unknown}" >&2
         exit 1
+    fi
+    if ! managed_identity_matches "$managed_pid" "${managed_identity[1]}" "${managed_identity[2]}"; then
+        # The recorded start time or command differs, so the managed anvil is gone and the PID was reused
+        # (for example after a container restart). Nothing is stopped; the stale record is dropped and the port
+        # check below still refuses to start over an occupied port.
+        printf 'Discarding stale managed anvil record for reused PID %s.\n' "$managed_pid" >&2
+        rm -f "$pid_file"
+        return
     fi
 
     kill "$managed_pid"
