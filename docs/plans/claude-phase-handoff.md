@@ -174,6 +174,36 @@ What was checked against which code:
 
 Explorer verification on Arbitrum Sepolia needs the deployed bytecode to equal the verified artifacts. The deployment should therefore create contracts from standalone artifacts (linked `deployCode`) before the release candidate.
 
+## Remaining work plan (audited 2026-09-29 against the interface spec, build plan, and code)
+
+### Delivered in the current Phase 5 platform pass
+
+- Terminal: TradingView-grade chart (eight chart styles, twelve timeframes, RSI, MACD and ATR panes, Bollinger and VWAP overlays, persistent drawing tools with magnet, lock, and drag editing, bar-close countdown), depth book and trades tape, slippage-protected market orders, inline ticket action with account summary, motion system, and a neutral charcoal theme derived from the landing.
+- Rebuilt markets, portfolio, strategy studio, hedge builder, maker desk, operations console, RFQ ledger, activity explorer, and receipt evidence views.
+- Feed coherence: chart history is pinned through each market's 48-hour samples, so sparklines, the chart, the book, and the tape share one path.
+- Fixes: stale market-order protection prices, forward payoff sizing in hedges, and stale anvil PID records in the local reset.
+
+### Phase 5 first-party platform: remaining
+
+1. Global shell from the interface spec: command search, notification center, and the persistent system strip with collateral, portfolio health, oracle and sequencer health, private execution health, and pending actions.
+2. Missing routes from the spec route map: `/app` home, `/exposures`, `/protect/new`, `/strategies/new`, `/rfqs/new`, `/rfqs/[id]`, `/auctions`, `/positions/[id]`, `/settlements`, `/receipts/[id]`, `/alerts`, `/solver`, `/ops`, and `/settings`. Every route uses the production schemas and labels observed, executable, estimated, and modeled values.
+3. Concrete operator execution ports for the operator runtime: keeper (fixing, expiry, settlement, and recovery work), maker quote cycles, solver intents, and oracle relay. Each targets the local chain and Arbitrum Sepolia only, through the strict environment write policy.
+4. Deploy from standalone artifacts (linked `deployCode`) so deployed bytecode equals the explorer-verified artifacts.
+5. Phase 3 gate checks: mobile viewport, keyboard, accessibility, wallet rejection, RPC failure, transaction replacement, and the complete fresh-wallet journey.
+
+### Phase 6 and 7 preparation (no mainnet writes)
+
+- Sepolia release-candidate kit: faucet flow, status page, scripted judge journey, public receipts, and explorer-verification inputs.
+- Static analysis, incident runbooks, and pause-path rehearsals.
+
+### Phase 8: public integration platform (after the first-party platform is complete)
+
+- Versioned public API with authentication, rate limits, and replay protection, derived from the same indexed state as the platform.
+- External TypeScript SDK and integration examples.
+- Webhooks with signed deliveries and retries.
+- Embedded market-data and trading widgets.
+- `/developers` and `/partners` consoles with API keys, quotas, usage, attribution, and documentation.
+
 ## Phase sequence
 
 1. Phase 4 contract modularization, pinned-fork qualification, gas evidence, and the complete unsigned deployment intent - done.
