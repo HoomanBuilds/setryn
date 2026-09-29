@@ -486,11 +486,13 @@ export function PackagePriceChart({
     const monoFont = resolvedFont(element, "--font-plex-mono", "ui-monospace, SFMono-Regular, Menlo, monospace");
     const serifFont = resolvedFont(element, "--font-newsreader", "Georgia, serif");
     fontsRef.current = { mono: monoFont, serif: serifFont };
+    // The canvas background follows the panel token, so the chart never drifts from the surrounding surface.
+    const panelColor = getComputedStyle(element).getPropertyValue("--color-panel").trim() || CHART_THEME.panel;
     const chart = createChart(element, {
       width: Math.max(1, Math.floor(element.clientWidth)),
       height: Math.max(1, Math.floor(element.clientHeight)),
       layout: {
-        background: { type: ColorType.Solid, color: CHART_THEME.panel },
+        background: { type: ColorType.Solid, color: panelColor },
         textColor: CHART_THEME.faint,
         fontFamily: monoFont,
         fontSize: 11,
@@ -527,13 +529,13 @@ export function PackagePriceChart({
           color: CHART_THEME.crosshair,
           width: 1,
           style: LineStyle.Dashed,
-          labelBackgroundColor: "#2a2631",
+          labelBackgroundColor: "#303036",
         },
         horzLine: {
           color: CHART_THEME.crosshair,
           width: 1,
           style: LineStyle.Dashed,
-          labelBackgroundColor: "#2a2631",
+          labelBackgroundColor: "#303036",
         },
       },
       localization: {

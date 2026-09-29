@@ -6,16 +6,19 @@
 @source not "../(landing)";
 
 @theme {
-  /* Ink surfaces from the landing, with a faint violet undertone. */
-  --color-app: #0a090d;
-  --color-panel: #100f14;
-  --color-raised: #18161d;
-  --color-inset: #07060a;
+  /*
+   * Lifted charcoal surfaces. The gutter sits a step below the panels so every panel reads as its own card, and the
+   * greys stay neutral so the landing's paper text, lime, mint, and rose carry the colour.
+   */
+  --color-app: #0e0e10;
+  --color-panel: #17171a;
+  --color-raised: #212125;
+  --color-inset: #121214;
 
   /* Paper-tinted hairlines. */
-  --color-line: rgba(242, 240, 237, 0.075);
-  --color-line-soft: rgba(242, 240, 237, 0.045);
-  --color-line-strong: rgba(242, 240, 237, 0.15);
+  --color-line: rgba(242, 240, 237, 0.08);
+  --color-line-soft: rgba(242, 240, 237, 0.05);
+  --color-line-strong: rgba(242, 240, 237, 0.16);
 
   /* Paper text with warm greys. */
   --color-ink: #f2f0ed;
@@ -324,7 +327,7 @@
   background: linear-gradient(
     90deg,
     var(--color-raised) 0%,
-    #221f28 50%,
+    #2a2a2f 50%,
     var(--color-raised) 100%
   );
   background-size: 200% 100%;

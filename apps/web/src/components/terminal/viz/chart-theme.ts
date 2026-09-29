@@ -1,9 +1,9 @@
 /** Mirrors the design tokens in globals.css for libraries that need literal colours. */
 export const CHART_THEME = {
-  panel: "#100f14",
-  raised: "#18161d",
-  grid: "rgba(242, 240, 237, 0.04)",
-  border: "rgba(242, 240, 237, 0.075)",
+  panel: "#17171a",
+  raised: "#212125",
+  grid: "rgba(242, 240, 237, 0.035)",
+  border: "rgba(242, 240, 237, 0.08)",
   crosshair: "rgba(242, 240, 237, 0.28)",
   ink: "#f2f0ed",
   dim: "#aaa6a0",

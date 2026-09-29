@@ -388,7 +388,7 @@ function drawOne(
         midX,
         Math.max(4, Math.min(projection.height - 42, labelY)),
         tone,
-        "#0a090d",
+        "#0e0e10",
         scene.fontFamily,
       );
       break;
@@ -442,7 +442,7 @@ class AxisLabel implements ISeriesPrimitiveAxisView {
     private readonly at: number,
     private readonly label: string,
     private readonly background: string,
-    private readonly foreground = "#0a090d",
+    private readonly foreground = "#0e0e10",
   ) {}
 
   coordinate() {
