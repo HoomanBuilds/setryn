@@ -24,7 +24,7 @@ import {
   routePrice,
   SLIPPAGE_PRESETS_BPS,
 } from "@/lib/terminal/economics";
-import { formatLots, formatNumber, formatUsd, priceUnitSuffix } from "@/lib/terminal/format";
+import { formatAsset, formatLots, formatNumber, formatUsd, priceUnitSuffix } from "@/lib/terminal/format";
 import type { HandoffContext } from "@/lib/terminal/handoff";
 import type { PackageMarket, RouteQuote } from "@/lib/terminal/types";
 import type {
@@ -723,7 +723,7 @@ export function OrderTicket({
 
 function AccountSummary({ wallet }: { wallet: TicketWallet }) {
   const value = (amount: number | undefined) =>
-    wallet.connected && amount !== undefined ? `${formatUsd(amount)} ${wallet.asset}` : "–";
+    wallet.connected && amount !== undefined ? formatAsset(amount, wallet.asset) : "–";
   return (
     <div className="mt-auto shrink-0 border-t border-line px-3 pt-2.5 pb-3" aria-label="Account">
       <div className="flex items-baseline justify-between gap-2 pb-1">

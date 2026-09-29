@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { ChevronDown, Menu, Search, Wallet, X } from "lucide-react";
 import { DataRow, SectionLabel, StatusDot } from "@/components/terminal/primitives";
 import { useGatewaySnapshot, useInternalGateway } from "@/components/gateway/InternalGatewayProvider";
-import { formatCompactUsd } from "@/lib/terminal/format";
+import { formatCompactAsset } from "@/lib/terminal/format";
 import SetrynMark from "@/components/landing/SetrynMark";
 import { CommandPalette, openCommandPalette } from "@/components/shell/CommandPalette";
 import { NotificationBell } from "@/components/shell/NotificationBell";
@@ -277,13 +277,13 @@ export function GlobalHeader() {
                   )}
 
                   <div className="mt-3 divide-y divide-line border-t border-line">
-                    <DataRow label="Equity" value={formatCompactUsd(snapshot.account.equity)} />
+                    <DataRow label="Equity" value={formatCompactAsset(snapshot.account.equity, snapshot.account.collateralAsset)} />
                     <DataRow
                       label="Eligible collateral"
-                      value={formatCompactUsd(snapshot.account.eligible)}
+                      value={formatCompactAsset(snapshot.account.eligible, snapshot.account.collateralAsset)}
                     />
-                    <DataRow label="Available" value={formatCompactUsd(snapshot.account.available)} />
-                    <DataRow label="Reserved" value={formatCompactUsd(snapshot.account.reserved)} />
+                    <DataRow label="Available" value={formatCompactAsset(snapshot.account.available, snapshot.account.collateralAsset)} />
+                    <DataRow label="Reserved" value={formatCompactAsset(snapshot.account.reserved, snapshot.account.collateralAsset)} />
                     <DataRow label="Risk domain" value={snapshot.account.riskDomain} tone="muted" />
                   </div>
 
@@ -310,7 +310,7 @@ export function GlobalHeader() {
                           placeholder="0.00"
                           className="min-w-0 flex-1 bg-transparent text-right font-mono text-xs text-ink outline-none"
                         />
-                        <span className="ml-2 text-xs text-faint">USDC</span>
+                        <span className="ml-2 text-xs text-faint">{snapshot.account.collateralAsset}</span>
                       </label>
                       <button
                         type="button"

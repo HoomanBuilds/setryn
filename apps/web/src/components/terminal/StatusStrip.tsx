@@ -5,7 +5,7 @@ import { useGatewaySnapshot } from "@/components/gateway/InternalGatewayProvider
 import { usePreviewBoard } from "@/components/terminal/PreviewMarketProvider";
 import { pendingActions, serviceHealth } from "@/components/shell/signals";
 import type { HealthState } from "@/lib/operations/types";
-import { formatCompactUsd, formatNumber, formatUtcClock } from "@/lib/terminal/format";
+import { formatCompactAsset, formatNumber, formatUtcClock } from "@/lib/terminal/format";
 
 const HEALTH_DOT: Record<HealthState, string> = {
   HEALTHY: "bg-up",
@@ -68,7 +68,7 @@ export function StatusStrip() {
         <span title="Collateral available for new risk in the connected account">
           Avail{" "}
           <span className="tnum font-mono text-dim">
-            {connected ? `${formatCompactUsd(snapshot.account.available)} ${snapshot.account.collateralAsset}` : "–"}
+            {connected ? formatCompactAsset(snapshot.account.available, snapshot.account.collateralAsset) : "–"}
           </span>
         </span>
         <span title="Reserved collateral as a share of posted collateral">

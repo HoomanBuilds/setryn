@@ -43,6 +43,17 @@ export function formatSignedUsd(value: number, decimals = 2): string {
   return `${formatSigned(value, decimals)} USDC`;
 }
 
+/** Amount in a named collateral asset, for balances that are not always USDC (the local devnet posts sUSD). */
+export function formatAsset(value: number, asset: string, decimals = 2): string {
+  return `${formatNumber(value, decimals)} ${asset}`;
+}
+
+export function formatCompactAsset(value: number, asset: string): string {
+  if (Math.abs(value) >= 1_000_000) return `${formatNumber(value / 1_000_000, 2)}M ${asset}`;
+  if (Math.abs(value) >= 1_000) return `${formatNumber(value / 1_000, 1)}k ${asset}`;
+  return formatAsset(value, asset, 0);
+}
+
 export function formatCompactUsd(value: number): string {
   if (Math.abs(value) >= 1_000_000) return `${formatNumber(value / 1_000_000, 2)}M USDC`;
   if (Math.abs(value) >= 1_000) return `${formatNumber(value / 1_000, 1)}k USDC`;
