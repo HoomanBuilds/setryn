@@ -101,6 +101,12 @@ contract FundedFeeEngine is IFundedFeeEngine, IClearingFeePolicy, AccessControlD
         if (recipientsHash != schedule.definition.recipientsHash) {
             revert FeeRecipientsCommitmentMismatch(schedule.definition.recipientsHash, recipientsHash);
         }
+        for (uint256 i; i < recipientWitness.recipients.length; ++i) {
+            AccountId recipientAccount = recipientWitness.recipients[i].accountId;
+            if (!_collateralVault.accountExists(recipientAccount)) {
+                revert UnknownFeeRecipient(recipientAccount);
+            }
+        }
 
         _rules[key] = abi.encode(ruleWitness);
         _recipients[key] = abi.encode(recipientWitness);

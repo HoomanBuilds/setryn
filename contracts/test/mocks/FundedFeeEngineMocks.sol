@@ -61,6 +61,7 @@ contract FundedFeeCollateralVaultMock {
     address public immutable settlementAssetRegistry;
     mapping(CollateralLockId lockId => CollateralLock lock) private _locks;
     mapping(AccountId accountId => uint128 amount) public credited;
+    mapping(AccountId accountId => bool exists) private _accounts;
 
     constructor(address settlementAssetRegistry_) {
         settlementAssetRegistry = settlementAssetRegistry_;
@@ -114,5 +115,13 @@ contract FundedFeeCollateralVaultMock {
 
     function getLock(CollateralLockId lockId) external view returns (CollateralLock memory lock) {
         return _locks[lockId];
+    }
+
+    function createAccount(AccountId accountId) external {
+        _accounts[accountId] = true;
+    }
+
+    function accountExists(AccountId accountId) external view returns (bool) {
+        return _accounts[accountId];
     }
 }

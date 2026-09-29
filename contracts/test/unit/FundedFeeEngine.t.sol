@@ -66,6 +66,8 @@ contract FundedFeeEngineTest is Test {
         definition.feeRulesHash = harness.hashRules(rules);
         definition.recipientsHash = harness.hashRecipients(recipients);
         scheduleId = schedules.setSchedule(definition, VERSION, true, true);
+        vault.createAccount(COLLECTOR_A);
+        vault.createAccount(COLLECTOR_B);
         engine.installScheduleWitness(scheduleId, VERSION, rules, recipients);
     }
 
@@ -205,6 +207,28 @@ contract FundedFeeEngineTest is Test {
 
         vm.expectPartialRevert(IFundedFeeEngine.FeeRulesCommitmentMismatch.selector);
         engine.installScheduleWitness(otherSchedule, VERSION, rules, recipients);
+    }
+
+    function test_RejectsWitnessWithUnknownRecipientUntilAccountCreated() public {
+        AccountId unknown = AccountId.wrap(bytes32(uint256(99)));
+        FeeRule[] memory rules = _makerTakerRules();
+        FeeRecipientSet memory recipients;
+        recipients.remainderPolicyId = FeeEngineLib.REMAINDER_TO_DESIGNATED_RECIPIENT;
+        recipients.remainderRecipientIndex = 0;
+        recipients.recipients = new FeeRecipient[](1);
+        recipients.recipients[0] = FeeRecipient({accountId: unknown, sharePpm: 1_000_000});
+        FeeScheduleDefinition memory definition = _definition(FeeScheduleDefinitionLib.FEE_MODEL_MAKER_TAKER);
+        definition.scheduleKey = keccak256("unknown.recipient.schedule");
+        definition.feeRulesHash = harness.hashRules(rules);
+        definition.recipientsHash = harness.hashRecipients(recipients);
+        FeeScheduleId unknownSchedule = schedules.setSchedule(definition, VERSION, true, true);
+
+        vm.expectRevert(abi.encodeWithSelector(IFundedFeeEngine.UnknownFeeRecipient.selector, unknown));
+        engine.installScheduleWitness(unknownSchedule, VERSION, rules, recipients);
+
+        vault.createAccount(unknown);
+        engine.installScheduleWitness(unknownSchedule, VERSION, rules, recipients);
+        assertTrue(engine.witnessInstalled(unknownSchedule, VERSION));
     }
 
     function test_LegacyClearingFailsClosedForRebatesAndRecipientSplits() public {

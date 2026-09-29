@@ -73,6 +73,7 @@ interface IFundedFeeEngine {
     error LegacyScheduleUnsupported(FeeScheduleId feeScheduleId, uint32 version);
     error LegacyFeeAboveOrderMaximum(bytes32 orderHash, uint128 maximum, uint128 actual);
     error LedgerDoesNotConserve(int256 netAmount);
+    error UnknownFeeRecipient(AccountId accountId);
 
     function feeScheduleRegistry() external view returns (IFeeScheduleRegistry);
     function collateralVault() external view returns (ICollateralVault);
