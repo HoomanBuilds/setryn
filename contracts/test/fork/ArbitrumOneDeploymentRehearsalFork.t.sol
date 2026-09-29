@@ -5,6 +5,8 @@ import {Test} from "forge-std/Test.sol";
 
 import {DeploySetryn} from "../../script/DeploySetryn.s.sol";
 import {ISequencerUptimeFeed} from "../../src/interfaces/ISequencerUptimeFeed.sol";
+import {ReceiptAuthorityBase} from "../../src/evidence/ProtocolReceiptAuthorities.sol";
+import {ReceiptAuthorityBinding} from "../../src/types/EvidenceTypes.sol";
 
 interface IPendingDefaultAdmin {
     function pendingDefaultAdmin() external view returns (address newAdmin, uint48 acceptSchedule);
@@ -116,6 +118,7 @@ contract ArbitrumOneDeploymentRehearsalForkTest is Test, DeploySetryn {
         );
         _assertAdminTransfers(deployment, governanceAdmin);
         _assertExecutionVenues(deployment, bootstrap, governanceAdmin, governanceOperator, guardian);
+        _assertReceiptAuthorities(deployment);
 
         assertEq(NATIVE_USDC.codehash, usdcCodeHashBefore, "native USDC code must be unchanged");
         assertEq(_totalSupply(), usdcSupplyBefore, "native USDC supply must be unchanged");
@@ -185,6 +188,36 @@ contract ArbitrumOneDeploymentRehearsalForkTest is Test, DeploySetryn {
         _assertCode(address(d.batchClearingEngine), "batchClearingEngine");
         _assertCode(address(d.routeLiquiditySource), "routeLiquiditySource");
         _assertCode(address(d.routeEngine), "routeEngine");
+    }
+
+    function _assertReceiptAuthorities(Deployment memory d) private view {
+        _assertCode(address(d.receiptLedger), "receiptLedger");
+        string[18] memory kinds = [
+            "Order",
+            "RFQ",
+            "Book",
+            "Auction",
+            "Solver",
+            "Fill",
+            "Fixing",
+            "Settlement",
+            "Default",
+            "Recovery",
+            "Lifecycle",
+            "Stream",
+            "Route",
+            "Position",
+            "Fee",
+            "Risk",
+            "Privacy",
+            "Async"
+        ];
+        for (uint256 i; i < kinds.length; ++i) {
+            bytes32 kind = keccak256(bytes(string.concat("SetrynReceiptSubjectV1:", kinds[i])));
+            ReceiptAuthorityBinding memory binding = d.receiptLedger.authorityOf(kind);
+            assertEq(binding.authority, d.receiptAuthorities[i], "every subject kind binds its deployed authority");
+            assertEq(ReceiptAuthorityBase(binding.authority).subjectKindId(), kind, "authority serves its kind");
+        }
     }
 
     function _assertExecutionVenues(

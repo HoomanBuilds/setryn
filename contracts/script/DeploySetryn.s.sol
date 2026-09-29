@@ -17,6 +17,43 @@ import {CollateralAwareRouteEngine} from "../src/routing/CollateralAwareRouteEng
 import {ProtocolRouteLiquiditySource} from "../src/routing/ProtocolRouteLiquiditySource.sol";
 import {AuctionValidationGate} from "../src/policy/AuctionValidationGate.sol";
 import {IAuctionVault} from "../src/interfaces/IAuctionVault.sol";
+import {VerifiableReceiptLedger} from "../src/evidence/VerifiableReceiptLedger.sol";
+import {
+    AsyncReceiptAuthority,
+    AuctionReceiptAuthority,
+    BookOrderReceiptAuthority,
+    DefaultReceiptAuthority,
+    FeeReceiptAuthority,
+    FillReceiptAuthority,
+    FixingReceiptAuthority,
+    LifecycleReceiptAuthority,
+    OrderReceiptAuthority,
+    PositionReceiptAuthority,
+    PrivacyReceiptAuthority,
+    RecoveryReceiptAuthority,
+    RfqReceiptAuthority,
+    RiskReceiptAuthority,
+    RouteReceiptAuthority,
+    SettlementReceiptAuthority,
+    SolverReceiptAuthority,
+    StreamReceiptAuthority
+} from "../src/evidence/ProtocolReceiptAuthorities.sol";
+import {IAtomicClearingEngine} from "../src/interfaces/IAtomicClearingEngine.sol";
+import {ICashSettlementCoordinator} from "../src/interfaces/ICashSettlementCoordinator.sol";
+import {ICollateralAwareRouteEngine} from "../src/interfaces/ICollateralAwareRouteEngine.sol";
+import {IDefaultProcessEngine} from "../src/interfaces/IDefaultProcessEngine.sol";
+import {IFixingEngine} from "../src/interfaces/IFixingEngine.sol";
+import {IFundedFeeEngine} from "../src/interfaces/IFundedFeeEngine.sol";
+import {IOperationalAdapterExecutor} from "../src/interfaces/IOperationalAdapterExecutor.sol";
+import {IOrderState} from "../src/interfaces/IOrderState.sol";
+import {IPortfolioRiskEngine} from "../src/interfaces/IPortfolioRiskEngine.sol";
+import {IPrivacyCommitmentRegistry} from "../src/interfaces/IPrivacyCommitmentRegistry.sol";
+import {IPrivateRfqBook} from "../src/interfaces/IPrivateRfqBook.sol";
+import {IPublicOrderBook} from "../src/interfaces/IPublicOrderBook.sol";
+import {ISealedAuctionHouse} from "../src/interfaces/ISealedAuctionHouse.sol";
+import {ISignedLifecycleEngine} from "../src/interfaces/ISignedLifecycleEngine.sol";
+import {IStreamingQuoteEngine} from "../src/interfaces/IStreamingQuoteEngine.sol";
+import {ReceiptAuthorityBinding} from "../src/types/EvidenceTypes.sol";
 import {CanonicalStrategyCompiler} from "../src/compiler/CanonicalStrategyCompiler.sol";
 import {DevnetSequencerUptimeFeed} from "../src/devnet/DevnetSequencerUptimeFeed.sol";
 import {OperationalAdapterExecutor} from "../src/adapters/operational/OperationalAdapterExecutor.sol";
@@ -175,6 +212,8 @@ contract DeploySetryn is Script {
         BatchClearingEngine batchClearingEngine;
         ProtocolRouteLiquiditySource routeLiquiditySource;
         CollateralAwareRouteEngine routeEngine;
+        address[18] receiptAuthorities;
+        VerifiableReceiptLedger receiptLedger;
     }
 
     struct DeploymentConfig {
@@ -522,6 +561,7 @@ contract DeploySetryn is Script {
         deployment.windowAverageScalarPayoffModule = new WindowAverageScalarPayoffModule();
         deployment.correlationDispersionScalarPayoffModule = new CorrelationDispersionScalarPayoffModule();
         _deployExecutionVenues(deployment, config.defaultAdminDelay, config.bootstrapAdmin);
+        _deployReceiptLedger(deployment, config.deploymentId);
 
         _wireInternalRoles(
             deployment,
@@ -591,6 +631,94 @@ contract DeploySetryn is Script {
         d.routeEngine = new CollateralAwareRouteEngine(
             defaultAdminDelay, bootstrapAdmin, d.routeLiquiditySource, d.portfolioRiskEngine
         );
+    }
+
+    /// Every receipt subject kind binds one terminal-state authority over its authoritative source, so receipts are
+    /// accepted only against objective protocol state. Bindings are immutable and sorted by subject kind.
+    function _deployReceiptLedger(Deployment memory d, bytes32 deploymentId) private {
+        address[18] memory authorities = [
+            address(new OrderReceiptAuthority(_kind("Order"), IOrderState(address(d.orderState)))),
+            address(new RfqReceiptAuthority(_kind("RFQ"), IPrivateRfqBook(address(d.privateRfqBook)))),
+            address(new BookOrderReceiptAuthority(_kind("Book"), IPublicOrderBook(address(d.publicOrderBook)))),
+            address(new AuctionReceiptAuthority(_kind("Auction"), ISealedAuctionHouse(address(d.sealedAuctionHouse)))),
+            address(new SolverReceiptAuthority(_kind("Solver"), ISealedAuctionHouse(address(d.sealedAuctionHouse)))),
+            address(new FillReceiptAuthority(_kind("Fill"), IAtomicClearingEngine(address(d.atomicClearingEngine)))),
+            address(new FixingReceiptAuthority(_kind("Fixing"), IFixingEngine(address(d.fixingEngine)))),
+            address(
+                new SettlementReceiptAuthority(
+                    _kind("Settlement"), ICashSettlementCoordinator(address(d.cashSettlementCoordinator))
+                )
+            ),
+            address(
+                new DefaultReceiptAuthority(_kind("Default"), IDefaultProcessEngine(address(d.defaultProcessEngine)))
+            ),
+            address(
+                new RecoveryReceiptAuthority(
+                    _kind("Recovery"), IOperationalAdapterExecutor(address(d.operationalAdapterExecutor))
+                )
+            ),
+            address(
+                new LifecycleReceiptAuthority(
+                    _kind("Lifecycle"), ISignedLifecycleEngine(address(d.signedLifecycleEngine))
+                )
+            ),
+            address(
+                new StreamReceiptAuthority(_kind("Stream"), IStreamingQuoteEngine(address(d.streamingQuoteEngine)))
+            ),
+            address(new RouteReceiptAuthority(_kind("Route"), ICollateralAwareRouteEngine(address(d.routeEngine)))),
+            address(new PositionReceiptAuthority(_kind("Position"), IPositionEngine(address(d.positionEngine)))),
+            address(new FeeReceiptAuthority(_kind("Fee"), IFundedFeeEngine(address(d.fundedFeeEngine)))),
+            address(new RiskReceiptAuthority(_kind("Risk"), IPortfolioRiskEngine(address(d.portfolioRiskEngine)))),
+            address(
+                new PrivacyReceiptAuthority(
+                    _kind("Privacy"), IPrivacyCommitmentRegistry(address(d.privacyCommitmentRegistry))
+                )
+            ),
+            address(
+                new AsyncReceiptAuthority(
+                    _kind("Async"), IOperationalAdapterExecutor(address(d.operationalAdapterExecutor))
+                )
+            )
+        ];
+        string[18] memory kinds = [
+            "Order",
+            "RFQ",
+            "Book",
+            "Auction",
+            "Solver",
+            "Fill",
+            "Fixing",
+            "Settlement",
+            "Default",
+            "Recovery",
+            "Lifecycle",
+            "Stream",
+            "Route",
+            "Position",
+            "Fee",
+            "Risk",
+            "Privacy",
+            "Async"
+        ];
+        ReceiptAuthorityBinding[] memory bindings = new ReceiptAuthorityBinding[](authorities.length);
+        for (uint256 i; i < authorities.length; ++i) {
+            ReceiptAuthorityBinding memory binding = ReceiptAuthorityBinding({
+                subjectKindId: _kind(kinds[i]), authority: authorities[i], deploymentHash: deploymentId
+            });
+            uint256 j = i;
+            while (j > 0 && bindings[j - 1].subjectKindId > binding.subjectKindId) {
+                bindings[j] = bindings[j - 1];
+                --j;
+            }
+            bindings[j] = binding;
+        }
+        d.receiptAuthorities = authorities;
+        d.receiptLedger =
+            new VerifiableReceiptLedger(bindings, IPrivacyCommitmentRegistry(address(d.privacyCommitmentRegistry)));
+    }
+
+    function _kind(string memory name) private pure returns (bytes32) {
+        return keccak256(bytes(string.concat("SetrynReceiptSubjectV1:", name)));
     }
 
     function _wireExecutionVenueRoles(
@@ -1088,5 +1216,6 @@ contract DeploySetryn is Script {
         console2.log("BatchClearingEngine", address(deployment.batchClearingEngine));
         console2.log("ProtocolRouteLiquiditySource", address(deployment.routeLiquiditySource));
         console2.log("CollateralAwareRouteEngine", address(deployment.routeEngine));
+        console2.log("VerifiableReceiptLedger", address(deployment.receiptLedger));
     }
 }
