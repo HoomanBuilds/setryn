@@ -20,6 +20,7 @@ import {
 import { tradeHref } from "@/lib/terminal/markets";
 import { bounds, linePath, ticks } from "@/components/terminal/viz/chart-utils";
 import type { PackageMarket } from "@/lib/terminal/types";
+import { Chip, motion } from "@/components/markets/ui";
 
 const VIEW_W = 1000;
 const VIEW_H = 320;
@@ -89,7 +90,7 @@ export function TermCurve({ markets }: { markets: PackageMarket[] }) {
   const families = groupByCurveFamily(markets);
 
   return (
-    <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-3 pb-4 lg:px-4">
+    <div className="min-w-0 px-3 pb-2 lg:px-4">
       {families.map((family) => (
         <CurvePanel key={family.key} family={family} />
       ))}
@@ -114,7 +115,7 @@ function CurvePanel({ family }: { family: CurveFamily }) {
   }));
 
   return (
-    <section className="border-b border-line py-3 last:border-b-0">
+    <section className={`${motion.enter} border-b border-line py-4 last:border-b-0`}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
           <SectionLabel>{family.label}</SectionLabel>
@@ -124,8 +125,16 @@ function CurvePanel({ family }: { family: CurveFamily }) {
             )} / net price in ${unit} against days to expiry`}
           </span>
         </div>
-        <span className="text-xs text-off">
-          {`Solid: local preview stream / dashed: prior session close`}
+        <span className="flex items-center gap-3 text-[11px] text-faint">
+          <span className="flex items-center gap-1.5">
+            <span aria-hidden="true" className="h-[2px] w-4 rounded-full bg-brand" />
+            Preview stream
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span aria-hidden="true" className="w-4 border-t border-dashed border-off" />
+            Prior close
+          </span>
+          <Chip tone="muted">Preview</Chip>
         </span>
       </div>
 
@@ -142,7 +151,7 @@ function CurvePanel({ family }: { family: CurveFamily }) {
               />
               <span
                 style={{ top }}
-                className="tnum absolute left-0 -translate-y-1/2 bg-app pr-1.5 font-mono text-xs text-off"
+                className="tnum absolute left-0 -translate-y-1/2 bg-panel pr-1.5 font-mono text-xs text-off"
               >
                 {formatNumber(value, 1)}
               </span>
@@ -193,10 +202,10 @@ function CurvePanel({ family }: { family: CurveFamily }) {
             >
               <span
                 aria-hidden="true"
-                className="h-[7px] w-[7px] rotate-45 border border-brand bg-app"
+                className="h-[7px] w-[7px] rotate-45 border border-brand bg-panel"
               />
               <span
-                className={`tnum bg-app px-1 whitespace-nowrap font-mono text-xs text-dim ${labelShift(point.left)}`}
+                className={`tnum bg-panel px-1 whitespace-nowrap font-mono text-xs text-dim ${labelShift(point.left)}`}
               >
                 {point.market.tenorLabel}
               </span>
@@ -298,7 +307,7 @@ function CurveTable({
                 {`${formatLots(market.firmDepthLots)} lots`}
               </td>
               <td className="px-2">
-                <QualificationTag market={market} />
+                <QualificationTag market={market} bare />
               </td>
             </tr>
           ))}

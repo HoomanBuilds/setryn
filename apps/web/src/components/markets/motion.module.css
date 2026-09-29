@@ -1,0 +1,133 @@
+/*
+ * Local motion for the markets and portfolio surfaces. Everything is short and
+ * eased out, so the page settles instead of performing. Reduced motion drops
+ * every animation here, on top of the global clamp.
+ */
+
+.enter {
+  animation: enter 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.fade {
+  animation: fade 180ms ease-out both;
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* A price tick tints its cell for a moment, then returns to the resting tone. */
+.flashUp {
+  animation: flashUp 460ms ease-out;
+}
+
+.flashDown {
+  animation: flashDown 460ms ease-out;
+}
+
+@keyframes flashUp {
+  from {
+    background-color: color-mix(in srgb, var(--color-up) 9%, transparent);
+    color: var(--color-up);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+@keyframes flashDown {
+  from {
+    background-color: color-mix(in srgb, var(--color-down) 9%, transparent);
+    color: var(--color-down);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+/* The live dot breathes rather than blinks. */
+.pulse {
+  animation: pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--color-raised);
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--color-ink) 5%, transparent),
+    transparent
+  );
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* The sparkline draws in once, left to right, when its row first mounts. */
+.draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: draw 620ms cubic-bezier(0.3, 0.6, 0.2, 1) 80ms forwards;
+}
+
+@keyframes draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .enter,
+  .fade,
+  .flashUp,
+  .flashDown,
+  .pulse,
+  .skeleton::after {
+    animation: none;
+  }
+
+  .draw {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}

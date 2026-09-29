@@ -1,10 +1,12 @@
 "use client";
 
+import { Chip } from "@/components/markets/ui";
 import {
   Figure,
   FigureGrid,
   NUM,
   Panel,
+  ROW,
   ShareBar,
   StackRow,
   StateTag,
@@ -17,6 +19,7 @@ import {
   formatCompactUsd,
   formatExpiry,
   formatMultiple,
+  formatNumber,
   formatShare,
   formatSignedCompactUsd,
   formatSignedUsd,
@@ -60,7 +63,14 @@ export function ExposurePanel({
   return (
     <Panel
       title="Exposure concentration"
-      note={`By ${label.toLowerCase()}, package notional`}
+      note={
+        <>
+          <Chip tone="muted" title="Modeled reference observations, not live risk limits.">
+            Reference
+          </Chip>
+          {`By ${label.toLowerCase()}, package notional`}
+        </>
+      }
       aside={aside}
     >
       <div className={WIDE}>
@@ -68,10 +78,10 @@ export function ExposurePanel({
           <caption className="sr-only">
             Gross and net package notional by underlying, with the collateral allocated to each.
           </caption>
-          <thead className="bg-panel">
+          <thead>
             <tr className="border-b border-line">
               <th scope="col" className={TH}>
-                {label}
+                {label.replace(/ reference$/, "")}
               </th>
               <th scope="col" className={`${TH} w-[92px] text-right`}>
                 Gross
@@ -87,9 +97,9 @@ export function ExposurePanel({
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-line-soft">
+          <tbody>
             {groups.map((group) => (
-              <tr key={group.id}>
+              <tr key={group.id} className={ROW}>
                 <th scope="row" className={`${TD} h-9 text-left font-normal text-ink`}>
                   <span className="flex items-baseline gap-2">
                     <span className="truncate">{group.label}</span>
@@ -113,7 +123,7 @@ export function ExposurePanel({
             ))}
           </tbody>
           <tfoot>
-            <tr className="border-t border-line bg-inset">
+            <tr className="border-t border-line bg-inset/60">
               <th scope="row" className={`${TD} h-9 text-left font-normal text-dim`}>
                 Book
               </th>
@@ -167,7 +177,18 @@ export function ExposurePanel({
 
 export function ScenarioMatrix({ results }: { results: ScenarioResult[] }) {
   return (
-    <Panel title="Scenario risk" note="Modeled shocks, not observed prices">
+    <Panel
+      title="Scenario risk"
+      note={
+        <>
+          <Chip tone="muted" title="Modeled shocks, not observed prices.">
+            Modeled
+          </Chip>
+          Package-price shocks by risk domain
+        </>
+      }
+      delay={40}
+    >
       <div className={WIDE}>
         <table className={`${TABLE} min-w-[430px] table-fixed`}>
           <caption className="sr-only">
@@ -175,7 +196,7 @@ export function ScenarioMatrix({ results }: { results: ScenarioResult[] }) {
             post-stress headroom over maintenance margin, and health factor. The binding scenario
             is the one that leaves the least headroom.
           </caption>
-          <thead className="bg-panel">
+          <thead>
             <tr className="border-b border-line">
               <th scope="col" className={TH}>
                 Scenario
@@ -191,9 +212,9 @@ export function ScenarioMatrix({ results }: { results: ScenarioResult[] }) {
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-line-soft">
+          <tbody>
             {results.map((result) => (
-              <tr key={result.scenario.id} className={result.binding ? "bg-raised" : undefined}>
+              <tr key={result.scenario.id} className={`${ROW} ${result.binding ? "bg-raised/70" : ""}`}>
                 <th scope="row" className={`${TD} relative py-2 text-left font-normal`}>
                   {result.binding ? (
                     <span
@@ -205,10 +226,10 @@ export function ScenarioMatrix({ results }: { results: ScenarioResult[] }) {
                     <span className="flex items-baseline gap-2">
                       <span className="truncate text-xs text-ink">{result.scenario.label}</span>
                       {result.binding ? (
-                        <span className="shrink-0 text-xs text-brand">Binding</span>
+                        <Chip tone="brand">Binding</Chip>
                       ) : null}
                     </span>
-                    <span className="truncate text-xs text-off" title={result.scenario.narrative}>
+                    <span className="truncate text-[11px] text-off" title={result.scenario.narrative}>
                       {result.scenario.narrative}
                     </span>
                   </span>
@@ -230,9 +251,7 @@ export function ScenarioMatrix({ results }: { results: ScenarioResult[] }) {
             <div className="flex min-w-0 flex-col">
               <span className="flex items-baseline justify-between gap-2">
                 <span className="truncate text-[13px] text-ink">{result.scenario.label}</span>
-                {result.binding ? (
-                  <span className="shrink-0 text-xs text-brand">Binding</span>
-                ) : null}
+                {result.binding ? <Chip tone="brand">Binding</Chip> : null}
               </span>
               <span className="text-xs leading-snug text-off">{result.scenario.narrative}</span>
             </div>
@@ -254,14 +273,25 @@ export function ScenarioMatrix({ results }: { results: ScenarioResult[] }) {
 
 export function ExpiryLadderPanel({ rungs }: { rungs: LadderRung[] }) {
   return (
-    <Panel title="Expiry and cash ladder" note="Collateral released at each fixing">
+    <Panel
+      title="Expiry and cash ladder"
+      note={
+        <>
+          <Chip tone="muted" title="Modeled reference observations, not live account state.">
+            Reference
+          </Chip>
+          Collateral released at each fixing
+        </>
+      }
+      delay={80}
+    >
       <div className={WIDE}>
         <table className={`${TABLE} min-w-[720px] table-fixed`}>
           <caption className="sr-only">
             Maturing packages by expiry, with collateral released, terminal residual cash, and the
             available collateral that results once each rung settles.
           </caption>
-          <thead className="bg-panel">
+          <thead>
             <tr className="border-b border-line">
               <th scope="col" className={`${TH} w-[108px]`}>
                 Expiry
@@ -286,9 +316,9 @@ export function ExpiryLadderPanel({ rungs }: { rungs: LadderRung[] }) {
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-line-soft">
+          <tbody>
             {rungs.map((rung) => (
-              <tr key={rung.expiryIso}>
+              <tr key={rung.expiryIso} className={ROW}>
                 <th scope="row" className={`${TD} h-10 text-left font-normal`}>
                   <span className="flex flex-col">
                     <span className="tnum font-mono text-xs text-ink">
@@ -352,7 +382,10 @@ export function CollateralPanel({
   reserved,
   available,
   className,
+  unit = "USDC",
 }: {
+  /** The account's collateral asset; balances are never assumed to be USDC. */
+  unit?: string;
   lines: CollateralLine[];
   eligible: number;
   reserved: number;
@@ -362,7 +395,14 @@ export function CollateralPanel({
   return (
     <Panel
       title="Collateral inventory"
-      note="Haircut applied before it counts as margin"
+      note={
+        <>
+          <Chip tone="muted" title="Read from the onchain collateral vault.">
+            Onchain
+          </Chip>
+          Haircut applied before it counts as margin
+        </>
+      }
       className={className}
     >
       <div className={WIDE}>
@@ -371,7 +411,7 @@ export function CollateralPanel({
             Posted collateral by asset, with the haircut applied before it counts as margin, the
             amount already reserved against positions, and how each line can be withdrawn.
           </caption>
-          <thead className="bg-panel">
+          <thead>
             <tr className="border-b border-line">
               <th scope="col" className={`${TH} w-[190px]`}>
                 Asset
@@ -396,20 +436,20 @@ export function CollateralPanel({
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-line-soft">
+          <tbody>
             {lines.map((line) => (
-              <tr key={line.asset.id}>
+              <tr key={line.asset.id} className={ROW}>
                 <th scope="row" className={`${TD} h-10 text-left font-normal`}>
                   <span className="flex min-w-0 flex-col">
                     <span className="truncate text-xs text-ink">{line.asset.asset}</span>
                     <span className="truncate text-xs text-off">{line.asset.source}</span>
                   </span>
                 </th>
-                <td className={`${NUM} text-dim`}>{formatUsd(line.asset.value, 0)}</td>
+                <td className={`${NUM} text-dim`}>{`${formatNumber(line.asset.value, 0)} ${unit}`}</td>
                 <td className={`${NUM} text-dim`}>{formatShare(line.asset.haircut, 0)}</td>
-                <td className={`${NUM} text-ink`}>{formatUsd(line.eligible, 0)}</td>
-                <td className={`${NUM} text-dim`}>{formatUsd(line.asset.reserved, 0)}</td>
-                <td className={`${NUM} text-dim`}>{formatUsd(line.available, 0)}</td>
+                <td className={`${NUM} text-ink`}>{`${formatNumber(line.eligible, 0)} ${unit}`}</td>
+                <td className={`${NUM} text-dim`}>{`${formatNumber(line.asset.reserved, 0)} ${unit}`}</td>
+                <td className={`${NUM} text-dim`}>{`${formatNumber(line.available, 0)} ${unit}`}</td>
                 <td className={TD} title={line.asset.withdrawalNote}>
                   <span className="flex min-w-0 flex-col">
                     <span className="truncate text-dim">
@@ -422,15 +462,15 @@ export function CollateralPanel({
             ))}
           </tbody>
           <tfoot>
-            <tr className="border-t border-line bg-inset">
+            <tr className="border-t border-line bg-inset/60">
               <th scope="row" className={`${TD} h-9 text-left font-normal text-dim`}>
                 Total
               </th>
               <td className={`${NUM} text-off`} />
               <td className={`${NUM} text-off`} />
-              <td className={`${NUM} text-ink`}>{formatUsd(eligible, 0)}</td>
-              <td className={`${NUM} text-dim`}>{formatUsd(reserved, 0)}</td>
-              <td className={`${NUM} text-dim`}>{formatUsd(available, 0)}</td>
+              <td className={`${NUM} text-ink`}>{`${formatNumber(eligible, 0)} ${unit}`}</td>
+              <td className={`${NUM} text-dim`}>{`${formatNumber(reserved, 0)} ${unit}`}</td>
+              <td className={`${NUM} text-dim`}>{`${formatNumber(available, 0)} ${unit}`}</td>
               <td className={`${TD} text-off`} />
             </tr>
           </tfoot>
@@ -450,11 +490,11 @@ export function CollateralPanel({
               </span>
             </div>
             <FigureGrid cols={2}>
-              <Figure label="Posted" value={formatUsd(line.asset.value, 0)} />
+              <Figure label="Posted" value={`${formatNumber(line.asset.value, 0)} ${unit}`} />
               <Figure label="Haircut" value={formatShare(line.asset.haircut, 0)} />
-              <Figure label="Eligible" value={formatUsd(line.eligible, 0)} valueTone="text-ink" />
-              <Figure label="Reserved" value={formatUsd(line.asset.reserved, 0)} />
-              <Figure label="Available" value={formatUsd(line.available, 0)} />
+              <Figure label="Eligible" value={`${formatNumber(line.eligible, 0)} ${unit}`} valueTone="text-ink" />
+              <Figure label="Reserved" value={`${formatNumber(line.asset.reserved, 0)} ${unit}`} />
+              <Figure label="Available" value={`${formatNumber(line.available, 0)} ${unit}`} />
             </FigureGrid>
             <p className="text-xs leading-snug text-off">{line.asset.withdrawalNote}</p>
           </StackRow>

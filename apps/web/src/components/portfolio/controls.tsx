@@ -54,9 +54,9 @@ export function ControlRow({
   note: string;
 }) {
   return (
-    <div className="flex h-[60px] shrink-0 items-center gap-3 border-b border-line bg-panel px-3 lg:h-12 lg:px-4">
+    <div className="flex h-[60px] shrink-0 items-center gap-3 border-b border-line-soft px-3 lg:h-11 lg:px-4">
       {children}
-      <span className="ml-auto shrink-0 text-xs whitespace-nowrap text-faint">{note}</span>
+      <span className="ml-auto shrink-0 text-[11px] whitespace-nowrap text-faint">{note}</span>
     </div>
   );
 }

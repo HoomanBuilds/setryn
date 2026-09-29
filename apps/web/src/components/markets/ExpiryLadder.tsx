@@ -15,6 +15,7 @@ import {
 } from "@/lib/terminal/format";
 import { groupByUnderlying, settlementShort, spreadOf } from "@/lib/terminal/discovery";
 import { tradeHref } from "@/lib/terminal/markets";
+import { motion } from "@/components/markets/ui";
 import type { PackageMarket } from "@/lib/terminal/types";
 
 /* Expiry and qualification are the two free-text tracks, so the width a desk
@@ -34,7 +35,7 @@ function HeadCell({
 }) {
   return (
     <span
-      className={`truncate text-xs text-faint ${align === "right" ? "text-right" : ""} ${className}`}
+      className={`truncate text-[11px] text-faint ${align === "right" ? "text-right" : ""} ${className}`}
     >
       {children}
     </span>
@@ -55,8 +56,10 @@ export function ExpiryLadder({ markets }: { markets: PackageMarket[] }) {
   const groups = groupByUnderlying(markets);
 
   return (
-    <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
-      <div className={`${RUNG} sticky top-0 z-20 hidden h-8 border-b border-line bg-panel lg:grid`}>
+    <div className="min-w-0">
+      <div
+        className={`${RUNG} sticky top-[var(--sticky-top,0px)] z-[15] hidden h-8 border-b border-line bg-panel lg:grid`}
+      >
         <HeadCell align="left">Tenor</HeadCell>
         <HeadCell align="left">Expiry</HeadCell>
         <HeadCell>Net</HeadCell>
@@ -75,7 +78,7 @@ export function ExpiryLadder({ markets }: { markets: PackageMarket[] }) {
         const unit = groupUnit(group.markets);
         return (
           <section key={group.underlying}>
-            <h2 className="sticky top-0 z-10 flex h-9 items-center gap-2.5 border-b border-line bg-inset px-3 lg:top-8 lg:px-4">
+            <h2 className="sticky top-[var(--sticky-top,0px)] z-10 flex h-8 items-center gap-2.5 border-b border-line bg-inset px-3 lg:top-[calc(var(--sticky-top,0px)+32px)] lg:px-4">
               <span className="shrink-0 text-[13px] font-semibold text-ink">
                 {group.underlying}
               </span>
@@ -91,9 +94,8 @@ export function ExpiryLadder({ markets }: { markets: PackageMarket[] }) {
                 key={market.id}
                 href={tradeHref(market)}
                 aria-label={`Open the ${market.name} terminal, ${market.tenorLabel}`}
-                className={`focus-ring group block border-b border-line-soft transition-colors hover:bg-raised ${
-                  index % 2 === 1 ? "bg-panel/45" : "bg-app"
-                }`}
+                style={{ animationDelay: `${Math.min(index, 10) * 16}ms` }}
+                className={`${motion.enter} focus-ring group block border-b border-line-soft bg-panel transition-colors duration-150 hover:bg-raised/70`}
               >
                 <CompactRung market={market} />
                 <DenseRung market={market} />
@@ -129,7 +131,7 @@ function CompactRung({ market }: { market: PackageMarket }) {
         </span>
       </span>
       <span className="flex items-baseline justify-between gap-3">
-        <QualificationTag market={market} />
+        <QualificationTag market={market} bare />
         <Delta
           value={changePercent(market.netPrice, market.priorNetPrice)}
           className="shrink-0 text-xs"
@@ -141,7 +143,7 @@ function CompactRung({ market }: { market: PackageMarket }) {
 
 function DenseRung({ market }: { market: PackageMarket }) {
   return (
-    <span className={`${RUNG} hidden h-9 lg:grid`}>
+    <span className={`${RUNG} hidden h-8 lg:grid`}>
       <span className="tnum truncate font-mono text-xs text-ink">{market.tenorLabel}</span>
 
       <span className="flex min-w-0 items-baseline gap-2">
@@ -176,7 +178,7 @@ function DenseRung({ market }: { market: PackageMarket }) {
         {`${formatLots(market.openInterestLots)} lots`}
       </span>
 
-      <QualificationTag market={market} />
+      <QualificationTag market={market} bare />
 
       <SourceMarks market={market} />
 

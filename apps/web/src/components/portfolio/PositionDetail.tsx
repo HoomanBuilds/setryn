@@ -1,9 +1,11 @@
 "use client";
 
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
+import { Chip } from "@/components/markets/ui";
 import { DivergingBar, StateTag, TABLE } from "@/components/portfolio/panels";
-import { SectionLabel, tone } from "@/components/terminal/primitives";
+import { tone } from "@/components/terminal/primitives";
 import {
   formatCompactUsd,
   formatExpiry,
@@ -26,10 +28,14 @@ const COMPONENTS: { key: keyof Omit<PnlBreakdown, "total">; label: string }[] = 
   { key: "residual", label: "Residual" },
 ];
 
+function Heading({ children }: { children: ReactNode }) {
+  return <h4 className="text-xs font-medium text-dim">{children}</h4>;
+}
+
 function Figure({ label, value, valueTone = "text-ink" }: { label: string; value: string; valueTone?: string }) {
   return (
     <div className="flex min-w-0 flex-col">
-      <span className="truncate text-xs text-faint">{label}</span>
+      <span className="truncate text-[11px] text-faint">{label}</span>
       <span className={`tnum truncate font-mono text-xs ${valueTone}`}>{value}</span>
     </div>
   );
@@ -172,57 +178,59 @@ export function PositionDetail({
 
   return (
     <div className="flex min-w-0 flex-col gap-4 px-3 py-3 lg:px-4">
-      <div className="min-w-0">
+      <div className="flex min-w-0 flex-col gap-2.5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             {variant === "pane" ? (
-              <h3 className="truncate text-sm text-ink">{position.label}</h3>
+              <h3 className="text-sm leading-5 font-medium text-ink">{position.label}</h3>
             ) : null}
-            <p className="tnum truncate font-mono text-xs text-faint">
+            <p className="tnum truncate font-mono text-[11px] text-faint">
               {`${position.market.code} / ${position.id}`}
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {position.exitHref ? (
-              <Link
-                href={position.exitHref}
-                aria-label={`Exit the ${position.label} package in the terminal`}
-                className="focus-ring flex h-11 shrink-0 items-center gap-1 rounded-md border border-line px-2 text-xs text-dim transition-colors hover:border-line-strong hover:text-ink lg:h-8"
-              >
-                Exit package
-                <ArrowUpRight size={13} aria-hidden="true" className="shrink-0" />
-              </Link>
-            ) : null}
-            <Link
-              href={position.href}
-              aria-label={`Open the ${position.label} terminal`}
-              className="focus-ring flex h-11 shrink-0 items-center gap-1.5 rounded-md border border-line px-2.5 text-xs text-dim transition-colors hover:border-line-strong hover:text-ink lg:h-8"
-            >
-              Manage package
-              <ArrowUpRight size={13} aria-hidden="true" className="shrink-0" />
-            </Link>
-          </div>
+          <StateTag state={position.state} />
         </div>
 
-        <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <StateTag state={position.state} />
-          <span className="text-xs text-faint">{position.market.strategyLabel}</span>
-          <span className="text-xs text-off">{positionOrigin(position)}</span>
-          <span className="tnum font-mono text-xs text-off">
-            {`${formatExpiry(position.market.expiryIso)}, ${position.daysToExpiry}d`}
-          </span>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Chip tone="muted">{position.market.strategyLabel}</Chip>
+          <Chip tone="muted">{positionOrigin(position)}</Chip>
+          <Chip tone="muted">
+            <span className="tnum font-mono">{`${formatExpiry(position.market.expiryIso)}, ${position.daysToExpiry}d`}</span>
+          </Chip>
         </div>
+
+        <div className={`grid gap-2 ${position.exitHref ? "grid-cols-2" : "grid-cols-1"}`}>
+          <Link
+            href={position.href}
+            aria-label={`Open the ${position.label} terminal`}
+            className="focus-ring flex h-11 items-center justify-center gap-1.5 rounded-md border border-line-strong bg-raised px-2.5 text-xs text-ink transition-colors duration-150 hover:border-brand-edge lg:h-8"
+          >
+            Manage package
+            <ArrowUpRight size={13} aria-hidden="true" className="shrink-0" />
+          </Link>
+          {position.exitHref ? (
+            <Link
+              href={position.exitHref}
+              aria-label={`Exit the ${position.label} package in the terminal`}
+              className="focus-ring flex h-11 items-center justify-center gap-1 rounded-md border border-line px-2 text-xs text-dim transition-colors duration-150 hover:border-down/50 hover:text-down lg:h-8"
+            >
+              Exit package
+              <ArrowUpRight size={13} aria-hidden="true" className="shrink-0" />
+            </Link>
+          ) : null}
+        </div>
+
         {position.receiptId ? (
           <Link
             href={`/activity/receipts/${position.receiptId}`}
-            className="focus-ring mt-2 inline-flex text-xs text-dim underline underline-offset-2 hover:text-ink"
+            className="focus-ring inline-flex self-start text-xs text-dim underline underline-offset-2 hover:text-ink"
           >
             Inspect execution receipt
           </Link>
         ) : null}
       </div>
 
-      <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 border-y border-line py-2.5">
+      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-line-soft bg-line-soft [&>div]:bg-panel [&>div]:px-2.5 [&>div]:py-1.5">
         <Figure
           label="Size"
           value={`${formatSigned(position.signedLots, 0)} lots`}
@@ -260,10 +268,10 @@ export function PositionDetail({
 
       <div className="min-w-0">
         <div className="flex items-baseline justify-between gap-3">
-          <SectionLabel>PnL attribution</SectionLabel>
-          <span className="truncate text-xs text-off">
+          <Heading>PnL attribution</Heading>
+          <Chip tone="muted">
             {position.source === "ONCHAIN_RUNTIME" ? "Development feed mark" : "Reference observation"}
-          </span>
+          </Chip>
         </div>
         <div className="mt-1">
           <Attribution selected={position.pnl} portfolio={portfolioPnl} label={position.label} />
@@ -272,8 +280,8 @@ export function PositionDetail({
 
       <div className="min-w-0">
         <div className="flex items-baseline justify-between gap-3">
-          <SectionLabel>Leg decomposition</SectionLabel>
-          <span className="truncate text-xs text-off">
+          <Heading>Leg decomposition</Heading>
+          <span className="truncate text-[11px] text-off">
             {`${position.market.legs.length} legs, one package`}
           </span>
         </div>
@@ -282,8 +290,8 @@ export function PositionDetail({
         </div>
       </div>
 
-      <div className="min-w-0 border-t border-line pt-2.5">
-        <SectionLabel>Next lifecycle event</SectionLabel>
+      <div className="min-w-0 border-t border-line-soft pt-2.5">
+        <Heading>Next lifecycle event</Heading>
         <p className="mt-1 text-xs leading-relaxed text-dim">{position.nextEvent}</p>
       </div>
     </div>

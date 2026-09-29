@@ -9,7 +9,7 @@ import type { PackageMarket, Qualification } from "@/lib/terminal/types";
 
 /**
  * Native select: it is keyboard and screen-reader complete on every platform,
- * and the closed control restates its dimension so five of them stay readable.
+ * and the closed control restates its dimension so several of them stay readable.
  */
 export function FilterSelect({
   label,
@@ -36,11 +36,13 @@ export function FilterSelect({
         id={id}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className={`focus-ring h-11 w-full min-w-0 appearance-none truncate rounded-md border bg-raised pr-7 pl-2.5 text-xs transition-colors lg:h-8 ${
-          selected ? "border-brand-edge text-ink" : "border-line text-dim hover:border-line-strong"
+        className={`focus-ring h-11 w-full min-w-0 cursor-pointer appearance-none truncate rounded-md border pr-7 pl-2.5 text-xs transition-colors duration-150 lg:h-7 ${
+          selected
+            ? "border-brand-edge bg-brand-soft text-ink"
+            : "border-line bg-inset text-dim hover:border-line-strong hover:text-ink"
         }`}
       >
-        <option value={ANY}>{`${label}: any`}</option>
+        <option value={ANY}>{`${label}: all`}</option>
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {`${label}: ${option.label} (${option.count})`}
@@ -48,9 +50,9 @@ export function FilterSelect({
         ))}
       </select>
       <ChevronDown
-        size={13}
+        size={12}
         aria-hidden="true"
-        className="pointer-events-none absolute right-2 shrink-0 text-faint"
+        className={`pointer-events-none absolute right-2 shrink-0 ${selected ? "text-brand" : "text-faint"}`}
       />
     </span>
   );
@@ -68,34 +70,34 @@ export function SearchField({
   className?: string;
 }) {
   return (
-    <span className={`relative flex min-w-0 items-center ${className}`}>
+    <span className={`group relative flex min-w-0 items-center ${className}`}>
       <Search
-        size={14}
+        size={13}
         aria-hidden="true"
-        className="pointer-events-none absolute left-2.5 shrink-0 text-faint"
+        className="pointer-events-none absolute left-2.5 shrink-0 text-faint transition-colors group-focus-within:text-brand"
       />
       <input
         ref={inputRef}
         type="search"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        placeholder="Search markets"
+        placeholder="Search name, code, tenor"
         aria-label="Search package markets by name, code, underlying, strategy, tenor, settlement, or fixing source"
-        className="focus-ring h-11 w-full min-w-0 rounded-md border border-line bg-raised pr-16 pl-8 text-sm text-ink transition-colors placeholder:text-off hover:border-line-strong lg:h-8 lg:text-xs"
+        className="focus-ring h-11 w-full min-w-0 rounded-md border border-line bg-inset pr-10 pl-8 text-sm text-ink transition-colors duration-150 placeholder:text-off hover:border-line-strong focus:border-brand-edge lg:h-7 lg:text-xs [&::-webkit-search-cancel-button]:hidden"
       />
       {value ? (
         <button
           type="button"
           onClick={() => onChange("")}
           aria-label="Clear search"
-          className="focus-ring absolute right-1 grid h-9 w-9 place-items-center rounded-sm text-faint transition-colors hover:text-ink lg:h-6 lg:w-6"
+          className="focus-ring absolute right-1 grid h-9 w-9 place-items-center rounded-sm text-faint transition-colors hover:text-ink lg:h-5 lg:w-5"
         >
-          <X size={13} aria-hidden="true" />
+          <X size={12} aria-hidden="true" />
         </button>
       ) : (
         <kbd
           aria-hidden="true"
-          className="pointer-events-none absolute right-2 hidden rounded-sm border border-line px-1.5 text-xs text-off lg:block"
+          className="pointer-events-none absolute right-2 hidden h-4 min-w-4 place-items-center rounded-sm border border-line px-1 font-mono text-[10px] leading-none text-off lg:grid"
         >
           /
         </kbd>
@@ -104,26 +106,33 @@ export function SearchField({
   );
 }
 
-const QUALIFICATION_TONE: Record<Qualification, string> = {
-  QUALIFIED: "text-dim",
-  CONDITIONAL: "text-brand",
-  SUSPENDED: "text-down",
+const QUALIFICATION_TONE: Record<Qualification, { text: string; dot: string; frame: string }> = {
+  QUALIFIED: { text: "text-dim", dot: "bg-dim", frame: "border-line" },
+  CONDITIONAL: { text: "text-brand", dot: "bg-brand", frame: "border-brand-edge/60 bg-brand-soft" },
+  SUSPENDED: { text: "text-down", dot: "bg-down", frame: "border-down/30 bg-down-soft" },
 };
 
-/** Qualification is a risk state, so it borrows the accent, never the up/down pair. */
+/** Qualification is a risk state, so it borrows the accent, never the up/down pair for a pass. */
 export function QualificationTag({
   market,
   className = "",
+  bare = false,
 }: {
   market: PackageMarket;
   className?: string;
+  /** Text and dot only, for dense stacked rows. */
+  bare?: boolean;
 }) {
+  const tone = QUALIFICATION_TONE[market.qualification];
   return (
     <span
       title={market.qualificationNote}
-      className={`truncate text-xs ${QUALIFICATION_TONE[market.qualification]} ${className}`}
+      className={`inline-flex min-w-0 items-center gap-1.5 text-[11px] leading-none whitespace-nowrap ${tone.text} ${
+        bare ? "" : `h-[18px] rounded-sm border px-1.5 ${tone.frame}`
+      } ${className}`}
     >
-      {QUALIFICATION_LABEL[market.qualification]}
+      <span aria-hidden="true" className={`h-[5px] w-[5px] shrink-0 rounded-full ${tone.dot}`} />
+      <span className="truncate">{QUALIFICATION_LABEL[market.qualification]}</span>
     </span>
   );
 }

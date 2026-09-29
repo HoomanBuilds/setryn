@@ -15,34 +15,38 @@ const VIEWS = [
  * a pasted address all land where they say they do. Overview matches exactly
  * because its path is a prefix of every other view.
  */
-export function PortfolioNav() {
+export function PortfolioNav({ counts = {} }: { counts?: Partial<Record<string, number>> }) {
   const pathname = usePathname();
 
   return (
-    <nav aria-label="Portfolio views" className="shrink-0 border-b border-line bg-panel">
-      <div className="flex px-1 lg:px-3">
-        {VIEWS.map((view) => {
-          const active = pathname === view.href;
-          return (
-            <Link
-              key={view.href}
-              href={view.href}
-              aria-current={active ? "page" : undefined}
-              className={`focus-ring relative flex h-11 min-w-0 flex-1 items-center justify-center px-1 text-sm whitespace-nowrap transition-colors lg:h-9 lg:flex-none lg:px-3 ${
-                active ? "text-ink" : "text-faint hover:text-dim"
+    <nav aria-label="Portfolio views" className="no-scrollbar flex min-w-0 overflow-x-auto">
+      {VIEWS.map((view) => {
+        const active = pathname === view.href;
+        const count = counts[view.href];
+        return (
+          <Link
+            key={view.href}
+            href={view.href}
+            aria-current={active ? "page" : undefined}
+            className={`focus-ring relative flex h-11 min-w-0 flex-1 items-center justify-center gap-1.5 px-2 text-[13px] whitespace-nowrap transition-colors duration-150 lg:h-10 lg:flex-none lg:px-3 ${
+              active ? "text-ink" : "text-faint hover:text-dim"
+            }`}
+          >
+            {view.label}
+            {count !== undefined ? (
+              <span className={`tnum font-mono text-[10.5px] ${active ? "text-dim" : "text-off"}`}>
+                {count}
+              </span>
+            ) : null}
+            <span
+              aria-hidden="true"
+              className={`absolute inset-x-2 bottom-0 h-[2px] origin-center rounded-t-sm bg-brand transition-transform duration-200 ease-out ${
+                active ? "scale-x-100" : "scale-x-0"
               }`}
-            >
-              {view.label}
-              <span
-                aria-hidden="true"
-                className={`absolute inset-x-1 bottom-0 h-[2px] rounded-t-sm lg:inset-x-2 ${
-                  active ? "bg-brand" : "bg-transparent"
-                }`}
-              />
-            </Link>
-          );
-        })}
-      </div>
+            />
+          </Link>
+        );
+      })}
     </nav>
   );
 }

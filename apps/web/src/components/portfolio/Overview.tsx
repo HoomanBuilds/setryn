@@ -1,28 +1,33 @@
 "use client";
 
 import Link from "next/link";
-import { useGatewaySnapshot } from "@/components/gateway/InternalGatewayProvider";
-import { usePreviewBoard } from "@/components/terminal/PreviewMarketProvider";
+import { ArrowUpRight } from "lucide-react";
+import { Chip } from "@/components/markets/ui";
 import {
   Aggregate,
   DivergingBar,
+  EmptyBook,
+  NUM,
   Panel,
   PlaneFooter,
   PlaneNote,
-  ShareBar,
+  ROW,
+  STICKY_HEAD,
   StateTag,
   TABLE,
+  TD,
+  TH,
 } from "@/components/portfolio/panels";
-import { SummaryStrip, type SummaryMetric } from "@/components/portfolio/SummaryStrip";
-import { DataRow, tone } from "@/components/terminal/primitives";
+import { usePortfolio } from "@/components/portfolio/usePortfolio";
+import { tone } from "@/components/terminal/primitives";
 import {
   formatCompactUsd,
-  formatMultiple,
-  formatShare,
+  formatPrice,
+  formatSigned,
   formatSignedUsd,
-  formatUsd,
+  priceUnitSuffix,
 } from "@/lib/terminal/format";
-import { portfolioRuntime, positionOrigin } from "@/lib/portfolio/runtime";
+import { positionOrigin } from "@/lib/portfolio/runtime";
 import type { PnlBreakdown, Position } from "@/lib/portfolio/types";
 
 const COMPONENTS: { key: keyof Omit<PnlBreakdown, "total">; label: string }[] = [
@@ -33,150 +38,174 @@ const COMPONENTS: { key: keyof Omit<PnlBreakdown, "total">; label: string }[] = 
   { key: "residual", label: "Residual" },
 ];
 
-function Metrics({ portfolio }: { portfolio: ReturnType<typeof portfolioRuntime> }) {
-  const { account, runtimePnl } = portfolio;
-  const metrics: SummaryMetric[] = [
-    {
-      label: "Account equity",
-      value: formatUsd(account.equity, 0),
-      note: "runtime account value",
-    },
-    {
-      label: "Eligible collateral",
-      value: formatUsd(account.eligible, 0),
-      note: "USDC only in this session",
-    },
-    {
-      label: "Reserved",
-      value: formatUsd(account.reserved, 0),
-      note: `${formatShare(account.marginUsage)} of eligible`,
-    },
-    {
-      label: "Available",
-      value: formatUsd(account.available, 0),
-      note: `${formatSignedUsd(runtimePnl.total, 0)} runtime PnL`,
-      noteTone: tone(runtimePnl.total),
-    },
-  ];
-  return <SummaryStrip metrics={metrics} />;
-}
+const ACTION =
+  "focus-ring flex h-11 items-center gap-1.5 rounded-md border px-3 text-[13px] transition-colors duration-150 lg:h-8 lg:text-xs";
 
 function PositionRows({ positions }: { positions: Position[] }) {
   if (positions.length === 0) {
     return (
-      <div className="px-3 py-7 text-center text-xs text-faint lg:px-4">
-        No runtime packages yet. Reference observations remain available in the full position book.
-      </div>
+      <EmptyBook title="No open packages in this account">
+        <Link href="/markets" className={`${ACTION} border-line-strong bg-raised text-ink hover:border-brand-edge`}>
+          Browse markets
+        </Link>
+        <Link href="/trade" className={`${ACTION} border-line text-dim hover:border-line-strong hover:text-ink`}>
+          Open the terminal
+          <ArrowUpRight size={13} aria-hidden="true" />
+        </Link>
+      </EmptyBook>
     );
   }
   return (
-    <table className={`${TABLE} min-w-[600px] table-fixed`}>
-      <thead className="bg-panel text-faint">
-        <tr className="border-b border-line">
-          <th className="h-8 px-3 text-left text-xs font-normal">Package</th>
-          <th className="h-8 px-2 text-right text-xs font-normal">Lots</th>
-          <th className="h-8 px-2 text-right text-xs font-normal">Entry</th>
-          <th className="h-8 px-2 text-right text-xs font-normal">PnL</th>
-          <th className="h-8 px-3 text-left text-xs font-normal">Lifecycle</th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-line-soft">
-        {positions.map((position) => (
-          <tr key={position.id} className="hover:bg-raised/60">
-            <th className="px-3 py-2 text-left text-xs font-normal">
-              <Link href={position.href} className="focus-ring flex min-w-0 flex-col">
-                <span className="truncate text-ink">{position.label}</span>
-                <span className="truncate font-mono text-xs text-faint">{positionOrigin(position)}</span>
-              </Link>
-            </th>
-            <td className={`px-2 py-2 text-right font-mono text-xs ${position.side === "LONG" ? "text-up" : "text-down"}`}>
-              {`${position.signedLots > 0 ? "+" : ""}${position.signedLots}`}
-            </td>
-            <td className="px-2 py-2 text-right font-mono text-xs text-dim">{position.entryPrice.toLocaleString()}</td>
-            <td className={`px-2 py-2 text-right font-mono text-xs ${tone(position.pnl.total)}`}>
-              {formatSignedUsd(position.pnl.total, 0)}
-            </td>
-            <td className="px-3 py-2 text-xs"><StateTag state={position.state} /></td>
+    <>
+      <table className={`${TABLE} hidden min-w-[640px] md:table`}>
+        <caption className="sr-only">Active account packages with size, entry, mark, and profit and loss.</caption>
+        <thead>
+          <tr>
+            <th scope="col" className={`${TH} ${STICKY_HEAD}`}>Package</th>
+            <th scope="col" className={`${TH} ${STICKY_HEAD} text-right`}>Size</th>
+            <th scope="col" className={`${TH} ${STICKY_HEAD} text-right`}>Entry</th>
+            <th scope="col" className={`${TH} ${STICKY_HEAD} text-right`}>Mark</th>
+            <th scope="col" className={`${TH} ${STICKY_HEAD} text-right`}>PnL</th>
+            <th scope="col" className={`${TH} ${STICKY_HEAD}`}>Lifecycle</th>
           </tr>
+        </thead>
+        <tbody>
+          {positions.map((position) => (
+            <tr key={position.id} className={ROW}>
+              <th scope="row" className={`${TD} h-10 font-normal`}>
+                <Link href={position.href} className="focus-ring flex min-w-0 flex-col rounded-sm">
+                  <span className="truncate text-[13px] leading-4 text-ink">{position.label}</span>
+                  <span className="truncate text-[11px] leading-[14px] text-faint">{positionOrigin(position)}</span>
+                </Link>
+              </th>
+              <td className={`${NUM} ${position.side === "LONG" ? "text-up" : "text-down"}`}>
+                {`${formatSigned(position.signedLots, 0)} lots`}
+              </td>
+              <td className={`${NUM} text-dim`}>{formatPrice(position.entryPrice, position.market)}</td>
+              <td className={`${NUM} text-ink`}>
+                {formatPrice(position.markPrice, position.market)}
+                <span className="ml-1 text-[10px] text-off">{priceUnitSuffix(position.market.priceUnit)}</span>
+              </td>
+              <td className={`${NUM} ${tone(position.pnl.total)}`}>{formatSignedUsd(position.pnl.total, 0)}</td>
+              <td className={TD}>
+                <StateTag state={position.state} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <ul className="md:hidden">
+        {positions.map((position) => (
+          <li key={position.id} className="border-b border-line-soft last:border-b-0">
+            <Link href={position.href} className="focus-ring flex min-h-14 items-center gap-3 px-3 py-2.5">
+              <span className="flex min-w-0 flex-1 flex-col gap-1">
+                <span className="truncate text-sm text-ink">{position.label}</span>
+                <span className="flex items-center gap-2 text-[11px]">
+                  <span className={`tnum font-mono ${position.side === "LONG" ? "text-up" : "text-down"}`}>
+                    {`${formatSigned(position.signedLots, 0)} lots`}
+                  </span>
+                  <StateTag state={position.state} />
+                </span>
+              </span>
+              <span className="flex shrink-0 flex-col items-end gap-1">
+                <span className={`tnum font-mono text-[13px] ${tone(position.pnl.total)}`}>
+                  {formatSignedUsd(position.pnl.total, 0)}
+                </span>
+                <span className="tnum font-mono text-[11px] text-faint">
+                  {`${formatPrice(position.entryPrice, position.market)} → ${formatPrice(position.markPrice, position.market)}`}
+                </span>
+              </span>
+            </Link>
+          </li>
         ))}
+      </ul>
+    </>
+  );
+}
+
+function Attribution({ pnl }: { pnl: PnlBreakdown }) {
+  const scale = Math.max(...COMPONENTS.map((component) => Math.abs(pnl[component.key])), 1);
+  return (
+    <table className={TABLE}>
+      <caption className="sr-only">Account profit and loss by component, marked against the development market feed.</caption>
+      <tbody>
+        {COMPONENTS.map((component) => {
+          const value = pnl[component.key];
+          return (
+            <tr key={component.key} className={ROW}>
+              <th scope="row" className={`${TD} h-8 font-normal text-dim`}>{component.label}</th>
+              <td className="w-[36%] px-2">
+                <DivergingBar value={value} scale={scale} />
+              </td>
+              <td className={`${NUM} ${tone(value)}`}>{formatSignedUsd(value, 0)}</td>
+            </tr>
+          );
+        })}
+        <tr className="border-t border-line">
+          <th scope="row" className={`${TD} h-9 font-medium text-ink`}>Total</th>
+          <td />
+          <td className={`${NUM} font-medium ${tone(pnl.total)}`}>{formatSignedUsd(pnl.total, 0)}</td>
+        </tr>
       </tbody>
     </table>
   );
 }
 
-function RuntimeHealth({ portfolio }: { portfolio: ReturnType<typeof portfolioRuntime> }) {
-  const { account, runtimePnl } = portfolio;
-  const scale = Math.max(...COMPONENTS.map((component) => Math.abs(runtimePnl[component.key])), 1);
-  return (
-    <aside className="flex min-w-0 flex-col border-line lg:border-l">
-      <Panel title="Runtime account" note="Observable local session state">
-        <div className="px-3 py-3 lg:px-4">
-          <div className="flex items-baseline justify-between gap-3">
-            <span className="text-xs text-dim">Reservation utilisation</span>
-            <span className="font-mono text-sm text-ink">{formatShare(account.marginUsage)}</span>
-          </div>
-          <div className="mt-2 mb-3"><ShareBar value={account.marginUsage} /></div>
-          <div className="divide-y divide-line border-t border-line">
-            <DataRow label="Posted" value={formatUsd(account.postedValue, 0)} />
-            <DataRow label="Eligible" value={formatUsd(account.eligible, 0)} />
-            <DataRow label="Reserved" value={formatUsd(account.reserved, 0)} />
-            <DataRow label="Available" value={formatUsd(account.available, 0)} />
-            <DataRow label="Runtime packages" value={String(portfolio.runtimePositions.length)} />
-            <DataRow
-              label="Maintenance health"
-              value={account.maintenanceMargin === 0 ? "No active requirement" : formatMultiple(account.healthFactor)}
-              tone="muted"
-            />
-          </div>
-        </div>
-      </Panel>
-      <Panel title="Account PnL" note="Marked against the current development market feed">
-        <table className={TABLE}>
-          <tbody className="divide-y divide-line-soft">
-            {COMPONENTS.map((component) => {
-              const value = runtimePnl[component.key];
-              return (
-                <tr key={component.key}>
-                  <th className="px-3 py-2 text-left text-xs font-normal text-dim lg:px-4">{component.label}</th>
-                  <td className="w-[34%] px-2 py-2"><DivergingBar value={value} scale={scale} /></td>
-                  <td className={`px-3 py-2 text-right font-mono text-xs lg:px-4 ${tone(value)}`}>{formatSignedUsd(value, 0)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </Panel>
-    </aside>
-  );
-}
-
 export function OverviewView() {
-  const snapshot = useGatewaySnapshot();
-  const { markets } = usePreviewBoard();
-  const portfolio = portfolioRuntime(snapshot, markets);
+  const { portfolio } = usePortfolio();
 
   return (
-    <div className="scroll-thin flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto lg:overflow-hidden">
-      <Metrics portfolio={portfolio} />
-      <div className="flex min-w-0 flex-col lg:min-h-0 lg:flex-1 lg:flex-row lg:overflow-hidden">
-        <section className="scroll-thin flex min-w-0 flex-1 flex-col lg:overflow-y-auto">
+    <div className="flex min-w-0 flex-col">
+      <div className="grid min-w-0 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <Panel
+          title="Active packages"
+          note="Reconstructed from the connected account"
+          aside={
+            <Link
+              href="/portfolio/positions"
+              className="focus-ring flex items-center gap-1 rounded-sm text-xs text-dim transition-colors hover:text-ink"
+            >
+              Full book
+              <ArrowUpRight size={12} aria-hidden="true" />
+            </Link>
+          }
+        >
+          <PositionRows positions={portfolio.runtimePositions} />
+        </Panel>
+        <div className="border-t border-line lg:border-t-0 lg:border-l">
           <Panel
-            title="Active packages"
-            note="Reconstructed from the connected account"
-            aside={<Link href="/portfolio/positions" className="focus-ring text-xs text-dim hover:text-ink">Full book</Link>}
+            title="PnL attribution"
+            note={<Chip tone="muted">Preview marks</Chip>}
+            delay={40}
           >
-            <div className="scroll-thin overflow-x-auto"><PositionRows positions={portfolio.runtimePositions} /></div>
+            <Attribution pnl={portfolio.runtimePnl} />
           </Panel>
-          <PlaneFooter>
-            <Aggregate label="Gross exposure" value={formatCompactUsd(portfolio.runtimeGross)} />
-            <Aggregate label="Net exposure" value={formatSignedUsd(portfolio.runtimeNet, 0)} valueTone={tone(portfolio.runtimeNet)} />
-            <Aggregate label="Account PnL" value={formatSignedUsd(portfolio.runtimePnl.total, 0)} valueTone={tone(portfolio.runtimePnl.total)} />
-          </PlaneFooter>
-        </section>
-        <RuntimeHealth portfolio={portfolio} />
+        </div>
       </div>
-      <PlaneNote>
-        Balances and reservations are read from the local onchain account. Position marks use the current development market feed and are not oracle settlement values.
+      <PlaneFooter>
+        <Aggregate label="Gross exposure" value={formatCompactUsd(portfolio.runtimeGross)} />
+        <Aggregate
+          label="Net exposure"
+          value={formatSignedUsd(portfolio.runtimeNet, 0)}
+          valueTone={tone(portfolio.runtimeNet)}
+        />
+        <Aggregate
+          label="Account PnL"
+          value={formatSignedUsd(portfolio.runtimePnl.total, 0)}
+          valueTone={tone(portfolio.runtimePnl.total)}
+        />
+      </PlaneFooter>
+      <PlaneNote
+        chips={
+          <>
+            <Chip tone="muted">Onchain balances</Chip>
+            <Chip tone="muted">Preview marks</Chip>
+          </>
+        }
+      >
+        Balances and reservations are read from the local onchain account. Position marks use the
+        current development market feed and are not oracle settlement values.
       </PlaneNote>
     </div>
   );
