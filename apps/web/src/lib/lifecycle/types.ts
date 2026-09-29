@@ -1,4 +1,4 @@
-import type { Guarantee, PackageLeg, PackageMarket, Provenance, Qualification } from "@/lib/terminal/types";
+import type { Guarantee, PackageLeg, PackageMarket, Provenance } from "@/lib/terminal/types";
 
 export type LifecycleHealth = "HEALTHY" | "ATTENTION" | "WINDOW_OPEN";
 

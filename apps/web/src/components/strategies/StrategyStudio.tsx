@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ArrowUpRight, Check, Layers3, Plus, ShieldCheck, X } from "lucide-react";
@@ -105,10 +105,6 @@ function nextLegId(legs: DraftLeg[]): string {
   return `draft-leg-${legs.length + 1}-${Date.now().toString(36)}`;
 }
 
-function priceDecimals(mark: number, unit: InstrumentOption["markUnit"]): number {
-  if (unit === "USD" && mark < 10) return 4;
-  return unit === "USD" ? 2 : 1;
-}
 
 function valueAtMove(market: PackageMarket, move: number): number {
   let closest = market.payoff[0];
@@ -355,7 +351,7 @@ function StudioContent() {
   }
   const catalog = useMemo(() => instrumentCatalog(), []);
   const catalogById = useMemo(() => new Map(catalog.map((instrument) => [instrument.id, instrument])), [catalog]);
-  const [selectedInstrument, setSelectedInstrument] = useState("");
+  const [instrumentChoice, setSelectedInstrument] = useState("");
   const compiled = useMemo(() => compilePackageDraft(draft), [draft]);
   const availableInstruments = useMemo(
     () =>
@@ -367,10 +363,10 @@ function StudioContent() {
     [catalog, compiled.market.settlementClass, draft.legs],
   );
 
-  useEffect(() => {
-    if (availableInstruments.some((instrument) => instrument.id === selectedInstrument)) return;
-    setSelectedInstrument(availableInstruments[0]?.id ?? "");
-  }, [availableInstruments, selectedInstrument]);
+  // The choice falls back to the first instrument that still fits the draft, derived rather than synced.
+  const selectedInstrument = availableInstruments.some((instrument) => instrument.id === instrumentChoice)
+    ? instrumentChoice
+    : (availableInstruments[0]?.id ?? "");
 
   const chooseMarket = (marketId: string) => {
     const market = findMarket(marketId);

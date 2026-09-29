@@ -18,7 +18,6 @@ import {
   type Hex,
 } from "viem";
 import { executableAction, limitCrosses } from "@/lib/terminal/economics";
-import type { PackageMarket } from "@/lib/terminal/types";
 import {
   orderStateAbi,
   atomicClearingAbi,
@@ -1007,7 +1006,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     return cancelled;
   }
 
-  reconcileRestingOrders(_markets: readonly PackageMarket[]): RestingPackageOrder[] {
+  reconcileRestingOrders(): RestingPackageOrder[] {
     return this.snapshot.restingOrders;
   }
 
