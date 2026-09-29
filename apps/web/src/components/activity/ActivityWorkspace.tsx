@@ -1,336 +1,138 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import {
-  CheckCircle2,
-  CircleAlert,
-  Clock3,
-  FileSearch,
-  Filter,
-  RadioTower,
-  Search,
-  ShieldCheck,
-} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowUpRight, Download, FileSearch, Search, Wallet, X } from "lucide-react";
 import { useGatewaySnapshot } from "@/components/gateway/InternalGatewayProvider";
-import { SectionLabel, StatusDot } from "@/components/terminal/primitives";
-import { activityAttemptsFromGateway, type ActivityAttemptView, type ActivityResultState } from "@/lib/activity/types";
-import { formatLots, formatNumber, formatUsd, priceUnitSuffix } from "@/lib/terminal/format";
-import { findMarket } from "@/lib/terminal/markets";
+import { Tabs } from "@/components/terminal/primitives";
+import { activityAttemptsFromGateway } from "@/lib/activity/types";
+import { formatCompactUsd, formatLots } from "@/lib/terminal/format";
+import { DEFAULT_TRADE_HREF } from "@/lib/terminal/markets";
+import {
+  BUTTON_INK,
+  BUTTON_QUIET,
+  Chip,
+  EnvironmentChip,
+  Kpi,
+  KpiStrip,
+  PageHeader,
+  Panel,
+  motion,
+  useNow,
+  useWalletPrompt,
+} from "./ledger-ui";
+import {
+  ATTEMPT_FILTERS,
+  ORDER_FILTERS,
+  matchesAttemptFilter,
+  matchesOrderFilter,
+  orderRouteLabel,
+  toCsvCell,
+  type AttemptFilter,
+  type OrderFilter,
+} from "./activity-view";
+import { FillsBlotter, OrdersBlotter } from "./ActivityBlotters";
+import { AttemptDetail, DataNotes, EmptyDetail, OrderDetail } from "./ActivityDetail";
 
-type ActivityFilter = "ALL" | "TERMINAL" | "SIMULATED" | "UNKNOWN";
+type ActivityTab = "FILLS" | "ORDERS";
 
-const FILTERS: Array<{ id: ActivityFilter; label: string }> = [
-  { id: "ALL", label: "All attempts" },
-  { id: "TERMINAL", label: "Terminal" },
-  { id: "SIMULATED", label: "Simulation" },
-  { id: "UNKNOWN", label: "Unknown" },
-];
-
-function shortHash(value: string): string {
-  if (value.length <= 18) return value;
-  return `${value.slice(0, 10)}...${value.slice(-6)}`;
-}
-
-function timestamp(value: string | null): string {
-  if (!value) return "Not recorded";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Unavailable";
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(date);
-}
-
-function resultLabel(result: ActivityResultState): string {
-  if (result === "COMPLETE") return "Complete";
-  if (result === "SIMULATED") return "Simulated";
-  if (result === "FAILED") return "Failed";
-  return "Unknown";
-}
-
-function resultClass(result: ActivityResultState): string {
-  if (result === "COMPLETE") return "text-up";
-  if (result === "SIMULATED") return "text-brand";
-  if (result === "FAILED") return "text-down";
-  return "text-dim";
-}
-
-function ResultMark({ result }: { result: ActivityResultState }) {
-  if (result === "COMPLETE") return <CheckCircle2 size={14} aria-hidden="true" />;
-  if (result === "FAILED") return <CircleAlert size={14} aria-hidden="true" />;
-  if (result === "UNKNOWN") return <Clock3 size={14} aria-hidden="true" />;
-  return <RadioTower size={14} aria-hidden="true" />;
-}
-
-function ResultState({ result }: { result: ActivityResultState }) {
-  return (
-    <span className={`inline-flex items-center gap-1.5 text-xs ${resultClass(result)}`}>
-      <ResultMark result={result} />
-      {resultLabel(result)}
-    </span>
-  );
-}
-
-function HashValue({ value, title }: { value: string; title: string }) {
-  return (
-    <span title={`${title}: ${value}`} className="block max-w-full truncate font-mono text-xs text-dim">
-      {shortHash(value)}
-    </span>
-  );
-}
-
-function Surface({
+function FilterPills<T extends string>({
+  items,
+  value,
+  counts,
+  onChange,
   label,
-  action,
-  children,
-  className = "",
 }: {
+  items: Array<{ id: T; label: string }>;
+  value: T;
+  counts: Record<T, number>;
+  onChange: (id: T) => void;
   label: string;
-  action?: React.ReactNode;
-  children: React.ReactNode;
-  className?: string;
 }) {
   return (
-    <section className={`min-w-0 border border-line bg-panel ${className}`}>
-      <div className="flex min-h-10 items-center justify-between gap-3 border-b border-line px-3 py-2">
-        <SectionLabel>{label}</SectionLabel>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function SummaryStrip({ attempts }: { attempts: ActivityAttemptView[] }) {
-  const terminal = attempts.filter((attempt) => attempt.result === "COMPLETE" || attempt.result === "SIMULATED").length;
-  const unknown = attempts.filter((attempt) => attempt.result === "UNKNOWN").length;
-  const receipts = attempts.filter((attempt) => attempt.receipt).length;
-
-  return (
-    <section className="grid border border-line bg-panel sm:grid-cols-3">
-      <div className="border-b border-line px-3 py-3 sm:border-r sm:border-b-0">
-        <span className="text-xs text-faint">Recorded attempts</span>
-        <strong className="mt-1 block font-mono text-lg font-medium text-ink">{attempts.length}</strong>
-        <p className="mt-1 text-xs text-faint">{terminal} terminal outcome{terminal === 1 ? "" : "s"}</p>
-      </div>
-      <div className="border-b border-line px-3 py-3 sm:border-r sm:border-b-0">
-        <span className="text-xs text-faint">Receipt records</span>
-        <strong className="mt-1 block font-mono text-lg font-medium text-ink">{receipts}</strong>
-        <p className="mt-1 text-xs text-faint">Runtime evidence only</p>
-      </div>
-      <div className="px-3 py-3">
-        <span className="text-xs text-faint">Unresolved state</span>
-        <strong className={`mt-1 block font-mono text-lg font-medium ${unknown > 0 ? "text-down" : "text-ink"}`}>{unknown}</strong>
-        <p className="mt-1 text-xs text-faint">Unknown results require reconciliation</p>
-      </div>
-    </section>
-  );
-}
-
-function Ledger({
-  attempts,
-  selectedId,
-  onSelect,
-}: {
-  attempts: ActivityAttemptView[];
-  selectedId: string | null;
-  onSelect: (id: string) => void;
-}) {
-  if (attempts.length === 0) {
-    return (
-      <div className="flex min-h-[290px] flex-col items-center justify-center px-5 text-center">
-        <FileSearch size={20} aria-hidden="true" className="text-faint" />
-        <p className="mt-3 text-sm text-ink">No package attempts match this view.</p>
-        <p className="mt-1 max-w-md text-xs leading-relaxed text-faint">
-          A submitted package will appear here with its runtime chronology and local receipt. Indexed event data will replace this source when a chain adapter is connected.
-        </p>
-        <Link
-          href="/trade/BTC-YC-24DEC26"
-          className="focus-ring mt-4 inline-flex h-9 items-center rounded-md border border-line px-3 text-xs text-dim transition-colors hover:border-line-strong hover:text-ink"
-        >
-          Open package market
-        </Link>
-      </div>
-    );
-  }
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[910px] border-collapse text-left">
-        <thead className="border-b border-line text-xs text-faint">
-          <tr>
-            <th className="px-3 py-2 font-medium">Attempt</th>
-            <th className="px-3 py-2 font-medium">Outcome</th>
-            <th className="px-3 py-2 text-right font-medium">Size</th>
-            <th className="px-3 py-2 text-right font-medium">Price</th>
-            <th className="px-3 py-2 font-medium">Route</th>
-            <th className="px-3 py-2 font-medium">Evidence</th>
-            <th className="px-3 py-2 text-right font-medium">Recorded</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-line">
-          {attempts.map((attempt) => {
-            const market = findMarket(attempt.marketId);
-            const selected = selectedId === attempt.id;
-            return (
-              <tr key={attempt.id} className={selected ? "bg-raised" : "hover:bg-raised/70"}>
-                <td colSpan={7} className="p-0">
-                  <button
-                    type="button"
-                    onClick={() => onSelect(attempt.id)}
-                    className="focus-ring grid w-full grid-cols-[minmax(170px,1.2fr)_130px_90px_110px_minmax(180px,1.15fr)_minmax(150px,1fr)_120px] items-center text-left transition-colors"
-                  >
-                    <span className="min-w-0 px-3 py-2.5">
-                      <span className="block truncate text-sm text-ink">{`${attempt.packageCode} · ${attempt.packageSide === "SHORT" ? "Short" : "Long"}`}</span>
-                      <HashValue value={attempt.orderHash} title="Order hash" />
-                    </span>
-                    <span className="px-3 py-2.5"><ResultState result={attempt.result} /></span>
-                    <span className="px-3 py-2.5 text-right font-mono text-xs text-ink">{attempt.cancelledLots > 1e-9 ? `${formatLots(attempt.filledLots)} of ${formatLots(attempt.requestedLots)} ${attempt.packageSide === "SHORT" ? "Short" : "Long"}` : `${formatLots(attempt.filledLots)} ${attempt.packageSide === "SHORT" ? "Short" : "Long"}`}</span>
-                    <span className="px-3 py-2.5 text-right font-mono text-xs text-dim">
-                      {market ? `${formatNumber(attempt.price, market.priceDecimals)} ${priceUnitSuffix(market.priceUnit)}` : formatNumber(attempt.price, 2)}
-                    </span>
-                    <span className="min-w-0 px-3 py-2.5">
-                      <span className="block truncate text-xs text-dim">{attempt.routeLabel}</span>
-                      <span className="block truncate text-xs text-faint">{attempt.guarantee}</span>
-                    </span>
-                    <span className="min-w-0 px-3 py-2.5">
-                      <span className="block truncate text-xs text-dim">{attempt.source.toLowerCase()} / {attempt.evidence.toLowerCase()}</span>
-                      <span className="block truncate text-xs text-faint">{attempt.freshness.label}</span>
-                    </span>
-                    <span className="px-3 py-2.5 text-right font-mono text-xs text-dim">{timestamp(attempt.createdAt)}</span>
-                  </button>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function DetailRow({ label, value, hint }: { label: string; value: React.ReactNode; hint?: string }) {
-  return (
-    <div className="grid grid-cols-[minmax(105px,0.7fr)_minmax(0,1.3fr)] gap-3 border-b border-line px-3 py-2.5 last:border-b-0">
-      <span className="text-xs text-faint">{label}</span>
-      <span className="min-w-0 text-right text-xs text-ink" title={hint}>{value}</span>
-    </div>
-  );
-}
-
-function AttemptDetail({ attempt }: { attempt: ActivityAttemptView | null }) {
-  if (!attempt) {
-    return (
-      <Surface label="Attempt detail">
-        <div className="flex min-h-[230px] items-center px-4 text-sm text-faint">Select an attempt to inspect its execution record.</div>
-      </Surface>
-    );
-  }
-
-  const market = findMarket(attempt.marketId);
-  const referenceLabel = attempt.result === "SIMULATED" ? "Runtime reference" : "Transaction reference";
-  const outcomeLabel = attempt.outcome === "CLOSED" ? "Closed" : attempt.outcome === "REDUCED" ? "Reduced" : "Opened";
-  const sideLabel = attempt.packageSide === "SHORT" ? "Short" : "Long";
-
-  return (
-    <Surface
-      label="Attempt detail"
-      action={<ResultState result={attempt.result} />}
-    >
-      <div className="border-b border-line px-3 py-3">
-        <p className="truncate text-sm text-ink">{attempt.packageCode}</p>
-        <p className="mt-1 text-xs text-faint">{attempt.environment} / {attempt.source.toLowerCase()} source</p>
-      </div>
-
-      <DetailRow label="Outcome" value={`${outcomeLabel} ${sideLabel}`} />
-      <DetailRow label="Package side" value={attempt.packageSide} />
-      <DetailRow label="Order hash" value={<HashValue value={attempt.orderHash} title="Order hash" />} hint={attempt.orderHash} />
-      <DetailRow label="Route" value={attempt.routeLabel} />
-      <DetailRow label="Fill" value={attempt.cancelledLots > 1e-9 ? `${formatLots(attempt.filledLots)} of ${formatLots(attempt.requestedLots)} lots ${sideLabel.toLowerCase()} at ${market ? `${formatNumber(attempt.price, market.priceDecimals)} ${priceUnitSuffix(market.priceUnit)}` : formatNumber(attempt.price, 2)}, ${formatLots(attempt.cancelledLots)} cancelled` : `${formatLots(attempt.filledLots)} lots ${sideLabel.toLowerCase()} at ${market ? `${formatNumber(attempt.price, market.priceDecimals)} ${priceUnitSuffix(market.priceUnit)}` : formatNumber(attempt.price, 2)}`} />
-      <DetailRow label="Fees" value={formatUsd(attempt.feeAmount, 2)} />
-      <DetailRow label="Guarantee" value={attempt.guarantee} />
-      <DetailRow label="Evidence" value={`${attempt.evidence.toLowerCase()} / ${attempt.freshness.label}`} hint={attempt.freshness.detail} />
-
-      {attempt.receipt ? (
-        <div className="border-t border-line p-3">
-          <p className="text-xs text-faint">{referenceLabel}</p>
-          <HashValue value={attempt.receipt.transactionReference} title={referenceLabel} />
-          <p className="mt-2 text-xs leading-relaxed text-faint">
-            {attempt.result === "SIMULATED"
-              ? "This identifier belongs to a local simulation and is not an onchain transaction."
-              : "This is the transaction reference emitted by the connected development chain."}
-          </p>
-          <Link
-            href={attempt.receipt.href}
-            className="focus-ring mt-3 flex h-9 items-center justify-center rounded-md border border-line text-xs text-dim transition-colors hover:border-line-strong hover:text-ink"
+    <div role="radiogroup" aria-label={label} className="no-scrollbar flex min-w-0 gap-1 overflow-x-auto">
+      {items.map((item) => {
+        const active = item.id === value;
+        return (
+          <button
+            key={item.id}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            onClick={() => onChange(item.id)}
+            className={`focus-ring inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-xs transition-colors duration-150 ${
+              active
+                ? "border-line-strong bg-raised text-ink"
+                : "border-transparent text-faint hover:bg-raised/60 hover:text-dim"
+            }`}
           >
-            Open execution receipt
+            {item.label}
+            <span className={`tnum font-mono text-[11px] ${active ? "text-dim" : "text-off"}`}>{counts[item.id]}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function BlotterEmpty({ kind, filtered }: { kind: ActivityTab; filtered: boolean }) {
+  const wallet = useWalletPrompt();
+  if (!wallet.connected && !filtered) {
+    return (
+      <div className={`flex flex-col items-center px-6 py-14 text-center ${motion.fade}`}>
+        <Wallet size={18} aria-hidden="true" className="text-faint" />
+        <p className="mt-3 text-sm text-ink">Connect a wallet to load package activity.</p>
+        <p className="mt-1 max-w-md text-xs leading-relaxed text-faint">
+          Fills, orders, and receipts are reconstructed from the connected development chain for your account.
+        </p>
+        <div className="mt-4 flex gap-2">
+          <button type="button" onClick={wallet.connect} disabled={wallet.connecting} className={BUTTON_INK}>
+            {wallet.connecting ? "Connecting..." : "Connect wallet"}
+          </button>
+          <Link href={DEFAULT_TRADE_HREF} className={BUTTON_QUIET}>
+            Open package market
           </Link>
         </div>
-      ) : null}
-    </Surface>
-  );
-}
-
-function Chronology({ attempt }: { attempt: ActivityAttemptView | null }) {
-  if (!attempt) {
-    return (
-      <Surface label="Execution chronology">
-        <div className="px-3 py-4 text-xs text-faint">No attempt selected.</div>
-      </Surface>
+        {wallet.error ? <p className="mt-2 text-xs text-down">{wallet.error}</p> : null}
+      </div>
     );
   }
-
   return (
-    <Surface
-      label="Execution chronology"
-      action={<span className="text-xs text-faint">{attempt.steps.length} recorded steps</span>}
-    >
-      <ol className="divide-y divide-line">
-        {attempt.steps.map((step, index) => (
-          <li key={`${attempt.id}-${step.id}`} className="grid grid-cols-[24px_minmax(0,1fr)_auto] gap-2 px-3 py-2.5">
-            <span className={`mt-0.5 flex h-4 w-4 items-center justify-center rounded-full border ${attempt.result === "FAILED" ? "border-down text-down" : "border-line-strong text-up"}`}>
-              {attempt.result === "FAILED" && index === attempt.steps.length - 1 ? <CircleAlert size={10} aria-hidden="true" /> : <CheckCircle2 size={10} aria-hidden="true" />}
-            </span>
-            <span className="min-w-0">
-              <span className="block text-xs text-ink">{step.label}</span>
-              <span className="mt-0.5 block text-xs leading-relaxed text-faint">{step.detail}</span>
-              {step.transactionReference ? <HashValue value={step.transactionReference} title="Runtime reference" /> : null}
-            </span>
-            <span className="whitespace-nowrap font-mono text-xs text-faint">{index === attempt.steps.length - 1 ? timestamp(step.occurredAt) : "Sequence"}</span>
-          </li>
-        ))}
-      </ol>
-    </Surface>
+    <div className={`flex flex-col items-center px-6 py-14 text-center ${motion.fade}`}>
+      <FileSearch size={18} aria-hidden="true" className="text-faint" />
+      <p className="mt-3 text-sm text-ink">
+        {kind === "FILLS" ? "No package attempts match this view." : "No package orders match this view."}
+      </p>
+      <p className="mt-1 max-w-md text-xs leading-relaxed text-faint">
+        {kind === "FILLS"
+          ? "A submitted package will appear here with its runtime chronology and local receipt. Indexed event data will replace this source when a chain adapter is connected."
+          : "Every signed package order registered by your account appears here with its fill progress and final state."}
+      </p>
+      {!filtered ? (
+        <Link href={DEFAULT_TRADE_HREF} className={`${BUTTON_QUIET} mt-4`}>
+          Open package market
+          <ArrowUpRight size={12} aria-hidden="true" />
+        </Link>
+      ) : null}
+    </div>
   );
-}
-
-function matchesFilter(attempt: ActivityAttemptView, filter: ActivityFilter): boolean {
-  if (filter === "ALL") return true;
-  if (filter === "SIMULATED") return attempt.result === "SIMULATED";
-  if (filter === "UNKNOWN") return attempt.result === "UNKNOWN";
-  return attempt.result === "COMPLETE" || attempt.result === "SIMULATED" || attempt.result === "FAILED";
-}
-
-function toCsvCell(value: string | number | null | undefined): string {
-  if (value === null || value === undefined) return "";
-  const text = String(value);
-  if (text.includes("\"") || text.includes(",") || text.includes("\n") || text.includes("\r")) {
-    return "\"" + text.replaceAll("\"", "\"\"") + "\"";
-  }
-  return text;
 }
 
 export function ActivityWorkspace() {
   const snapshot = useGatewaySnapshot();
+  const now = useNow(15_000);
   const attempts = useMemo(() => activityAttemptsFromGateway(snapshot), [snapshot]);
-  const [filter, setFilter] = useState<ActivityFilter>("ALL");
+  const orders = useMemo(
+    () => [...snapshot.restingOrders].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)),
+    [snapshot.restingOrders],
+  );
+  const [tab, setTab] = useState<ActivityTab>("FILLS");
+  const [filter, setFilter] = useState<AttemptFilter>("ALL");
+  const [orderFilter, setOrderFilter] = useState<OrderFilter>("ALL");
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const localReceipts = snapshot.receipts;
   const exportDisabled = localReceipts.length === 0;
 
@@ -376,120 +178,246 @@ export function ActivityWorkspace() {
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
-  const visibleAttempts = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    return attempts.filter((attempt) => {
-      if (!matchesFilter(attempt, filter)) return false;
-      if (!normalized) return true;
-      return [attempt.packageCode, attempt.marketId, attempt.routeLabel, attempt.orderHash, attempt.id]
-        .join(" ")
-        .toLowerCase()
-        .includes(normalized);
-    });
-  }, [attempts, filter, query]);
+  const normalized = query.trim().toLowerCase();
+  const searchedAttempts = useMemo(
+    () =>
+      attempts.filter((attempt) =>
+        !normalized
+          ? true
+          : [attempt.packageCode, attempt.marketId, attempt.routeLabel, attempt.orderHash, attempt.id]
+              .join(" ")
+              .toLowerCase()
+              .includes(normalized),
+      ),
+    [attempts, normalized],
+  );
+  const visibleAttempts = searchedAttempts.filter((attempt) => matchesAttemptFilter(attempt, filter));
+  const attemptCounts = Object.fromEntries(
+    ATTEMPT_FILTERS.map((item) => [item.id, searchedAttempts.filter((attempt) => matchesAttemptFilter(attempt, item.id)).length]),
+  ) as Record<AttemptFilter, number>;
+
+  const searchedOrders = orders.filter((order) =>
+    !normalized
+      ? true
+      : [order.packageCode, order.marketId, orderRouteLabel(order, snapshot), order.orderHash, order.id]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalized),
+  );
+  const visibleOrders = searchedOrders.filter((order) => matchesOrderFilter(order, orderFilter));
+  const orderCounts = Object.fromEntries(
+    ORDER_FILTERS.map((item) => [item.id, searchedOrders.filter((order) => matchesOrderFilter(order, item.id)).length]),
+  ) as Record<OrderFilter, number>;
 
   const selected = visibleAttempts.find((attempt) => attempt.id === selectedId) ?? visibleAttempts[0] ?? null;
+  const selectedOrder = visibleOrders.find((order) => order.id === selectedOrderId) ?? visibleOrders[0] ?? null;
+
+  const terminal = attempts.filter((attempt) => attempt.result === "COMPLETE" || attempt.result === "SIMULATED").length;
+  const unknown = attempts.filter((attempt) => attempt.result === "UNKNOWN").length;
+  const receipts = attempts.filter((attempt) => attempt.receipt).length;
+  const filledLots = attempts.reduce((sum, attempt) => sum + attempt.filledLots, 0);
+  const fees = attempts.reduce((sum, attempt) => sum + attempt.feeAmount, 0);
+  const working = orders.filter((order) => order.state === "WORKING" || order.state === "PARTIALLY_FILLED").length;
+
+  useEffect(() => {
+    if (!sheetOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSheetOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sheetOpen]);
+
+  const selectAttempt = (id: string) => {
+    setSelectedId(id);
+    setSheetOpen(true);
+  };
+  const selectOrder = (id: string) => {
+    setSelectedOrderId(id);
+    setSheetOpen(true);
+  };
+
+  const detail =
+    tab === "FILLS" ? (
+      selected ? (
+        <AttemptDetail attempt={selected} />
+      ) : (
+        <>
+          <EmptyDetail>Select an attempt to inspect its execution record.</EmptyDetail>
+          <DataNotes />
+        </>
+      )
+    ) : selectedOrder ? (
+      <OrderDetail order={selectedOrder} snapshot={snapshot} now={now} />
+    ) : (
+      <>
+        <EmptyDetail>Select an order to inspect its fill progress and receipts.</EmptyDetail>
+        <DataNotes />
+      </>
+    );
 
   return (
-    <main className="scroll-thin min-h-0 flex-1 overflow-y-auto bg-app p-3 sm:p-5 lg:p-6">
-      <div className="mx-auto max-w-[1600px]">
-        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-line pb-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <FileSearch size={17} aria-hidden="true" className="text-dim" />
-              <SectionLabel>Activity explorer</SectionLabel>
-            </div>
-            <h1 className="mt-2 text-xl font-medium text-ink">Package execution ledger</h1>
-            <p className="mt-1 max-w-2xl text-sm leading-relaxed text-dim">
-              Review every package attempt, its result state, recorded runtime steps, and receipt evidence without mistaking local simulation for onchain settlement.
-            </p>
-          </div>
-          <div className="flex items-center gap-2 border border-line bg-panel px-3 py-2">
-            <StatusDot ok />
-            <div>
-              <p className="text-xs text-ink">{snapshot.environment.label}</p>
-              <p className="text-xs text-faint">{snapshot.environment.evidence.toLowerCase()} evidence</p>
-            </div>
-          </div>
-        </div>
+    <main className="scroll-thin min-h-0 flex-1 overflow-y-auto bg-app p-1 lg:flex lg:flex-col lg:overflow-hidden">
+      <div className="flex min-h-full flex-col gap-1 lg:min-h-0 lg:flex-1">
+        <PageHeader
+          eyebrow={
+            <>
+              <FileSearch size={11} aria-hidden="true" />
+              Activity explorer
+            </>
+          }
+          title="Package execution ledger"
+          description="Review every package attempt, its result state, recorded runtime steps, and receipt evidence without mistaking local simulation for onchain settlement."
+          right={
+            <>
+              <Chip tone="muted" title="Attempts come from the first-party browser runtime and connected development chain.">
+                Runtime evidence only
+              </Chip>
+              <EnvironmentChip />
+            </>
+          }
+        >
+          <KpiStrip>
+            <Kpi label="Recorded attempts" value={attempts.length} sub={`${terminal} terminal outcome${terminal === 1 ? "" : "s"}`} />
+            <Kpi label="Filled lots" value={formatLots(filledLots)} sub="across all attempts" />
+            <Kpi label="Fees paid" value={formatCompactUsd(fees)} sub="bounded by fee caps" />
+            <Kpi label="Receipt records" value={receipts} sub="Runtime evidence only" />
+            <Kpi label="Working orders" value={working} sub={`${orders.length} registered`} tone={working > 0 ? "text-brand" : "text-ink"} />
+            <Kpi
+              label="Unresolved state"
+              value={unknown}
+              tone={unknown > 0 ? "text-down" : "text-ink"}
+              sub="Unknown results require reconciliation"
+            />
+          </KpiStrip>
+        </PageHeader>
 
-        <div className="mt-4">
-          <SummaryStrip attempts={attempts} />
-        </div>
+        <div className="grid min-h-0 flex-1 gap-1 lg:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_400px]">
+          <Panel className={`flex min-h-[440px] flex-col lg:min-h-0 ${motion.mount}`} label="Activity blotter">
+            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-line pr-3">
+              <Tabs
+                items={[
+                  { id: "FILLS", label: "Fills", badge: attempts.length },
+                  { id: "ORDERS", label: "Orders", badge: orders.length },
+                ]}
+                value={tab}
+                onChange={(id) => setTab(id as ActivityTab)}
+                idBase="activity"
+                className="no-scrollbar min-w-0 overflow-x-auto"
+              />
+              <div className="flex shrink-0 items-center gap-2">
+                <span className="hidden text-[11px] text-faint xl:block">Local devnet export, not Arbitrum accounting</span>
+                <button
+                  type="button"
+                  onClick={handleExportLocalCsv}
+                  disabled={exportDisabled}
+                  title="Local devnet export, not Arbitrum accounting"
+                  className={`${BUTTON_QUIET} h-7 px-2.5`}
+                >
+                  <Download size={12} aria-hidden="true" />
+                  <span className="hidden sm:inline">Export local CSV</span>
+                  <span className="sm:hidden">CSV</span>
+                </button>
+              </div>
+            </div>
 
-        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-          <div className="min-w-0 space-y-4">
-            <Surface
-              label="Attempt ledger"
-              action={
-                <div className="flex items-center gap-2">
-                  <span className="hidden text-xs text-faint md:block">Local devnet export, not Arbitrum accounting</span>
+            <div className="flex shrink-0 flex-col gap-2 border-b border-line px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+              {tab === "FILLS" ? (
+                <FilterPills items={ATTEMPT_FILTERS} value={filter} counts={attemptCounts} onChange={setFilter} label="Activity result filter" />
+              ) : (
+                <FilterPills items={ORDER_FILTERS} value={orderFilter} counts={orderCounts} onChange={setOrderFilter} label="Order state filter" />
+              )}
+              <label className="flex h-7 w-full items-center gap-2 rounded-md border border-line bg-inset px-2 transition-colors focus-within:border-line-strong sm:w-60">
+                <Search size={13} aria-hidden="true" className="shrink-0 text-faint" />
+                <span className="sr-only">Search activity</span>
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Package, route, hash"
+                  className="min-w-0 flex-1 bg-transparent text-xs text-ink outline-none placeholder:text-off"
+                />
+                {query ? (
                   <button
                     type="button"
-                    onClick={handleExportLocalCsv}
-                    disabled={exportDisabled}
-                    title="Local devnet export, not Arbitrum accounting"
-                    className="focus-ring inline-flex h-7 items-center rounded-md border border-line px-2 text-xs text-dim transition-colors hover:border-line-strong hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={() => setQuery("")}
+                    aria-label="Clear search"
+                    className="focus-ring flex h-5 w-5 items-center justify-center rounded-sm text-faint hover:text-ink"
                   >
-                    Export local CSV
+                    <X size={12} aria-hidden="true" />
                   </button>
-                  <span className="text-xs text-faint">Newest first</span>
-                </div>
-              }
+                ) : null}
+              </label>
+            </div>
+
+            <div
+              id={`activity-panel-${tab}`}
+              role="tabpanel"
+              aria-labelledby={`activity-tab-${tab}`}
+              key={tab}
+              className={`flex min-h-0 flex-1 flex-col ${motion.tabPanel}`}
             >
-              <div className="flex flex-col gap-2 border-b border-line px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-                <div className="no-scrollbar -mx-1 flex min-w-0 overflow-x-auto px-1" role="tablist" aria-label="Activity result filter">
-                  {FILTERS.map((item) => {
-                    const active = filter === item.id;
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        role="tab"
-                        aria-selected={active}
-                        onClick={() => setFilter(item.id)}
-                        className={`focus-ring relative h-8 shrink-0 px-2.5 text-xs transition-colors ${active ? "text-ink" : "text-faint hover:text-dim"}`}
-                      >
-                        {item.label}
-                        <span className={`absolute inset-x-2 bottom-0 h-px ${active ? "bg-brand" : "bg-transparent"}`} />
-                      </button>
-                    );
-                  })}
-                </div>
-                <label className="flex h-8 w-full items-center gap-2 border border-line bg-inset px-2 sm:w-56">
-                  <Search size={13} aria-hidden="true" className="shrink-0 text-faint" />
-                  <span className="sr-only">Search attempts</span>
-                  <input
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder="Package, route, hash"
-                    className="min-w-0 flex-1 bg-transparent text-xs text-ink outline-none placeholder:text-off"
-                  />
-                </label>
-              </div>
-              <Ledger attempts={visibleAttempts} selectedId={selected?.id ?? null} onSelect={setSelectedId} />
-            </Surface>
+              {tab === "FILLS" ? (
+                <FillsBlotter
+                  attempts={visibleAttempts}
+                  now={now}
+                  selectedId={selected?.id ?? null}
+                  onSelect={selectAttempt}
+                  empty={<BlotterEmpty kind="FILLS" filtered={attempts.length > 0} />}
+                />
+              ) : (
+                <OrdersBlotter
+                  orders={visibleOrders}
+                  snapshot={snapshot}
+                  now={now}
+                  selectedId={selectedOrder?.id ?? null}
+                  onSelect={selectOrder}
+                  empty={<BlotterEmpty kind="ORDERS" filtered={orders.length > 0} />}
+                />
+              )}
+            </div>
+            <div className="mt-auto flex h-8 shrink-0 items-center justify-between gap-3 border-t border-line px-3 text-[11px] text-faint">
+              <span className="truncate">Newest first · grouped by UTC day</span>
+              <span className="tnum hidden font-mono sm:block">
+                {tab === "FILLS"
+                  ? `${visibleAttempts.length} of ${attempts.length} attempts`
+                  : `${visibleOrders.length} of ${orders.length} orders`}
+              </span>
+            </div>
+          </Panel>
 
-            <Chronology attempt={selected} />
-          </div>
-
-          <aside className="min-w-0 space-y-4">
-            <AttemptDetail attempt={selected} />
-            <Surface label="Data boundary" action={<ShieldCheck size={14} aria-hidden="true" className="text-faint" />}>
-              <div className="px-3 py-3 text-xs leading-relaxed text-faint">
-                Attempts currently come from the first-party browser runtime. An indexed contract projection can supply the same typed ledger rows later, with source, evidence, freshness, and result state preserved.
-              </div>
-            </Surface>
-            <Surface label="Result handling" action={<Filter size={14} aria-hidden="true" className="text-faint" />}>
-              <div className="divide-y divide-line">
-                <div className="px-3 py-2.5 text-xs text-faint"><span className="text-ink">Complete</span> has terminal evidence.</div>
-                <div className="px-3 py-2.5 text-xs text-faint"><span className="text-brand">Simulated</span> stays local and is never an explorer claim.</div>
-                <div className="px-3 py-2.5 text-xs text-faint"><span className="text-dim">Unknown</span> remains visible until a reconciler resolves it.</div>
-              </div>
-            </Surface>
-          </aside>
+          <Panel as="aside" label="Activity detail" className={`hidden min-h-0 flex-col lg:flex ${motion.mount}`}>
+            <div className="flex h-10 shrink-0 items-center justify-between border-b border-line px-4">
+              <span className="text-sm font-medium text-ink">{tab === "FILLS" ? "Attempt detail" : "Order detail"}</span>
+            </div>
+            {detail}
+          </Panel>
         </div>
       </div>
+
+      {sheetOpen && (tab === "FILLS" ? selected : selectedOrder) ? (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end lg:hidden" role="dialog" aria-modal="true" aria-label="Activity detail">
+          <button
+            type="button"
+            aria-label="Close detail"
+            onClick={() => setSheetOpen(false)}
+            className={`absolute inset-0 bg-app/70 backdrop-blur-[2px] ${motion.scrim}`}
+          />
+          <div className={`relative flex max-h-[88dvh] flex-col overflow-hidden rounded-t-xl border-t border-line-strong bg-panel ${motion.sheet}`}>
+            <div className="flex h-11 shrink-0 items-center justify-between border-b border-line pr-2 pl-4">
+              <span className="text-sm font-medium text-ink">{tab === "FILLS" ? "Attempt detail" : "Order detail"}</span>
+              <button
+                type="button"
+                onClick={() => setSheetOpen(false)}
+                aria-label="Close detail"
+                className="focus-ring flex h-9 w-9 items-center justify-center rounded-md text-faint hover:text-ink"
+              >
+                <X size={16} aria-hidden="true" />
+              </button>
+            </div>
+            {detail}
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

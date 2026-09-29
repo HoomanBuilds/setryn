@@ -1,0 +1,190 @@
+/*
+ * Local motion for the ledger pages (RFQs, activity, receipts, lifecycle).
+ * Everything is short and ease-out, and all of it stands down under reduced motion.
+ */
+
+.mount {
+  animation: rise 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.stagger {
+  animation: rise 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--i, 0) * 28ms);
+}
+
+.fade {
+  animation: fade 160ms ease-out both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Status-change highlight: a lime wash that settles back to the row surface. */
+.flash {
+  animation: flash 900ms ease-out both;
+}
+
+@keyframes flash {
+  0% {
+    background-color: var(--color-brand-soft);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+/* Row hover and selection share one quick transition. */
+.row {
+  transition:
+    background-color 140ms ease-out,
+    box-shadow 140ms ease-out;
+}
+
+.rowSelected {
+  box-shadow: inset 2px 0 0 var(--color-brand);
+}
+
+/* Countdown bars shrink linearly between the one-second ticks. */
+.ttlFill {
+  transform-origin: left center;
+  transition:
+    transform 1s linear,
+    background-color 200ms ease-out;
+}
+
+/* Live dot for requests that are still collecting quotes. */
+.live {
+  position: relative;
+}
+
+.live::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  opacity: 0;
+  animation: ping 1.8s ease-out infinite;
+}
+
+@keyframes ping {
+  0% {
+    opacity: 0.55;
+    transform: scale(0.6);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.6);
+  }
+}
+
+/* Execution timelines reveal completed steps in order. */
+.step {
+  animation: rise 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+
+.rail {
+  transform-origin: top center;
+  animation: grow 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--i, 0) * 70ms + 60ms);
+}
+
+@keyframes grow {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+.progressFill {
+  transform-origin: left center;
+  transition: transform 220ms ease-out;
+}
+
+/* A step node settles in when it completes. */
+.pop {
+  animation: pop 240ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation-delay: calc(var(--i, 0) * 70ms + 40ms);
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Mobile detail sheet. */
+.sheet {
+  animation: sheet 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes sheet {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.scrim {
+  animation: fade 160ms ease-out both;
+}
+
+/* Tab panels cross-fade when the active tab changes. */
+.tabPanel {
+  animation: fade 140ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mount,
+  .stagger,
+  .fade,
+  .flash,
+  .step,
+  .rail,
+  .sheet,
+  .scrim,
+  .tabPanel,
+  .pop {
+    animation: none;
+  }
+
+  .live::after {
+    animation: none;
+    opacity: 0;
+  }
+
+  .row,
+  .ttlFill,
+  .progressFill {
+    transition: none;
+  }
+}

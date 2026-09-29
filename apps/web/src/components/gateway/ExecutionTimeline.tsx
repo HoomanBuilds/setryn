@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { Check, CircleAlert, LoaderCircle } from "lucide-react";
+import { CircleAlert, FileCheck2, LoaderCircle } from "lucide-react";
 import { SectionLabel } from "@/components/terminal/primitives";
+import { StepTimeline, type TimelineStep } from "@/components/activity/StepTimeline";
+import { motion } from "@/components/activity/ledger-ui";
 import { formatLots } from "@/lib/terminal/format";
 import type { OrderExecutionProgress, SubmissionStepId } from "@/lib/internal-gateway/types";
 
@@ -13,10 +15,6 @@ const BASE_STEPS: SubmissionStepId[] = [
   "FILLED",
 ];
 
-function shortHash(value: string): string {
-  return `${value.slice(0, 10)}...${value.slice(-6)}`;
-}
-
 function stateLabel(status: OrderExecutionProgress["status"]): string {
   if (status === "CONNECTING") return "Connecting wallet";
   if (status === "AUTHORIZING") return "Authorizing package";
@@ -25,6 +23,34 @@ function stateLabel(status: OrderExecutionProgress["status"]): string {
   if (status === "COMPLETED") return "Execution complete";
   if (status === "FAILED") return "Execution not completed";
   return "Awaiting authorization";
+}
+
+function pendingLabel(step: SubmissionStepId): string {
+  const text = step.toLowerCase().replace(/_/g, " ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function Header({ status, tone, done, total }: { status: string; tone: string; done: number; total: number }) {
+  const share = total > 0 ? Math.min(1, done / total) : 0;
+  return (
+    <div className="relative border-b border-line">
+      <div className="flex items-center justify-between gap-3 px-3 py-2">
+        <SectionLabel>Execution timeline</SectionLabel>
+        <span className="flex items-center gap-2">
+          <span className={`text-xs ${tone}`}>{status}</span>
+          {total > 0 ? (
+            <span className="tnum font-mono text-[11px] text-faint">{`${done}/${total}`}</span>
+          ) : null}
+        </span>
+      </div>
+      <span aria-hidden="true" className="absolute inset-x-0 bottom-[-1px] h-px overflow-hidden">
+        <span
+          className={`absolute inset-0 ${tone === "text-down" ? "bg-down" : share >= 1 ? "bg-up" : "bg-brand"} ${motion.progressFill}`}
+          style={{ transform: `scaleX(${share})` }}
+        />
+      </span>
+    </div>
+  );
 }
 
 export function ExecutionTimeline({ progress }: { progress: OrderExecutionProgress }) {
@@ -41,26 +67,38 @@ export function ExecutionTimeline({ progress }: { progress: OrderExecutionProgre
         ? restingOrder.remainingLots
         : null;
     const latestReceipt = restingOrder?.receiptId ?? null;
+    const total = restingOrder?.lots ?? 0;
     return (
-      <div className="overflow-hidden rounded-md border border-line-strong bg-raised">
-        <div className="flex items-center justify-between gap-3 border-b border-line px-3 py-2">
-          <SectionLabel>Execution timeline</SectionLabel>
-          <span className="text-xs text-dim">{partial ? "Partially filled" : "Working locally"}</span>
-        </div>
+      <div className={`overflow-hidden rounded-md border border-line-strong bg-raised ${motion.fade}`}>
+        <Header status={partial ? "Partially filled" : "Working locally"} tone="text-brand" done={0} total={0} />
         <div className="px-3 py-2.5 text-xs leading-snug text-dim">
-          <p>{`Resting order ${orderId} is working locally.`}</p>
+          <p className="flex items-center gap-2">
+            <span aria-hidden="true" className={`inline-block h-[6px] w-[6px] shrink-0 rounded-full bg-brand text-brand ${motion.live}`} />
+            <span className="min-w-0">{`Resting order ${orderId} is working locally.`}</span>
+          </p>
           {partial && filled !== null && remaining !== null ? (
-            <p className="mt-1 text-dim">{`${formatLots(filled)} of ${formatLots(restingOrder?.lots ?? 0)} lots filled. ${formatLots(remaining)} lots working${latestReceipt ? `. Latest receipt ${latestReceipt}` : ""}.`}</p>
+            <>
+              <p className="mt-1 text-dim">{`${formatLots(filled)} of ${formatLots(restingOrder?.lots ?? 0)} lots filled. ${formatLots(remaining)} lots working${latestReceipt ? `. Latest receipt ${latestReceipt}` : ""}.`}</p>
+              <span aria-hidden="true" className="relative mt-2 block h-[3px] overflow-hidden rounded-full bg-line-strong">
+                <span
+                  className={`absolute inset-y-0 left-0 rounded-full bg-brand ${motion.progressFill}`}
+                  style={{ width: `${total > 0 ? Math.round((filled / total) * 100) : 0}%` }}
+                />
+              </span>
+            </>
           ) : (
             <p className="mt-1 text-faint">No fill, receipt, or position has been created.</p>
           )}
           {orderId ? (
-            <p className="tnum mt-1 font-mono text-ink">{orderId}</p>
+            <p className="tnum mt-1.5 truncate font-mono text-[11px] text-ink" title={orderId}>
+              {orderId}
+            </p>
           ) : null}
         </div>
       </div>
     );
   }
+
   const updateByStep = new Map(progress.updates.map((update) => [update.step, update]));
   const active = progress.status === "CONNECTING" || progress.status === "AUTHORIZING" || progress.status === "SUBMITTING";
   const positionUpdate = progress.updates.find(
@@ -77,18 +115,32 @@ export function ExecutionTimeline({ progress }: { progress: OrderExecutionProgre
     positionStep,
     "RECEIPT_READY",
   ];
+  const firstPending = active ? steps.findIndex((step) => !updateByStep.has(step)) : -1;
+  const timeline: TimelineStep[] = steps.map((step, index) => {
+    const update = updateByStep.get(step);
+    return {
+      id: step,
+      label: update?.label ?? pendingLabel(step),
+      detail: update?.detail,
+      hash: update?.transactionHash,
+      hashLabel: "Transaction reference",
+      state: update ? "done" : index === firstPending ? "active" : "pending",
+    };
+  });
+  const done = steps.filter((step) => updateByStep.has(step)).length;
+  const failed = progress.status === "FAILED";
 
   return (
     <div className="overflow-hidden rounded-md border border-line-strong bg-raised">
-      <div className="flex items-center justify-between gap-3 border-b border-line px-3 py-2">
-        <SectionLabel>Execution timeline</SectionLabel>
-        <span className={`text-xs ${progress.status === "FAILED" ? "text-down" : "text-dim"}`}>
-          {stateLabel(progress.status)}
-        </span>
-      </div>
+      <Header
+        status={stateLabel(progress.status)}
+        tone={failed ? "text-down" : progress.status === "COMPLETED" ? "text-up" : "text-dim"}
+        done={done}
+        total={failed ? 0 : steps.length}
+      />
 
       {progress.status === "AUTHORIZING" || progress.status === "CONNECTING" ? (
-        <div className="flex items-start gap-2 px-3 py-2.5 text-xs leading-snug text-dim">
+        <div className={`flex items-start gap-2 border-b border-line px-3 py-2.5 text-xs leading-snug text-dim ${motion.fade}`}>
           <LoaderCircle size={14} aria-hidden="true" className="mt-0.5 shrink-0 animate-spin text-brand" />
           <span>
             {progress.status === "CONNECTING"
@@ -98,44 +150,22 @@ export function ExecutionTimeline({ progress }: { progress: OrderExecutionProgre
         </div>
       ) : null}
 
-      {progress.status === "FAILED" ? (
-        <div className="flex items-start gap-2 px-3 py-2.5 text-xs leading-snug text-down">
+      {failed ? (
+        <div className={`flex items-start gap-2 px-3 py-2.5 text-xs leading-snug text-down ${motion.fade}`}>
           <CircleAlert size={14} aria-hidden="true" className="mt-0.5 shrink-0" />
           <span>{progress.error}</span>
         </div>
       ) : (
-        <ol className="divide-y divide-line">
-          {steps.map((step) => {
-            const update = updateByStep.get(step);
-            const pending = active && !update;
-            return (
-              <li key={step} className="flex gap-2 px-3 py-2">
-                <span className="mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-line-strong">
-                  {update ? (
-                    <Check size={10} aria-hidden="true" className="text-up" />
-                  ) : pending ? (
-                    <LoaderCircle size={10} aria-hidden="true" className="animate-spin text-brand" />
-                  ) : null}
-                </span>
-                <span className="min-w-0 text-xs leading-snug">
-                  <span className={update ? "text-ink" : "text-faint"}>{update?.label ?? step.toLowerCase().replace(/_/g, " ")}</span>
-                  {update ? <span className="block text-faint">{update.detail}</span> : null}
-                  {update?.transactionHash ? (
-                    <span className="mt-0.5 block font-mono text-faint">{shortHash(update.transactionHash)}</span>
-                  ) : null}
-                </span>
-              </li>
-            );
-          })}
-        </ol>
+        <StepTimeline steps={timeline} dense className="px-3 py-2.5" />
       )}
 
       {progress.result ? (
-        <div className="border-t border-line px-3 py-2.5">
+        <div className={`border-t border-line px-3 py-2.5 ${motion.fade}`}>
           <Link
             href={`/activity/receipts/${progress.result.receipt.id}`}
-            className="focus-ring flex h-9 items-center justify-center rounded-md border border-line text-xs text-dim transition-colors hover:border-line-strong hover:text-ink"
+            className="focus-ring flex h-9 items-center justify-center gap-1.5 rounded-md border border-line text-xs text-dim transition-colors hover:border-line-strong hover:text-ink"
           >
+            <FileCheck2 size={13} aria-hidden="true" />
             Verify execution receipt
           </Link>
         </div>

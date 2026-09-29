@@ -2,295 +2,311 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { ArrowUpRight, Lock, Search, ShieldCheck, X } from "lucide-react";
 import { useGatewaySnapshot } from "@/components/gateway/InternalGatewayProvider";
-import { SectionLabel, StatusDot } from "@/components/terminal/primitives";
-import { formatLots, formatNumber, formatUsd, priceUnitSuffix } from "@/lib/terminal/format";
-import { DEFAULT_TRADE_HREF, findMarket, tradeHref } from "@/lib/terminal/markets";
-import type { RfqRequest, RfqRequestState } from "@/lib/internal-gateway/types";
+import { Tabs } from "@/components/terminal/primitives";
+import { DEFAULT_TRADE_HREF } from "@/lib/terminal/markets";
+import {
+  BUTTON_INK,
+  BUTTON_QUIET,
+  Chip,
+  EnvironmentChip,
+  Kpi,
+  KpiStrip,
+  PageHeader,
+  Panel,
+  motion,
+  useNow,
+  useWalletPrompt,
+} from "@/components/activity/ledger-ui";
+import { RfqBlotter } from "./RfqBlotter";
+import { RfqDetail } from "./RfqDetail";
+import { rfqView, type RfqView } from "./rfq-view";
 
-function timestamp(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Unavailable";
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(date);
-}
+type BlotterTab = "LIVE" | "HISTORY" | "ALL";
 
-function secondsLeft(value: string, now: number): number {
-  return Math.max(0, Math.ceil((Date.parse(value) - now) / 1000));
-}
-
-function stateLabel(state: RfqRequestState, expired: boolean): string {
-  if (expired && (state === "OPEN" || state === "SELECTED")) return "Expired";
-  if (state === "OPEN") return "Open";
-  if (state === "SELECTED") return "Quote selected";
-  if (state === "EXECUTED") return "Executed";
-  return "Cancelled";
-}
-
-function stateClass(state: RfqRequestState, expired: boolean): string {
-  if (expired && (state === "OPEN" || state === "SELECTED")) return "text-faint";
-  if (state === "OPEN") return "text-brand";
-  if (state === "SELECTED") return "text-up";
-  if (state === "EXECUTED") return "text-dim";
-  return "text-faint";
-}
-
-function Meta({ label, value }: { label: string; value: React.ReactNode }) {
+function BlotterEmpty({ tab }: { tab: BlotterTab }) {
+  const wallet = useWalletPrompt();
+  if (!wallet.connected) {
+    return (
+      <div className={`flex flex-col items-center px-6 py-14 text-center ${motion.fade}`}>
+        <Lock size={18} aria-hidden="true" className="text-faint" />
+        <p className="mt-3 text-sm text-ink">Connect a wallet to load your private RFQs.</p>
+        <p className="mt-1 max-w-md text-xs leading-relaxed text-faint">
+          Requests are read from the local production-parity chain for the connected taker only.
+        </p>
+        <div className="mt-4 flex gap-2">
+          <button type="button" onClick={wallet.connect} disabled={wallet.connecting} className={BUTTON_INK}>
+            {wallet.connecting ? "Connecting..." : "Connect wallet"}
+          </button>
+          <Link href={DEFAULT_TRADE_HREF} className={BUTTON_QUIET}>
+            Open package market
+          </Link>
+        </div>
+        {wallet.error ? <p className="mt-2 text-xs text-down">{wallet.error}</p> : null}
+      </div>
+    );
+  }
+  if (tab === "HISTORY") {
+    return (
+      <div className={`flex flex-col items-center px-6 py-14 text-center ${motion.fade}`}>
+        <p className="text-sm text-ink">No executed or cancelled requests yet.</p>
+        <p className="mt-1 max-w-md text-xs leading-relaxed text-faint">
+          Executed requests keep their receipt link here. Cancelled requests remain visible without one.
+        </p>
+      </div>
+    );
+  }
   return (
-    <div className="min-w-0">
-      <dt className="text-xs text-faint">{label}</dt>
-      <dd className="tnum mt-0.5 truncate font-mono text-xs text-ink">{value}</dd>
+    <div className={`flex flex-col items-center px-6 py-14 text-center ${motion.fade}`}>
+      <p className="text-sm text-ink">No active private RFQ requests.</p>
+      <p className="mt-1 max-w-md text-xs leading-relaxed text-faint">
+        A private solver request created in a market terminal appears here until it is selected, executed, or
+        cancelled.
+      </p>
+      <Link href={DEFAULT_TRADE_HREF} className={`${BUTTON_QUIET} mt-4`}>
+        Open package market
+        <ArrowUpRight size={12} aria-hidden="true" />
+      </Link>
     </div>
   );
 }
 
-function RfqCard({ request, now }: { request: RfqRequest; now: number }) {
-  const intent = request.authorization.intent;
-  const market = findMarket(intent.marketId);
-  const knownMarket = market.id === intent.marketId ? market : null;
-  const selectedQuote = request.selectedQuoteId
-    ? (request.quotes.find((quote) => quote.id === request.selectedQuoteId) ?? null)
-    : null;
-  const requestLeft = secondsLeft(request.expiresAt, now);
-  const requestExpired = Date.parse(request.expiresAt) <= now;
-  const requestActive =
-    (request.state === "OPEN" || request.state === "SELECTED") && !requestExpired;
+const FLOW = [
+  {
+    title: "Request in the terminal",
+    detail: "Tick Private RFQ to solvers in a package ticket. The signed order and request are committed privately.",
+  },
+  {
+    title: "Makers compete",
+    detail: "Invited makers answer with firm, capacity-backed quotes. The best price for your side is highlighted.",
+  },
+  {
+    title: "Select and settle",
+    detail: "Choose a quote before it expires. Execution is atomic and the receipt links back here.",
+  },
+];
 
+function DetailPlaceholder() {
   return (
-    <article
-      aria-label={`RFQ request ${request.id}`}
-      className="border border-line bg-panel"
-    >
-      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line px-3 py-2.5">
-        <div className="min-w-0">
-          <h3 className="truncate text-sm text-ink">{intent.packageCode}</h3>
-          <p className="tnum mt-0.5 truncate font-mono text-xs text-faint">{request.id}</p>
-        </div>
-        <span className={`shrink-0 text-xs ${stateClass(request.state, requestExpired)}`}>
-          {stateLabel(request.state, requestExpired)}
-        </span>
+    <div className={`flex min-h-0 flex-1 flex-col px-4 py-4 ${motion.fade}`}>
+      <p className="text-xs text-faint">Select a request to inspect its quote competition.</p>
+      <ol className="mt-4 space-y-0">
+        {FLOW.map((step, index) => (
+          <li key={step.title} className="relative flex gap-3 pb-5 last:pb-0">
+            {index < FLOW.length - 1 ? (
+              <span aria-hidden="true" className="absolute top-6 bottom-0 left-[11px] w-px bg-line-strong" />
+            ) : null}
+            <span className="tnum relative flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-line-strong bg-raised font-mono text-[11px] text-dim">
+              {index + 1}
+            </span>
+            <span className="min-w-0 pt-0.5">
+              <span className="block text-xs text-ink">{step.title}</span>
+              <span className="mt-0.5 block text-xs leading-relaxed text-faint">{step.detail}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
+      <div className="mt-auto flex items-start gap-2 rounded-md border border-line bg-inset px-3 py-2.5 text-[11px] leading-relaxed text-faint">
+        <ShieldCheck size={13} aria-hidden="true" className="mt-0.5 shrink-0 text-dim" />
+        Requests and selected quotes are committed to the local production-parity chain. Nothing on this page submits
+        to Arbitrum Sepolia or mainnet.
       </div>
-
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 px-3 py-3 sm:grid-cols-3">
-        <Meta
-          label="Side and size"
-          value={`${intent.side === "ENTER" ? "Enter" : "Exit"} ${intent.packageSide === "SHORT" ? "Short" : "Long"} · ${formatLots(intent.lots)} lots`}
-        />
-        <Meta
-          label="Limit"
-          value={
-            knownMarket
-              ? `${formatNumber(intent.limitPrice, knownMarket.priceDecimals)} ${priceUnitSuffix(knownMarket.priceUnit)}`
-              : `${formatNumber(intent.limitPrice, 2)}`
-          }
-        />
-        <Meta label="Route" value={intent.routeLabel} />
-        <Meta label="Created" value={timestamp(request.createdAt)} />
-        <Meta
-          label="Expires"
-          value={requestExpired ? `${timestamp(request.expiresAt)} · expired` : `${timestamp(request.expiresAt)} · ${requestLeft}s left`}
-        />
-        <Meta
-          label="Selected quote"
-          value={
-            selectedQuote
-              ? `Selected · ${selectedQuote.solverLabel}`
-              : request.state === "SELECTED"
-                ? "Selected quote unavailable"
-                : "Awaiting selection"
-          }
-        />
-        {intent.side === "EXIT" ? (
-          <Meta label="Close position" value={intent.closePositionId ?? "none"} />
-        ) : null}
-      </dl>
-
-      {knownMarket ? null : (
-        <p className="border-t border-line px-3 py-2 text-xs leading-snug text-faint">
-          Market definition unavailable in this session, so this request cannot resume in a terminal.
-        </p>
-      )}
-
-      <div className="border-t border-line px-3 py-2">
-        <SectionLabel>
-          {`Firm quotes · ${request.quotes.length}`}
-        </SectionLabel>
-        {request.quotes.length === 0 ? (
-          <p className="mt-1.5 text-xs leading-snug text-faint">No firm quotes recorded.</p>
-        ) : (
-          <ul className="mt-1.5 divide-y divide-line">
-            {request.quotes.map((quote) => {
-              const isSelected = quote.id === request.selectedQuoteId;
-              const left = secondsLeft(quote.expiresAt, now);
-              const expired = Date.parse(quote.expiresAt) <= now;
-              return (
-                <li key={quote.id} className="py-2 first:pt-1 last:pb-1">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-xs text-ink">
-                      {isSelected ? `Selected · ${quote.solverLabel}` : quote.solverLabel}
-                      {quote.provenance === "DEVNET_MAKER" ? (
-                        <span className="ml-2 border border-line px-1 font-mono text-[10px] text-dim">
-                          DEVNET
-                        </span>
-                      ) : null}
-                    </span>
-                    <span className="tnum font-mono text-xs text-ink">
-                      {knownMarket
-                        ? `${formatNumber(quote.packagePrice, knownMarket.priceDecimals)} ${priceUnitSuffix(knownMarket.priceUnit)}`
-                        : formatNumber(quote.packagePrice, 2)}
-                    </span>
-                  </div>
-                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] leading-snug text-dim">
-                    <span className="tnum font-mono">{`${formatUsd(quote.feeCap, 2)} cap`}</span>
-                    <span className="tnum font-mono">{`${quote.capacityLots} lots`}</span>
-                    <span>{quote.settlementGuarantee}</span>
-                    <span className="tnum font-mono">{expired ? "Expired" : `${left}s`}</span>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
-
-      {requestExpired && (request.state === "OPEN" || request.state === "SELECTED") ? (
-        <p className="border-t border-line px-3 py-2 text-xs leading-snug text-faint">
-          Request expired before execution, so no execution was created.
-        </p>
-      ) : null}
-
-      <div className="flex flex-wrap gap-2 border-t border-line px-3 py-2.5">
-        {requestActive && knownMarket ? (
-          <Link
-            href={`${tradeHref(knownMarket)}?rfq=${encodeURIComponent(request.id)}`}
-            className="focus-ring inline-flex h-9 items-center rounded-md border border-line px-3 text-xs text-dim transition-colors hover:border-line-strong hover:text-ink"
-          >
-            Continue in terminal
-          </Link>
-        ) : null}
-        {request.state === "EXECUTED" && request.receiptId ? (
-          <Link
-            href={`/activity/receipts/${request.receiptId}`}
-            className="focus-ring inline-flex h-9 items-center rounded-md border border-line px-3 text-xs text-dim transition-colors hover:border-line-strong hover:text-ink"
-          >
-            Open execution receipt
-          </Link>
-        ) : null}
-      </div>
-    </article>
+    </div>
   );
+}
+
+function matches(view: RfqView, query: string): boolean {
+  if (!query) return true;
+  const intent = view.request.authorization.intent;
+  return [intent.packageCode, intent.marketId, intent.routeLabel, view.request.id, ...view.quotes.map((q) => q.quote.solverLabel)]
+    .join(" ")
+    .toLowerCase()
+    .includes(query);
 }
 
 export function RfqWorkspace() {
   const snapshot = useGatewaySnapshot();
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
+  const now = useNow();
+  const [tab, setTab] = useState<BlotterTab>("LIVE");
+  const [query, setQuery] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   const requests = useMemo(
-    () =>
-      [...snapshot.rfqRequests].sort(
-        (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
-      ),
+    () => [...snapshot.rfqRequests].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)),
     [snapshot.rfqRequests],
   );
-  const active = requests.filter(
-    (request) =>
-      (request.state === "OPEN" || request.state === "SELECTED") &&
-      Date.parse(request.expiresAt) > now,
+  const views = requests.map((request) => rfqView(request, now));
+  const live = views.filter((view) => view.active);
+  const history = views.filter((view) => !view.active);
+  const normalized = query.trim().toLowerCase();
+  const visible = (tab === "LIVE" ? live : tab === "HISTORY" ? history : views).filter((view) =>
+    matches(view, normalized),
   );
-  const history = requests.filter(
-    (request) =>
-      request.state === "EXECUTED" ||
-      request.state === "CANCELLED" ||
-      ((request.state === "OPEN" || request.state === "SELECTED") &&
-        Date.parse(request.expiresAt) <= now),
-  );
+  const selected =
+    views.find((view) => view.request.id === selectedId) ?? visible[0] ?? null;
+
+  const liveQuotes = live.reduce((sum, view) => sum + view.quotes.length, 0);
+  const makers = new Set(requests.flatMap((request) => request.quotes.map((quote) => quote.solverLabel))).size;
+  const executed = requests.filter((request) => request.state === "EXECUTED").length;
+  const lapsed = views.filter((view) => view.status === "EXPIRED" || view.status === "CANCELLED").length;
+  const closedCount = executed + lapsed;
+
+  useEffect(() => {
+    if (!sheetOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSheetOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sheetOpen]);
+
+  const select = (id: string) => {
+    setSelectedId(id);
+    setSheetOpen(true);
+  };
+
+  const tabs = [
+    { id: "LIVE", label: "Live", badge: live.length },
+    { id: "HISTORY", label: "History", badge: history.length },
+    { id: "ALL", label: "All", badge: views.length },
+  ];
 
   return (
-    <main className="scroll-thin min-h-0 flex-1 overflow-y-auto bg-app p-3 sm:p-5 lg:p-6">
-      <div className="mx-auto max-w-[1200px]">
-        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-line pb-4">
-          <div>
-            <SectionLabel>RFQ ledger</SectionLabel>
-            <h1 className="mt-2 text-xl font-medium text-ink">Private RFQ requests</h1>
-            <p className="mt-1 max-w-2xl text-sm leading-relaxed text-dim">
-              Private solver requests with firm, capacity-backed quote comparisons.
-              Active requests resume in their market terminal. Receipts exist only for executed
-              requests.
-            </p>
-          </div>
-          <div className="flex items-center gap-2 border border-line bg-panel px-3 py-2">
-            <StatusDot ok />
-            <div>
-              <p className="text-xs text-ink">{snapshot.environment.label}</p>
-              <p className="text-xs text-faint">{snapshot.environment.evidence.toLowerCase()} evidence</p>
+    <main className="scroll-thin min-h-0 flex-1 overflow-y-auto bg-app p-1 lg:flex lg:flex-col lg:overflow-hidden">
+      <div className="flex min-h-full flex-col gap-1 lg:min-h-0 lg:flex-1">
+        <PageHeader
+          eyebrow={
+            <>
+              <Lock size={11} aria-hidden="true" />
+              Private RFQ ledger
+            </>
+          }
+          title="Private RFQs"
+          description="Private solver requests with firm, capacity-backed quote comparisons. Active requests resume in their market terminal. Receipts exist only for executed requests."
+          right={
+            <>
+              <Chip
+                tone="muted"
+                title="Requests and selected quotes are committed to the local production-parity chain. Nothing on this page submits to Arbitrum Sepolia or mainnet."
+              >
+                Local chain only
+              </Chip>
+              <EnvironmentChip />
+              <Link href={DEFAULT_TRADE_HREF} className={BUTTON_QUIET}>
+                New request
+                <ArrowUpRight size={12} aria-hidden="true" />
+              </Link>
+            </>
+          }
+        >
+          <KpiStrip>
+            <Kpi label="Live requests" value={live.length} tone={live.length > 0 ? "text-brand" : "text-ink"} sub="collecting or selected" />
+            <Kpi label="Firm quotes on live" value={liveQuotes} sub="capacity-backed" />
+            <Kpi label="Responding makers" value={makers} sub="across all requests" />
+            <Kpi label="Executed" value={executed} sub="with receipts" tone={executed > 0 ? "text-up" : "text-ink"} />
+            <Kpi
+              label="Hit rate"
+              value={closedCount > 0 ? `${Math.round((executed / closedCount) * 100)}%` : "—"}
+              sub={`${lapsed} expired or cancelled`}
+            />
+          </KpiStrip>
+        </PageHeader>
+
+        <div className="grid min-h-0 flex-1 gap-1 lg:grid-cols-[minmax(0,1fr)_400px]">
+          <Panel className={`flex min-h-[420px] flex-col lg:min-h-0 ${motion.mount}`} label="Request blotter">
+            <div className="flex shrink-0 flex-col border-b border-line sm:flex-row sm:items-center sm:justify-between sm:pr-3">
+              <Tabs
+                items={tabs}
+                value={tab}
+                onChange={(id) => setTab(id as BlotterTab)}
+                idBase="rfq"
+                className="no-scrollbar min-w-0 overflow-x-auto"
+              />
+              <label className="mx-3 mb-2 flex h-8 items-center gap-2 rounded-md border border-line bg-inset px-2 transition-colors focus-within:border-line-strong sm:mx-0 sm:mb-0 sm:w-60">
+                <Search size={13} aria-hidden="true" className="shrink-0 text-faint" />
+                <span className="sr-only">Search requests</span>
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Package, request ID, maker"
+                  className="min-w-0 flex-1 bg-transparent text-xs text-ink outline-none placeholder:text-off"
+                />
+              </label>
             </div>
+            <div
+              id={`rfq-panel-${tab}`}
+              role="tabpanel"
+              aria-labelledby={`rfq-tab-${tab}`}
+              key={tab}
+              className={`flex min-h-0 flex-1 flex-col ${motion.tabPanel}`}
+            >
+              <RfqBlotter
+                views={visible}
+                now={now}
+                selectedId={selected?.request.id ?? null}
+                onSelect={select}
+                empty={
+                  normalized && (tab === "LIVE" ? live : tab === "HISTORY" ? history : views).length > 0 ? (
+                    <p className="px-6 py-14 text-center text-xs text-faint">No requests match this search.</p>
+                  ) : (
+                    <BlotterEmpty tab={tab} />
+                  )
+                }
+              />
+            </div>
+            <div className="mt-auto flex h-8 shrink-0 items-center justify-between gap-3 border-t border-line px-3 text-[11px] text-faint">
+              <span className="truncate">Newest first · times in UTC</span>
+              <span className="flex items-center gap-3">
+                <span className="flex items-center gap-1.5">
+                  <span aria-hidden="true" className="h-2 w-[3px] rounded-[1px] bg-brand" />
+                  Best quote
+                </span>
+                <span className="hidden items-center gap-1.5 sm:flex">
+                  <span aria-hidden="true" className="h-2 w-[3px] rounded-[1px] bg-dim" />
+                  Competing
+                </span>
+              </span>
+            </div>
+          </Panel>
+
+          <Panel as="aside" label="Request detail" className={`hidden min-h-0 flex-col lg:flex ${motion.mount}`}>
+            <div className="flex h-10 shrink-0 items-center justify-between border-b border-line px-4">
+              <span className="text-sm font-medium text-ink">Request detail</span>
+              {selected ? (
+                <span className="tnum font-mono text-[11px] text-faint">{selected.request.authorization.intent.marketId}</span>
+              ) : null}
+            </div>
+            {selected ? <RfqDetail view={selected} now={now} /> : <DetailPlaceholder />}
+          </Panel>
+        </div>
+      </div>
+
+      {sheetOpen && selected ? (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end lg:hidden" role="dialog" aria-modal="true" aria-label="Request detail">
+          <button
+            type="button"
+            aria-label="Close request detail"
+            onClick={() => setSheetOpen(false)}
+            className={`absolute inset-0 bg-app/70 backdrop-blur-[2px] ${motion.scrim}`}
+          />
+          <div className={`relative flex max-h-[88dvh] flex-col overflow-hidden rounded-t-xl border-t border-line-strong bg-panel ${motion.sheet}`}>
+            <div className="flex h-11 shrink-0 items-center justify-between border-b border-line pr-2 pl-4">
+              <span className="text-sm font-medium text-ink">Request detail</span>
+              <button
+                type="button"
+                onClick={() => setSheetOpen(false)}
+                aria-label="Close request detail"
+                className="focus-ring flex h-9 w-9 items-center justify-center rounded-md text-faint hover:text-ink"
+              >
+                <X size={16} aria-hidden="true" />
+              </button>
+            </div>
+            <RfqDetail view={selected} now={now} />
           </div>
         </div>
-
-        <p className="mt-4 border border-line bg-panel px-3 py-2.5 text-xs leading-relaxed text-faint">
-          Requests and selected quotes are committed to the local production-parity chain. Nothing
-          on this page submits to Arbitrum Sepolia or mainnet.
-        </p>
-
-        <section aria-label="Active requests" className="mt-6">
-          <div className="flex items-baseline justify-between gap-3">
-            <h2 className="text-sm font-medium text-ink">Active requests</h2>
-            <span className="tnum font-mono text-xs text-faint">{active.length}</span>
-          </div>
-          {active.length === 0 ? (
-            <div className="mt-3 border border-line bg-panel px-4 py-6 text-center">
-              <p className="text-sm text-ink">No active private RFQ requests.</p>
-              <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-faint">
-                A private solver request created in a market terminal appears here until it is
-                selected, executed, or cancelled.
-              </p>
-              <Link
-                href={DEFAULT_TRADE_HREF}
-                className="focus-ring mt-4 inline-flex h-9 items-center rounded-md border border-line px-3 text-xs text-dim transition-colors hover:border-line-strong hover:text-ink"
-              >
-                Open package market
-              </Link>
-            </div>
-          ) : (
-            <div className="mt-3 grid gap-3 xl:grid-cols-2">
-              {active.map((request) => (
-                <RfqCard key={request.id} request={request} now={now} />
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section aria-label="Request history" className="mt-8">
-          <div className="flex items-baseline justify-between gap-3">
-            <h2 className="text-sm font-medium text-ink">History</h2>
-            <span className="tnum font-mono text-xs text-faint">{history.length}</span>
-          </div>
-          {history.length === 0 ? (
-            <div className="mt-3 border border-line bg-panel px-4 py-6 text-center">
-              <p className="text-sm text-ink">No executed or cancelled requests yet.</p>
-              <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-faint">
-                Executed requests keep their receipt link here. Cancelled requests remain visible
-                without one.
-              </p>
-            </div>
-          ) : (
-            <div className="mt-3 grid gap-3 xl:grid-cols-2">
-              {history.map((request) => (
-                <RfqCard key={request.id} request={request} now={now} />
-              ))}
-            </div>
-          )}
-        </section>
-      </div>
+      ) : null}
     </main>
   );
 }
