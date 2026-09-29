@@ -1,5 +1,6 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
-import { HedgeWorkspace } from "@/components/hedges/HedgeWorkspace";
+import { HedgeWorkspace, HedgeWorkspaceFromQuery } from "@/components/hedges/HedgeWorkspace";
 
 export const metadata: Metadata = {
   title: "Hedge builder / Setryn",
@@ -8,5 +9,10 @@ export const metadata: Metadata = {
 };
 
 export default function HedgesPage() {
-  return <HedgeWorkspace />;
+  // The query carries an exposure handed off from /exposures or /protect/new.
+  return (
+    <Suspense fallback={<HedgeWorkspace />}>
+      <HedgeWorkspaceFromQuery />
+    </Suspense>
+  );
 }

@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { hedgePrefillFromQuery, type HedgePrefill } from "@/lib/exposures/records";
 import { usePreviewBoard } from "@/components/terminal/PreviewMarketProvider";
 import { Chip, LiveDot, Panel, PanelHead, Row, deskMotion } from "@/components/strategies/desk/Desk";
 import { SCENARIO_CLOCK_ISO } from "@/lib/terminal/format";
@@ -28,13 +30,21 @@ import { HedgePayoff, hedgeCurves } from "./HedgePayoff";
 import { HedgeSummary } from "./HedgeSummary";
 import { ImpactScenario } from "./ImpactScenario";
 
-export function HedgeWorkspace() {
-  const [direction, setDirection] = useState<HedgeDirection>("RECEIVABLE");
-  const [referenceAssetId, setReferenceAssetId] = useState("EUR");
-  const [settlementAssetId, setSettlementAssetId] = useState("USDC");
-  const [amountInput, setAmountInput] = useState("250000");
-  const [exposureDateIso, setExposureDateIso] = useState("2026-12-30");
-  const [riskObjective, setRiskObjective] = useState<RiskObjective>("LOCK_RATE");
+/** Reads an exposure handed off from /exposures or /protect/new and remounts the builder with it. */
+export function HedgeWorkspaceFromQuery() {
+  const searchParams = useSearchParams();
+  const prefill = useMemo(() => hedgePrefillFromQuery(searchParams), [searchParams]);
+  return <HedgeWorkspace key={searchParams.toString()} prefill={prefill} />;
+}
+
+export function HedgeWorkspace({ prefill = null }: { prefill?: HedgePrefill | null }) {
+  const initial = prefill?.input;
+  const [direction, setDirection] = useState<HedgeDirection>(initial?.direction ?? "RECEIVABLE");
+  const [referenceAssetId, setReferenceAssetId] = useState(initial?.referenceAssetId ?? "EUR");
+  const [settlementAssetId, setSettlementAssetId] = useState(initial?.settlementAssetId ?? "USDC");
+  const [amountInput, setAmountInput] = useState(initial ? String(initial.amount) : "250000");
+  const [exposureDateIso, setExposureDateIso] = useState(initial?.exposureDateIso ?? "2026-12-30");
+  const [riskObjective, setRiskObjective] = useState<RiskObjective>(initial?.riskObjective ?? "LOCK_RATE");
   const [selectedMarketId, setSelectedMarketId] = useState<string | null>(null);
   const [scenarioMove, setScenarioMove] = useState(-10);
   const board = usePreviewBoard();
