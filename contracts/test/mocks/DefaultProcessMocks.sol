@@ -22,7 +22,9 @@ import {
     PositionId,
     RiskDomainId
 } from "../../src/types/Identifiers.sol";
+import {PositionEconomics, PositionLifecycle} from "../../src/types/PositionTypes.sol";
 import {RiskDomainDefinition, RiskDomainVersion} from "../../src/types/RiskDomainDefinition.sol";
+import {RiskExposureReduction} from "../../src/types/RiskTypes.sol";
 
 contract DefaultRiskDomainRegistryMock {
     mapping(RiskDomainId id => mapping(uint32 version => RiskDomainVersion record)) private _records;
@@ -126,14 +128,38 @@ contract DefaultCollateralVaultMock {
     }
 }
 
+contract DefaultPositionEngineMock {
+    function getPosition(PositionId positionId)
+        external
+        pure
+        returns (PositionEconomics memory economics, PositionLifecycle memory lifecycle)
+    {
+        economics.positionId = positionId;
+        return (economics, lifecycle);
+    }
+}
+
 contract DefaultRiskEngineMock {
     address public immutable collateralVault;
     address public immutable riskDomainRegistry;
+    DefaultPositionEngineMock public immutable positionEngine;
     ObjectiveDefaultState private _state;
+    uint256 public exposureReductions;
 
     constructor(address vault, address registry) {
         collateralVault = vault;
         riskDomainRegistry = registry;
+        positionEngine = new DefaultPositionEngineMock();
+    }
+
+    function exposureReductionWitness(PositionId, AccountId)
+        external
+        pure
+        returns (RiskExposureReduction memory reduction)
+    {}
+
+    function reduceExposure(RiskExposureReduction calldata) external {
+        exposureReductions += 1;
     }
 
     function setState(ObjectiveDefaultState calldata state) external {
