@@ -142,6 +142,8 @@ export function OrderTicket({
   stage,
   execution,
   maxLots,
+  wallet,
+  onConnect,
   handoff,
   closePositions,
   rfqRequest,
@@ -164,6 +166,8 @@ export function OrderTicket({
   stage: StageState;
   execution: OrderExecutionProgress;
   maxLots: number;
+  wallet: { connected: boolean; available: number; asset: string };
+  onConnect: () => void;
   handoff: HandoffContext;
   closePositions: ExecutionPosition[];
   rfqRequest?: RfqRequest | null;
@@ -406,8 +410,14 @@ export function OrderTicket({
 
         <dl className="space-y-1 text-xs">
           <div className="flex items-baseline justify-between gap-2">
+            <dt className="text-faint">Available to trade</dt>
+            <dd className="tnum font-mono text-dim">
+              {wallet.connected ? `${formatUsd(wallet.available, 2)} ${wallet.asset}` : "–"}
+            </dd>
+          </div>
+          <div className="flex items-baseline justify-between gap-2">
             <dt className="text-faint">{isExit ? "Max close size" : "Max size"}</dt>
-            <dd className="tnum font-mono text-dim">{`${formatLots(maxLots)} lots`}</dd>
+            <dd className="tnum font-mono text-dim">{wallet.connected || isExit ? `${formatLots(maxLots)} lots` : "–"}</dd>
           </div>
           <div className="flex items-baseline justify-between gap-2">
             <dt className="text-faint">Contract</dt>
@@ -634,6 +644,8 @@ export function OrderTicket({
           rfqRequest={rfqRequest ?? null}
           rfqError={rfqError ?? null}
           amendment={amendment ?? null}
+          walletConnected={wallet.connected}
+          onConnect={onConnect}
           onStage={onStage}
           onConfirm={onConfirm}
           onCancelResting={onCancelResting}
@@ -737,6 +749,8 @@ function StageArea({
   rfqRequest,
   rfqError,
   amendment,
+  walletConnected,
+  onConnect,
   onStage,
   onConfirm,
   onCancelResting,
@@ -745,6 +759,8 @@ function StageArea({
   onExecuteRfqQuote,
   onCancelRfq,
 }: {
+  walletConnected: boolean;
+  onConnect: () => void;
   market: PackageMarket;
   state: TicketState;
   preview: EconomicsPreview;
@@ -787,6 +803,18 @@ function StageArea({
         onExecuteRfqQuote={onExecuteRfqQuote}
         onCancelRfq={onCancelRfq}
       />
+    );
+  }
+
+  if (stage.kind === "IDLE" && !walletConnected) {
+    return (
+      <button
+        type="button"
+        onClick={onConnect}
+        className="focus-ring h-12 w-full rounded-md bg-ink text-sm font-semibold text-app transition-[filter] hover:brightness-90 lg:h-10"
+      >
+        Connect wallet
+      </button>
     );
   }
 

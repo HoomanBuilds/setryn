@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
-import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
+import { IBM_Plex_Mono, IBM_Plex_Sans, Newsreader } from "next/font/google";
 import { GlobalHeader } from "@/components/terminal/GlobalHeader";
 import { StatusStrip } from "@/components/terminal/StatusStrip";
 import { InternalGatewayProvider } from "@/components/gateway/InternalGatewayProvider";
@@ -11,6 +11,14 @@ const plexSans = IBM_Plex_Sans({
   subsets: ["latin"],
   weight: ["400", "500", "600"],
   variable: "--font-plex-sans",
+  display: "swap",
+});
+
+const newsreader = Newsreader({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  style: ["normal", "italic"],
+  variable: "--font-newsreader",
   display: "swap",
 });
 
@@ -27,13 +35,13 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#151618",
+  themeColor: "#0a090d",
   colorScheme: "dark",
 };
 
 export default function PlatformLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
-    <html lang="en" className={`${plexSans.variable} ${plexMono.variable}`}>
+    <html lang="en" className={`${plexSans.variable} ${plexMono.variable} ${newsreader.variable}`}>
       <body>
         <InternalGatewayProvider>
           <PreviewMarketProvider>

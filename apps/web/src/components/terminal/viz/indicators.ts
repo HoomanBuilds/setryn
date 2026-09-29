@@ -10,11 +10,11 @@ export interface IndicatorSpec {
 }
 
 export const INDICATORS: IndicatorSpec[] = [
-  { id: "ma7", label: "MA 7", color: "#f0b90b", describe: "Simple moving average of 7 closes" },
-  { id: "ma25", label: "MA 25", color: "#d16ee8", describe: "Simple moving average of 25 closes" },
+  { id: "ma7", label: "MA 7", color: "#e8c268", describe: "Simple moving average of 7 closes" },
+  { id: "ma25", label: "MA 25", color: "#b79cff", describe: "Simple moving average of 25 closes" },
   { id: "ma99", label: "MA 99", color: "#6ea8fe", describe: "Simple moving average of 99 closes" },
-  { id: "ema21", label: "EMA 21", color: "#4fd1c5", describe: "Exponential moving average of 21 closes" },
-  { id: "vwap", label: "VWAP", color: "#ff9d4d", describe: "Volume-weighted average price, reset each UTC day" },
+  { id: "ema21", label: "EMA 21", color: "#5fd4e0", describe: "Exponential moving average of 21 closes" },
+  { id: "vwap", label: "VWAP", color: "#f1e1d4", describe: "Volume-weighted average price, reset each UTC day" },
 ];
 
 export interface IndicatorPoint {

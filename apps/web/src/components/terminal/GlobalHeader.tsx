@@ -8,6 +8,7 @@ import { DataRow, SectionLabel, StatusDot } from "@/components/terminal/primitiv
 import { useGatewaySnapshot, useInternalGateway } from "@/components/gateway/InternalGatewayProvider";
 import { formatCompactUsd } from "@/lib/terminal/format";
 import { DEFAULT_TRADE_HREF } from "@/lib/terminal/markets";
+import SetrynMark from "@/components/landing/SetrynMark";
 
 interface NavItem {
   id: string;
@@ -44,7 +45,6 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "rfqs", label: "RFQs", prefix: "/rfqs", href: "/rfqs" },
       { id: "activity", label: "Activity", prefix: "/activity", href: "/activity" },
       { id: "lifecycle", label: "Lifecycle", prefix: "/lifecycle", href: "/lifecycle" },
-      { id: "rfqs", label: "RFQs", prefix: "/rfqs", href: "/rfqs" },
     ],
   },
   {
@@ -78,13 +78,9 @@ function isGroupActive(group: NavGroup, pathname: string): boolean {
   return group.items.some((item) => isActive(item, pathname));
 }
 
+/** The landing's egg, slash, and orbit dot, drawn in the brand lime. */
 function Mark() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true" className="shrink-0">
-      <path d="M2 13.5 L9 3 L16 13.5" stroke="var(--color-brand)" strokeWidth="1.6" fill="none" />
-      <path d="M5.4 10 L12.6 10" stroke="var(--color-brand)" strokeWidth="1.6" />
-    </svg>
-  );
+  return <SetrynMark className="h-[22px] w-[19px] shrink-0 text-brand" />;
 }
 
 function EnvironmentChip({ label, className = "" }: { label: string; className?: string }) {
@@ -184,9 +180,7 @@ export function GlobalHeader() {
 
         <span className="flex shrink-0 items-center gap-2">
           <Mark />
-          <span className="text-sm font-semibold tracking-[0.12em] text-ink lg:text-base lg:tracking-[0.14em]">
-            SETRYN
-          </span>
+          <span className="font-serif text-[19px] leading-none font-medium tracking-[-0.01em] text-ink">Setryn</span>
         </span>
 
         <nav aria-label="Primary" className="ml-3 hidden items-center lg:flex">

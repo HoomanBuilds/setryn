@@ -6,31 +6,37 @@
 @source not "../(landing)";
 
 @theme {
-  --color-app: #151618;
-  --color-panel: #1b1c1f;
-  --color-raised: #222328;
-  --color-inset: #141517;
+  /* Ink surfaces from the landing, with a faint violet undertone. */
+  --color-app: #0a090d;
+  --color-panel: #100f14;
+  --color-raised: #18161d;
+  --color-inset: #07060a;
 
-  --color-line: rgba(255, 255, 255, 0.08);
-  --color-line-soft: rgba(255, 255, 255, 0.05);
-  --color-line-strong: rgba(255, 255, 255, 0.16);
+  /* Paper-tinted hairlines. */
+  --color-line: rgba(242, 240, 237, 0.075);
+  --color-line-soft: rgba(242, 240, 237, 0.045);
+  --color-line-strong: rgba(242, 240, 237, 0.15);
 
-  --color-ink: #f3f3f1;
-  --color-dim: #9a9ca2;
-  --color-faint: #74767c;
-  --color-off: #56585e;
+  /* Paper text with warm greys. */
+  --color-ink: #f2f0ed;
+  --color-dim: #aaa6a0;
+  --color-faint: #78746e;
+  --color-off: #57534e;
 
-  --color-brand: #ff9d4d;
-  --color-brand-soft: rgba(255, 157, 77, 0.12);
-  --color-brand-edge: rgba(255, 157, 77, 0.45);
+  /* The landing's lime, used sparingly for selection and focus. */
+  --color-brand: #c1ff12;
+  --color-brand-soft: rgba(193, 255, 18, 0.1);
+  --color-brand-edge: rgba(193, 255, 18, 0.4);
 
-  --color-up: #34bf7c;
-  --color-down: #ef5f6b;
-  --color-up-soft: rgba(52, 191, 124, 0.12);
-  --color-down-soft: rgba(239, 95, 107, 0.1);
+  /* Direction colours sit apart from the lime brand: mint for up, rose for down. */
+  --color-up: #3fd9a4;
+  --color-down: #ff5d7a;
+  --color-up-soft: rgba(63, 217, 164, 0.12);
+  --color-down-soft: rgba(255, 93, 122, 0.11);
 
   --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+  --font-serif: var(--font-newsreader), ui-serif, Georgia, serif;
 
   --text-xs: 12px;
   --text-xs--line-height: 16px;

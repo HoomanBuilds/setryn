@@ -103,7 +103,7 @@ export function MarketHeader({
   const unit = priceUnitSuffix(market.priceUnit);
 
   return (
-    <div className="relative z-20 flex h-[52px] shrink-0 items-stretch border-b border-line bg-panel lg:h-12">
+    <div className="relative z-20 flex h-[52px] shrink-0 items-stretch border-b border-line bg-panel lg:mx-1 lg:mt-1 lg:h-12 lg:rounded-lg lg:border lg:border-line">
       <div className="flex min-w-0 shrink-0 items-center gap-3 pr-3 pl-3 lg:pl-4">
         <MarketSwitcher market={market} onSelect={onSelectMarket} />
 

@@ -987,12 +987,12 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         />
       </nav>
 
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:grid lg:grid-cols-[minmax(0,1fr)_300px_344px] lg:grid-rows-[minmax(0,1fr)_minmax(220px,31%)]">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:grid lg:grid-cols-[minmax(0,1fr)_300px_344px] lg:grid-rows-[minmax(0,1fr)_minmax(220px,31%)] lg:gap-1 lg:p-1">
         <div
           id="mobile-panel-market"
           role="tabpanel"
           aria-labelledby="mobile-tab-market"
-          className={`${show("market")} scroll-thin min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-panel lg:col-start-1 lg:row-start-1 lg:flex lg:overflow-hidden`}
+          className={`${show("market")} scroll-thin min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-panel lg:col-start-1 lg:row-start-1 lg:flex lg:overflow-hidden lg:rounded-lg lg:border lg:border-line`}
         >
           <div className="flex min-h-[280px] flex-1 flex-col lg:min-h-0">
             <AnalysisPanel
@@ -1020,7 +1020,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
           id="mobile-panel-book"
           role="tabpanel"
           aria-labelledby="mobile-tab-book"
-          className={`${show("book")} min-h-0 min-w-0 flex-1 flex-col border-line lg:col-start-2 lg:row-start-1 lg:flex lg:border-l`}
+          className={`${show("book")} min-h-0 min-w-0 flex-1 flex-col lg:col-start-2 lg:row-start-1 lg:flex lg:overflow-hidden lg:rounded-lg lg:border lg:border-line`}
         >
           <OrderBookPanel
             market={liveMarket}
@@ -1034,7 +1034,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
           id="mobile-panel-order"
           role="tabpanel"
           aria-labelledby="mobile-tab-order"
-          className={`${show("order")} min-h-0 min-w-0 flex-1 flex-col border-line lg:col-start-3 lg:row-start-1 lg:row-end-3 lg:flex lg:border-l`}
+          className={`${show("order")} min-h-0 min-w-0 flex-1 flex-col lg:col-start-3 lg:row-start-1 lg:row-end-3 lg:flex lg:overflow-hidden lg:rounded-lg lg:border lg:border-line`}
         >
           {stage.kind === "IDLE" && rfqError ? (
             <p
@@ -1062,6 +1062,14 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
             rfqRequest={rfqRequest}
             rfqError={rfqError}
             maxLots={maxLots}
+            wallet={{
+              connected: gatewaySnapshot.wallet.status === "CONNECTED",
+              available: gatewaySnapshot.account.available,
+              asset: gatewaySnapshot.account.collateralAsset,
+            }}
+            onConnect={() => {
+              void gateway.connectWallet().catch(() => undefined);
+            }}
             handoff={effectiveHandoff}
             closePositions={eligibleClosePositions}
             amendment={amendmentOrderId ? { orderId: amendmentOrderId } : null}
@@ -1081,7 +1089,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
           id="mobile-panel-positions"
           role="tabpanel"
           aria-labelledby="mobile-tab-positions"
-          className={`${show("positions")} min-h-0 min-w-0 flex-1 flex-col lg:col-start-1 lg:col-end-3 lg:row-start-2 lg:flex lg:border-t lg:border-line`}
+          className={`${show("positions")} min-h-0 min-w-0 flex-1 flex-col lg:col-start-1 lg:col-end-3 lg:row-start-2 lg:flex lg:overflow-hidden lg:rounded-lg lg:border lg:border-line`}
         >
           <ConsolePanel
             market={liveMarket}

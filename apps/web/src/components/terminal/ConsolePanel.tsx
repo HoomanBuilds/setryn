@@ -245,7 +245,7 @@ export function ConsolePanel({
   );
 
   return (
-    <section className="flex min-h-0 min-w-0 flex-1 flex-col border-t border-line bg-panel">
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col border-t border-line bg-panel lg:border-t-0">
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-line pr-3 lg:pr-4">
         <Tabs
           items={CONSOLE_TABS.map((item) => ({ ...item, badge: counts[item.id] }))}
