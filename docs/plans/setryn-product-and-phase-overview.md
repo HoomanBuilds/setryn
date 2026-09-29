@@ -8,9 +8,9 @@ Production target: Arbitrum One
 
 Public release-candidate network: Arbitrum Sepolia
 
-Current build phase: Phase 4, pinned mainnet-fork qualification
+Current build phase: Phase 4 gate passed; completing the first-party trading platform before the Arbitrum Sepolia release candidate
 
-Current deployment status: the production-shaped public order graph deploys locally with separated principals and generated evidence. The local chain currently uses an explicit development-only code-size override. Arbitrum Sepolia remains blocked until the oversized Solidity contracts are modularized below the EIP-170 runtime limit. Browser preview state is legacy scaffolding and is not an accepted platform execution path.
+Current deployment status: the complete production graph, including 24 linked libraries, deploys locally within the EIP-170 and EIP-3860 limits with separated principals and generated evidence. It passes the pinned Arbitrum One fork suite, and has a complete read-only unsigned Arbitrum One deployment intent and gas budget. Arbitrum Sepolia deployment remains Phase 5 release-candidate work. It still requires the Phase 2 capacity and receipt-authority wiring blockers to be resolved. Browser preview state is legacy scaffolding and is not an accepted platform execution path.
 
 Detailed references:
 
@@ -410,7 +410,7 @@ Implement instruments, execution modes, positions, collateral, fees, portfolio r
 
 Complete the user exchange, Protect flow, strategy studio, terminal, RFQs, portfolio, lifecycle, receipts, maker and solver systems, risk and operations consoles, internal data services, keepers, relays, monitoring, alerts, and runbooks. Replace local runtime flows with real contract and indexer integration.
 
-### Phase 4: pinned mainnet-fork qualification
+### Phase 4: pinned mainnet-fork qualification - passed
 
 Qualify real Arbitrum One dependencies, rehearse deployment and upgrades, test complete flows against real bytecode and state, estimate gas, and produce an unsigned production transaction bundle without broadcasting.
 
