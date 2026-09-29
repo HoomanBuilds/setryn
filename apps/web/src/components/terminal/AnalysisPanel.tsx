@@ -30,6 +30,7 @@ export function AnalysisPanel({
   previewEpochSeconds,
   positionOverlays = [],
   orderOverlays = [],
+  onAmendOrderPrice,
 }: {
   market: PackageMarket;
   baseMarket: PackageMarket;
@@ -39,6 +40,7 @@ export function AnalysisPanel({
   previewEpochSeconds: number;
   positionOverlays?: PositionPriceOverlay[];
   orderOverlays?: WorkingOrderPriceOverlay[];
+  onAmendOrderPrice?: (orderId: string, price: number) => void;
 }) {
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-panel">
@@ -78,6 +80,7 @@ export function AnalysisPanel({
             previewEpochSeconds={previewEpochSeconds}
             positionOverlays={positionOverlays}
             orderOverlays={orderOverlays}
+            onAmendOrderPrice={onAmendOrderPrice}
           />
         ) : null}
         {tab === "depth" ? <DepthChart market={market} /> : null}

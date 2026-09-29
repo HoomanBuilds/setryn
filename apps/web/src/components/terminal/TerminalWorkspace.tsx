@@ -841,7 +841,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   }, []);
 
   const onAmendConsoleRestingOrder = useCallback(
-    (orderId: string) => {
+    (orderId: string, proposedPrice?: number) => {
       const target = gatewaySnapshot.restingOrders.find((candidate) => candidate.id === orderId);
       if (
         !target ||
@@ -861,7 +861,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         side: isPackageSide(target.packageSide) ? target.packageSide : "LONG",
         orderType: "LIMIT",
         lotsInput: String(amendmentLots),
-        limitInput: target.limitPrice.toFixed(liveMarket.priceDecimals),
+        limitInput: (proposedPrice ?? target.limitPrice).toFixed(liveMarket.priceDecimals),
         tif: target.timeInForce,
         expiresAt: target.timeInForce === "GTD" ? target.expiresAt : null,
         privateRfq: target.disclosure === "PRIVATE_RFQ",
@@ -1040,6 +1040,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
               previewEpochSeconds={previewEpochSeconds}
               positionOverlays={positionOverlays}
               orderOverlays={orderOverlays}
+              onAmendOrderPrice={onAmendConsoleRestingOrder}
             />
           </div>
           <div className="shrink-0 px-3 lg:hidden">

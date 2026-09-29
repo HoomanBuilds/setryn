@@ -202,6 +202,29 @@ export interface DrawingScene {
   barsBetween: (from: number, to: number) => number;
   formatTime: (time: number) => string;
   countdown: { price: number; text: string; color: string } | null;
+  /** Working orders that can be dragged to a new limit price. */
+  orderHandles: OrderHandle[];
+  /** Live preview while a working order is dragged. */
+  orderPreview: { price: number; label: string; color: string } | null;
+}
+
+export interface OrderHandle {
+  id: string;
+  price: number;
+}
+
+const ORDER_TOLERANCE = 5;
+
+/** The working order whose price line is under the pointer, if any. */
+export function orderHandleAt(handles: OrderHandle[], y: number, projection: DrawingProjection): OrderHandle | null {
+  let best: { handle: OrderHandle; distance: number } | null = null;
+  for (const handle of handles) {
+    const lineY = projection.y(handle.price);
+    if (lineY === null) continue;
+    const distance = Math.abs(lineY - y);
+    if (distance <= ORDER_TOLERANCE && (!best || distance < best.distance)) best = { handle, distance };
+  }
+  return best?.handle ?? null;
 }
 
 const EMPTY_SCENE: DrawingScene = {
@@ -215,6 +238,8 @@ const EMPTY_SCENE: DrawingScene = {
   barsBetween: () => 0,
   formatTime: () => "",
   countdown: null,
+  orderHandles: [],
+  orderPreview: null,
 };
 
 function formatPrice(value: number, decimals: number): string {
@@ -420,6 +445,30 @@ class DrawingsRenderer implements IPrimitivePaneRenderer {
         }
       }
       if (scene.draft) drawOne(context, scene.draft, projection, scene, "draft");
+      if (scene.orderPreview) {
+        const y = projection.y(scene.orderPreview.price);
+        if (y !== null) {
+          context.strokeStyle = scene.orderPreview.color;
+          context.lineWidth = 1.5;
+          context.setLineDash([6, 4]);
+          context.beginPath();
+          context.moveTo(0, y);
+          context.lineTo(projection.width, y);
+          context.stroke();
+          context.setLineDash([]);
+          context.font = `11px ${scene.fontFamily}`;
+          const text = scene.orderPreview.label;
+          const width = context.measureText(text).width + 12;
+          context.fillStyle = scene.orderPreview.color;
+          context.beginPath();
+          context.roundRect(8, y - 10, width, 20, 4);
+          context.fill();
+          context.fillStyle = "#0e0e10";
+          context.textBaseline = "middle";
+          context.textAlign = "left";
+          context.fillText(text, 14, y + 0.5);
+        }
+      }
       context.restore();
     });
   }
@@ -517,6 +566,14 @@ export class DrawingsPrimitive implements ISeriesPrimitive<Time> {
         const y = projection.y(scene.countdown.price);
         if (y !== null) prices.push(new AxisLabel(y + 17, scene.countdown.text, scene.countdown.color));
       }
+      if (scene.orderPreview) {
+        const y = projection.y(scene.orderPreview.price);
+        if (y !== null) {
+          prices.push(
+            new AxisLabel(y, formatPrice(scene.orderPreview.price, scene.priceDecimals), scene.orderPreview.color),
+          );
+        }
+      }
       const labelled = scene.visible ? scene.drawings : [];
       for (const drawing of [...labelled, ...(scene.draft ? [scene.draft] : [])]) {
         const active = drawing === scene.draft || drawing.id === scene.selectedId;
@@ -551,7 +608,12 @@ export class DrawingsPrimitive implements ISeriesPrimitive<Time> {
 
   hitTest(x: number, y: number): PrimitiveHoveredItem | null {
     const projection = this.projection();
-    if (!projection || !this.scene.visible) return null;
+    if (!projection) return null;
+    const order = orderHandleAt(this.scene.orderHandles, y, projection);
+    if (order) {
+      return { externalId: `order:${order.id}`, zOrder: "top", distance: 0, hitTestPriority: 2, cursorStyle: "ns-resize" };
+    }
+    if (!this.scene.visible) return null;
     let best: DrawingHit | null = null;
     for (const drawing of this.scene.drawings) {
       const hit = hitTestDrawing(drawing, { x, y }, projection);

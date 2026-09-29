@@ -64,6 +64,7 @@ import {
   DRAWING_LABEL,
   DrawingsPrimitive,
   hitTestDrawing,
+  orderHandleAt,
   parseDrawings,
   type Drawing,
   type DrawingHit,
@@ -300,12 +301,15 @@ export function PackagePriceChart({
   previewEpochSeconds,
   positionOverlays = [],
   orderOverlays = [],
+  onAmendOrderPrice,
 }: {
   market: PackageMarket;
   baseMarket: PackageMarket;
   previewEpochSeconds: number;
   positionOverlays?: PositionPriceOverlay[];
   orderOverlays?: WorkingOrderPriceOverlay[];
+  /** Dragging a working order's line proposes this limit price; the ticket still confirms and signs the amendment. */
+  onAmendOrderPrice?: (orderId: string, price: number) => void;
 }) {
   const shell = useRef<HTMLDivElement>(null);
   const holder = useRef<HTMLDivElement>(null);
@@ -333,6 +337,9 @@ export function PackagePriceChart({
     selectedId: null as string | null,
     draft: null as Drawing | null,
     decimals: baseMarket.priceDecimals,
+    tick: baseMarket.tickSize,
+    orders: [] as WorkingOrderPriceOverlay[],
+    onAmend: undefined as ((orderId: string, price: number) => void) | undefined,
   });
 
   const [prefs, setPrefs] = usePersistentState(CHART_PREFS_KEY, DEFAULT_PREFS, parsePrefs);
@@ -348,6 +355,7 @@ export function PackagePriceChart({
   const [draft, setDraft] = useState<Drawing | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [orderPreview, setOrderPreview] = useState<{ price: number; label: string; color: string } | null>(null);
   const [drawingsVisible, setDrawingsVisible] = useState(true);
   const [locked, setLocked] = useState(false);
   const [hover, setHover] = useState<Readout | null>(null);
@@ -394,6 +402,9 @@ export function PackagePriceChart({
       selectedId,
       draft,
       decimals: baseMarket.priceDecimals,
+      tick: baseMarket.tickSize,
+      orders: orderOverlays,
+      onAmend: onAmendOrderPrice,
     };
   });
 
@@ -612,6 +623,7 @@ export function PackagePriceChart({
     // mousedown before it reaches the chart; the crosshair keeps following the pointer.
     type Gesture =
       | { type: "create"; start: { x: number; y: number }; moved: boolean }
+      | { type: "order"; id: string; start: { x: number; y: number }; moved: boolean; price: number; color: string }
       | {
           type: "edit";
           id: string;
@@ -696,9 +708,30 @@ export function PackagePriceChart({
         lockChart(true);
         return;
       }
-      if (state.locked || !state.visible) return;
       const projection = primitiveRef.current?.projection();
       if (!projection) return;
+      if (state.onAmend) {
+        const handle = orderHandleAt(
+          state.orders.map((order) => ({ id: order.id, price: order.limitPrice })),
+          point.y,
+          projection,
+        );
+        const order = handle ? state.orders.find((item) => item.id === handle.id) : undefined;
+        if (handle && order) {
+          claim(event);
+          gesture = {
+            type: "order",
+            id: handle.id,
+            start: point,
+            moved: false,
+            price: handle.price,
+            color: executableAction(order.side, order.packageSide) === "BUY" ? CHART_THEME.up : CHART_THEME.down,
+          };
+          lockChart(true);
+          return;
+        }
+      }
+      if (state.locked || !state.visible) return;
       let hit: DrawingHit | null = null;
       for (const drawing of state.drawings) {
         const candidate = hitTestDrawing(drawing, point, projection);
@@ -742,6 +775,16 @@ export function PackagePriceChart({
       const state = live.current;
       if (!gesture && !state.draft) return;
       const point = localPoint(event);
+      if (gesture?.type === "order") {
+        if (!gesture.moved && Math.abs(point.y - gesture.start.y) < DRAG_THRESHOLD) return;
+        gesture.moved = true;
+        const raw = seriesRef.current?.api.coordinateToPrice(point.y);
+        if (raw === null || raw === undefined) return;
+        const price = roundTo(Math.round(raw / state.tick) * state.tick, state.decimals);
+        gesture.price = price;
+        setOrderPreview({ price, label: `Amend to ${price.toFixed(state.decimals)}`, color: gesture.color });
+        return;
+      }
       if (gesture?.type === "edit") {
         if (!gesture.moved && Math.hypot(point.x - gesture.start.x, point.y - gesture.start.y) < DRAG_THRESHOLD) return;
         gesture.moved = true;
@@ -783,6 +826,11 @@ export function PackagePriceChart({
       const finished = gesture;
       gesture = null;
       lockChart(false);
+      if (finished.type === "order") {
+        setOrderPreview(null);
+        if (finished.moved) live.current.onAmend?.(finished.id, finished.price);
+        return;
+      }
       if (finished.type === "create") {
         // Press, drag, release draws in one gesture; a plain click waits for the second click.
         if (finished.moved && live.current.draft) commit(live.current.draft);
@@ -1226,8 +1274,15 @@ export function PackagePriceChart({
                 : CHART_THEME.down,
           }
         : null,
+      orderHandles: onAmendOrderPrice
+        ? orderOverlays.map((order) => ({ id: order.id, price: order.limitPrice }))
+        : [],
+      orderPreview,
     });
   }, [
+    orderOverlays,
+    onAmendOrderPrice,
+    orderPreview,
     drawings,
     draft,
     selectedId,
