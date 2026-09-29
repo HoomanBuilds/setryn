@@ -97,7 +97,7 @@ contract FixingEngineTest is Test {
         vm.expectPartialRevert(IFixingEngine.ObservationOutsideWindow.selector);
         engine.submitEvidence(seriesId, VERSION, _officialSlots(), 0, 0, observations, hex"01");
 
-        observations = _singleObservation(2_200, 2_301);
+        observations = _singleObservation(WINDOW_END - 1, 2_301);
         vm.expectPartialRevert(IFixingEngine.FutureObservationPublication.selector);
         engine.submitEvidence(seriesId, VERSION, _officialSlots(), 0, 0, observations, hex"02");
 
