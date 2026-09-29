@@ -92,6 +92,7 @@ interface IStreamingQuoteEngine {
     function capacityManager() external view returns (IStreamCapacityManager);
     function nextSequence(StreamId streamId) external view returns (uint64);
     function getPolicy(StreamId streamId) external view returns (StreamPolicy memory);
+    function streamActive(StreamId streamId) external view returns (bool);
     function streamExecutable(StreamId streamId) external view returns (bool);
     function previewFirmQuote(StreamId streamId, Lots fillLots)
         external

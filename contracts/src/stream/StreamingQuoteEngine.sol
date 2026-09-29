@@ -297,6 +297,10 @@ contract StreamingQuoteEngine is IStreamingQuoteEngine, AccessControl, Reentranc
         return _requireStream(streamId).policy;
     }
 
+    function streamActive(StreamId streamId) external view returns (bool) {
+        return _requireStream(streamId).active;
+    }
+
     function _prepareFill(StreamFill calldata fill) private returns (StreamRecord storage record) {
         record = _requireStream(fill.streamId);
         StreamPolicy storage policy = record.policy;
