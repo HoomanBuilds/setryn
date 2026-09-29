@@ -158,7 +158,7 @@ rm -f \
     "$deployment_directory/runtime.json" \
     "$deployment_directory/runtime.tmp.json"
 
-anvil --silent --disable-code-size-limit --host "$rpc_bind_host" --port "$rpc_port" --chain-id "$chain_id" --state "$state_file" >"$log_file" 2>&1 &
+anvil --silent --host "$rpc_bind_host" --port "$rpc_port" --chain-id "$chain_id" --state "$state_file" >"$log_file" 2>&1 &
 anvil_pid=$!
 trap cleanup_failed_start ERR INT TERM
 
@@ -240,7 +240,6 @@ forge script "$repository_root/contracts/script/DeploySetryn.s.sol:DeploySetryn"
     --rpc-url "$rpc_url" \
     --sender "$deployer_address" \
     --unlocked \
-    --disable-code-size-limit \
     --non-interactive \
     --slow \
     --broadcast
@@ -333,7 +332,6 @@ forge script "$repository_root/contracts/script/BootstrapSetrynDevnet.s.sol:Boot
     --rpc-url "$rpc_url" \
     --sender "$SETRYN_GOVERNANCE_OPERATOR" \
     --unlocked \
-    --disable-code-size-limit \
     --non-interactive \
     --slow \
     --broadcast

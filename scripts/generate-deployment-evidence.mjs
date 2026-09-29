@@ -10,6 +10,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const phase2Inventory = readJson(resolve(repositoryRoot, "deployments/phase2-contract-inventory.json"));
 const phase2ContractNames = new Set(phase2Inventory.contracts.map(({name}) => name));
 const phase2Contracts = new Map(phase2Inventory.contracts.map((contract) => [contract.name, contract]));
+const linkedLibraries = new Map((phase2Inventory.linkedLibraries ?? []).map((library) => [library.name, library]));
 const environments = {
   local: {
     chainIds: [1337, 31337],
@@ -142,16 +143,42 @@ function artifactFor(contractName) {
   return readJson(resolve(repositoryRoot, artifactPathFor(contractName)));
 }
 
-function resolveCreateIdentity(transaction) {
+/// Creation code with every linked library placeholder replaced by the recorded library address.
+function linkedCreationCode(artifact, libraryAddresses) {
+  let code = artifact.bytecode.object.toLowerCase();
+  for (const libraries of Object.values(artifact.bytecode.linkReferences ?? {})) {
+    for (const [name, references] of Object.entries(libraries)) {
+      const address = libraryAddresses.get(name);
+      if (!address) throw new Error(`Linked library ${name} has no recorded deployment.`);
+      for (const {start, length} of references) {
+        code = code.slice(0, 2 + start * 2) + address.slice(2).toLowerCase() + code.slice(2 + (start + length) * 2);
+      }
+    }
+  }
+  if (code.includes("__$")) throw new Error("Creation code still contains an unlinked library placeholder.");
+  return code;
+}
+
+function linkedLibraryNames(artifact) {
+  return Object.values(artifact.bytecode.linkReferences ?? {}).flatMap((libraries) => Object.keys(libraries)).sort();
+}
+
+function resolveCreateIdentity(transaction, libraryAddresses) {
   if (transaction.contractName) return transaction;
   const input = transaction.transaction?.input?.toLowerCase();
   if (!input?.startsWith("0x")) throw new Error("Unidentified contract creation has no input bytecode.");
-  const exactMatches = [...phase2ContractNames].filter((contractName) => {
-    const creationCode = artifactFor(contractName).bytecode?.object?.toLowerCase();
-    return creationCode && creationCode !== "0x" && input.startsWith(creationCode);
+  const candidates = [...phase2ContractNames, ...linkedLibraries.keys()];
+  const exactMatches = candidates.filter((contractName) => {
+    const artifact = artifactFor(contractName);
+    if (!artifact.bytecode?.object || artifact.bytecode.object === "0x") return false;
+    try {
+      return input.startsWith(linkedCreationCode(artifact, libraryAddresses));
+    } catch {
+      return false;
+    }
   });
   if (exactMatches.length === 1) {
-    const creationCode = artifactFor(exactMatches[0]).bytecode.object.toLowerCase();
+    const creationCode = linkedCreationCode(artifactFor(exactMatches[0]), libraryAddresses);
     return {
       ...transaction,
       contractName: exactMatches[0],
@@ -228,9 +255,18 @@ async function main() {
 
   const broadcastPath = resolve(repositoryRoot, options.broadcast);
   const broadcast = readJson(broadcastPath);
-  const creates = broadcast.transactions
-    .filter((transaction) => transaction.transactionType === "CREATE")
-    .map(resolveCreateIdentity);
+  // Linked libraries are recorded by Foundry as `path:Name:address`; every one must be a declared library.
+  const libraryAddresses = new Map();
+  for (const entry of broadcast.libraries ?? []) {
+    const [, name, address] = entry.split(":");
+    if (!linkedLibraries.has(name)) throw new Error(`Broadcast links undeclared library ${name}.`);
+    libraryAddresses.set(name, address.toLowerCase());
+  }
+  const allCreates = broadcast.transactions
+    .filter((transaction) => transaction.transactionType === "CREATE" || transaction.transactionType === "CREATE2")
+    .map((transaction) => resolveCreateIdentity(transaction, libraryAddresses));
+  const libraryCreates = allCreates.filter((transaction) => linkedLibraries.has(transaction.contractName));
+  const creates = allCreates.filter((transaction) => !linkedLibraries.has(transaction.contractName));
   const receipts = receiptByHash(broadcast.receipts ?? []);
   if (creates.length === 0) {
     throw new Error("Broadcast artifact contains no contract creation transactions.");
@@ -253,6 +289,54 @@ async function main() {
   manifest.phase2.deployments = [];
   let compiler;
 
+  const libraryEvidence = [];
+  for (const transaction of libraryCreates) {
+    const receipt = receipts.get(transactionHash(transaction).toLowerCase());
+    const address = (transaction.contractAddress ?? receipt.contractAddress).toLowerCase();
+    const recorded = libraryAddresses.get(transaction.contractName);
+    if (recorded && recorded !== address) {
+      throw new Error(`Library ${transaction.contractName} was linked at ${recorded} but deployed at ${address}.`);
+    }
+    libraryAddresses.set(transaction.contractName, address);
+    const artifact = artifactFor(transaction.contractName);
+    let input = transaction.transaction?.input?.toLowerCase();
+    if (transaction.transactionType === "CREATE2") {
+      // Foundry deploys libraries through the deterministic CREATE2 deployer: 32-byte salt, then init code.
+      const deployer = transaction.transaction.to.toLowerCase();
+      const salt = `0x${input.slice(2, 66)}`;
+      input = `0x${input.slice(66)}`;
+      const derived = execFileSync(
+        "cast",
+        ["compute-address", deployer, "--salt", salt, "--init-code", input],
+        {encoding: "utf8"},
+      ).match(/0x[0-9a-fA-F]{40}/)?.[0]?.toLowerCase();
+      if (derived !== address) {
+        throw new Error(`Library ${transaction.contractName} CREATE2 address ${address} does not derive from its init code.`);
+      }
+    }
+    if (!input?.startsWith(linkedCreationCode(artifact, libraryAddresses))) {
+      throw new Error(`Library ${transaction.contractName} deployment input does not match its linked creation code.`);
+    }
+    const runtimeCode = await rpc(rpcUrl, "eth_getCode", [address, blockTag]);
+    if (runtimeCode === "0x") throw new Error(`No bytecode found for library ${transaction.contractName} at ${address}.`);
+    libraryEvidence.push({
+      name: transaction.contractName,
+      artifact: artifactPathFor(transaction.contractName),
+      address,
+      creationCodeHash: keccak(linkedCreationCode(artifact, libraryAddresses)),
+      runtimeCodeHash: keccak(runtimeCode),
+      transactionHash: transactionHash(transaction),
+      blockNumber: Number.parseInt(receipt.blockNumber, 16),
+      linkedLibraries: linkedLibraryNames(artifact),
+      linkedBy: linkedLibraries.get(transaction.contractName).linkedBy,
+    });
+  }
+  for (const name of libraryAddresses.keys()) {
+    if (!libraryEvidence.some((library) => library.name === name)) {
+      throw new Error(`Linked library ${name} has no deployment transaction in the broadcast.`);
+    }
+  }
+
   for (const transaction of creates) {
     const contract = templateContracts.get(transaction.contractName);
     if (!contract && !phase2ContractNames.has(transaction.contractName)) {
@@ -267,6 +351,12 @@ async function main() {
 
     const artifact = artifactFor(transaction.contractName);
     compiler ??= compilerMetadata(artifact);
+    const creationCode = linkedCreationCode(artifact, libraryAddresses);
+    // Selector-resolved creations already carry unavailable constructor arguments; exact identities must match.
+    const selectorResolved = transaction.arguments?.[0]?.encoding === "unavailable";
+    if (!selectorResolved && !transaction.transaction?.input?.toLowerCase().startsWith(creationCode)) {
+      throw new Error(`${transaction.contractName} deployment input does not match its linked creation code.`);
+    }
     if (!contract) {
       const inventory = phase2Contracts.get(transaction.contractName);
       const constructorArguments = transaction.arguments ?? [];
@@ -293,6 +383,7 @@ async function main() {
         transactionHash: transactionHash(transaction),
         blockNumber: Number.parseInt(receipt.blockNumber, 16),
         constructorArguments,
+        linkedLibraries: linkedLibraryNames(artifact),
         dependencies: inventory.dependencies,
         roleAuthority: inventory.roleAuthority,
         supported: inventory.supported,
@@ -306,7 +397,7 @@ async function main() {
       continue;
     }
     contract.address = address;
-    contract.bytecode.creationCodeHash = keccak(artifact.bytecode.object);
+    contract.bytecode.creationCodeHash = keccak(creationCode);
     contract.bytecode.runtimeCodeHash = keccak(runtimeCode);
     contract.deploymentTransaction = {
       hash: transactionHash(transaction),
@@ -479,10 +570,11 @@ async function main() {
     mode: "broadcast",
   };
   manifest.compiler = compiler;
+  manifest.linkedLibraries = libraryEvidence;
   manifest.broadcast = {
     enabled: true,
     signed: options.environment !== "local",
-    transactionCount: creates.length,
+    transactionCount: creates.length + libraryCreates.length,
   };
 
   const outputPath = resolve(repositoryRoot, options.output ?? environment.output);

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -96,6 +96,41 @@ for (const contract of inventory.contracts) {
     throw new Error(`Deployment script invents blocked dependency wiring for ${contract.name}`);
   }
 }
+// Linked-library topology must match the compiled production artifacts exactly.
+const declaredLibraries = inventory.linkedLibraries;
+if (!Array.isArray(declaredLibraries)) throw new Error("Phase 2 linked-library inventory is missing");
+assertUnique(declaredLibraries.map(({ name }) => name), "linked library");
+const observedLinks = new Map();
+for (const directory of readdirSync(resolve(repositoryRoot, "contracts/out"))) {
+  const directoryPath = resolve(repositoryRoot, "contracts/out", directory);
+  if (!statSync(directoryPath).isDirectory()) continue;
+  for (const file of readdirSync(directoryPath)) {
+    if (!file.endsWith(".json")) continue;
+    const artifact = JSON.parse(readFileSync(resolve(directoryPath, file), "utf8"));
+    const target = Object.keys(artifact.metadata?.settings?.compilationTarget ?? {})[0] ?? "";
+    if (!target.startsWith("src/")) continue;
+    for (const [source, libraries] of Object.entries(artifact.bytecode?.linkReferences ?? {})) {
+      for (const library of Object.keys(libraries)) {
+        const entry = observedLinks.get(library) ?? { source: `contracts/${source}`, linkedBy: new Set() };
+        entry.linkedBy.add(file.replace(/\.json$/, ""));
+        observedLinks.set(library, entry);
+      }
+    }
+  }
+}
+if (observedLinks.size !== declaredLibraries.length) {
+  throw new Error(`Linked-library inventory declares ${declaredLibraries.length} libraries; artifacts link ${observedLinks.size}`);
+}
+for (const library of declaredLibraries) {
+  const observed = observedLinks.get(library.name);
+  if (!observed || observed.source !== library.source) {
+    throw new Error(`Linked library ${library.name} drifted from the compiled artifacts`);
+  }
+  if (JSON.stringify([...observed.linkedBy].sort()) !== JSON.stringify(library.linkedBy)) {
+    throw new Error(`Linked library ${library.name} linkers drifted from the compiled artifacts`);
+  }
+}
+
 if (!deploymentScript.includes("ArbitrumOneDeploymentDisabled")) {
   throw new Error("Deployment script lost the Arbitrum One hard stop");
 }
