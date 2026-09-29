@@ -64,6 +64,9 @@ contract CollateralAwareRouteEngine is ICollateralAwareRouteEngine, AccessContro
             revert InvalidCandidateCount(candidates.length);
         }
         if (bounds.deadline < block.timestamp) revert RouteOutsideBounds();
+        // Reserving binds risk admissions that any risk consumer can later release, so only a route consumer or
+        // the controller of every bound account may select a route.
+        bool trustedConsumer = hasRole(ROUTE_CONSUMER_ROLE, msg.sender);
         uint256 bestIndex;
         RouteCandidate memory anchor = candidates[0];
         for (uint256 i; i < candidates.length; ++i) {
@@ -72,6 +75,7 @@ contract CollateralAwareRouteEngine is ICollateralAwareRouteEngine, AccessContro
             RouteLib.validateBounds(candidate.route, candidate.riskBindings, bounds);
             _requireComparable(anchor.route, candidate.route);
             _validateRiskAdmissions(candidate);
+            if (!trustedConsumer) _requireAccountController(candidate);
             RouteId candidateId = RouteLib.deriveRouteId(candidate.route, block.chainid, address(this));
             bytes32 expectedSnapshot = RouteLib.sourceSnapshotHash(candidate.components);
             bytes32 currentSnapshot = _liquiditySource.validateComponents(
@@ -193,6 +197,7 @@ contract CollateralAwareRouteEngine is ICollateralAwareRouteEngine, AccessContro
 
     function validateCoincidence(CoincidencePlan calldata plan, PackageLeg[] calldata packageLegs)
         external
+        onlyRole(ROUTE_CONSUMER_ROLE)
         nonReentrant
         returns (bytes32 planHash)
     {
@@ -231,6 +236,14 @@ contract CollateralAwareRouteEngine is ICollateralAwareRouteEngine, AccessContro
                     || admission.reservedResultCommitment != admission.resultHash
                     || admission.deadline < candidate.route.expiry
             ) revert InvalidRiskBinding();
+        }
+    }
+
+    function _requireAccountController(RouteCandidate memory candidate) private view {
+        if (candidate.riskBindings.length == 0) revert UnauthorizedConsumer();
+        for (uint256 i; i < candidate.riskBindings.length; ++i) {
+            (address controller,) = _riskEngine.collateralVault().getAccount(candidate.riskBindings[i].accountId);
+            if (controller != msg.sender) revert UnauthorizedConsumer();
         }
     }
 

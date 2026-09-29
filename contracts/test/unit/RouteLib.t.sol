@@ -2,6 +2,8 @@
 pragma solidity 0.8.37;
 
 import {Test} from "forge-std/Test.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {ICollateralAwareRouteEngine} from "../../src/interfaces/ICollateralAwareRouteEngine.sol";
 
 import {IPortfolioRiskEngine} from "../../src/interfaces/IPortfolioRiskEngine.sol";
 import {IRouteLiquiditySource} from "../../src/interfaces/IRouteLiquiditySource.sol";
@@ -105,14 +107,78 @@ contract RouteLibTest is Test {
         assertEq(uint8(engine.getReservation(routeId).status), uint8(RouteStatus.Settled));
     }
 
+    function test_ThirdPartyCannotBindAnotherAccountsRiskAdmission() public {
+        RouteCandidate memory candidate = _candidate();
+        _setAdmission(candidate.riskBindings[0]);
+        _setAdmission(candidate.riskBindings[1]);
+        RouteCandidate[] memory candidates = new RouteCandidate[](1);
+        candidates[0] = candidate;
+        RouteSelectionBounds memory bounds = _bounds(candidate.route);
+        vm.prank(makeAddr("griefer"));
+        vm.expectRevert(ICollateralAwareRouteEngine.UnauthorizedConsumer.selector);
+        engine.selectAndReserve(candidates, bounds);
+    }
+
+    function test_AccountControllerSelectsRouteOverOwnAdmissions() public {
+        RouteCandidate memory candidate = _candidate();
+        _setAdmission(candidate.riskBindings[0]);
+        _setAdmission(candidate.riskBindings[1]);
+        address controller = makeAddr("controller");
+        risk.setAccountController(candidate.riskBindings[0].accountId, controller);
+        risk.setAccountController(candidate.riskBindings[1].accountId, controller);
+        RouteCandidate[] memory candidates = new RouteCandidate[](1);
+        candidates[0] = candidate;
+        RouteSelectionBounds memory bounds = _bounds(candidate.route);
+        vm.prank(controller);
+        RouteId routeId = engine.selectAndReserve(candidates, bounds);
+        assertEq(uint8(engine.getReservation(routeId).status), uint8(RouteStatus.Reserved));
+    }
+
+    function test_ControllerMustControlEveryBoundAccount() public {
+        RouteCandidate memory candidate = _candidate();
+        _setAdmission(candidate.riskBindings[0]);
+        _setAdmission(candidate.riskBindings[1]);
+        address controller = makeAddr("controller");
+        risk.setAccountController(candidate.riskBindings[0].accountId, controller);
+        risk.setAccountController(candidate.riskBindings[1].accountId, makeAddr("other controller"));
+        RouteCandidate[] memory candidates = new RouteCandidate[](1);
+        candidates[0] = candidate;
+        RouteSelectionBounds memory bounds = _bounds(candidate.route);
+        vm.prank(controller);
+        vm.expectRevert(ICollateralAwareRouteEngine.UnauthorizedConsumer.selector);
+        engine.selectAndReserve(candidates, bounds);
+    }
+
+    function test_CoincidenceReservationRequiresRouteConsumer() public {
+        (CoincidencePlan memory plan, PackageLeg[] memory legs) = _coincidence(10, 10);
+        address griefer = makeAddr("griefer");
+        bytes32 consumerRole = engine.ROUTE_CONSUMER_ROLE();
+        vm.prank(griefer);
+        vm.expectRevert(
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, griefer, consumerRole)
+        );
+        engine.validateCoincidence(plan, legs);
+    }
+
     function testFuzz_CoincidenceConservesEveryPackageLot(uint128 left, uint128 right) public view {
         left = uint128(bound(left, 1, type(uint128).max));
         right = uint128(bound(right, 1, type(uint128).max));
+        (CoincidencePlan memory plan, PackageLeg[] memory legs) = _coincidence(left, right);
+        assertTrue(harness.validateCoincidence(plan, legs) != bytes32(0));
+        assertEq(uint256(Lots.unwrap(plan.matchedLots)) + Lots.unwrap(plan.leftResidualLots), left);
+        assertEq(uint256(Lots.unwrap(plan.matchedLots)) + Lots.unwrap(plan.rightResidualLots), right);
+    }
+
+    function _coincidence(uint128 left, uint128 right)
+        private
+        view
+        returns (CoincidencePlan memory plan, PackageLeg[] memory legs)
+    {
         uint128 matched = left < right ? left : right;
-        PackageLeg[] memory legs = new PackageLeg[](2);
+        legs = new PackageLeg[](2);
         legs[0] = PackageLeg({seriesId: SeriesId.wrap(bytes32(uint256(1))), seriesVersion: 1, ratio: 1});
         legs[1] = PackageLeg({seriesId: SeriesId.wrap(bytes32(uint256(2))), seriesVersion: 1, ratio: -1});
-        CoincidencePlan memory plan = CoincidencePlan({
+        plan = CoincidencePlan({
             leftOrderHash: keccak256("left"),
             rightOrderHash: keccak256("right"),
             packageId: PackageId.wrap(keccak256("package")),
@@ -133,9 +199,6 @@ contract RouteLibTest is Test {
             intendedClearingConsumer: address(this),
             reservationExpiry: uint64(block.timestamp + 1 hours)
         });
-        assertTrue(harness.validateCoincidence(plan, legs) != bytes32(0));
-        assertEq(uint256(Lots.unwrap(plan.matchedLots)) + Lots.unwrap(plan.leftResidualLots), left);
-        assertEq(uint256(Lots.unwrap(plan.matchedLots)) + Lots.unwrap(plan.rightResidualLots), right);
     }
 
     function _candidate() internal view returns (RouteCandidate memory candidate) {

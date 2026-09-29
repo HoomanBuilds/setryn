@@ -72,6 +72,20 @@ contract RouteLiquiditySourceMock {
 
 contract RouteRiskEngineMock {
     mapping(RiskAdmissionId admissionId => RiskAdmission admission) private _admissions;
+    mapping(AccountId accountId => address controller) private _controllers;
+
+    function setAccountController(AccountId accountId, address controller) external {
+        _controllers[accountId] = controller;
+    }
+
+    // Stands in for the collateral vault so the route engine can resolve account controllers.
+    function collateralVault() external view returns (address) {
+        return address(this);
+    }
+
+    function getAccount(AccountId accountId) external view returns (address controller, address pendingController) {
+        return (_controllers[accountId], address(0));
+    }
 
     function setAdmission(RiskAdmissionId admissionId, RiskAdmission calldata admission) external {
         _admissions[admissionId] = admission;
