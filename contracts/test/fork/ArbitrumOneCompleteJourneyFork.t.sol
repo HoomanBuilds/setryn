@@ -47,8 +47,10 @@ import {
     CalendarId,
     CollateralId,
     CollateralLockId,
+    FeeActionId,
     FeeRemainderPolicyId,
     FeeScheduleId,
+    FillId,
     InstrumentId,
     MarketId,
     PackageId,
@@ -63,6 +65,7 @@ import {InstrumentDefinition} from "../../src/types/InstrumentDefinition.sol";
 import {MarketDefinition} from "../../src/types/MarketDefinition.sol";
 import {
     OrderActionId,
+    OrderStatus,
     OrderTargetKind,
     PublicOrder,
     RemainderPolicy,
@@ -101,12 +104,14 @@ import {SettlementAssetDefinition} from "../../src/types/SettlementAssetDefiniti
 import {SettlementMode} from "../../src/types/SettlementTypes.sol";
 import {FeeRatePpm, Lots, PriceTicks, TickSizeMinor} from "../../src/types/Units.sol";
 import {
-    PositionCreation,
-    PositionEconomics,
-    PositionFunding,
-    PositionLifecycle,
-    PositionStatus
-} from "../../src/types/PositionTypes.sol";
+    BilateralMatch,
+    ClearingChannelKind,
+    ClearingFeeFunding,
+    FillRecord,
+    OrderFunding,
+    SeriesClearingRequest
+} from "../../src/types/ClearingTypes.sol";
+import {PositionEconomics, PositionLifecycle, PositionStatus} from "../../src/types/PositionTypes.sol";
 
 interface IERC20Decimals {
     function decimals() external view returns (uint8);
@@ -301,9 +306,14 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
         require(startedAt > 0 && updatedAt > 0, "round timestamps must be nonzero");
         require(updatedAt >= startedAt, "round timestamps must be ordered");
         require(updatedAt <= block.timestamp, "round must not be from the future");
-        uint64 forkTime = uint64(block.timestamp);
+        uint64 originalForkTimestamp = uint64(block.timestamp);
+        uint64 forkTime = originalForkTimestamp;
         uint64 roundUpdatedAt = uint64(updatedAt);
         JourneyTiming memory timing = _buildTiming(forkTime, roundUpdatedAt);
+        assertTrue(timing.tradingStartsAt < timing.lastTradingAt, "trading interval must be ordered");
+        assertTrue(timing.lastTradingAt < timing.fixingWindowOpen, "trading must end before fixing opens");
+        assertTrue(timing.lastTradingAt < originalForkTimestamp, "historical round must place trading before fork time");
+        assertEq(block.timestamp, originalForkTimestamp, "must start at pinned fork time");
 
         Deployment memory d = _deployProductionGraph();
 
@@ -353,6 +363,23 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
         assertTrue(InstrumentId.unwrap(instrumentId) != bytes32(0), "instrument id nonzero");
         assertTrue(MarketId.unwrap(marketId) != bytes32(0), "market id nonzero");
 
+        (AccountId aliceAccount, AccountId bobAccount) = _fundUsers(d, settlementAssetId, alice, bob);
+        assertTrue(AccountId.unwrap(aliceAccount) != bytes32(0), "alice account nonzero");
+        assertTrue(AccountId.unwrap(bobAccount) != bytes32(0), "bob account nonzero");
+
+        // Fork-local chronological rehearsal: the authenticated round is historical, so trading
+        // occurred before the pinned fork time. Warp back into the configured trading interval
+        // for series activation, orders, and clearing.
+        uint64 tradingRehearsalAt = timing.tradingStartsAt + ((timing.lastTradingAt - timing.tradingStartsAt) / 2);
+        assertGe(tradingRehearsalAt, timing.tradingStartsAt, "trading rehearsal must reach trading start");
+        assertLe(tradingRehearsalAt, timing.lastTradingAt, "trading rehearsal must not pass last trading");
+        assertLt(tradingRehearsalAt, originalForkTimestamp, "trading rehearsal must precede fork time");
+        assertEq(block.timestamp, originalForkTimestamp, "must still be at fork time before trading warp");
+        vm.warp(tradingRehearsalAt);
+        assertEq(block.timestamp, tradingRehearsalAt, "must warp into trading interval");
+        assertGe(block.timestamp, timing.tradingStartsAt, "rehearsal must not precede trading start");
+        assertLe(block.timestamp, timing.lastTradingAt, "rehearsal must not pass last trading");
+
         (SeriesId seriesId, FixingSlot[] memory slots, bytes memory payoffTerms) =
             _configureSeries(d, benchmarkId, instrumentId, marketId, calendarId, timing, liveDecimals);
         assertTrue(SeriesId.unwrap(seriesId) != bytes32(0), "series id nonzero");
@@ -364,17 +391,44 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
             "candidate window must include round updatedAt"
         );
 
-        (AccountId aliceAccount, AccountId bobAccount) = _fundUsers(d, settlementAssetId, alice, bob);
-        assertTrue(AccountId.unwrap(aliceAccount) != bytes32(0), "alice account nonzero");
-        assertTrue(AccountId.unwrap(bobAccount) != bytes32(0), "bob account nonzero");
-
-        _placeOpposingOrders(
+        (
+            bytes32 buyHash,
+            bytes32 sellHash,
+            RiskAdmissionId buyAdmissionId,
+            bytes32 buyResultHash,
+            RiskAdmissionId sellAdmissionId,
+            bytes32 sellResultHash
+        ) = _placeOpposingOrders(
             d, seriesId, feeScheduleId, riskDomainId, alice, aliceKey, bob, bobKey, aliceAccount, bobAccount
         );
 
-        PositionId positionId = _clearDirectly(d, seriesId, payoffTerms, aliceAccount, bobAccount);
+        (FillId fillId, PositionId positionId) = _clearDirectly(
+            d,
+            payoffTerms,
+            buyHash,
+            sellHash,
+            buyAdmissionId,
+            buyResultHash,
+            sellAdmissionId,
+            sellResultHash,
+            aliceAccount,
+            bobAccount
+        );
+        assertTrue(FillId.unwrap(fillId) != bytes32(0), "fill id nonzero");
         assertTrue(PositionId.unwrap(positionId) != bytes32(0), "position id nonzero");
         _assertPositionLive(d, positionId, aliceAccount, bobAccount);
+
+        // Rehearse forward to live fork time before touching sequencer evidence or fixing.
+        // Never warp backward after this point.
+        uint64 fixingRehearsalAt = _max64(originalForkTimestamp, roundUpdatedAt);
+        assertGe(fixingRehearsalAt, originalForkTimestamp, "fixing rehearsal must reach fork time");
+        assertGe(fixingRehearsalAt, roundUpdatedAt, "fixing rehearsal must reach round publication");
+        assertGe(fixingRehearsalAt, block.timestamp, "fixing rehearsal must move forward");
+        assertTrue(timing.lastTradingAt < fixingRehearsalAt, "fixing rehearsal must follow trading");
+        vm.warp(fixingRehearsalAt);
+        assertEq(block.timestamp, fixingRehearsalAt, "must warp forward to fork time for fixing");
+        assertGe(block.timestamp, originalForkTimestamp, "must not rewind past fork time");
+        assertGe(block.timestamp, roundUpdatedAt, "round must be publishable at fixing time");
 
         SequencerEvidence memory liveEvidence = _liveSequencer();
         assertTrue(liveEvidence.sequencerUp, "fork sequencer must be up");
@@ -585,8 +639,7 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
                     decimals: 8
                 })
             );
-        vm.prank(govOperator);
-        d.assetRegistry.activateAsset(baseAssetId);
+        assertTrue(d.assetRegistry.isActive(baseAssetId), "base asset must be active after registration");
     }
 
     function _registerSettlementAsset(Deployment memory d) internal returns (AssetId settlementAssetId) {
@@ -601,8 +654,7 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
                     decimals: 6
                 })
             );
-        vm.prank(govOperator);
-        d.assetRegistry.activateAsset(settlementAssetId);
+        assertTrue(d.assetRegistry.isActive(settlementAssetId), "settlement asset must be active after registration");
     }
 
     function _registerAdapters(
@@ -916,16 +968,49 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
         returns (FeeScheduleId feeScheduleId)
     {
         AccountId feeRecipient = d.collateralVault.deriveAccountId(address(this), keccak256("JOURNEY_FEES"));
-        FeeRule[] memory rules = new FeeRule[](1);
+        AccountId createdFeeRecipient = d.collateralVault.createAccount(keccak256("JOURNEY_FEES"));
+        assertEq(
+            AccountId.unwrap(createdFeeRecipient),
+            AccountId.unwrap(feeRecipient),
+            "fee recipient account must match commitment"
+        );
+        FeeRule[] memory rules = new FeeRule[](3);
         rules[0] = FeeRule({
+            actionId: FeeScheduleDefinitionLib.FEE_ACTION_MAKER_FILL,
+            requiresOpenSchedule: true,
+            chargeRatePpm: FeeRatePpm.wrap(0),
+            rebateRatePpm: FeeRatePpm.wrap(0),
+            flatChargeMinor: 1,
+            flatRebateMinor: 0,
+            tiers: new FeeTier[](0)
+        });
+        rules[1] = FeeRule({
+            actionId: FeeScheduleDefinitionLib.FEE_ACTION_TAKER_FILL,
+            requiresOpenSchedule: true,
+            chargeRatePpm: FeeRatePpm.wrap(0),
+            rebateRatePpm: FeeRatePpm.wrap(0),
+            flatChargeMinor: 1,
+            flatRebateMinor: 0,
+            tiers: new FeeTier[](0)
+        });
+        rules[2] = FeeRule({
             actionId: FeeScheduleDefinitionLib.FEE_ACTION_SETTLEMENT,
             requiresOpenSchedule: true,
             chargeRatePpm: FeeRatePpm.wrap(0),
             rebateRatePpm: FeeRatePpm.wrap(0),
-            flatChargeMinor: 0,
+            flatChargeMinor: 1,
             flatRebateMinor: 0,
             tiers: new FeeTier[](0)
         });
+        for (uint256 i; i < rules.length; ++i) {
+            for (uint256 j = i + 1; j < rules.length; ++j) {
+                if (FeeActionId.unwrap(rules[i].actionId) > FeeActionId.unwrap(rules[j].actionId)) {
+                    FeeRule memory tmp = rules[i];
+                    rules[i] = rules[j];
+                    rules[j] = tmp;
+                }
+            }
+        }
         FeeRecipient[] memory entries = new FeeRecipient[](1);
         entries[0] = FeeRecipient({accountId: feeRecipient, sharePpm: 1_000_000});
         FeeRecipientSet memory recipients = FeeRecipientSet({
@@ -936,7 +1021,7 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
         FeeScheduleDefinition memory definition = FeeScheduleDefinition({
             namespaceId: NAMESPACE,
             scheduleKey: keccak256("FEE_SCHEDULE_STANDARD_V1"),
-            feeModelId: FeeScheduleDefinitionLib.FEE_MODEL_MAKER_TAKER,
+            feeModelId: FeeScheduleDefinitionLib.FEE_MODEL_FLAT_PER_ACTION,
             settlementAssetId: settlementAssetId,
             settlementAssetVersion: VERSION,
             feeRulesHash: FeeEngineLib.hashRules(rules),
@@ -1129,8 +1214,8 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
             correctionCutoffAt: timing.correctionCutoffAt,
             finalResolutionAt: timing.finalResolutionAt,
             settlementDeadline: timing.settlementDeadline,
-            exercisePolicyId: SeriesDefinitionLib.EXERCISE_POLICY_HOLDER_ELECTION,
-            automaticExerciseThresholdMinor: 0,
+            exercisePolicyId: SeriesDefinitionLib.EXERCISE_POLICY_AUTOMATIC_UNLESS_ABANDONED,
+            automaticExerciseThresholdMinor: 1,
             disruptionOutcomeId: SeriesDefinitionLib.DISRUPTION_OUTCOME_FLAT,
             terminalDisruptionTransferMinorPerLot: 0,
             payoffTermsHash: bytes32(uint256(1)),
@@ -1253,7 +1338,17 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
         uint256 bobKey,
         AccountId aliceAccount,
         AccountId bobAccount
-    ) internal {
+    )
+        internal
+        returns (
+            bytes32 buyHash,
+            bytes32 sellHash,
+            RiskAdmissionId buyAdmissionId,
+            bytes32 buyResultHash,
+            RiskAdmissionId sellAdmissionId,
+            bytes32 sellResultHash
+        )
+    {
         bytes32 policyId = keccak256("SETRYN_COMPLETE_JOURNEY_POLICY_V1");
         OrderActionId enterAction = OrderActionId.wrap(keccak256("SETRYN_ORDER_ACTION_ENTER_V1"));
         PublicOrder memory buyOrder = PublicOrder({
@@ -1275,7 +1370,7 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
             feeScheduleId: feeScheduleId,
             feeScheduleVersion: VERSION,
             maxFeeMinor: 1_000e6,
-            recipient: address(0),
+            recipient: alice,
             permittedExecutor: address(0),
             nonce: 1,
             salt: keccak256("JOURNEY_BUY_SALT_V1"),
@@ -1304,7 +1399,7 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
             feeScheduleId: feeScheduleId,
             feeScheduleVersion: VERSION,
             maxFeeMinor: 1_000e6,
-            recipient: address(0),
+            recipient: bob,
             permittedExecutor: address(0),
             nonce: 1,
             salt: keccak256("JOURNEY_SELL_SALT_V1"),
@@ -1314,21 +1409,30 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
             postOnly: false,
             reduceOnly: false
         });
-        bytes32 buyHash = d.orderState.hashOrder(buyOrder);
-        bytes32 sellHash = d.orderState.hashOrder(sellOrder);
-        assertTrue(buyHash != bytes32(0), "buy order hash nonzero");
-        assertTrue(sellHash != bytes32(0), "sell order hash nonzero");
-        assertTrue(buyHash != sellHash, "opposing order hashes must differ");
-        (uint8 vBuy, bytes32 rBuy, bytes32 sBuy) = vm.sign(aliceKey, buyHash);
-        (uint8 vSell, bytes32 rSell, bytes32 sSell) = vm.sign(bobKey, sellHash);
-        _reserveAndBindRisk(d, buyOrder, buyHash, alice, riskDomainId);
-        _reserveAndBindRisk(d, sellOrder, sellHash, bob, riskDomainId);
+        bytes32 buyHash_ = d.orderState.hashOrder(buyOrder);
+        bytes32 sellHash_ = d.orderState.hashOrder(sellOrder);
+        assertTrue(buyHash_ != bytes32(0), "buy order hash nonzero");
+        assertTrue(sellHash_ != bytes32(0), "sell order hash nonzero");
+        assertTrue(buyHash_ != sellHash_, "opposing order hashes must differ");
+        (uint8 vBuy, bytes32 rBuy, bytes32 sBuy) = vm.sign(aliceKey, buyHash_);
+        (uint8 vSell, bytes32 rSell, bytes32 sSell) = vm.sign(bobKey, sellHash_);
+        // Buyer maps to long, seller maps to short. Preserve exact mapping.
+        (RiskAdmissionId buyAdmission_, bytes32 buyResult_) =
+            _reserveAndBindRisk(d, buyOrder, buyHash_, alice, riskDomainId);
+        (RiskAdmissionId sellAdmission_, bytes32 sellResult_) =
+            _reserveAndBindRisk(d, sellOrder, sellHash_, bob, riskDomainId);
         bytes32 registeredBuy = d.orderState.registerSignedOrder(buyOrder, abi.encodePacked(rBuy, sBuy, vBuy));
         bytes32 registeredSell = d.orderState.registerSignedOrder(sellOrder, abi.encodePacked(rSell, sSell, vSell));
-        assertEq(registeredBuy, buyHash, "buy registration must return hash");
-        assertEq(registeredSell, sellHash, "sell registration must return hash");
-        assertTrue(uint8(d.orderState.statusOf(buyHash)) == 1, "buy order must be open");
-        assertTrue(uint8(d.orderState.statusOf(sellHash)) == 1, "sell order must be open");
+        assertEq(registeredBuy, buyHash_, "buy registration must return hash");
+        assertEq(registeredSell, sellHash_, "sell registration must return hash");
+        assertTrue(uint8(d.orderState.statusOf(buyHash_)) == 1, "buy order must be open");
+        assertTrue(uint8(d.orderState.statusOf(sellHash_)) == 1, "sell order must be open");
+        buyHash = buyHash_;
+        sellHash = sellHash_;
+        buyAdmissionId = buyAdmission_;
+        buyResultHash = buyResult_;
+        sellAdmissionId = sellAdmission_;
+        sellResultHash = sellResult_;
     }
 
     function _reserveAndBindRisk(
@@ -1337,7 +1441,7 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
         bytes32 orderHash,
         address signer,
         RiskDomainId riskDomainId
-    ) internal {
+    ) internal returns (RiskAdmissionId admissionId, bytes32 resultHash) {
         PortfolioPositionWitness[] memory witnesses = new PortfolioPositionWitness[](1);
         witnesses[0] = PortfolioPositionWitness({
             positionId: PositionId.wrap(keccak256(abi.encode("JOURNEY_WITNESS", signer, orderHash))),
@@ -1360,57 +1464,109 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
             riskDomainVersion: VERSION,
             openInterestIncreaseBaseUnits: 2,
             terminalLiabilityIncreaseBaseUnits: 2_000e6,
-            deadline: uint64(block.timestamp + 1 hours),
+            deadline: uint64(block.timestamp + 4 minutes),
             nonce: uint256(keccak256(abi.encode(signer, orderHash))),
             salt: keccak256(abi.encode("JOURNEY_RISK_SALT", signer, orderHash))
         });
         vm.prank(address(d.atomicClearingEngine));
-        (RiskAdmissionId admissionId,) = d.portfolioRiskEngine.reserveNewRisk(request, witnesses, observations);
-        require(
-            keccak256(abi.encodePacked(admissionId)) != keccak256(abi.encodePacked(bytes32(0))), "admission nonzero"
-        );
+        (RiskAdmissionId reservedId, PortfolioRiskResult memory result) =
+            d.portfolioRiskEngine.reserveNewRisk(request, witnesses, observations);
+        require(RiskAdmissionId.unwrap(reservedId) != bytes32(0), "admission nonzero");
+        bytes32 storedHash = d.portfolioRiskEngine.getAdmission(reservedId).resultHash;
+        require(storedHash != bytes32(0), "result hash nonzero");
+        require(storedHash == keccak256(abi.encode(result)), "result hash must match reservation");
         vm.prank(signer);
-        bytes32 boundHash = d.riskAdmissionBindingRegistry.bindOrderRisk(order, admissionId);
+        bytes32 boundHash = d.riskAdmissionBindingRegistry.bindOrderRisk(order, reservedId);
         assertEq(boundHash, orderHash, "risk binding must return order hash");
+        admissionId = reservedId;
+        resultHash = storedHash;
     }
 
     function _clearDirectly(
         Deployment memory d,
-        SeriesId seriesId,
         bytes memory payoffTerms,
+        bytes32 buyOrderHash,
+        bytes32 sellOrderHash,
+        RiskAdmissionId buyAdmissionId,
+        bytes32 buyResultHash,
+        RiskAdmissionId sellAdmissionId,
+        bytes32 sellResultHash,
         AccountId aliceAccount,
         AccountId bobAccount
-    ) internal returns (PositionId positionId) {
+    ) internal returns (FillId fillId, PositionId positionId) {
+        require(buyOrderHash != bytes32(0) && sellOrderHash != bytes32(0), "order hashes nonzero");
+        require(
+            RiskAdmissionId.unwrap(buyAdmissionId) != bytes32(0)
+                && RiskAdmissionId.unwrap(sellAdmissionId) != bytes32(0),
+            "admissions nonzero"
+        );
+        require(buyResultHash != bytes32(0) && sellResultHash != bytes32(0), "result hashes nonzero");
+        require(payoffTerms.length > 0, "payoff terms nonzero");
+
+        // Production direct path creates liability, consideration, and fee locks itself.
+        // Both the clearing engine (liability/consideration/fee locks) and the position
+        // engine (terminal liability reservations) must be approved lock operators via
+        // normal account-controller approvals.
         (address aliceController,) = d.collateralVault.getAccount(aliceAccount);
         (address bobController,) = d.collateralVault.getAccount(bobAccount);
+        vm.prank(aliceController);
+        d.collateralVault.setLockOperator(aliceAccount, address(d.atomicClearingEngine), true);
+        vm.prank(bobController);
+        d.collateralVault.setLockOperator(bobAccount, address(d.atomicClearingEngine), true);
         vm.prank(aliceController);
         d.collateralVault.setLockOperator(aliceAccount, address(d.positionEngine), true);
         vm.prank(bobController);
         d.collateralVault.setLockOperator(bobAccount, address(d.positionEngine), true);
-        PositionCreation memory creation = PositionCreation({
-            fillIdentity: keccak256("JOURNEY_FILL_V1"),
-            seriesId: seriesId,
-            seriesVersion: VERSION,
-            longAccountId: aliceAccount,
-            shortAccountId: bobAccount,
-            ordinal: 0,
-            lots: Lots.wrap(2),
-            entryPriceTicks: PriceTicks.wrap(100),
-            longFunding: PositionFunding({
-                lockId: CollateralLockId.wrap(bytes32(0)),
-                lockReference: bytes32(0),
-                expectedRemainingAmount: 0,
-                expectedExpiry: 0
-            }),
-            shortFunding: PositionFunding({
-                lockId: CollateralLockId.wrap(bytes32(0)),
-                lockReference: bytes32(0),
-                expectedRemainingAmount: 0,
-                expectedExpiry: 0
-            }),
-            payoffTerms: payoffTerms
+
+        OrderFunding memory noFunding = OrderFunding({
+            terminalLiabilityLockId: CollateralLockId.wrap(bytes32(0)),
+            considerationLockId: CollateralLockId.wrap(bytes32(0))
         });
-        positionId = d.positionEngine.createPosition(creation);
+        ClearingFeeFunding memory noFeeFunding = ClearingFeeFunding({
+            consumptionId: bytes32(0),
+            chargeLockId: CollateralLockId.wrap(bytes32(0)),
+            budgetLockId: CollateralLockId.wrap(bytes32(0))
+        });
+        // Buyer is long, seller is short. Buy order is taker, sell order is maker.
+        BilateralMatch memory matchData = BilateralMatch({
+            takerOrderHash: buyOrderHash,
+            makerOrderHash: sellOrderHash,
+            fillLots: Lots.wrap(2),
+            executionPriceTicks: PriceTicks.wrap(100),
+            longAdmissionId: buyAdmissionId,
+            longAdmissionResultHash: buyResultHash,
+            shortAdmissionId: sellAdmissionId,
+            shortAdmissionResultHash: sellResultHash,
+            takerFunding: noFunding,
+            makerFunding: noFunding,
+            takerFeeFunding: noFeeFunding,
+            makerFeeFunding: noFeeFunding
+        });
+        SeriesClearingRequest memory request = SeriesClearingRequest({
+            matchData: matchData, payoffTerms: payoffTerms, channelKind: ClearingChannelKind.Direct
+        });
+
+        // Exact production principal holding MATCH_EXECUTOR_ROLE. No new test role.
+        require(
+            d.atomicClearingEngine.hasRole(d.atomicClearingEngine.MATCH_EXECUTOR_ROLE(), govOperator),
+            "gov operator must hold match executor role"
+        );
+        vm.prank(govOperator);
+        fillId = d.atomicClearingEngine.clearSeries(request);
+        require(FillId.unwrap(fillId) != bytes32(0), "fill id nonzero");
+
+        FillRecord memory record = d.atomicClearingEngine.getFill(fillId);
+        require(FillId.unwrap(record.fillId) == FillId.unwrap(fillId), "fill must be readable");
+        require(Lots.unwrap(record.fillLots) == 2, "fill lots must be 2");
+        require(PriceTicks.unwrap(record.executionPriceTicks) == 100, "fill price must be 100");
+
+        PositionId[] memory positions = d.atomicClearingEngine.fillPositions(fillId);
+        require(positions.length == 1, "direct fill must create exactly one position");
+        positionId = positions[0];
+        require(PositionId.unwrap(positionId) != bytes32(0), "position id nonzero");
+
+        require(uint8(d.orderState.statusOf(buyOrderHash)) == uint8(OrderStatus.Filled), "buy order must be filled");
+        require(uint8(d.orderState.statusOf(sellOrderHash)) == uint8(OrderStatus.Filled), "sell order must be filled");
     }
 
     function _assertPositionLive(
@@ -1482,6 +1638,15 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
             uint8(d.fixingEngine.fixingStatus(seriesId, VERSION, 0)) == uint8(FixingStatus.Finalized),
             "fixing must be finalized"
         );
+        (PositionEconomics memory preSettleEconomics,) = d.positionEngine.getPosition(positionId);
+        if (block.timestamp <= preSettleEconomics.exerciseCutoffAt) {
+            uint64 settlementAt = preSettleEconomics.exerciseCutoffAt + 1;
+            require(settlementAt > block.timestamp, "settlement warp must move forward");
+            require(settlementAt < preSettleEconomics.finalResolutionAt, "settlement must precede final resolution");
+            vm.warp(settlementAt);
+        }
+        require(block.timestamp > preSettleEconomics.exerciseCutoffAt, "settlement must follow exercise cutoff");
+        require(block.timestamp < preSettleEconomics.finalResolutionAt, "settlement must precede final resolution");
         FeeActionRequest[] memory noFees = new FeeActionRequest[](0);
         SettlementId settlementId = d.cashSettlementCoordinator.finalizeNormalSettlement(positionId, slots, noFees);
         require(SettlementId.unwrap(settlementId) != bytes32(0), "settlement id nonzero");
@@ -1489,6 +1654,11 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
             uint8(d.cashSettlementCoordinator.getSettlement(settlementId).mode) == uint8(SettlementMode.Normal),
             "settlement must be normal"
         );
+        (, PositionLifecycle memory settledLifecycle) = d.positionEngine.getPosition(positionId);
+        require(
+            uint8(settledLifecycle.status) == uint8(PositionStatus.Settled), "position must be settled after normal"
+        );
+        require(settledLifecycle.terminalOutcomeReference != bytes32(0), "terminal outcome must be nonzero");
     }
 
     function _withdrawAndReconcile(
