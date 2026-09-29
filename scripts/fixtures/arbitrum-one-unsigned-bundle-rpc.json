@@ -1,0 +1,27 @@
+{
+  "chainIdHex": "0xa4b1",
+  "codes": {
+    "0xaf88d065e77c8cc2239327c5edb3a432268e5831": {
+      "latest": "0x60016001015f3560e01c",
+      "pinned": "0x60016001015f3560e01c"
+    }
+  },
+  "estimateLatestHex": "0x30d40",
+  "estimatePinnedHex": "0x30d40",
+  "feeHistory": {
+    "baseFeePerGas": ["0x174876e800", "0x174876e800", "0x174876e800", "0x174876e800", "0x174876e800"],
+    "gasUsedRatio": [0.5, 0.5, 0.5, 0.5],
+    "oldestBlock": "0xBEBC200"
+  },
+  "latestBlock": {
+    "hash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "number": "0xbebc264"
+  },
+  "maxPriorityFeeHex": "0x3b9aca00",
+  "nonceLatestHex": "0x5",
+  "noncePinnedHex": "0x5",
+  "pinnedBlock": {
+    "hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "number": "0xbebc200"
+  }
+}

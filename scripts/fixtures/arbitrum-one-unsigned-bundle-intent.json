@@ -1,0 +1,46 @@
+{
+  "chainId": 42161,
+  "deployer": "0x1111111111111111111111111111111111111111",
+  "dependencies": [
+    {
+      "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "expectedCodeHash": "0xabb1775bd46b81722ea96e43e0e7fc46010788e390cba3927c06d2e8e2acc965",
+      "name": "Circle native USDC"
+    }
+  ],
+  "operations": [
+    {
+      "accessList": [],
+      "id": "AssetRegistry",
+      "initCode": "0x6001600101600055",
+      "kind": "CREATE",
+      "order": 0,
+      "predecessors": [],
+      "value": "0x0",
+      "valueDeclared": false
+    },
+    {
+      "accessList": [],
+      "id": "AdapterRegistry",
+      "initCode": "0x6002600202600055",
+      "kind": "CREATE",
+      "order": 1,
+      "predecessors": ["AssetRegistry"],
+      "value": "0x0",
+      "valueDeclared": false
+    },
+    {
+      "accessList": [],
+      "data": "0x12345678",
+      "id": "usdc-approve-probe",
+      "kind": "CALL",
+      "order": 2,
+      "predecessors": ["AssetRegistry", "AdapterRegistry"],
+      "to": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "value": "0x0",
+      "valueDeclared": false
+    }
+  ],
+  "protocol": "setryn-arbitrum-one-deployment-intent",
+  "version": "1.0.0"
+}
