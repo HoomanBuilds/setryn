@@ -248,6 +248,10 @@ export SETRYN_EVALUATION_GAS_HARD_CAP=2000000
 export SETRYN_SEQUENCER_RECOVERY_GRACE=1
 export SETRYN_DEPLOYMENT_ID=0xd008df4e26809366bea8099013ff60a895a26d818a8604d326067034ed7a7c93
 
+# The deployment creates contracts from standalone artifacts; build them and refuse a stale artifact manifest.
+forge build --root "$repository_root/contracts" >/dev/null
+node "$repository_root/scripts/generate-deploy-artifacts.mjs" --check
+
 forge script "$repository_root/contracts/script/DeploySetryn.s.sol:DeploySetryn" \
     --root "$repository_root/contracts" \
     --rpc-url "$rpc_url" \

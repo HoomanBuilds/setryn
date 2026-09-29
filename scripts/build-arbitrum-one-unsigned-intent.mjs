@@ -78,9 +78,9 @@ function latestDryRun() {
   return JSON.parse(readFileSync(files[0], "utf8"));
 }
 
-// Foundry leaves a creation unnamed when the init code embedded in the script (compiled in the script's via-IR job)
-// differs from the standalone artifact. Identify it by an exact linked-artifact match, else by the unique production
-// contract whose complete external selector set appears in the init code.
+// DeploySetryn creates every contract and library from its standalone full-build artifact, so each creation matches
+// a linked artifact exactly. A creation Foundry leaves unnamed is identified by that exact match, else by the unique
+// production contract whose complete external selector set appears in the init code.
 function artifactPathFor(contractName) {
   const sourceName = contractName.endsWith("PayoffModule")
     ? "ProductionPayoffModules"
@@ -188,10 +188,15 @@ function main() {
   const names = new Map(manifest.externalDependencies.map(({ name, address }) => [address.toLowerCase(), name]));
   const operations = [];
   const counts = new Map();
-  const libraryAddresses = new Map(
-    (dryRun.libraries ?? []).map((entry) => {
-      const [source, name, address] = entry.split(":");
-      return [`${source}:${name}`, address.toLowerCase()];
+  // Libraries are created in dependency order through the CREATE2 deployer; each is identified by its exact linked
+  // init code and then linked into every later creation.
+  const libraryAddresses = new Map();
+  const librarySources = new Map(
+    [...libraryNames].map((name) => {
+      const artifact = JSON.parse(readFileSync(artifactPathFor(name), "utf8"));
+      const [source] = Object.entries(artifact.metadata?.settings?.compilationTarget ?? {}).find(([, target]) => target === name) ?? [];
+      if (!source) throw new Error(`Library ${name} artifact has no compilation target.`);
+      return [name, { source, artifact }];
     }),
   );
   let expectedNonce = senderNonce;
@@ -217,15 +222,26 @@ function main() {
       names.set(address, contractName);
       op = { kind: "CREATE", base: contractName, initCode: transaction.input.toLowerCase(), expectedAddress: address };
     } else if (entry.transactionType === "CREATE2") {
-      if (!libraryNames.has(entry.contractName)) {
-        throw new Error(`CREATE2 deployment of ${entry.contractName} is not a declared linked library.`);
-      }
       const to = transaction.to?.toLowerCase();
-      if (to !== CREATE2_DEPLOYER) throw new Error(`Library ${entry.contractName} is not deployed via the CREATE2 deployer.`);
+      if (to !== CREATE2_DEPLOYER) throw new Error(`CREATE2 deployment ${entry.contractAddress} is not via the CREATE2 deployer.`);
       const input = transaction.input.toLowerCase();
       const salt = `0x${input.slice(2, 66)}`;
       const initCode = `0x${input.slice(66)}`;
+      const matches = [...librarySources].filter(([, { artifact }]) => {
+        try {
+          return initCode === linkedCreationCode(artifact, libraryAddresses);
+        } catch {
+          return false;
+        }
+      });
+      if (matches.length !== 1) throw new Error(`CREATE2 deployment ${entry.contractAddress} is not exactly one declared library.`);
+      const [libraryName, { source }] = matches[0];
+      if (entry.contractName && entry.contractName !== libraryName) {
+        throw new Error(`Foundry named ${entry.contractName} but the init code is ${libraryName}.`);
+      }
+      entry.contractName = libraryName;
       const address = entry.contractAddress.toLowerCase();
+      libraryAddresses.set(`${source}:${libraryName}`, address);
       const derived = cast(["compute-address", CREATE2_DEPLOYER, "--salt", salt, "--init-code", initCode])
         .match(/0x[0-9a-fA-F]{40}/)?.[0]
         ?.toLowerCase();

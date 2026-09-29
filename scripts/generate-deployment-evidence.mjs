@@ -159,6 +159,46 @@ function linkedCreationCode(artifact, libraryAddresses) {
   return code;
 }
 
+const CREATE2_DEPLOYER = "0x4e59b44847b379578588920ca78fbf26c0b4956c";
+
+/// The deployment creates linked libraries itself by calling the deterministic CREATE2 deployer with a 32-byte salt
+/// and the linked init code, dependencies first. Each call is identified by exact init code against the declared
+/// libraries, and its address is derived from the salt and init code, so later libraries link against it.
+function normalizeLibraryDeployments(transactions, libraryAddresses) {
+  return transactions.map((transaction) => {
+    const to = transaction.transaction?.to?.toLowerCase();
+    const viaDeployer = transaction.transactionType === "CALL" || transaction.transactionType === "CREATE2";
+    if (!viaDeployer || to !== CREATE2_DEPLOYER) return transaction;
+    const input = transaction.transaction.input.toLowerCase();
+    const salt = `0x${input.slice(2, 66)}`;
+    const initCode = `0x${input.slice(66)}`;
+    const matches = [...linkedLibraries.keys()].filter((name) => {
+      try {
+        return initCode === linkedCreationCode(artifactFor(name), libraryAddresses);
+      } catch {
+        return false;
+      }
+    });
+    if (matches.length !== 1) {
+      throw new Error(`CREATE2 deployer call ${transactionHash(transaction)} does not match exactly one declared library.`);
+    }
+    if (transaction.contractName && transaction.contractName !== matches[0]) {
+      throw new Error(`Foundry named ${transaction.contractName} but the init code is ${matches[0]}.`);
+    }
+    const address = execFileSync("cast", ["compute-address", CREATE2_DEPLOYER, "--salt", salt, "--init-code", initCode], {
+      encoding: "utf8",
+    })
+      .match(/0x[0-9a-fA-F]{40}/)?.[0]
+      ?.toLowerCase();
+    if (!address) throw new Error(`Unable to derive the CREATE2 address for library ${matches[0]}.`);
+    if (transaction.contractAddress && transaction.contractAddress.toLowerCase() !== address) {
+      throw new Error(`Library ${matches[0]} was recorded at ${transaction.contractAddress} but derives to ${address}.`);
+    }
+    libraryAddresses.set(matches[0], address);
+    return {...transaction, transactionType: "CREATE2", contractName: matches[0], contractAddress: address};
+  });
+}
+
 function linkedLibraryNames(artifact) {
   return Object.values(artifact.bytecode.linkReferences ?? {}).flatMap((libraries) => Object.keys(libraries)).sort();
 }
@@ -266,7 +306,8 @@ async function main() {
     if (!linkedLibraries.has(name)) throw new Error(`Broadcast links undeclared library ${name}.`);
     libraryAddresses.set(name, address.toLowerCase());
   }
-  const allCreates = broadcast.transactions
+  const transactions = normalizeLibraryDeployments(broadcast.transactions, libraryAddresses);
+  const allCreates = transactions
     .filter((transaction) => transaction.transactionType === "CREATE" || transaction.transactionType === "CREATE2")
     .map((transaction) => resolveCreateIdentity(transaction, libraryAddresses));
   const libraryCreates = allCreates.filter((transaction) => linkedLibraries.has(transaction.contractName));
