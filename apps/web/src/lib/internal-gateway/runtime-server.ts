@@ -93,3 +93,9 @@ export async function readLocalRuntime(): Promise<SetrynRuntime> {
   const candidate = JSON.parse(await readFile(runtimePath(), "utf8")) as unknown;
   return { ...validateRuntime(candidate), rpcUrl: localRpcUrl() };
 }
+
+/** Deployment evidence written next to the runtime by the local reset (`generate-deployment-evidence.mjs`). */
+export async function readLocalDeploymentEvidence(): Promise<unknown> {
+  const manifestPath = resolve(/*turbopackIgnore: true*/ runtimePath(), "..", "manifest.json");
+  return JSON.parse(await readFile(manifestPath, "utf8")) as unknown;
+}

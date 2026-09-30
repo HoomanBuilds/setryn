@@ -151,6 +151,14 @@ export const NAV_GROUPS: NavGroup[] = [
         description: "Market, risk, fixing, and system alerts",
         keywords: "notifications rules",
       },
+      {
+        id: "status",
+        label: "System status",
+        prefix: "/status",
+        href: "/status",
+        description: "Deployment evidence, contract code checks, and chain health",
+        keywords: "health uptime deployment contracts verification evidence",
+      },
     ],
   },
   {
