@@ -37,11 +37,11 @@ function Row({ item }: { item: PendingItem }) {
         <span className="flex flex-col items-end gap-1">
           <span className={`tnum font-mono text-xs whitespace-nowrap ${item.urgent ? "text-brand" : "text-dim"}`}>{item.meta}</span>
           <span className="lg:hidden">
-            <ProvenanceChip kind={item.provenance} />
+            <ProvenanceChip kind={item.provenance} title={item.provenanceNote} />
           </span>
         </span>
         <span className="hidden items-center gap-2 lg:flex">
-          <ProvenanceChip kind={item.provenance} />
+          <ProvenanceChip kind={item.provenance} title={item.provenanceNote} />
           <span className="inline-flex h-7 min-w-[76px] items-center justify-center gap-0.5 rounded-md border border-line px-2 text-[11px] text-dim transition-colors group-hover:border-line-strong group-hover:text-ink">
             {item.action}
             <ChevronRight size={12} aria-hidden="true" />

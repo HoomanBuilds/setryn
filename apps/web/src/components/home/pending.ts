@@ -17,6 +17,8 @@ export interface PendingItem {
   href: string;
   action: string;
   provenance: AlertProvenance;
+  /** Overrides the provenance chip's default explanation for this row. */
+  provenanceNote?: string;
 }
 
 export const GROUP_LABEL: Record<PendingGroup, string> = {
@@ -131,7 +133,10 @@ export function pendingActions(
       urgent: hours <= 72,
       href: lots ? "/lifecycle" : tradeHref(market),
       action: lots ? "Lifecycle" : "Trade",
-      provenance: "OBSERVED",
+      // The fixing time comes from the listed expiry schedule and counts down on the preview clock; no fixing has
+      // been observed yet.
+      provenance: "MODELED",
+      provenanceNote: "Scheduled from the listed expiry. Time to fixing runs on the preview clock.",
     });
   }
 
