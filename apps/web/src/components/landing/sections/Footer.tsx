@@ -7,7 +7,16 @@ import { APP_LINKS } from "@/lib/landing/app-links";
 import { gsap, useGSAP } from "@/lib/landing/gsap";
 import styles from "./Footer.module.css";
 
-type FooterLink = { label: string; href: string; mark?: "arbitrum" | "usdc" };
+type FooterLink = { label: string; href: string; mark?: "arbitrum" | "usdc" | "x" };
+
+/** The X (Twitter) logo. */
+function XMark({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
+      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+    </svg>
+  );
+}
 
 /** Every link opens a real platform route, a section of this page, or the network's own site. */
 const COLUMNS: { title: string; links: FooterLink[] }[] = [
@@ -44,6 +53,10 @@ const COLUMNS: { title: string; links: FooterLink[] }[] = [
       { label: "Arbitrum One", href: "https://arbitrum.io", mark: "arbitrum" },
       { label: "Native USDC", href: "https://www.circle.com/usdc", mark: "usdc" },
     ],
+  },
+  {
+    title: "Follow",
+    links: [{ label: "@SetrynX", href: "https://x.com/SetrynX", mark: "x" }],
   },
 ];
 
@@ -119,6 +132,7 @@ export default function Footer() {
                       >
                         {mark === "arbitrum" && <ArbitrumMark size={18} />}
                         {mark === "usdc" && <UsdcMark size={18} />}
+                        {mark === "x" && <XMark size={16} />}
                         {label}
                         {external && <span aria-hidden="true"> ↗</span>}
                       </a>
