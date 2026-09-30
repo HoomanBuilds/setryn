@@ -37,6 +37,9 @@ export interface SeriesSchedule {
   readonly finalResolutionAt: bigint;
   readonly settlementDeadline: bigint;
   readonly fixingSlotsHash: Hex;
+  readonly exercisePolicyId: Hex;
+  readonly exerciseOpensAt: bigint;
+  readonly exerciseCutoffAt: bigint;
 }
 
 /**
@@ -72,6 +75,9 @@ export class SeriesCatalog {
       finalResolutionAt: definition.finalResolutionAt,
       settlementDeadline: definition.settlementDeadline,
       fixingSlotsHash: definition.fixingSlotsHash,
+      exercisePolicyId: definition.exercisePolicyId,
+      exerciseOpensAt: definition.exerciseOpensAt,
+      exerciseCutoffAt: definition.exerciseCutoffAt,
     };
   }
 

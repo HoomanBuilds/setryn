@@ -1,5 +1,5 @@
 import type { JsonObject } from "@setryn/internal-schemas";
-import type { Hex } from "viem";
+import { keccak256, stringToHex, type Hex } from "viem";
 
 import type { KeeperExecutionPort } from "../ports.ts";
 import type { KeeperWorkIntent, OperatorExecutionContext, OperatorExecutionResult } from "../types.ts";
@@ -23,6 +23,9 @@ import {
 } from "./protocol.ts";
 import { assertIntentEnvironment, completed } from "./results.ts";
 import { SeriesCatalog } from "./series.ts";
+
+/** SeriesDefinitionLib.EXERCISE_POLICY_HOLDER_ELECTION. */
+const HOLDER_ELECTION_POLICY = keccak256(stringToHex("SetrynExercisePolicyV1:HolderElection")).toLowerCase();
 
 type KeeperWorkType = "expire-orders" | "resolve-fixing" | "settle-positions" | "recover" | "sweep";
 
@@ -288,6 +291,7 @@ export class ChainKeeperExecutionPort implements KeeperExecutionPort {
         reader.readContract({ address: deployment.addresses.fixingEngine, abi: abis.fixingEngine, functionName: "fixingStatus", args: [seriesId, seriesVersion, slot.slot] }),
       ),
     ));
+    const holderElection = schedule.exercisePolicyId.toLowerCase() === HOLDER_ELECTION_POLICY;
     const normalReady = finalStatuses.every((status) => status === fixingStatus.finalized)
       || (now >= schedule.correctionCutoffAt && finalStatuses.every((status) => status === fixingStatus.proposed || status === fixingStatus.finalized));
 
@@ -303,7 +307,24 @@ export class ChainKeeperExecutionPort implements KeeperExecutionPort {
       }
       const status = await this.#positionStatus(positionId);
       let executed: { readonly action: KeeperAction; readonly transaction: OperatorTransaction | null };
-      if (status === positionStatus.lapsed) {
+      const awaitingElection = holderElection && (status === positionStatus.live || status === positionStatus.fixing);
+      if (awaitingElection && now > schedule.exerciseCutoffAt && now < schedule.finalResolutionAt) {
+        // No election by the inclusive cutoff: the coordinator lapses the unelected lots and records the lapse.
+        executed = await this.#attempt(target, "lapse-unelected-lots", {
+          address: coordinator,
+          abi: abis.cashSettlementCoordinator,
+          functionName: "finalizeLapsedPosition",
+          args: [positionId, []],
+        });
+      } else if (awaitingElection && now < schedule.finalResolutionAt && await this.#fixingAccepted(positionId)) {
+        actions.push({
+          target,
+          action: "settle",
+          outcome: "not-due",
+          reason: `final fixing accepted; awaiting the holder's election until ${schedule.exerciseCutoffAt}`,
+        });
+        continue;
+      } else if (status === positionStatus.lapsed) {
         executed = await this.#attempt(target, "finalize-lapsed-position", {
           address: coordinator,
           abi: abis.cashSettlementCoordinator,
@@ -504,6 +525,15 @@ export class ChainKeeperExecutionPort implements KeeperExecutionPort {
       action: { target, action, outcome: "executed", transactionHash: result.hash, details },
       transaction: transactionSummary(result),
     };
+  }
+
+  /** Whether the coordinator has accepted a final fixing onto the position (holder election then awaits the holder). */
+  async #fixingAccepted(positionId: Hex): Promise<boolean> {
+    const { deployment } = this.#client;
+    const [, lifecycle] = await this.#client.read("read position", (reader) =>
+      reader.readContract({ address: deployment.addresses.positionEngine, abi: abis.positionEngine, functionName: "getPosition", args: [positionId] }),
+    );
+    return lifecycle.finalFixingReference !== zeroId;
   }
 
   async #positionStatus(positionId: Hex): Promise<number> {

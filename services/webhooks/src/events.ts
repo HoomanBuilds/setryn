@@ -57,6 +57,7 @@ export const WEBHOOK_SOURCE_COVERAGE: Readonly<Record<string, Readonly<Record<st
   CashSettlementCoordinator: {
     CashSettlementFinalized: "settlement.finalized",
     SettlementClaimFulfilled: "enrichment:adds the settlement id to settlement.claim_fulfilled from CollateralVault.TerminalClaimFulfilled",
+    HolderElectionFixingAccepted: "internal:fixing.finalized reports the fixing and position.status the Fixing to Live return that opens the election",
   },
   CollateralVault: {
     TerminalClaimCreated: "settlement.claim_created",
