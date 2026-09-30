@@ -14,6 +14,7 @@ import type {
   HedgeDirection,
   RiskObjective,
 } from "@/lib/hedges/types";
+import { AssetIcon } from "@/components/icons/AssetIcon";
 
 interface ExposureFormProps {
   exposure: ExposureInput;
@@ -78,23 +79,29 @@ export function ExposureForm({
         <div className="grid grid-cols-2 gap-2">
           <label className="block">
             <span className="text-[11px] text-faint">Reference</span>
-            <select value={exposure.referenceAssetId} onChange={(event) => onReference(event.target.value)} className={FIELD}>
-              {REFERENCE_ASSETS.map((asset) => (
-                <option key={asset.id} value={asset.id}>
-                  {asset.label}
-                </option>
-              ))}
-            </select>
+            <span className="relative block">
+              <select value={exposure.referenceAssetId} onChange={(event) => onReference(event.target.value)} className={`${FIELD} pl-7`}>
+                {REFERENCE_ASSETS.map((asset) => (
+                  <option key={asset.id} value={asset.id}>
+                    {asset.label}
+                  </option>
+                ))}
+              </select>
+              <AssetIcon symbol={exposure.referenceAssetId} size={14} className="pointer-events-none absolute top-1/2 left-2 mt-0.5 -translate-y-1/2" />
+            </span>
           </label>
           <label className="block">
             <span className="text-[11px] text-faint">Settlement</span>
-            <select value={exposure.settlementAssetId} onChange={(event) => onSettlement(event.target.value)} className={FIELD}>
-              {SETTLEMENT_ASSETS.map((asset) => (
-                <option key={asset.id} value={asset.id}>
-                  {asset.label}
-                </option>
-              ))}
-            </select>
+            <span className="relative block">
+              <select value={exposure.settlementAssetId} onChange={(event) => onSettlement(event.target.value)} className={`${FIELD} pl-7`}>
+                {SETTLEMENT_ASSETS.map((asset) => (
+                  <option key={asset.id} value={asset.id}>
+                    {asset.label}
+                  </option>
+                ))}
+              </select>
+              <AssetIcon symbol={exposure.settlementAssetId} size={14} className="pointer-events-none absolute top-1/2 left-2 mt-0.5 -translate-y-1/2" />
+            </span>
           </label>
         </div>
 

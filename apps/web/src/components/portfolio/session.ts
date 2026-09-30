@@ -19,7 +19,7 @@ function round(value: number): number {
 }
 
 /**
- * The open book repriced along this session's preview path. The stream is
+ * The open book repriced along this session's index path. The stream is
  * deterministic from tick zero, so the path is replayed through the same
  * derivation the board uses: the last sample equals the live figure exactly.
  * Only the price term moves; fees and other components stay as booked.

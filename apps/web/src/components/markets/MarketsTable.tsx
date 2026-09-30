@@ -4,8 +4,10 @@ import { useMemo, useState, type CSSProperties, type MouseEvent, type ReactNode 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowUpRight, ChevronDown, Star } from "lucide-react";
+import { AssetIcon, AssetLabel } from "@/components/icons/AssetIcon";
 import { QualificationTag, SourceMarks } from "@/components/markets/controls";
 import {
+  AssetGlyph,
   Flash,
   Sparkline,
   liveSeries,
@@ -92,21 +94,24 @@ const COLUMNS: Column[] = [
     cell: (market) => (
       <Link
         href={tradeHref(market)}
-        className="focus-ring flex min-w-0 flex-col justify-center rounded-sm"
+        className="focus-ring flex min-w-0 items-center gap-2 rounded-sm"
         aria-label={`Open the ${market.name} ${market.tenorLabel} terminal`}
       >
-        <span className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate text-[13px] leading-4 font-medium text-ink">{market.name}</span>
-          <TenorChip market={market} />
+        <AssetGlyph underlying={market.underlying} size={20} />
+        <span className="flex min-w-0 flex-col justify-center">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-[13px] leading-4 font-medium text-ink">{market.name}</span>
+            <TenorChip market={market} />
+          </span>
+          <span className="tnum truncate font-mono text-[11px] leading-[14px] text-faint">{market.code}</span>
         </span>
-        <span className="tnum truncate font-mono text-[11px] leading-[14px] text-faint">{market.code}</span>
       </Link>
     ),
   },
   {
     id: "price",
     label: "Last",
-    title: "Net package price on the coherent local preview feed.",
+    title: "Net package price on the Setryn index feed.",
     numeric: true,
     key: (market) => market.netPrice,
     cell: (market) => (
@@ -129,7 +134,7 @@ const COLUMNS: Column[] = [
   {
     id: "trend",
     label: "48h",
-    title: "Preview feed over the last 48 hours at 30 minute steps, ending on the live mark.",
+    title: "Index feed over the last 48 hours at 30 minute steps, ending on the live mark.",
     hide: "hidden lg:table-cell",
     width: "w-[112px]",
     cell: (market) => (
@@ -223,8 +228,9 @@ const COLUMNS: Column[] = [
     key: (market) => settlementShort(market.settlementClass),
     hide: "hidden 2xl:table-cell",
     cell: (market) => (
-      <span className="truncate text-xs text-dim" title={market.fixingSource}>
-        {settlementShort(market.settlementClass)}
+      <span className="flex min-w-0 items-center gap-1.5 text-xs text-dim" title={market.fixingSource}>
+        <AssetIcon symbol="USDC" size={13} />
+        <span className="truncate">{settlementShort(market.settlementClass)}</span>
       </span>
     ),
   },
@@ -239,7 +245,7 @@ const COLUMNS: Column[] = [
   {
     id: "observation",
     label: "Obs",
-    title: "Age of the local preview stream snapshot behind this row.",
+    title: "Age of the index snapshot behind this row.",
     numeric: true,
     key: (market) => market.snapshotAgeSeconds,
     hide: "hidden 2xl:table-cell",
@@ -508,6 +514,7 @@ function MobileMarketList({
                 href={tradeHref(market)}
                 className="focus-ring flex min-h-[60px] min-w-0 flex-1 items-center gap-2.5 py-2 pr-1"
               >
+                <AssetGlyph underlying={market.underlying} size={22} />
                 <span className="flex min-w-0 flex-1 flex-col gap-1">
                   <span className="flex min-w-0 items-center gap-1.5">
                     <span className="truncate text-sm leading-4 font-medium text-ink">{market.name}</span>
@@ -579,7 +586,14 @@ function MobileMarketList({
                   value={`${formatLots(market.openInterestLots)} lots`}
                 />
                 <DetailRow label="Expiry" value={formatExpiry(market.expiryIso)} />
-                <DetailRow label="Settlement" value={settlementShort(market.settlementClass)} />
+                <DetailRow
+                  label="Settlement"
+                  value={
+                    <AssetLabel symbol="USDC" size={12} className="gap-1.5">
+                      {settlementShort(market.settlementClass)}
+                    </AssetLabel>
+                  }
+                />
                 <DetailRow label="Fixing" value={market.fixingSource} />
                 <DetailRow
                   label="Sources"
@@ -589,7 +603,7 @@ function MobileMarketList({
                 />
                 <DetailRow
                   label="Observation"
-                  value={`local preview stream, ${market.snapshotAgeSeconds}s`}
+                  value={`index feed, ${market.snapshotAgeSeconds}s`}
                 />
               </div>
             ) : null}

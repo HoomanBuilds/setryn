@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Chip, DeskTabs, TabBody, deskMotion } from "@/components/strategies/desk/Desk";
+import { Skeleton } from "@/components/markets/ui";
 import { api, ApiError, type Cursor, type PartnerDeployment, type RevenueReport, type Subscription, type UsageRow } from "./api";
 import { DeploymentsPanel } from "./DeploymentsPanel";
 import { EmbedGenerator } from "./EmbedGenerator";
@@ -77,13 +78,13 @@ export function PartnersConsole() {
             <span className="hidden truncate text-xs text-faint sm:inline">Embeds, webhooks, attribution and revenue share</span>
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-1.5 lg:ml-auto">
-            <Chip tone="dim" title="Management is limited to the local devnet host until API keys are enabled">Local devnet</Chip>
+            <Chip tone="dim" title="Management is limited to the operator console host until API keys are enabled">Console</Chip>
             <Chip tone="dim">{monthImpressions.toLocaleString("en-US")} impressions this month</Chip>
             <Chip tone={data.cursor ? "up" : "dim"} dot>{data.cursor ? "webhooks worker indexed" : "webhooks worker idle"}</Chip>
           </div>
         </div>
         <div className="border-t border-line">
-          <DeskTabs items={views} value={view} onChange={(next) => setView(next as ViewId)} idBase="partners" />
+          <DeskTabs items={views} value={view} onChange={(next) => setView(next as ViewId)} idBase="partners" className="h-10" />
         </div>
       </header>
       {error ? (
@@ -91,7 +92,17 @@ export function PartnersConsole() {
       ) : null}
       <TabBody key={view} idBase="partners" className="flex min-w-0 flex-col gap-1">
         {!loaded ? (
-          <p className="rounded-lg border border-line bg-panel px-3 py-6 text-sm text-dim">Loading partner console…</p>
+          <div role="status" aria-live="polite" className="flex flex-col gap-3 rounded-lg border border-line bg-panel px-3 py-4">
+            <span className="sr-only">Loading partner console…</span>
+            <Skeleton className="h-4 w-40" />
+            {[0, 1, 2].map((row) => (
+              <div key={row} className="flex items-center gap-4 border-t border-line-soft pt-3">
+                <Skeleton className="h-3.5 w-32" />
+                <Skeleton className="h-3.5 w-20" />
+                <Skeleton className="ml-auto h-3.5 w-24" />
+              </div>
+            ))}
+          </div>
         ) : view === "deployments" ? (
           <DeploymentsPanel partners={data.partners} usage={data.usage} selected={selected} onSelect={setSelected} onChanged={refresh} />
         ) : view === "embed" ? (

@@ -10,6 +10,8 @@ import type {
 } from "@/lib/operations/types";
 import { Evidence } from "./OpsTables";
 import { TONE_TEXT, stateLabel, stateTone, type Detail, type DevnetStatus } from "./ops-model";
+import { ChainIcon } from "@/components/icons/AssetIcon";
+import { evidenceLabel } from "@/lib/terminal/format";
 
 export function PolicyBoundary({ policy }: { policy: OperationsSnapshot["writePolicies"][number] }) {
   return (
@@ -65,9 +67,9 @@ export function WritePolicies({ policies, active }: { policies: OperationsSnapsh
 
 export function RuntimeStatus({ status }: { status: DevnetStatus | null }) {
   return (
-    <Panel label="Connected devnet runtime" delay={20}>
+    <Panel label="Connected runtime" delay={20}>
       <PanelHead
-        title="Devnet runtime"
+        title="Runtime"
         tools={
           status ? (
             <span className="flex items-center gap-2 text-[11px] text-faint">
@@ -91,7 +93,10 @@ export function RuntimeStatus({ status }: { status: DevnetStatus | null }) {
             </div>
             <div className="bg-panel px-3 py-2">
               <p className="text-[11px] text-faint">Chain</p>
-              <p className="tnum mt-0.5 font-mono text-[13px] text-ink">{`Local ${status.chainId}`}</p>
+              <p className="tnum mt-0.5 flex items-center gap-1.5 font-mono text-[13px] text-ink">
+                <ChainIcon size={14} />
+                {`Local ${status.chainId}`}
+              </p>
             </div>
             <div className="bg-panel px-3 py-2">
               <p className="text-[11px] text-faint">Contracts</p>
@@ -141,7 +146,7 @@ export function DetailPane({ snapshot, detail }: { snapshot: OperationsSnapshot;
             lines: [
               ["Checkpoint", item.checkpoint],
               ["Freshness", `${item.freshness.ageLabel} / ${item.freshness.thresholdLabel}`],
-              ["Evidence", item.evidence.toLowerCase()],
+              ["Evidence", evidenceLabel(item.evidence)],
             ],
             detail: item.detail,
           }
@@ -159,7 +164,7 @@ export function DetailPane({ snapshot, detail }: { snapshot: OperationsSnapshot;
               ["Queued / leased / delayed", `${item.queued} / ${item.leased} / ${item.delayed}`],
               ["Last completion", item.lastCompletion],
               ["Next checkpoint", item.nextCheckpoint],
-              ["Evidence", item.evidence.toLowerCase()],
+              ["Evidence", evidenceLabel(item.evidence)],
             ],
             detail: item.detail,
           }
@@ -197,7 +202,7 @@ export function DetailPane({ snapshot, detail }: { snapshot: OperationsSnapshot;
               ["Opened", item.openedAt],
               ...(item.acknowledgedAt ? [["Acknowledged", item.acknowledgedAt]] : []),
               ...(item.resolvedAt ? [["Resolved", item.resolvedAt]] : []),
-              ["Evidence", item.evidence.toLowerCase()],
+              ["Evidence", evidenceLabel(item.evidence)],
             ],
             detail: item.detail,
           }
@@ -213,7 +218,7 @@ export function DetailPane({ snapshot, detail }: { snapshot: OperationsSnapshot;
           lines: [
             ["Changed", item.changedAt],
             ["Actor", item.actor],
-            ["Evidence", item.evidence.toLowerCase()],
+            ["Evidence", evidenceLabel(item.evidence)],
           ],
           detail: `${item.stops}. Terminal resolution remains permitted: ${item.permits}.`,
         }
@@ -297,7 +302,7 @@ export function Journal({
                   {entry.action} <span className="font-mono text-faint">{entry.subject}</span>
                 </span>
                 <span className="mt-0.5 block text-[11px] leading-snug text-dim">{entry.detail}</span>
-                <span className="mt-0.5 block font-mono text-[10px] text-off">{`${entry.actor} / ${entry.evidence.toLowerCase()}`}</span>
+                <span className="mt-0.5 block font-mono text-[10px] text-off">{`${entry.actor} / ${evidenceLabel(entry.evidence)}`}</span>
               </span>
             </li>
           ))}

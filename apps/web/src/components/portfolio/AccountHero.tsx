@@ -14,6 +14,7 @@ import {
   formatSignedCompactUsd,
   formatSignedUsd,
 } from "@/lib/terminal/format";
+import { CollateralMark } from "@/components/portfolio/MarketMark";
 
 type Series = "pnl" | "value";
 
@@ -30,6 +31,7 @@ function Tile({
   loading,
   children,
   title,
+  mark = false,
 }: {
   label: string;
   value: string;
@@ -38,6 +40,8 @@ function Tile({
   loading: boolean;
   children?: ReactNode;
   title?: string;
+  /** Leads the figure with the collateral mark, for balances held in the settlement asset. */
+  mark?: boolean;
 }) {
   return (
     <div title={title} className="flex min-w-0 flex-col gap-0.5 px-3 py-2.5 lg:px-4">
@@ -45,7 +49,10 @@ function Tile({
       {loading ? (
         <Skeleton className="my-0.5 h-4 w-24" />
       ) : (
-        <span className={`tnum truncate font-mono text-[15px] leading-5 ${valueTone}`}>{value}</span>
+        <span className={`tnum flex min-w-0 items-center gap-1.5 font-mono text-[15px] leading-5 ${valueTone}`}>
+          {mark ? <CollateralMark size={15} /> : null}
+          <span className="truncate">{value}</span>
+        </span>
       )}
       {children}
       {note ? <span className="truncate text-[11px] text-off">{note}</span> : null}
@@ -55,7 +62,7 @@ function Tile({
 
 /**
  * The account at a glance: the equity figure in the landing serif, the open
- * book repriced along this session's preview path, and the balances behind it.
+ * book repriced along this session's index path, and the balances behind it.
  */
 export function AccountHero({ read }: { read: PortfolioRead }) {
   const { snapshot, portfolio, tick, previewEpochSeconds } = read;
@@ -105,7 +112,10 @@ export function AccountHero({ read }: { read: PortfolioRead }) {
                   {whole}
                   <span className="text-dim">{`.${fraction}`}</span>
                 </span>
-                <span className="font-mono text-xs text-faint">{asset}</span>
+                <span className="flex items-center gap-1 self-center font-mono text-xs text-faint">
+                  <CollateralMark size={14} />
+                  {asset}
+                </span>
               </p>
             )}
             <div className="flex flex-col gap-1.5 border-t border-line-soft pt-3">
@@ -117,7 +127,7 @@ export function AccountHero({ read }: { read: PortfolioRead }) {
                     <span className="ml-1.5 text-off">{`${runtimePnl.total >= 0 ? "+" : "-"}${formatShare(Math.abs(pnlShare), 2)}`}</span>
                   </span>
                 }
-                title="Open packages marked against the coherent preview feed. Not oracle settlement values."
+                title="Open packages marked against the coherent index feed. Not oracle settlement values."
               />
               <Line label="Marked value" value={formatNumber(marked, 2)} />
               <Line label="Available" value={`${formatNumber(account.available, 2)} ${asset}`} />
@@ -154,12 +164,12 @@ export function AccountHero({ read }: { read: PortfolioRead }) {
               <span className="flex items-center gap-1.5">
                 <Chip
                   tone="muted"
-                  title="The open book repriced along this session's preview path. Only the price term moves; fees stay as booked."
+                  title="The open book repriced along this session's index path. Only the price term moves; fees stay as booked."
                 >
                   Session
                 </Chip>
-                <Chip tone="neutral" title="Marks come from the coherent local preview feed.">
-                  Preview marks
+                <Chip tone="neutral" title="Marks come from the coherent local index feed.">
+                  Index marks
                 </Chip>
               </span>
             </div>
@@ -173,7 +183,7 @@ export function AccountHero({ read }: { read: PortfolioRead }) {
                     ? `${formatNumber(value / 1000, 1)}k`
                     : formatNumber(value, Math.abs(value) >= 100 ? 0 : 2)
                 }
-                label={`${series === "pnl" ? "Open book profit and loss" : "Marked account value"} over this session, repriced on the preview feed.`}
+                label={`${series === "pnl" ? "Open book profit and loss" : "Marked account value"} over this session, repriced on the index feed.`}
                 empty={
                   empty ? (
                     <span className="rounded-md bg-panel px-3 py-1 text-center text-xs text-faint">
@@ -199,14 +209,16 @@ export function AccountHero({ read }: { read: PortfolioRead }) {
           value={formatNumber(account.eligible, 2)}
           note={`${asset}, no haircut in runtime`}
           loading={loading}
+          mark
         />
         <Tile
           label="Reserved"
           value={formatNumber(account.reserved, 2)}
           note={`${formatShare(account.marginUsage)} of eligible`}
           loading={loading}
+          mark
         />
-        <Tile label="Posted" value={formatNumber(account.postedValue, 2)} note={`onchain ${asset}`} loading={loading} />
+        <Tile label="Posted" value={formatNumber(account.postedValue, 2)} note={`onchain ${asset}`} loading={loading} mark />
         <Tile
           label="Reservation use"
           value={formatShare(account.marginUsage)}
@@ -244,7 +256,7 @@ export function AccountHero({ read }: { read: PortfolioRead }) {
           label="Account PnL"
           value={formatSignedUsd(runtimePnl.total, 0)}
           valueTone={tone(runtimePnl.total)}
-          note="development feed marks"
+          note="index feed marks"
           loading={loading}
         />
       </section>

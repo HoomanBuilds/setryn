@@ -16,6 +16,7 @@ import type {
 import { formatLots, formatNumber } from "@/lib/terminal/format";
 import { MARKETS, packageLabel } from "@/lib/terminal/markets";
 import type { PackageMarket } from "@/lib/terminal/types";
+import { CollateralMark, MarketMark } from "@/components/portfolio/MarketMark";
 
 /* ------------------------------------------------------------------ */
 /* Liquidity classes                                                   */
@@ -92,7 +93,7 @@ function PlanFigures({ plan, market, opportunity }: { plan: RoutePlan; market: P
       <Row label="Sequenced exposure" value={`${usd(plan.sequencedExposureUsd)} USDC`} title="Notional exposed between the first and last leg print on implied routes" />
       <Row label="Hedge collateral" value={`${usd(plan.collateralUsd)} USDC`} />
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <ProvenanceChip value="ESTIMATED" title="Computed from the shared preview feed's executable book rows." />
+        <ProvenanceChip value="ESTIMATED" title="Computed from the shared index feed's executable book rows." />
         <span className="text-[10px] text-faint">Own quotes excluded, indicative depth excluded</span>
       </div>
     </div>
@@ -249,7 +250,10 @@ export function CapacityPanel({ ledger, epoch }: { ledger: CapacityLedger; epoch
       <div className="px-3 pt-3">
         <div className="flex items-baseline justify-between">
           <span className="text-[11px] text-faint">Bonded capital</span>
-          <span className="tnum font-mono text-sm text-ink">{`${usd(ledger.totalUsd)} USDC`}</span>
+          <span className="tnum flex items-center gap-1.5 font-mono text-sm text-ink">
+            <CollateralMark size={14} />
+            {`${usd(ledger.totalUsd)} USDC`}
+          </span>
         </div>
         <div className="mt-2 flex h-2 gap-[2px] overflow-hidden rounded-[2px]" role="img" aria-label="Capacity by bucket">
           {ledger.buckets.map((bucket) => (
@@ -464,8 +468,11 @@ export function PerformancePanel({ performance }: { performance: SolverPerforman
                   const market = MARKETS.find((candidate) => candidate.id === row.marketId);
                   return (
                     <tr key={row.marketId} className="border-b border-line/60 last:border-b-0">
-                      <td className="h-8 max-w-[160px] truncate px-3 text-ink" title={row.marketId}>
-                        {market ? packageLabel(market) : row.marketId}
+                      <td className="h-8 max-w-[160px] px-3 text-ink" title={row.marketId}>
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <MarketMark underlying={market?.underlying} code={row.marketId} size={14} />
+                          <span className="truncate">{market ? packageLabel(market) : row.marketId}</span>
+                        </span>
                       </td>
                       <td className="tnum px-3 text-right font-mono text-dim">{row.bids}</td>
                       <td className="tnum px-3 text-right font-mono text-ink">{row.wins}</td>

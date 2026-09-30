@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState, type ReactNode } from "react";
+import { UnderlyingIcon } from "@/components/icons/AssetIcon";
 import motion from "@/components/markets/motion.module.css";
 import type { PackageMarket } from "@/lib/terminal/types";
 
@@ -185,16 +186,14 @@ export function Flash({
   );
 }
 
-/** Two- to three-letter underlying monogram, drawn in ink rather than brand colour. */
+/**
+ * The underlying's mark (a token, or a pair with the quote tucked behind the base) in a fixed-width slot, so single
+ * assets and pairs start their names on the same column.
+ */
 export function AssetGlyph({ underlying, size = 22 }: { underlying: string; size?: number }) {
-  const text = underlying.split("/")[0].slice(0, 3);
   return (
-    <span
-      aria-hidden="true"
-      style={{ width: size, height: size }}
-      className="grid shrink-0 place-items-center rounded-full border border-line-strong bg-raised font-mono text-[8.5px] font-medium tracking-[0.02em] text-dim"
-    >
-      {text}
+    <span aria-hidden="true" className="inline-flex shrink-0 items-center" style={{ width: Math.round(size * 1.4), height: size }}>
+      <UnderlyingIcon underlying={underlying} size={size} />
     </span>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, ChevronDown, Info } from "lucide-react";
+import { AssetIcon } from "@/components/icons/AssetIcon";
 import { FlashValue } from "@/components/terminal/motion";
 import { usePreviewTrades } from "@/components/terminal/PreviewMarketProvider";
 import { FIRMNESS_LABEL, SOURCE_LABEL, SourceMark } from "@/components/terminal/primitives";
@@ -412,7 +413,14 @@ export function OrderBookPanel({
           <div className={`${ROW} h-6 shrink-0 text-[11px] text-faint`} aria-hidden="true">
             <span />
             <span>{`Price (${unitSuffix})`}</span>
-            <span className="text-right">{unit === "LOTS" ? "Size (lots)" : "Size (USDC)"}</span>
+            <span className="flex items-center justify-end gap-1">
+              {unit === "LOTS" ? "Size (lots)" : (
+                <>
+                  <AssetIcon symbol="USDC" size={11} />
+                  Size (USDC)
+                </>
+              )}
+            </span>
             <span className="text-right">Total</span>
           </div>
 

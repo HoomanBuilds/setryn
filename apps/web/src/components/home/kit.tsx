@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ArrowUpRight, Wallet } from "lucide-react";
+import { ChainIcon, chainLabelOf } from "@/components/icons/AssetIcon";
 import { useGatewaySnapshot, useInternalGateway } from "@/components/gateway/InternalGatewayProvider";
 import { Chip, deskMotion } from "@/components/strategies/desk/Desk";
 import { usePreviewTick } from "@/components/terminal/PreviewMarketProvider";
@@ -124,8 +125,12 @@ export function WalletBadge() {
   const address = snapshot.wallet.address;
   if (snapshot.wallet.status !== "CONNECTED" || !address) return <ConnectWalletButton />;
   return (
-    <span className="flex h-8 items-center gap-2 rounded-md border border-line px-2.5 text-xs text-dim">
+    <span
+      className="flex h-8 items-center gap-2 rounded-md border border-line px-2.5 text-xs text-dim"
+      title={`Connected on ${chainLabelOf(snapshot.wallet.chainId ?? snapshot.environment.chainId)}`}
+    >
       <span aria-hidden="true" className="live-dot h-1.5 w-1.5 rounded-full bg-up text-up" />
+      <ChainIcon size={14} />
       <span className="tnum font-mono">{`${address.slice(0, 6)}...${address.slice(-4)}`}</span>
     </span>
   );

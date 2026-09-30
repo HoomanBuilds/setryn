@@ -18,6 +18,7 @@ import {
 } from "@/components/activity/ledger-ui";
 import { StatusChip } from "./RfqBlotter";
 import { priceText, signedPriceText, unitText, type RankedQuote, type RfqView } from "./rfq-view";
+import { MarketMark } from "@/components/portfolio/MarketMark";
 
 function Term({ label, value, title }: { label: string; value: React.ReactNode; title?: string }) {
   return (
@@ -55,8 +56,8 @@ function QuoteRow({ entry, view, now, index }: { entry: RankedQuote; view: RfqVi
         {entry.isSelected ? <Chip tone="up">Selected</Chip> : null}
         {entry.isBest && !entry.isSelected ? <Chip tone="brand">Best</Chip> : null}
         {quote.provenance === "DEVNET_MAKER" ? (
-          <Chip tone="muted" title="Quote from the local devnet market maker">
-            Devnet
+          <Chip tone="muted" title="Quote from the Setryn market maker">
+            Firm
           </Chip>
         ) : null}
       </div>
@@ -119,7 +120,10 @@ export function RfqDetail({ view, now }: { view: RfqView; now: number }) {
               <CopyButton value={request.id} label="RFQ request ID" />
             </span>
           </div>
-          <h2 className="mt-2 truncate text-sm font-medium text-ink">{intent.packageCode}</h2>
+          <h2 className="mt-2 flex min-w-0 items-center gap-2 text-sm font-medium text-ink">
+            <MarketMark code={intent.packageCode} size={18} />
+            <span className="truncate">{intent.packageCode}</span>
+          </h2>
           <p className={`mt-0.5 text-xs ${view.action === "BUY" ? "text-up" : "text-down"}`}>
             {`${view.intentLabel} ${view.sideLabel} · ${view.actionLabel} ${formatLots(intent.lots)} lots`}
           </p>

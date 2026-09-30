@@ -32,7 +32,7 @@ const plexMono = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   title: "Setryn Terminal",
-  description: "Package-native dated risk exchange terminal. Arbitrum Sepolia preview market data.",
+  description: "Package-native dated risk exchange terminal. Arbitrum One market data.",
 };
 
 export const viewport: Viewport = {

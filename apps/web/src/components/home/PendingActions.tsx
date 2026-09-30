@@ -107,7 +107,7 @@ export function PendingActions({ items, listedFixings }: { items: PendingItem[];
         )}
         {listedFixings && (view === "ALL" || view === "FIXINGS") ? (
           <p className="px-3 py-2 text-[11px] leading-snug text-faint">
-            No held package yet, so the nearest listed fixings are shown. Fixing times run on the preview clock.
+            No held package yet, so the nearest listed fixings are shown. Fixing times run on the market clock.
           </p>
         ) : null}
       </TabBody>

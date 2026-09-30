@@ -6,6 +6,7 @@ import { Delta } from "@/components/terminal/primitives";
 import { Panel, PanelHead, deskMotion } from "@/components/strategies/desk/Desk";
 import { changePercent, formatPrice } from "@/lib/terminal/format";
 import type { PackageMarket, Qualification } from "@/lib/terminal/types";
+import { MarketMark } from "@/components/portfolio/MarketMark";
 
 const FILTERS: { id: "ALL" | Qualification; label: string }[] = [
   { id: "ALL", label: "All" },
@@ -107,6 +108,7 @@ export function LibraryPanel({
                 <span className="min-w-0">
                   <span className="flex items-center gap-1.5">
                     <span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${dotTone(market.qualification)}`} />
+                    <MarketMark underlying={market.underlying} size={14} />
                     <span className="truncate font-mono text-xs text-ink">{market.code}</span>
                   </span>
                   <span className="mt-0.5 block truncate text-[11px] text-dim">{market.name}</span>

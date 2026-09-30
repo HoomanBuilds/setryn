@@ -188,7 +188,7 @@ export function RfqWorkspace() {
             <>
               <Chip
                 tone="muted"
-                title="Requests and selected quotes are committed to the local production-parity chain. Nothing on this page submits to Arbitrum Sepolia or mainnet."
+                title="Requests and selected quotes are committed onchain."
               >
                 Local chain only
               </Chip>

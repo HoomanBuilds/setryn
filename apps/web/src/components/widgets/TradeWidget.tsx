@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { AssetAmount, UnderlyingIcon } from "@/components/icons/AssetIcon";
 import { usePreviewMarket } from "@/components/terminal/PreviewMarketProvider";
 import { availableRoutes, buildPreview, executableAction, routePrice, type PackageSide } from "@/lib/terminal/economics";
-import { formatLotCount, formatPrice, formatUsd, priceUnitSuffix } from "@/lib/terminal/format";
+import { formatLotCount, formatNumber, formatPrice, priceUnitSuffix } from "@/lib/terminal/format";
 import { packageLabel } from "@/lib/terminal/markets";
 import { platformTradeHref } from "./embed-params";
 
@@ -59,9 +60,12 @@ export function TradeWidget({
 
   return (
     <div className="flex min-w-0 flex-col">
-      <div className="px-3 pt-3">
-        <h1 className="truncate text-sm font-medium text-ink">{packageLabel(liveMarket)}</h1>
-        <p className="truncate text-[11px] text-faint">Indicative quote from the preview feed. Execution happens on Setryn.</p>
+      <div className="flex min-w-0 items-center gap-2.5 px-3 pt-3">
+        <UnderlyingIcon underlying={liveMarket.underlying} size={22} />
+        <div className="min-w-0">
+          <h1 className="truncate text-sm font-medium text-ink">{packageLabel(liveMarket)}</h1>
+          <p className="truncate text-[11px] text-faint">Indicative quote from the Setryn index feed. Execution happens on Setryn.</p>
+        </div>
       </div>
       <div className="grid grid-cols-[1fr_auto] items-end gap-2 px-3 pt-3">
         <fieldset className="min-w-0">
@@ -106,11 +110,11 @@ export function TradeWidget({
           {formatPrice(preview.routePrice, liveMarket)} {unit}
         </dd>
         <dt className="text-faint">Notional</dt>
-        <dd className="tnum text-right font-mono text-dim">{formatUsd(preview.notional, 0)}</dd>
+        <dd className="tnum text-right font-mono text-dim"><AssetAmount value={formatNumber(preview.notional, 0)} symbol="USDC" /></dd>
         <dt className="text-faint">Est. fees</dt>
-        <dd className="tnum text-right font-mono text-dim">{formatUsd(preview.totalFees)}</dd>
+        <dd className="tnum text-right font-mono text-dim"><AssetAmount value={formatNumber(preview.totalFees, 2)} symbol="USDC" /></dd>
         <dt className="text-faint">Collateral</dt>
-        <dd className="tnum text-right font-mono text-dim">{formatUsd(preview.totalCollateral, 0)}</dd>
+        <dd className="tnum text-right font-mono text-dim"><AssetAmount value={formatNumber(preview.totalCollateral, 0)} symbol="USDC" /></dd>
         <dt className="text-faint">Guarantee</dt>
         <dd className="truncate text-right text-dim">{preview.settlementGuarantee}</dd>
       </dl>

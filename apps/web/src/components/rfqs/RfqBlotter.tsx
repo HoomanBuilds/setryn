@@ -17,6 +17,7 @@ import {
   signedPriceText,
   type RfqView,
 } from "./rfq-view";
+import { MarketMark } from "@/components/portfolio/MarketMark";
 
 const GRID =
   "grid grid-cols-[112px_minmax(170px,1.25fr)_104px_64px_100px_minmax(150px,1fr)_76px_minmax(150px,0.9fr)_78px] items-center";
@@ -131,9 +132,10 @@ function BlotterRow({
             event.stopPropagation();
             onSelect(view.request.id);
           }}
-          className="focus-ring block max-w-full truncate rounded-sm text-left text-[13px] text-ink"
+          className="focus-ring flex max-w-full items-center gap-1.5 rounded-sm text-left text-[13px] text-ink"
         >
-          {intent.packageCode}
+          <MarketMark code={intent.packageCode} size={14} />
+          <span className="truncate">{intent.packageCode}</span>
         </button>
         <span title={view.request.id} className="tnum block truncate font-mono text-[11px] text-faint">
           {middleTruncate(view.request.id, 8, 6)}
@@ -204,6 +206,7 @@ function CompactRow({
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
             <StatusChip view={view} />
+            <MarketMark code={intent.packageCode} size={14} />
             <span className="truncate text-[13px] text-ink">{intent.packageCode}</span>
           </span>
           <span className="mt-1.5 flex items-center gap-2 text-xs">

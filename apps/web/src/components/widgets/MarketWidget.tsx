@@ -1,12 +1,13 @@
 "use client";
 
+import { UnderlyingIcon } from "@/components/icons/AssetIcon";
 import { usePreviewMarket } from "@/components/terminal/PreviewMarketProvider";
 import { changePercent, formatExpiry, formatPercent, formatPrice, formatSigned, priceUnitSuffix } from "@/lib/terminal/format";
 import { packageLabel } from "@/lib/terminal/markets";
 import { MiniChart } from "./MiniChart";
 import { platformTradeHref } from "./embed-params";
 
-/** One market: live package mark, 24h change, mini chart and best bid/offer, all from the shared preview feed. */
+/** One market: live package mark, 24h change, mini chart and best bid/offer, all from the shared index feed. */
 export function MarketWidget({ marketId, partner }: { marketId: string; partner: string | null }) {
   const { baseMarket, liveMarket, previewEpochSeconds } = usePreviewMarket(marketId);
   const change = liveMarket.netPrice - liveMarket.priorNetPrice;
@@ -18,11 +19,14 @@ export function MarketWidget({ marketId, partner }: { marketId: string; partner:
   return (
     <div className="flex min-w-0 flex-col">
       <div className="flex min-w-0 items-start justify-between gap-3 px-3 pt-3">
-        <div className="min-w-0">
-          <h1 className="truncate text-sm font-medium text-ink">{packageLabel(liveMarket)}</h1>
-          <p className="truncate font-mono text-[11px] text-faint">
-            {liveMarket.code} · expires {formatExpiry(liveMarket.expiryIso)}
-          </p>
+        <div className="flex min-w-0 items-center gap-2.5">
+          <UnderlyingIcon underlying={liveMarket.underlying} size={24} />
+          <div className="min-w-0">
+            <h1 className="truncate text-sm font-medium text-ink">{packageLabel(liveMarket)}</h1>
+            <p className="truncate font-mono text-[11px] text-faint">
+              {liveMarket.code} · expires {formatExpiry(liveMarket.expiryIso)}
+            </p>
+          </div>
         </div>
         <a
           href={platformTradeHref(liveMarket.id, partner, "market")}

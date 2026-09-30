@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import Link from "next/link";
 import { ArrowDownToLine, CandlestickChart } from "lucide-react";
+import { ChainIcon, chainLabelOf } from "@/components/icons/AssetIcon";
 import { useAlertInbox } from "@/components/alerts/useAlertInbox";
 import { AlertLine } from "@/components/alerts/parts";
 import { usePortfolio } from "@/components/portfolio/usePortfolio";
@@ -12,7 +13,7 @@ import { buildExposureBook } from "@/lib/exposures/book";
 import { EMPTY_EXPOSURE_BOOK, EXPOSURE_BOOK_KEY, parseExposureBook } from "@/lib/exposures/records";
 import type { ExposureRecord } from "@/lib/exposures/types";
 import { useSizeUnit } from "@/lib/settings/preferences";
-import { formatNumber, formatShare, priceUnitSuffix } from "@/lib/terminal/format";
+import { formatNumber, formatShare, priceUnitSuffix, evidenceLabel } from "@/lib/terminal/format";
 import { DEFAULT_MARKET_ID, DEFAULT_TRADE_HREF } from "@/lib/terminal/markets";
 import { usePersistentState } from "@/lib/terminal/use-persistent-state";
 import { AccountSummary } from "./AccountSummary";
@@ -99,7 +100,8 @@ export function HomeDashboard() {
         chips={
           <>
             <Chip tone="neutral" title={`Chain ${snapshot.environment.chainId}`}>
-              {`${snapshot.environment.label} / ${snapshot.environment.evidence.toLowerCase()} evidence`}
+              <ChainIcon size={12} />
+              {`${chainLabelOf(snapshot.environment.chainId)} / ${evidenceLabel(snapshot.environment.evidence)} evidence`}
             </Chip>
             <Chip tone="down" title="No wallet, operator, or deployment action writes to Arbitrum One from this platform.">
               Mainnet writes off

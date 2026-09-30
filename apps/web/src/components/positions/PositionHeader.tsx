@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { ArrowUpRight, ChevronRight, Receipt } from "lucide-react";
 import { BUTTON_QUIET, CopyButton, EnvironmentChip } from "@/components/activity/ledger-ui";
-import { AssetGlyph } from "@/components/markets/ui";
+import { UnderlyingIcon } from "@/components/icons/AssetIcon";
 import { Flash, Meter, Panel } from "@/components/strategies/desk/Desk";
 import { OriginChip, ProvenanceChip } from "@/components/settlements/trust";
 import { formatCountdownMs, formatUtcDate, formatUtcSession, formatUtcShort } from "@/lib/settlements/calendar";
@@ -109,7 +109,7 @@ function LifeBar({
           </span>
         ))}
         <span
-          title="Now, on the preview feed clock"
+          title="Now, on the index feed clock"
           className="absolute top-1/2 h-[9px] w-[9px] -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-panel bg-brand"
           style={{ left: at(nowMs) }}
         />
@@ -159,7 +159,7 @@ export function PositionHeader({
             <span className="truncate font-mono tracking-normal normal-case">{shortId(dossier.id)}</span>
           </nav>
           <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-2">
-            <AssetGlyph underlying={market.underlying} size={26} />
+            <UnderlyingIcon underlying={market.underlying} size={26} />
             <h1 className="min-w-0 font-serif text-[26px] leading-[30px] font-normal tracking-[-0.01em] text-ink lg:text-[30px] lg:leading-[34px]">
               {`${market.name} ${market.tenorLabel}`}
             </h1>
@@ -188,7 +188,7 @@ export function PositionHeader({
             <>
               <OriginChip origin="REFERENCE" />
               <span
-                title="Reference records are static lifecycle preview data, independent of the connected runtime."
+                title="Reference records are static lifecycle examples, independent of the connected account."
                 className="inline-flex h-7 shrink-0 items-center gap-2 rounded-md border border-dashed border-line-strong px-2.5 text-xs text-dim"
               >
                 <span className="text-ink">{dossier.environmentLabel}</span>
@@ -231,7 +231,7 @@ export function PositionHeader({
         <Tile
           label="Mark"
           provenance="ESTIMATED"
-          source="Package mark, shared preview board"
+          source="Package mark, Setryn index feed"
           value={<Flash value={market.netPrice}>{price(market.netPrice, market)}</Flash>}
           note={
             closed

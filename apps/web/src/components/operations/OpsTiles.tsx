@@ -101,7 +101,7 @@ export function OpsTiles({
       <Tile
         delay={0}
         icon={<Cpu size={12} aria-hidden="true" />}
-        label="Devnet runtime"
+        label="Runtime"
         value={
           status ? (
             <span className="flex items-center gap-2">

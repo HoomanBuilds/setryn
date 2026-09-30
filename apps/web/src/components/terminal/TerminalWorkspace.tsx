@@ -74,7 +74,7 @@ function executionError(error: unknown): string {
   if (error.message === "EXIT_REQUIRES_FOK") return "Lifecycle exits require fill-or-kill execution.";
   if (error.message === "POST_ONLY_WOULD_CROSS") return "The book moved and this post-only order would take liquidity, so it was cancelled without a fill. Reprice behind the touch.";
   if (error.message === "RESTING_ORDER_WOULD_CROSS") return "The book moved and this limit now crosses, so it was cancelled without a fill. Resubmit to execute against the book.";
-  if (error.message === "EXIT_REQUIRES_DEVNET_MAKER") return "The close must use the qualified devnet maker that owns the original counterparty position.";
+  if (error.message === "EXIT_REQUIRES_DEVNET_MAKER") return "The close must use the qualified maker that owns the original counterparty position.";
   if (error.message === "EXIT_QUANTITY_MISMATCH") return "The close fill does not exactly offset the original position. Both positions remain visible for recovery.";
   if (error.message === "EXIT_PARTICIPANT_MISMATCH") return "The close fill changed the counterparty set and cannot use the direct unwind path.";
   if (error.message === "RFQ_NOT_FOUND") return "The RFQ request is no longer available. Confirm the ticket again for a fresh quote.";
@@ -160,7 +160,7 @@ function executionError(error: unknown): string {
     return "The matched quantity cleared, but the remaining quantity could not be placed on the public book.";
   }
   if (error.message === "UNSUPPORTED_ONCHAIN_MARKET") {
-    return "This market is a preview and is not activated in the current onchain environment.";
+    return "This market is not open for trading right now.";
   }
   return "The trading runtime did not reach a final package outcome. No completion is claimed.";
 }
@@ -302,14 +302,14 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   const autoExecuteQuoteRef = useRef(false);
   const ticketTouchedRef = useRef(false);
 
-  /* Shared coherent preview feed: one tick drives every market, so the
+  /* Shared coherent index feed: one tick drives every market, so the
      terminal never owns a page-local interval or stream. */
   const { liveMarket, previewEpochSeconds } = usePreviewMarket(market.id);
   const { markets } = usePreviewBoard();
 
   /* Every market registered onchain settles on its own deployed series, so the ticket prices collateral, fees, and
      order size from the chain, and the direct route executes against the public book read from the chain. Charts
-     and the other preview surfaces keep the shared preview feed. */
+     and the other preview surfaces keep the shared index feed. */
   const onchainInfo = gatewaySnapshot.onchainMarkets[liveMarket.id] ?? null;
   const onchainMarket = onchainInfo !== null;
   const onchainBook = useMemo<BookRow[]>(
@@ -585,7 +585,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     [gatewaySnapshot.restingOrders, liveMarket.id],
   );
 
-  /* The onchain-activated market shows the public book read from the chain. Preview markets keep their preview
+  /* The onchain-activated market shows the public book read from the chain. Reference markets keep their preview
      direct depth so the ladder reads like a market, marked indicative because nothing there rests onchain. */
   const directBookOrders = useMemo<BookRow[]>(
     () =>
@@ -596,7 +596,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
             .map((row) => ({
               ...row,
               firmness: "INDICATIVE" as const,
-              origin: "Preview book; this market is not activated onchain",
+              origin: "Reference book; trading is not open for this market",
             })),
     [liveMarket.book, onchainBook, onchainMarket],
   );
@@ -1258,6 +1258,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
               posted: gatewaySnapshot.account.posted,
               reserved: gatewaySnapshot.account.reserved,
               riskDomain: gatewaySnapshot.account.label,
+              chainId: gatewaySnapshot.wallet.chainId ?? gatewaySnapshot.environment.chainId,
             }}
             onConnect={() => {
               void gateway.connectWallet().catch(() => undefined);

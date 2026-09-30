@@ -225,6 +225,7 @@ export function KeysPanel({
   onRevoke,
   revoking,
   now,
+  loading = false,
 }: {
   keys: ApiKeyView[];
   selectedId: string | null;
@@ -232,6 +233,8 @@ export function KeysPanel({
   onRevoke: (id: string) => void;
   revoking: string | null;
   now: number;
+  /** The first key read is still in flight, so an empty list is not yet "no keys". */
+  loading?: boolean;
 }) {
   const [confirming, setConfirming] = useState<string | null>(null);
   return (
@@ -256,8 +259,8 @@ export function KeysPanel({
           <tbody>
             {keys.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-3 py-8 text-center text-faint">
-                  No keys yet. Create one to call the API.
+                <td colSpan={7} className="px-3 py-8 text-center text-faint" aria-live="polite">
+                  {loading ? "Loading keys from the local key service…" : "No keys yet. Create one to call the API."}
                 </td>
               </tr>
             ) : (

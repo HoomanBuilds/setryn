@@ -9,7 +9,7 @@ const simulated = (source: string, ageMs: number) => ({
 
 export const makerCockpitSnapshot: MakerCockpitSnapshot = {
   environment: "ARBITRUM_SEPOLIA",
-  snapshot: simulated("Setryn preview-feed/1", 2100),
+  snapshot: simulated("Setryn index-feed/1", 2100),
   session: {
     id: "MM-ARBSEP-042",
     state: "QUOTING",
@@ -98,7 +98,7 @@ export const makerCockpitSnapshot: MakerCockpitSnapshot = {
     { label: "Recovery reserve", amountUsd: 50000, description: "Bounded recovery allocation", state: "RECOVERY" },
   ],
   health: [
-    { id: "oracle", label: "Preview market feed", state: "HEALTHY", latencyMs: 92, lastUpdate: "2.1s ago", source: "Setryn preview-feed/1" },
+    { id: "oracle", label: "Index feed", state: "HEALTHY", latencyMs: 92, lastUpdate: "2.1s ago", source: "Setryn index-feed/1" },
     { id: "quote", label: "Quote policy engine", state: "HEALTHY", latencyMs: 28, lastUpdate: "0.8s ago", source: "Maker policy fixture" },
     { id: "hedge", label: "Hedge adapter", state: "DEGRADED", latencyMs: 248, lastUpdate: "4.2s ago", source: "Simulated perp adapter" },
     { id: "receipt", label: "Receipt projector", state: "HEALTHY", latencyMs: 64, lastUpdate: "1.4s ago", source: "Indexer projection fixture" },

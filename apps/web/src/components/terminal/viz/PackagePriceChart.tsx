@@ -1176,7 +1176,7 @@ export function PackagePriceChart({
       candle: { ...shown, volume: next.volume },
       previousClose: displayed[displayed.length - 2]?.close ?? shown.open,
     });
-    // Driven by the shared preview clock and prints only.
+    // Driven by the shared market clock and prints only.
   }, [interval, market.netPrice, previewEpochSeconds, trades]);
 
   useEffect(() => {

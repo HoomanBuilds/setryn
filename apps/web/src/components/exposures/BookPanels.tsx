@@ -10,6 +10,8 @@ import type { ExecutionPosition } from "@/lib/internal-gateway/types";
 import { packageLabel, tradeHref } from "@/lib/terminal/markets";
 import type { PackageMarket } from "@/lib/terminal/types";
 import { amountText } from "./ExposureTable";
+import { AssetIcon } from "@/components/icons/AssetIcon";
+import { MarketMark } from "@/components/portfolio/MarketMark";
 
 /** Zero is the centre rule; long net extends right, short net extends left. */
 function NetBar({ value, scale }: { value: number; scale: number }) {
@@ -60,6 +62,7 @@ export function NettingPanel({ book }: { book: ExposureBook }) {
                 <tr key={asset.asset} className="h-9 border-b border-line-soft transition-colors duration-150 last:border-b-0 hover:bg-raised/50">
                   <td className="px-3">
                     <span className="flex items-center gap-1.5">
+                      <AssetIcon symbol={asset.asset} size={14} />
                       <span className="font-mono text-xs text-ink">{asset.asset}</span>
                       <span className="tnum font-mono text-[10.5px] text-faint">{asset.count}</span>
                       {asset.excessHedge > 0 ? (
@@ -171,8 +174,9 @@ export function CoverageSources({
             const used = allocated.get(position.id) ?? 0;
             return (
               <li key={position.id} className="border-b border-line-soft px-3 py-2 last:border-b-0">
-                <Link href={tradeHref(market)} className="focus-ring flex items-baseline justify-between gap-3 rounded-sm">
-                  <span className="min-w-0">
+                <Link href={tradeHref(market)} className="focus-ring flex items-center justify-between gap-3 rounded-sm">
+                  <MarketMark underlying={market.underlying} size={16} />
+                  <span className="min-w-0 flex-1">
                     <span className="block truncate text-xs text-ink">{packageLabel(market)}</span>
                     <span className="tnum block font-mono text-[11px] text-faint">{`${position.side} ${formatNumber(position.lots, 0)} lots / ${assetBase(market.underlying)} / ${formatExpiry(market.expiryIso)}`}</span>
                   </span>

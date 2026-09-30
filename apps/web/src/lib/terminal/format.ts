@@ -1,7 +1,7 @@
 import type { PackageMarket, PriceUnit } from "./types";
 
 /**
- * The preview fixtures are frozen against one scenario clock so every rendered
+ * The examples are frozen against one scenario clock so every rendered
  * countdown is reproducible and identical on the server and in the browser.
  */
 export const SCENARIO_CLOCK_ISO = "2026-09-22T09:00:00Z";
@@ -140,4 +140,11 @@ export function formatUtcStamp(epochSeconds: number, withTime = true): string {
   const day = `${String(date.getUTCDate()).padStart(2, "0")} ${MONTHS[date.getUTCMonth()]}`;
   if (!withTime) return day;
   return `${day} ${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")}`;
+}
+
+/** Display name for a record's evidence class. Chain-derived evidence reads as "onchain" on every network. */
+export function evidenceLabel(evidence: string): string {
+  const key = evidence.toUpperCase();
+  if (key === "DEVNET" || key === "TESTNET" || key === "MAINNET" || key === "ONCHAIN") return "onchain";
+  return evidence.toLowerCase().replace(/_/g, " ");
 }

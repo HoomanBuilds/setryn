@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
+import { AssetIcon, UnderlyingIcon } from "@/components/icons/AssetIcon";
 import { QualificationTag, SourceMarks } from "@/components/markets/controls";
 import { Delta } from "@/components/terminal/primitives";
 import {
@@ -79,7 +80,8 @@ export function ExpiryLadder({ markets }: { markets: PackageMarket[] }) {
         return (
           <section key={group.underlying}>
             <h2 className="sticky top-[var(--sticky-top,0px)] z-10 flex h-8 items-center gap-2.5 border-b border-line bg-inset px-3 lg:top-[calc(var(--sticky-top,0px)+32px)] lg:px-4">
-              <span className="shrink-0 text-[13px] font-semibold text-ink">
+              <span className="flex shrink-0 items-center gap-2 text-[13px] font-semibold text-ink">
+                <UnderlyingIcon underlying={group.underlying} size={16} />
                 {group.underlying}
               </span>
               <span className="truncate text-xs text-faint">
@@ -150,8 +152,10 @@ function DenseRung({ market }: { market: PackageMarket }) {
         <span className="tnum truncate font-mono text-xs text-dim">
           {formatExpiry(market.expiryIso)}
         </span>
-        <span className="truncate text-xs text-off">
-          {`${daysToExpiry(market.expiryIso)}d / ${settlementShort(market.settlementClass)}`}
+        <span className="flex min-w-0 items-baseline gap-1 truncate text-xs text-off">
+          {`${daysToExpiry(market.expiryIso)}d /`}
+          <AssetIcon symbol="USDC" size={11} className="self-center" />
+          <span className="truncate">{settlementShort(market.settlementClass)}</span>
         </span>
       </span>
 

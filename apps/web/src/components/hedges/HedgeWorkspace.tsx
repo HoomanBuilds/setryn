@@ -97,7 +97,7 @@ export function HedgeWorkspace({ prefill = null }: { prefill?: HedgePrefill | nu
             <span className="tnum truncate font-mono text-xs text-dim">{exposureId}</span>
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-            <Chip title={HEDGE_SOURCE_LABEL}>Preview fixture</Chip>
+            <Chip title={HEDGE_SOURCE_LABEL}>Example</Chip>
             <Chip tone="dim" title={HEDGE_ENV_LABEL}>
               Local simulation
             </Chip>

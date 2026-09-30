@@ -23,7 +23,7 @@ export function MiniChart({
   height?: number;
 }) {
   const history = useMemo(() => buildPreviewHistory(buildPreviewSeries(baseMarket), "15m").slice(-BARS), [baseMarket]);
-  // The last bar is the history's final bar moved to the live mark at the shared preview clock.
+  // The last bar is the history's final bar moved to the live mark at the shared market clock.
   const previous = history[history.length - 1];
   const next = previous ? candleAtPrice(previous, previewEpochSeconds, liveMarket.netPrice, "15m") : null;
   const bars = next ? (next.time === previous.time ? [...history.slice(0, -1), next] : [...history.slice(1), next]) : history;

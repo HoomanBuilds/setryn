@@ -176,7 +176,7 @@ export function phaseSegments(record: AuctionRecord): Segment[] {
 
 /**
  * The round as one horizontal clock: commit, reveal, clear and settle in
- * proportion, elapsed time filled, and a marker at the preview clock.
+ * proportion, elapsed time filled, and a marker at the market clock.
  */
 export function PhaseClock({
   record,

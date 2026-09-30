@@ -11,6 +11,8 @@ import { Segmented } from "@/components/terminal/primitives";
 import { formatNumber, formatShare, parseDecimal } from "@/lib/terminal/format";
 import { useConfirmationPrefs } from "@/lib/settings/preferences";
 import { useConfirmStep } from "@/components/terminal/confirm-step";
+import { ChainBadge, chainKeyOf } from "@/components/icons/AssetIcon";
+import { CollateralMark } from "@/components/portfolio/MarketMark";
 
 type Kind = "DEPOSIT" | "WITHDRAW";
 
@@ -40,9 +42,12 @@ export function CollateralView() {
             {figures.map((figure) => (
               <div key={figure.label} className="flex min-w-0 flex-col gap-1 bg-panel px-3 py-2.5 lg:px-4">
                 <dt className="truncate text-[11px] text-faint">{figure.label}</dt>
-                <dd className="tnum truncate font-mono text-[13px] text-ink">
-                  {figure.value}
-                  <span className="ml-1 text-[10.5px] text-off">{asset}</span>
+                <dd className="tnum flex min-w-0 items-center gap-1.5 font-mono text-[13px] text-ink">
+                  <CollateralMark size={14} />
+                  <span className="truncate">
+                    {figure.value}
+                    <span className="ml-1 text-[10.5px] text-off">{asset}</span>
+                  </span>
                 </dd>
                 <dd className="truncate text-[11px] text-off">{figure.note}</dd>
               </div>
@@ -170,7 +175,9 @@ function TransferCard() {
     >
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-[13px] font-medium text-ink">Transfer collateral</h2>
-        <Chip tone="muted">{snapshot.environment.label}</Chip>
+        <Chip tone="muted">
+          <ChainBadge chain={chainKeyOf(snapshot.environment.chainId)} label={snapshot.environment.label} size={11} className="gap-1" />
+        </Chip>
       </div>
 
       <Segmented options={KINDS} value={kind} onChange={setKind} label="Transfer direction" size="sm" />
@@ -204,7 +211,10 @@ function TransferCard() {
               Max
             </button>
           ) : null}
-          <span className="font-mono text-xs text-faint">{asset}</span>
+          <span className="flex items-center gap-1 font-mono text-xs text-faint">
+            <CollateralMark size={14} />
+            {asset}
+          </span>
         </span>
         {exceeds ? <span className="text-[11px] text-down">Exceeds available collateral.</span> : null}
       </label>

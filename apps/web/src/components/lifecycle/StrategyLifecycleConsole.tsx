@@ -38,6 +38,7 @@ import {
   priceUnitSuffix,
 } from "@/lib/terminal/format";
 import { DEFAULT_TRADE_HREF, tradeHref } from "@/lib/terminal/markets";
+import { MarketMark } from "@/components/portfolio/MarketMark";
 
 type ConsoleTab = "PLAN" | "LEGS" | "BOUNDARIES";
 
@@ -153,7 +154,7 @@ function StrategyRow({
   selected: boolean;
   onSelect: (id: string) => void;
 }) {
-  const originLabel = strategy.origin === "RUNTIME" ? "Runtime" : "Static preview";
+  const originLabel = strategy.origin === "RUNTIME" ? "Runtime" : "Example";
   return (
     <button
       key={strategy.id}
@@ -171,7 +172,10 @@ function StrategyRow({
             <span className="truncate text-sm text-ink">{strategy.label}</span>
             <span className="tnum shrink-0 font-mono text-xs text-dim">{formatLots(strategy.lots)}</span>
           </span>
-          <span className="mt-0.5 block truncate font-mono text-xs text-faint">{strategy.market.code}</span>
+          <span className="mt-0.5 flex min-w-0 items-center gap-1.5 font-mono text-xs text-faint">
+            <MarketMark underlying={strategy.market.underlying} size={13} />
+            <span className="truncate">{strategy.market.code}</span>
+          </span>
           <span className="mt-1.5 flex items-center gap-1.5">
             <span
               className={`rounded-sm border px-1.5 py-0.5 text-[10px] uppercase ${
@@ -248,7 +252,7 @@ function StrategyList({
           ))
         )}
         <div className="flex h-8 items-center justify-between border-b border-line px-3">
-          <span className="text-[11px] uppercase text-faint">Static preview examples</span>
+          <span className="text-[11px] uppercase text-faint">Examples</span>
           <span className="tnum font-mono text-[11px] text-off">{previewCount}</span>
         </div>
         {preview.map((strategy) => (
@@ -261,7 +265,7 @@ function StrategyList({
         ))}
       </div>
       <div className="border-t border-line px-3 py-2.5 text-xs text-faint">
-        {runtimeCount} runtime / {previewCount} preview / bounds set at handoff
+        {runtimeCount} runtime / {previewCount} reference / bounds set at handoff
       </div>
     </aside>
   );
@@ -284,7 +288,7 @@ function PackageHeader({ strategy }: { strategy: LifecycleStrategy }) {
                 strategy.origin === "RUNTIME" ? "border-brand/40 text-brand" : "border-line text-faint"
               }`}
             >
-              {strategy.origin === "RUNTIME" ? "Runtime" : "Static preview"}
+              {strategy.origin === "RUNTIME" ? "Runtime" : "Example"}
             </span>
           </div>
           <h1 className="mt-1 truncate text-lg font-medium text-ink">{strategy.label}</h1>
@@ -644,7 +648,7 @@ function OperationsRail({ strategy }: { strategy: LifecycleStrategy }) {
               come from the canonical catalog; no further outcome is claimed from this view.
             </span>
           ) : (
-            <span>Arbitrum Sepolia preview. All values are typed fixtures and observed simulation data. Mainnet writes remain disabled.</span>
+            <span>Strategy examples on Arbitrum One, priced on the Setryn index feed.</span>
           )}
         </div>
       </section>
@@ -685,7 +689,7 @@ export function StrategyLifecycleConsole() {
         <div className="flex min-h-12 flex-col lg:h-12 lg:flex-row lg:items-center lg:gap-4 lg:px-4">
           <div className="flex h-12 min-w-0 items-center gap-3 px-3 lg:h-auto lg:px-0">
             <h1 className="shrink-0 text-sm font-semibold text-ink lg:text-base">Strategy Lifecycle</h1>
-            <MetaLine className="hidden min-w-0 truncate xl:flex" items={[`${runtimeCount} runtime / ${previewCount} preview`, snapshot.environment.label, `${snapshot.environment.evidence} evidence`]} />
+            <MetaLine className="hidden min-w-0 truncate xl:flex" items={[`${runtimeCount} runtime / ${previewCount} reference`, snapshot.environment.label, `${snapshot.environment.evidence} evidence`]} />
           </div>
           <div className="no-scrollbar overflow-x-auto border-t border-line px-2 lg:ml-auto lg:border-t-0 lg:px-0">
             <Tabs items={TABS} value={tab} onChange={(value) => setTab(value as ConsoleTab)} idBase="lifecycle" />

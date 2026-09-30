@@ -22,6 +22,7 @@ import { formatLots } from "@/lib/terminal/format";
 import { packageLabel } from "@/lib/terminal/markets";
 import type { PackageMarket } from "@/lib/terminal/types";
 import { CapacityPanel, PerformancePanel, RecoveryPanel, RoutePlanPanel } from "./SolverPanels";
+import { MarketMark } from "@/components/portfolio/MarketMark";
 
 const WINDOW_SECONDS = 3_600;
 
@@ -49,7 +50,7 @@ const ELIGIBILITY_COPY: Record<Eligibility, { label: string; tone: "up" | "neutr
 };
 
 const GRID =
-  "grid grid-cols-[132px_minmax(200px,1.5fr)_84px_104px_60px_120px_92px_104px_84px_112px] items-center gap-3";
+  "grid grid-cols-[116px_minmax(170px,1.5fr)_68px_84px_52px_92px_76px_88px_68px_108px] items-center gap-2";
 
 function secondsLeft(opportunity: SolverOpportunity, epoch: number, nowMs: number): number {
   return opportunity.clock === "PREVIEW" ? opportunity.deadline - epoch : opportunity.deadline - nowMs / 1000;
@@ -96,9 +97,12 @@ function OpportunityRow({
           <span className="w-11 text-xs text-ink">{SOURCE_COPY[opportunity.source]}</span>
           <ProvenanceChip value={opportunity.provenance} />
         </span>
-        <span className="min-w-0">
-          <span className="block truncate text-xs text-ink">{market ? packageLabel(market) : opportunity.marketId}</span>
-          <span className="tnum block truncate font-mono text-[11px] text-faint">{opportunity.label}</span>
+        <span className="flex min-w-0 items-center gap-2">
+          <MarketMark underlying={market?.underlying} code={opportunity.marketId} size={16} />
+          <span className="min-w-0">
+            <span className="block truncate text-xs text-ink">{market ? packageLabel(market) : opportunity.marketId}</span>
+            <span className="tnum block truncate font-mono text-[11px] text-faint">{opportunity.label}</span>
+          </span>
         </span>
         <span className={`tnum font-mono text-xs ${side.className}`}>{side.label}</span>
         <span className="min-w-0">
@@ -145,9 +149,12 @@ function OpportunityCard({
     <li className="border-b border-line last:border-b-0">
       <button type="button" onClick={onSelect} className="focus-ring flex w-full flex-col gap-1.5 px-3 py-3 text-left hover:bg-raised/40">
         <span className="flex items-center justify-between gap-2">
-          <span className="min-w-0">
-            <span className="block truncate text-[13px] text-ink">{market ? packageLabel(market) : opportunity.marketId}</span>
-            <span className="block truncate text-[11px] text-faint">{`${SOURCE_COPY[opportunity.source]} · ${opportunity.label}`}</span>
+          <span className="flex min-w-0 items-center gap-2">
+            <MarketMark underlying={market?.underlying} code={opportunity.marketId} size={18} />
+            <span className="min-w-0">
+              <span className="block truncate text-[13px] text-ink">{market ? packageLabel(market) : opportunity.marketId}</span>
+              <span className="block truncate text-[11px] text-faint">{`${SOURCE_COPY[opportunity.source]} · ${opportunity.label}`}</span>
+            </span>
           </span>
           <Chip tone={eligibility.tone}>{eligibility.label}</Chip>
         </span>
@@ -244,13 +251,13 @@ export function SolverCockpit() {
           <div className="flex flex-wrap items-center gap-1.5">
             <ProvenanceChip
               value="MODELED"
-              title="Auction opportunities, reservations and performance come from the modeled auction schedule. Routes use the shared preview feed. Private requests are read from the local chain."
+              title="Auction opportunities, reservations and performance come from the modeled auction schedule. Routes use the shared index feed. Private requests are read from the local chain."
             />
             <DeskChip title="Solver actions are read-only in this build">Read only</DeskChip>
           </div>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs lg:ml-auto">
             <span className="tnum font-mono text-[11px] text-dim">
-              <span className="font-sans text-faint">Preview clock </span>
+              <span className="font-sans text-faint">Market clock </span>
               {`${clockText(epoch)} UTC`}
             </span>
             <Link href="/auctions" className={`${BUTTON_QUIET} h-7`}>
@@ -304,7 +311,7 @@ export function SolverCockpit() {
               tools={<span className="hidden text-[11px] text-faint sm:inline">Open auctions, batch rounds and private requests, soonest first</span>}
             />
             <div className="scroll-thin hidden overflow-x-auto lg:block">
-              <div className="min-w-[1080px]">
+              <div className="min-w-[1020px]">
                 <div className={`${GRID} border-b border-line px-3 py-1.5 text-[11px] text-faint`}>
                   <span>Source</span>
                   <span>Opportunity</span>

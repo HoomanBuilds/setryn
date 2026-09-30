@@ -55,6 +55,7 @@ import {
 } from "./builder-model";
 import { gatewayErrorCode, gatewayErrorCopy } from "./rfq-errors";
 import { platformNow } from "@/lib/terminal/clock";
+import { MarketMark } from "@/components/portfolio/MarketMark";
 
 type Phase = "IDLE" | "CONNECTING" | "AUTHORIZING" | "REQUESTING" | "OPENING";
 
@@ -219,10 +220,11 @@ function PackagePicker({
               type="button"
               onClick={() => setUnderlying(entry)}
               aria-pressed={underlying === entry}
-              className={`focus-ring h-7 shrink-0 rounded-md border px-2 text-[11px] transition-colors ${
+              className={`focus-ring flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-2 text-[11px] transition-colors ${
                 underlying === entry ? "border-line-strong bg-raised text-ink" : "border-line text-faint hover:text-dim"
               }`}
             >
+              {entry === "ALL" ? null : <MarketMark underlying={entry} size={13} />}
               {entry === "ALL" ? "All" : entry}
             </button>
           ))}
@@ -245,9 +247,12 @@ function PackagePicker({
                 selected ? "bg-raised/80 shadow-[inset_2px_0_0_var(--color-brand)]" : "hover:bg-raised/40"
               }`}
             >
-              <span className="min-w-0">
-                <span className="block truncate text-xs text-ink">{packageLabel(market)}</span>
-                <span className="tnum block truncate font-mono text-[10px] text-faint">{market.code}</span>
+              <span className="flex min-w-0 items-center gap-2">
+                <MarketMark underlying={market.underlying} size={18} />
+                <span className="min-w-0">
+                  <span className="block truncate text-xs text-ink">{packageLabel(market)}</span>
+                  <span className="tnum block truncate font-mono text-[10px] text-faint">{market.code}</span>
+                </span>
               </span>
               <span className="tnum text-right font-mono text-xs text-ink">
                 <Flash value={market.netPrice}>{price(market.netPrice, market)}</Flash>
@@ -265,7 +270,7 @@ function PackagePicker({
               </span>
               <span className="col-span-2 flex flex-wrap items-center gap-1 sm:col-span-1 sm:justify-end">
                 <Chip tone={onchain ? "up" : "muted"} dot>
-                  {onchain ? "Onchain" : "Preview"}
+                  {onchain ? "Onchain" : "Reference"}
                 </Chip>
                 {market.qualification !== "QUALIFIED" ? (
                   <Chip tone={market.qualification === "SUSPENDED" ? "down" : "neutral"}>
@@ -387,7 +392,7 @@ function Economics({
   const solverFee = preview.counterpartyFee;
   return (
     <Panel className={motion.mount} label="Live economics">
-      <PanelHeader right={<ProvenanceChip value="ESTIMATED" title="Calculated from the shared preview feed and the terminal's fee and collateral rules. Makers quote their own prices." />}>
+      <PanelHeader right={<ProvenanceChip value="ESTIMATED" title="Calculated from the shared index feed and the terminal's fee and collateral rules. Makers quote their own prices." />}>
         <PanelTitle>Economics</PanelTitle>
       </PanelHeader>
       <div className="grid grid-cols-2 gap-3 border-b border-line px-4 py-3">
@@ -399,7 +404,7 @@ function Economics({
             </span>
             <span className="text-xs text-faint">{unit(market)}</span>
           </div>
-          <div className="mt-0.5 text-[11px] text-faint">{route ? "Solver firm row, preview feed" : "Touch, no solver route"}</div>
+          <div className="mt-0.5 text-[11px] text-faint">{route ? "Solver firm row, index feed" : "Touch, no solver route"}</div>
         </div>
         <div className="min-w-0 text-right">
           <div className="text-[11px] text-faint">Your limit</div>
@@ -871,7 +876,7 @@ function BuilderContent() {
                         <Flash value={market.netPrice}>{price(market.netPrice, market)}</Flash>
                       </span>
                     </span>
-                    <span className="font-sans">Preview feed</span>
+                    <span className="font-sans">Index feed</span>
                   </div>
                 </div>
                 <Field label="Firmness requirement" hint="Every quote must be firm and capacity-backed">
@@ -923,7 +928,7 @@ function BuilderContent() {
                     selected={draft.invitation === "QUALIFIED_SET"}
                     onSelect={() => patch({ invitation: "QUALIFIED_SET" })}
                     title="All qualified makers"
-                    detail="The runtime's committed eligible-maker set. On this local devnet it holds one maker, Setryn Devnet MM."
+                    detail="The runtime's committed eligible-maker set. It currently holds one maker, Setryn MM."
                     badge={<Chip tone="up">Registered</Chip>}
                   />
                   <OptionCard
@@ -990,8 +995,8 @@ function BuilderContent() {
                       What becomes public
                     </span>
                     <span className="mt-1 block">
-                      The signed order, including its limit, registers in OrderState and the request commits to PrivateRfqBook. Local devnet
-                      state is readable by anyone with node access. Fills show on the public tape without request contents.
+                      The signed order, including its limit, registers in OrderState and the request commits to PrivateRfqBook. Chain state is
+                      readable by anyone with node access. Fills show on the public tape without request contents.
                     </span>
                   </div>
                 </div>

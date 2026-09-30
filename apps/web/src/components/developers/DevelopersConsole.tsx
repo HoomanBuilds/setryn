@@ -101,8 +101,8 @@ export function DevelopersConsole() {
         chips={
           <>
             <Chip tone="brand">API v1</Chip>
-            <Chip tone="neutral" title="Key management is served only on a loopback host against the local devnet deployment (chain 31337).">
-              Local devnet console
+            <Chip tone="neutral" title="Key management is served only from the operator console host.">
+              Console
             </Chip>
           </>
         }
@@ -131,7 +131,7 @@ export function DevelopersConsole() {
       <div className="grid min-w-0 gap-1 xl:grid-cols-[minmax(0,1fr)_420px]">
         <div className="flex min-w-0 flex-col gap-1">
           {issued ? <IssuedSecret secret={issued.secret} record={issued.record} onDismiss={() => setIssued(null)} /> : null}
-          <KeysPanel keys={keys} selectedId={selected?.id ?? null} onSelect={setSelectedId} onRevoke={(id) => void onRevoke(id)} revoking={revoking} now={now} />
+          <KeysPanel keys={keys} selectedId={selected?.id ?? null} onSelect={setSelectedId} onRevoke={(id) => void onRevoke(id)} revoking={revoking} now={now} loading={load.state === "LOADING"} />
           <RequestLogPanel apiKey={selected} now={now} />
           <EndpointsPanel />
         </div>

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, Lock, Minus, Plus, TriangleAlert } from "lucide-react";
 import { ExecutionTimeline } from "@/components/gateway/ExecutionTimeline";
+import { AssetAmount, ChainBadge, chainKeyOf, chainLabelOf } from "@/components/icons/AssetIcon";
 import { ROUTE_HINT_ID, RouteTable } from "@/components/terminal/RouteTable";
 import { RfqQuotePanel } from "@/components/terminal/RfqQuotePanel";
 import { TicketEconomics } from "@/components/terminal/TicketEconomics";
@@ -24,7 +25,7 @@ import {
   routePrice,
   SLIPPAGE_PRESETS_BPS,
 } from "@/lib/terminal/economics";
-import { formatAsset, formatLotCount, formatLots, formatNumber, formatUsd, priceUnitSuffix } from "@/lib/terminal/format";
+import { formatLotCount, formatLots, formatNumber, formatUsd, priceUnitSuffix } from "@/lib/terminal/format";
 import type { HandoffContext } from "@/lib/terminal/handoff";
 import type { PackageMarket, RouteQuote } from "@/lib/terminal/types";
 import type {
@@ -146,6 +147,8 @@ export interface TicketWallet {
   posted?: number;
   reserved?: number;
   riskDomain?: string;
+  /** Chain the wallet is on, or the environment's chain before a wallet connects. */
+  chainId?: number | null;
 }
 
 export function OrderTicket({
@@ -438,7 +441,7 @@ export function OrderTicket({
             <div className="flex items-baseline justify-between gap-2">
               <dt className="text-faint">Available to trade</dt>
               <dd className="tnum font-mono text-dim">
-                {wallet.connected ? formatAsset(wallet.available, wallet.asset) : "–"}
+                {wallet.connected ? <AssetAmount value={formatNumber(wallet.available, 2)} symbol={wallet.asset} /> : "–"}
               </dd>
             </div>
             <div className="flex items-baseline justify-between gap-2">
@@ -742,7 +745,11 @@ export function OrderTicket({
 
 function AccountSummary({ wallet }: { wallet: TicketWallet }) {
   const value = (amount: number | undefined) =>
-    wallet.connected && amount !== undefined ? formatAsset(amount, wallet.asset) : "–";
+    wallet.connected && amount !== undefined ? (
+      <AssetAmount value={formatNumber(amount, 2)} symbol={wallet.asset} />
+    ) : (
+      "–"
+    );
   return (
     <div className="mt-auto shrink-0 border-t border-line px-3 pt-2.5 pb-3" aria-label="Account">
       <div className="flex items-baseline justify-between gap-2 pb-1">
@@ -755,6 +762,21 @@ function AccountSummary({ wallet }: { wallet: TicketWallet }) {
       <DataRow dense label="Posted collateral" value={value(wallet.posted)} />
       <DataRow dense label="Reserved by orders" value={value(wallet.reserved)} />
       <DataRow dense label="Available to trade" value={value(wallet.available)} />
+      {wallet.chainId !== undefined ? (
+        <DataRow
+          dense
+          label="Network"
+          tone="muted"
+          value={
+            <ChainBadge
+              chain={chainKeyOf(wallet.chainId)}
+              label={chainLabelOf(wallet.chainId)}
+              size={12}
+              className="font-sans"
+            />
+          }
+        />
+      ) : null}
     </div>
   );
 }
@@ -994,7 +1016,7 @@ function StageArea({
         </p>
         {preview.rests ? (
           <p className="px-3 pb-2 text-xs leading-snug text-dim">
-            This limit does not cross, so it will rest on the devnet book as a working order. No
+            This limit does not cross, so it will rest on the book as a working order. No
             fill, receipt, or position is created.
           </p>
         ) : null}

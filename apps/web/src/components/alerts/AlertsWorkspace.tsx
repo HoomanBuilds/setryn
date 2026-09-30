@@ -154,7 +154,7 @@ export function AlertsWorkspace() {
           <div className={`${deskMotion.rise} flex items-start gap-2 rounded-lg border border-line bg-inset px-3 py-2 text-[11px] leading-relaxed text-faint`}>
             <CircleAlert size={13} aria-hidden="true" className="mt-0.5 shrink-0 text-dim" />
             <span className="min-w-0">
-              Rule alerts evaluate the shared preview board and the {snapshot.environment.label} account on every tick and
+              Rule alerts evaluate the live board and the {snapshot.environment.label} account on every tick and
               stay listed once raised until you resolve them. Acknowledgements live in this browser only. {fixtureCount}{" "}
               System {fixtureCount === 1 ? "alert comes" : "alerts come"} from the operator runtime{" "}
               <span className="whitespace-nowrap">

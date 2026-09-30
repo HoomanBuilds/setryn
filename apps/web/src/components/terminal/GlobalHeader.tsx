@@ -7,6 +7,7 @@ import { ChevronDown, Menu, Search, Wallet, X } from "lucide-react";
 import { DataRow, SectionLabel, StatusDot } from "@/components/terminal/primitives";
 import { useGatewaySnapshot, useInternalGateway } from "@/components/gateway/InternalGatewayProvider";
 import { formatCompactAsset } from "@/lib/terminal/format";
+import { AssetAmount, AssetIcon, ChainIcon, chainLabelOf } from "@/components/icons/AssetIcon";
 import SetrynMark from "@/components/landing/SetrynMark";
 import { CommandPalette, openCommandPalette } from "@/components/shell/CommandPalette";
 import { NotificationBell } from "@/components/shell/NotificationBell";
@@ -32,14 +33,16 @@ function Mark() {
   return <SetrynMark className="h-[22px] w-[19px] shrink-0 text-brand" />;
 }
 
-function EnvironmentChip({ label, className = "" }: { label: string; className?: string }) {
+/** Network pill: the Arbitrum mark with the chain the environment runs on. */
+function EnvironmentChip({ chainId, className = "" }: { chainId: number; className?: string }) {
   return (
     <span
-      title="Local onchain devnet. Mainnet writes are disabled."
-      className={`flex shrink-0 items-center gap-1.5 rounded-sm bg-raised px-2 py-1 text-xs whitespace-nowrap text-dim ${className}`}
+      title={`${chainLabelOf(chainId)}, chain ${chainId}. Mainnet writes are disabled.`}
+      className={`flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-line bg-raised pr-2 pl-1.5 text-xs whitespace-nowrap text-dim ${className}`}
     >
+      <ChainIcon size={15} />
+      {chainLabelOf(chainId)}
       <StatusDot ok />
-      {label}
     </span>
   );
 }
@@ -55,6 +58,12 @@ export function GlobalHeader() {
   const [collateralAmount, setCollateralAmount] = useState("");
   const [collateralPending, setCollateralPending] = useState(false);
   const [accountMessage, setAccountMessage] = useState<string | null>(null);
+
+  const asset = snapshot.account.collateralAsset;
+  /* Compact figure with the collateral mark trailing it, so the balance column keeps its marks aligned. */
+  const balance = (value: number) => (
+    <AssetAmount value={formatCompactAsset(value, asset).replace(` ${asset}`, "")} symbol={asset} />
+  );
 
   const shortAddress = snapshot.wallet.address
     ? `${snapshot.wallet.address.slice(0, 6)}...${snapshot.wallet.address.slice(-4)}`
@@ -232,7 +241,7 @@ export function GlobalHeader() {
             <kbd className="hidden rounded border border-line px-1 font-mono text-[10px] text-off lg:inline">Ctrl K</kbd>
           </button>
           <NotificationBell />
-          <EnvironmentChip label={snapshot.environment.label} className="hidden xl:flex" />
+          <EnvironmentChip chainId={snapshot.environment.chainId} className="hidden xl:flex" />
 
           <div className="relative shrink-0">
             <button
@@ -246,8 +255,14 @@ export function GlobalHeader() {
               aria-label={`Account, ${snapshot.account.label}`}
               className="focus-ring flex h-11 items-center gap-1.5 rounded-md border border-line bg-raised px-2 text-sm text-dim transition-colors hover:border-line-strong hover:text-ink lg:h-9 lg:gap-2 lg:px-2.5"
             >
-              <Wallet size={15} aria-hidden="true" className="shrink-0" />
-              <span className="hidden min-[360px]:inline">{shortAddress ?? "Connect"}</span>
+              {shortAddress ? (
+                <ChainIcon size={15} />
+              ) : (
+                <Wallet size={15} aria-hidden="true" className="shrink-0" />
+              )}
+              <span className={`hidden min-[360px]:inline ${shortAddress ? "font-mono text-xs text-ink" : ""}`}>
+                {shortAddress ?? "Connect"}
+              </span>
               <ChevronDown
                 size={14}
                 aria-hidden="true"
@@ -278,17 +293,23 @@ export function GlobalHeader() {
                       {snapshot.wallet.status === "CONNECTING" ? "Connecting..." : "Connect wallet"}
                     </button>
                   ) : (
-                    <p className="mt-2 font-mono text-xs text-dim">{shortAddress}</p>
+                    <p className="mt-2 flex items-center justify-between gap-2 text-xs">
+                      <span className="font-mono text-dim">{shortAddress}</span>
+                      <span className="flex items-center gap-1.5 text-faint">
+                        <ChainIcon size={13} />
+                        {chainLabelOf(snapshot.wallet.chainId ?? snapshot.environment.chainId)}
+                      </span>
+                    </p>
                   )}
 
                   <div className="mt-3 divide-y divide-line border-t border-line">
-                    <DataRow label="Equity" value={formatCompactAsset(snapshot.account.equity, snapshot.account.collateralAsset)} />
+                    <DataRow label="Equity" value={balance(snapshot.account.equity)} />
                     <DataRow
                       label="Eligible collateral"
-                      value={formatCompactAsset(snapshot.account.eligible, snapshot.account.collateralAsset)}
+                      value={balance(snapshot.account.eligible)}
                     />
-                    <DataRow label="Available" value={formatCompactAsset(snapshot.account.available, snapshot.account.collateralAsset)} />
-                    <DataRow label="Reserved" value={formatCompactAsset(snapshot.account.reserved, snapshot.account.collateralAsset)} />
+                    <DataRow label="Available" value={balance(snapshot.account.available)} />
+                    <DataRow label="Reserved" value={balance(snapshot.account.reserved)} />
                     <DataRow label="Risk domain" value={snapshot.account.riskDomain} tone="muted" />
                   </div>
 
@@ -315,7 +336,10 @@ export function GlobalHeader() {
                           placeholder="0.00"
                           className="min-w-0 flex-1 bg-transparent text-right font-mono text-xs text-ink outline-none"
                         />
-                        <span className="ml-2 text-xs text-faint">{snapshot.account.collateralAsset}</span>
+                        <span className="ml-2 flex items-center gap-1 text-xs text-faint">
+                          <AssetIcon symbol={snapshot.account.collateralAsset} size={13} />
+                          {snapshot.account.collateralAsset}
+                        </span>
                       </label>
                       <button
                         type="button"
@@ -399,7 +423,7 @@ export function GlobalHeader() {
 
             <div className="mt-4 flex items-center justify-between gap-2 border-t border-line pt-3">
               <span className="text-xs text-faint">Development environment</span>
-              <EnvironmentChip label={snapshot.environment.label} />
+              <EnvironmentChip chainId={snapshot.environment.chainId} />
             </div>
           </div>
         </>

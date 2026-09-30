@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { RefreshCw } from "lucide-react";
+import { ChainIcon } from "@/components/icons/AssetIcon";
 import { ProvenanceChip, StateDot, type StateTone } from "@/components/home/kit";
 import { Panel, PanelHead } from "@/components/strategies/desk/Desk";
 import type { HealthRow, HealthTone } from "@/lib/alerts";
@@ -59,6 +60,7 @@ export function SystemHealthPanel({ rows, onRecheck, checking }: { rows: HealthR
                 <StateDot tone={TONE[row.state]} live={row.state === "HEALTHY"} />
                 <span className="min-w-0">
                   <span className="flex items-center gap-1.5">
+                    {row.id === "chain" || row.id === "sequencer" ? <ChainIcon size={13} /> : null}
                     <span className="text-xs text-ink">{row.label}</span>
                     <span className={`text-[11px] ${TEXT[row.state]}`}>{LABEL[row.state]}</span>
                   </span>

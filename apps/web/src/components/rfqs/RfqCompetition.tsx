@@ -57,6 +57,7 @@ import {
   type QuoteCompetition,
   type RfqView,
 } from "./rfq-view";
+import { MarketMark } from "@/components/portfolio/MarketMark";
 
 type Busy = null | { kind: "SELECT"; quoteId: string } | { kind: "EXECUTE" } | { kind: "CANCEL" };
 
@@ -260,7 +261,7 @@ function QuoteBoard({
                           {entry.isSelected ? <Chip tone="up">Selected</Chip> : isWinner ? <Chip tone="brand">Wins</Chip> : null}
                         </span>
                         <span className="block truncate text-[10px] text-faint">
-                          {entry.exclusion ? EXCLUSION_COPY[entry.exclusion] : entry.quote.provenance === "DEVNET_MAKER" ? "Devnet maker, firm" : "Firm, capacity-backed"}
+                          {entry.exclusion ? EXCLUSION_COPY[entry.exclusion] : entry.quote.provenance === "DEVNET_MAKER" ? "Setryn maker, firm" : "Firm, capacity-backed"}
                         </span>
                       </span>
                       <span className="tnum text-right font-mono text-sm text-ink">{priceText(entry.quote.packagePrice, market, false)}</span>
@@ -702,6 +703,7 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
                 {modeled ? null : <CopyButton value={request.id} label="RFQ request ID" />}
               </div>
               <h1 className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-serif text-[26px] leading-[30px] text-ink">
+                <MarketMark underlying={market?.underlying} code={intent.packageCode} size={26} />
                 {market ? packageLabel(market) : intent.packageCode}
               </h1>
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -713,7 +715,7 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
                 {modeled ? (
                   <ProvenanceChip
                     value="MODELED"
-                    title="A walkthrough built from the shared preview feed. It implements the production request type but nothing was signed or committed."
+                    title="A walkthrough built from the shared index feed. It implements the production request type but nothing was signed or committed."
                   />
                 ) : (
                   <ProvenanceChip value="OBSERVED" title="Read from the PrivateRfqBook on the local chain for the connected taker." />
@@ -756,7 +758,7 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
             <Kpi
               label="vs live mark"
               value={headlineVsMark !== null ? signedPriceText(headlineVsMark, market) : "—"}
-              sub={liveMark !== null ? `mark ${priceText(liveMark, market)}, preview feed` : "no live mark"}
+              sub={liveMark !== null ? `mark ${priceText(liveMark, market)}, index feed` : "no live mark"}
             />
             <Kpi label="Eligible quotes" value={`${competition.eligible.length} / ${request.quotes.length}`} sub={`${view.makers} makers answered`} />
             <Kpi
@@ -771,7 +773,7 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
           <div className={`flex items-start gap-2 rounded-lg border border-brand-edge/40 bg-brand-soft/30 px-3 py-2 text-xs text-dim ${motion.fade}`}>
             <TriangleAlert size={13} aria-hidden="true" className="mt-0.5 shrink-0 text-brand" />
             <span>
-              Modeled walkthrough. Makers and quotes are generated from the shared preview feed so the ranking rule can be seen with
+              Modeled walkthrough. Makers and quotes are generated from the shared index feed so the ranking rule can be seen with
               several responses. Nothing is signed, committed or executable, and the walkthrough restarts each window.{" "}
               <Link href="/rfqs/new" className="text-ink underline decoration-line-strong underline-offset-2">
                 Build a real request
@@ -938,7 +940,7 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
                 <div>
                   <dt className="text-[11px] text-faint">Committed onchain</dt>
                   <dd className="mt-0.5 text-dim">
-                    The signed order, including its limit, in OrderState; the request commitment in PrivateRfqBook. Local devnet state is
+                    The signed order, including its limit, in OrderState; the request commitment in PrivateRfqBook. Chain state is
                     readable by anyone with node access.
                   </dd>
                 </div>

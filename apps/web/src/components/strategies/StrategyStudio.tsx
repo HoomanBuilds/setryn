@@ -28,6 +28,7 @@ import {
 } from "@/lib/terminal/format";
 import { findMarket, MARKETS, packageLabel, tradeHref } from "@/lib/terminal/markets";
 import type { PackageMarket } from "@/lib/terminal/types";
+import { MarketMark } from "@/components/portfolio/MarketMark";
 
 const MODES: { value: StrategyBuildMode; label: string }[] = [
   { value: "TEMPLATE", label: "Template" },
@@ -94,7 +95,7 @@ function HandoffContextBar({ handoff }: { handoff: StudioHandoffContext }) {
       <span className="tnum font-mono text-ink">{summary}</span>
       {refs.length > 0 ? <span className="tnum truncate font-mono text-faint">{refs.join(" / ")}</span> : null}
       <span className="w-full text-[11px] leading-snug text-faint lg:ml-auto lg:w-auto">
-        Read-only handoff context. No order is created here. Arbitrum Sepolia preview; mainnet writes remain disabled.
+        Read-only handoff context. No order is created here. Arbitrum One; mainnet writes remain disabled.
       </span>
     </div>
   );
@@ -219,7 +220,7 @@ function StudioContent() {
               <select
                 value={draft.marketId}
                 onChange={(event) => chooseMarket(event.target.value)}
-                className="focus-ring h-8 w-full min-w-0 appearance-none truncate rounded-md border border-line bg-raised py-0 pr-7 pl-2.5 font-mono text-xs text-ink transition-colors hover:border-line-strong lg:w-[240px]"
+                className="focus-ring h-8 w-full min-w-0 appearance-none truncate rounded-md border border-line bg-raised py-0 pr-7 pl-8 font-mono text-xs text-ink transition-colors hover:border-line-strong lg:w-[260px]"
               >
                 {liveTemplates.map((market) => (
                   <option key={market.id} value={market.id}>
@@ -227,6 +228,7 @@ function StudioContent() {
                   </option>
                 ))}
               </select>
+              <MarketMark underlying={selectedMarket.underlying} size={16} className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2" />
               <ChevronDown size={12} aria-hidden="true" className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-faint" />
             </label>
           </div>
@@ -237,7 +239,7 @@ function StudioContent() {
             aria-label="Strategy summary"
             className="focus-ring no-scrollbar flex min-w-0 items-stretch gap-5 overflow-x-auto lg:flex-1"
           >
-            <HeaderStat label="Preview mark">
+            <HeaderStat label="Index mark">
               <span className="flex items-center gap-1.5">
                 <Flash value={liveSelected.netPrice}>{formatNumber(liveSelected.netPrice, liveSelected.priceDecimals)}</Flash>
                 <span className="text-[11px] text-faint">{unit}</span>
@@ -261,10 +263,10 @@ function StudioContent() {
           </div>
 
           <div className="flex shrink-0 items-center gap-2 lg:ml-auto">
-            <span className="flex items-center gap-1.5 text-[11px] whitespace-nowrap text-faint" title="Arbitrum Sepolia preview feed">
+            <span className="flex items-center gap-1.5 text-[11px] whitespace-nowrap text-faint" title="Setryn index feed">
               <LiveDot tone="up" live />
-              <span className="lg:hidden 2xl:inline">Arbitrum Sepolia preview</span>
-              <span className="hidden lg:inline 2xl:hidden">Preview</span>
+              <span className="lg:hidden 2xl:inline">Arbitrum One</span>
+              <span className="hidden lg:inline 2xl:hidden">Index</span>
             </span>
             <div className="ml-auto w-[168px] lg:ml-2">
               <Segmented options={MODES} value={draft.mode} onChange={chooseMode} label="Construction mode" size="sm" />
@@ -285,7 +287,10 @@ function StudioContent() {
 
         <div className="scroll-thin order-1 flex min-w-0 flex-col gap-1 xl:order-none xl:min-h-0 xl:overflow-y-auto">
           <div className={`${deskMotion.rise} flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-line bg-panel px-3 py-2`}>
-            <span className="min-w-0 truncate text-[15px] font-medium text-ink">{packageLabel(selectedMarket)}</span>
+            <span className="flex min-w-0 items-center gap-2 text-[15px] font-medium text-ink">
+              <MarketMark underlying={selectedMarket.underlying} size={18} />
+              <span className="truncate">{packageLabel(selectedMarket)}</span>
+            </span>
             <span className="tnum font-mono text-[11px] text-faint">{compiled.canonicalId}</span>
             <span className="ml-auto flex items-center gap-1.5">
               <Chip tone={compiled.executable ? "up" : "dim"} dot>

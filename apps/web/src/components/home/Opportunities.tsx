@@ -60,7 +60,7 @@ export function Opportunities({ markets }: { markets: readonly PackageMarket[] }
           title="Top movers"
           tools={
             <span className="flex items-center gap-2">
-              <ProvenanceChip kind="OBSERVED" title="Package marks from the coherent preview feed, against the prior close." />
+              <ProvenanceChip kind="OBSERVED" title="Package marks from the coherent index feed, against the prior close." />
               <PanelLink href="/markets">Markets</PanelLink>
             </span>
           }

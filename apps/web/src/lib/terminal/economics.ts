@@ -278,8 +278,8 @@ export function buildPreview(
     guaranteeDetail:
       guarantee?.detail ?? "Pick a route to see which settlement guarantee applies to this package.",
     freshnessLabel: route
-      ? `${route.label}, preview snapshot`
-      : "Package mark, preview snapshot",
+      ? `${route.label}, index snapshot`
+      : "Package mark, index snapshot",
     freshnessSeconds: market.snapshotAgeSeconds,
     marketable,
     rests,

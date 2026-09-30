@@ -6,6 +6,7 @@ import { useGatewaySnapshot, useInternalGateway } from "@/components/gateway/Int
 import { StatusDot } from "@/components/terminal/primitives";
 import motion from "./ledger.module.css";
 import { platformNow } from "@/lib/terminal/clock";
+import { evidenceLabel } from "@/lib/terminal/format";
 
 export { motion };
 
@@ -123,12 +124,12 @@ export function EnvironmentChip() {
   return (
     <span
       className="inline-flex h-7 shrink-0 items-center gap-2 rounded-md border border-line bg-raised px-2.5 text-xs text-dim"
-      title={`${snapshot.environment.label}, chain ${snapshot.environment.chainId}, ${snapshot.environment.evidence.toLowerCase()} evidence`}
+      title={`${snapshot.environment.label}, chain ${snapshot.environment.chainId}, ${evidenceLabel(snapshot.environment.evidence)} evidence`}
     >
       <StatusDot ok />
       <span className="text-ink">{snapshot.environment.label}</span>
       <span className="text-off">/</span>
-      <span className="tnum font-mono text-faint">{snapshot.environment.evidence.toLowerCase()} evidence</span>
+      <span className="tnum font-mono text-faint">{evidenceLabel(snapshot.environment.evidence)} evidence</span>
     </span>
   );
 }

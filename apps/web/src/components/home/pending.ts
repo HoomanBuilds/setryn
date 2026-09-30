@@ -133,10 +133,10 @@ export function pendingActions(
       urgent: hours <= 72,
       href: lots ? "/lifecycle" : tradeHref(market),
       action: lots ? "Lifecycle" : "Trade",
-      // The fixing time comes from the listed expiry schedule and counts down on the preview clock; no fixing has
+      // The fixing time comes from the listed expiry schedule and counts down on the market clock; no fixing has
       // been observed yet.
       provenance: "MODELED",
-      provenanceNote: "Scheduled from the listed expiry. Time to fixing runs on the preview clock.",
+      provenanceNote: "Scheduled from the listed expiry. Time to fixing runs on the market clock.",
     });
   }
 

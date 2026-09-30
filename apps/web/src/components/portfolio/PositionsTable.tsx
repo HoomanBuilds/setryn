@@ -19,6 +19,7 @@ import {
 } from "@/lib/terminal/format";
 import type { Position, PositionGroup } from "@/lib/portfolio/types";
 import { positionOrigin } from "@/lib/portfolio/runtime";
+import { MarketMark, knownUnderlying } from "@/components/portfolio/MarketMark";
 
 const COLUMNS = [
   { label: "Package", numeric: false, className: "w-[26%]" },
@@ -130,8 +131,11 @@ export function PositionsTable({
               hidden at this width never leaves a phantom track behind. */}
           <tr className="border-b border-line-soft bg-inset/70">
             <th scope="colgroup" className="h-8 px-3 text-left font-normal lg:pl-4">
-              <span className="flex min-w-0 items-baseline gap-2.5">
-                <span className="shrink-0 text-xs font-medium text-ink">{group.label}</span>
+              <span className="flex min-w-0 items-center gap-2.5">
+                <span className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-ink">
+                  <MarketMark underlying={knownUnderlying(group.label)} size={14} />
+                  {group.label}
+                </span>
                 <span className="truncate text-[11px] text-faint">
                   {`${group.positions.length} ${group.positions.length === 1 ? "position" : "positions"} / ${group.detail}`}
                 </span>
@@ -172,11 +176,14 @@ export function PositionsTable({
                       aria-controls={selected ? detailId : undefined}
                       title={selected ? "Close position detail" : "Show position detail"}
                       onClick={() => onSelect(position.id)}
-                      className="focus-ring flex min-h-11 min-w-0 flex-1 flex-col justify-center rounded-sm py-1 text-left"
+                      className="focus-ring flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-sm py-1 text-left"
                     >
-                      <span className="truncate text-[13px] leading-4 text-ink">{position.label}</span>
-                      <span className="tnum truncate font-mono text-[11px] leading-[14px] text-faint">
-                        {`${position.market.code} / ${positionOrigin(position)}`}
+                      <MarketMark underlying={position.market.underlying} size={16} />
+                      <span className="flex min-w-0 flex-col justify-center">
+                        <span className="truncate text-[13px] leading-4 text-ink">{position.label}</span>
+                        <span className="tnum truncate font-mono text-[11px] leading-[14px] text-faint">
+                          {`${position.market.code} / ${positionOrigin(position)}`}
+                        </span>
                       </span>
                     </button>
                     <Link
@@ -190,7 +197,12 @@ export function PositionsTable({
                   </span>
                 </td>
 
-                <td className={`${TD} ${wide} truncate text-dim`}>{position.market.underlying}</td>
+                <td className={`${TD} ${wide} text-dim`}>
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <MarketMark underlying={position.market.underlying} size={14} />
+                    <span className="truncate">{position.market.underlying}</span>
+                  </span>
+                </td>
 
                 <td className={NUM}>
                   <Stack
@@ -253,8 +265,11 @@ export function PositionsList({
       {groups.map((group) => (
         <section key={group.id}>
           <h3 className="sticky top-[var(--sticky-top,0px)] z-10 flex h-9 items-center justify-between gap-3 border-b border-line-soft bg-inset px-3">
-            <span className="flex min-w-0 items-baseline gap-2">
-              <span className="shrink-0 text-[13px] font-medium text-ink">{group.label}</span>
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="flex shrink-0 items-center gap-1.5 text-[13px] font-medium text-ink">
+                <MarketMark underlying={knownUnderlying(group.label)} size={14} />
+                {group.label}
+              </span>
               <span className="truncate text-[11px] text-faint">
                 {`${group.positions.length} / ${formatCompactUsd(group.gross)} gross`}
               </span>
@@ -280,7 +295,10 @@ export function PositionsList({
                   >
                     <span className="flex min-w-0 flex-1 flex-col gap-1">
                       <span className="flex items-baseline justify-between gap-3">
-                        <span className="truncate text-sm text-ink">{position.label}</span>
+                        <span className="flex min-w-0 items-center gap-2 self-center">
+                          <MarketMark underlying={position.market.underlying} size={16} />
+                          <span className="truncate text-sm text-ink">{position.label}</span>
+                        </span>
                         <span className={`tnum shrink-0 font-mono text-[13px] ${tone(position.pnl.total)}`}>
                           {formatSignedUsd(position.pnl.total, 0)}
                         </span>

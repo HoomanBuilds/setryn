@@ -8,6 +8,7 @@ import { CERTAINTY_LABEL, PROTECTION_LABEL, TYPE_LABEL } from "@/lib/exposures/b
 import { hedgeBuilderHref } from "@/lib/exposures/records";
 import type { ExposureView, HedgeLink, ProtectionState } from "@/lib/exposures/types";
 import type { SizeUnit } from "@/lib/settings/preferences";
+import { AssetIcon } from "@/components/icons/AssetIcon";
 
 const STATE_TONE: Record<ProtectionState, string> = {
   UNHEDGED: "text-down",
@@ -123,7 +124,10 @@ export function ExposureTable({
                     </span>
                   </td>
                   <td className={TD}>
-                    <span className="block font-mono text-xs text-ink">{record.referenceAssetId}</span>
+                    <span className="flex items-center gap-1.5 font-mono text-xs text-ink">
+                      <AssetIcon symbol={record.referenceAssetId} size={14} />
+                      {record.referenceAssetId}
+                    </span>
                     <span
                       className="block text-[11px] whitespace-nowrap text-faint"
                       title={view.sign === 1 ? "Loses value if the asset falls" : "Loses value if the asset rises"}
@@ -183,7 +187,10 @@ export function ExposureTable({
                 <span className="min-w-0">
                   <span className="block truncate text-[13px] text-ink">{record.label}</span>
                   <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-faint">
-                    <span>{`${record.referenceAssetId} ${TYPE_LABEL[record.type].toLowerCase()}`}</span>
+                    <span className="flex items-center gap-1">
+                      <AssetIcon symbol={record.referenceAssetId} size={12} />
+                      {`${record.referenceAssetId} ${TYPE_LABEL[record.type].toLowerCase()}`}
+                    </span>
                     <Chip tone={record.certainty === "CONFIRMED" ? "dim" : "neutral"}>{CERTAINTY_LABEL[record.certainty]}</Chip>
                     {record.source === "IMPORTED" ? <Chip tone="neutral">Imported</Chip> : null}
                   </span>

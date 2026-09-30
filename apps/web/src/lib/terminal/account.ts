@@ -1,5 +1,5 @@
 export const ACCOUNT = {
-  workspace: "Preview workspace",
+  workspace: "Workspace",
   subaccount: "Desk 01",
   riskDomain: "Crypto carry domain",
 } as const;
@@ -28,7 +28,7 @@ export interface CollateralAsset {
 }
 
 /**
- * Preview fixture. No wallet is connected in this build, so nothing here is a
+ * Example. No wallet is connected in this build, so nothing here is a
  * balance, a claim, or anything that could be withdrawn.
  */
 export const COLLATERAL: CollateralAsset[] = [

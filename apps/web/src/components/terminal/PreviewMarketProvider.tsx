@@ -128,7 +128,7 @@ export function usePreviewMarket(marketId: string): {
 } {
   const { markets, tick, previewEpochSeconds } = usePreviewContext();
   const baseMarket = MARKETS.find((candidate) => candidate.id === marketId);
-  if (!baseMarket) throw new Error(`Unknown preview market: ${marketId}`);
+  if (!baseMarket) throw new Error(`Unknown index market: ${marketId}`);
   const liveMarket = markets.find((candidate) => candidate.id === marketId) ?? baseMarket;
   return { baseMarket, liveMarket, tick, previewEpochSeconds };
 }

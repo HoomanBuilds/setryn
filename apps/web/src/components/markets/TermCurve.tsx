@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { AssetIcon, UnderlyingIcon } from "@/components/icons/AssetIcon";
 import { QualificationTag } from "@/components/markets/controls";
 import { Delta, SectionLabel } from "@/components/terminal/primitives";
 import {
@@ -118,23 +119,26 @@ function CurvePanel({ family }: { family: CurveFamily }) {
     <section className={`${motion.enter} border-b border-line py-4 last:border-b-0`}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-          <SectionLabel>{family.label}</SectionLabel>
-          <span className="text-xs text-faint">
-            {`${points.length} ${points.length === 1 ? "maturity" : "maturities"} / ${settlementShort(
-              family.settlementClass,
-            )} / net price in ${unit} against days to expiry`}
+          <span className="flex items-baseline gap-2">
+            <UnderlyingIcon underlying={family.underlying} size={16} className="self-center" />
+            <SectionLabel>{family.label}</SectionLabel>
+          </span>
+          <span className="flex flex-wrap items-baseline gap-x-1 text-xs text-faint">
+            {`${points.length} ${points.length === 1 ? "maturity" : "maturities"} /`}
+            <AssetIcon symbol="USDC" size={12} className="self-center" />
+            {`${settlementShort(family.settlementClass)} / net price in ${unit} against days to expiry`}
           </span>
         </div>
         <span className="flex items-center gap-3 text-[11px] text-faint">
           <span className="flex items-center gap-1.5">
             <span aria-hidden="true" className="h-[2px] w-4 rounded-full bg-brand" />
-            Preview stream
+            Index feed
           </span>
           <span className="flex items-center gap-1.5">
             <span aria-hidden="true" className="w-4 border-t border-dashed border-off" />
             Prior close
           </span>
-          <Chip tone="muted">Preview</Chip>
+          <Chip tone="muted">Index</Chip>
         </span>
       </div>
 
@@ -167,8 +171,8 @@ function CurvePanel({ family }: { family: CurveFamily }) {
             role="img"
             aria-label={
               curved
-                ? `Preview term structure of ${family.label} on the synchronized local preview stream, net price in ${unit} from ${formatNumber(low, 1)} to ${formatNumber(high, 1)} across ${points.length} maturities of ${family.underlying}. The dashed line is the prior session close. The equivalent table follows.`
-                : `${family.label} has one visible maturity on the synchronized local preview stream, so no term structure is drawn. The equivalent table follows.`
+                ? `Term structure of ${family.label} on the Setryn index feed, net price in ${unit} from ${formatNumber(low, 1)} to ${formatNumber(high, 1)} across ${points.length} maturities of ${family.underlying}. The dashed line is the prior session close. The equivalent table follows.`
+                : `${family.label} has one visible maturity on the Setryn index feed, so no term structure is drawn. The equivalent table follows.`
             }
           >
             {curved ? (

@@ -11,7 +11,7 @@ export function RuleMonitor({ watches, rules }: { watches: RuleWatch[]; rules: r
       <PanelHead
         title="Rule monitor"
         tools={
-          <Chip tone="dim" dot title="Evaluated on the shared preview tick against the live board and the gateway snapshot">
+          <Chip tone="dim" dot title="Evaluated on every index tick against the live board and the account snapshot">
             Live
           </Chip>
         }

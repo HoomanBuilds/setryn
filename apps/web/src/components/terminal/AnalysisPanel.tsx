@@ -54,10 +54,10 @@ export function AnalysisPanel({
         />
         <span
           className="hidden shrink-0 items-center gap-1.5 text-xs text-off sm:flex"
-          title="Deterministic preview feed. No value is read from a live venue or chain."
+          title="Setryn index feed."
         >
           <span aria-hidden="true" className="live-dot h-1.5 w-1.5 rounded-full bg-up text-up" />
-          <span>Preview stream</span>
+          <span>Index feed</span>
           <span className="tnum font-mono text-faint">
             {`${formatUtcClock(previewEpochSeconds)} UTC`}
           </span>

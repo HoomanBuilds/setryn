@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { ChainIcon, chainLabelOf } from "@/components/icons/AssetIcon";
 import { Chip, LiveDot, Metric, Panel, PanelHead, TH } from "@/components/strategies/desk/Desk";
 import { formatNumber } from "@/lib/terminal/format";
 
@@ -112,9 +113,24 @@ export function StatusBoard() {
             <Metric label="Environment" value={status?.environment ?? "–"} note={status ? `evidence ${status.status}` : undefined} />
             <Metric
               label="Chain"
-              value={status ? String(status.chainId) : "–"}
+              value={
+                status ? (
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <ChainIcon size={15} />
+                    {String(status.chainId)}
+                  </span>
+                ) : (
+                  "–"
+                )
+              }
               tone={status && !chainMatches ? "down" : "neutral"}
-              note={status ? (chainMatches ? "matches evidence" : `evidence says ${status.manifestChainId}`) : undefined}
+              note={
+                status
+                  ? chainMatches
+                    ? `${chainLabelOf(status.chainId)}, matches evidence`
+                    : `evidence says ${status.manifestChainId}`
+                  : undefined
+              }
             />
             <Metric label="Head block" value={status ? formatNumber(Number(status.blockNumber), 0) : "–"} note={status ? utc(status.headTime) : undefined} />
             <Metric label="Chain time" value={status ? utc(status.chainTime).slice(11) : "–"} note={status ? utc(status.chainTime).slice(0, 10) : undefined} />

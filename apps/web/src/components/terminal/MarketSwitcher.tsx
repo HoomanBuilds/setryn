@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChevronDown, Search } from "lucide-react";
+import { UnderlyingIcon } from "@/components/icons/AssetIcon";
 import { Delta } from "@/components/terminal/primitives";
 import { changePercent, formatPrice, priceUnitSuffix } from "@/lib/terminal/format";
 import { MARKETS } from "@/lib/terminal/markets";
@@ -85,12 +86,13 @@ export function MarketSwitcher({
         onClick={() => (open ? close(false) : openMenu())}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className={`focus-ring flex h-11 max-w-[210px] min-w-0 items-center gap-2 rounded-md border px-2.5 text-left transition-colors lg:h-9 lg:max-w-[304px] ${
+        className={`focus-ring flex h-11 max-w-[210px] min-w-0 items-center gap-2 rounded-md border px-2.5 text-left transition-colors lg:h-9 lg:max-w-[340px] ${
           open
             ? "border-brand-edge bg-raised"
             : "border-line bg-raised hover:border-line-strong"
         }`}
       >
+        <UnderlyingIcon underlying={market.underlying} size={18} />
         <span className="flex min-w-0 flex-col items-start lg:flex-row lg:items-baseline lg:gap-2">
           <span className="w-full truncate text-sm font-medium text-ink lg:w-auto lg:min-w-0">
             {market.name}
@@ -172,14 +174,19 @@ export function MarketSwitcher({
                         selected ? "border-brand" : "border-transparent"
                       } ${cursored ? "bg-raised" : ""}`}
                     >
-                      <span className="flex min-w-0 flex-col">
-                        <span
-                          className={`truncate text-sm ${selected ? "text-ink" : "text-dim"}`}
-                        >
-                          {candidate.name}
+                      <span className="flex min-w-0 items-center gap-2.5">
+                        <span className="flex w-[30px] shrink-0 justify-start">
+                          <UnderlyingIcon underlying={candidate.underlying} size={20} />
                         </span>
-                        <span className="tnum truncate font-mono text-xs text-off">
-                          {candidate.code}
+                        <span className="flex min-w-0 flex-col">
+                          <span
+                            className={`truncate text-sm ${selected ? "text-ink" : "text-dim"}`}
+                          >
+                            {candidate.name}
+                          </span>
+                          <span className="tnum truncate font-mono text-xs text-off">
+                            {candidate.code}
+                          </span>
                         </span>
                       </span>
                       <span className="flex shrink-0 flex-col items-end">

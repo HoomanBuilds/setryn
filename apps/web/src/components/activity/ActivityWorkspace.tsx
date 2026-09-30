@@ -306,12 +306,12 @@ export function ActivityWorkspace() {
                 className="no-scrollbar min-w-0 overflow-x-auto"
               />
               <div className="flex shrink-0 items-center gap-2">
-                <span className="hidden text-[11px] text-faint xl:block">Local devnet export, not Arbitrum accounting</span>
+                <span className="hidden text-[11px] text-faint xl:block">Account export</span>
                 <button
                   type="button"
                   onClick={handleExportLocalCsv}
                   disabled={exportDisabled}
-                  title="Local devnet export, not Arbitrum accounting"
+                  title="Account export"
                   className={`${BUTTON_QUIET} h-7 px-2.5`}
                 >
                   <Download size={12} aria-hidden="true" />

@@ -22,6 +22,7 @@ import type {
   QuoteSessionState,
 } from "@/lib/maker/types";
 import { signedNumber, signedUsd, usd, usdCompact } from "./format";
+import { MarketMark } from "@/components/portfolio/MarketMark";
 
 export function SessionBadge({ state }: { state: QuoteSessionState }) {
   const label = state === "QUOTING" ? "Quoting" : state === "PAUSED" ? "Paused" : "Risk paused";
@@ -56,7 +57,7 @@ export function QuotePolicy({
         title="Quote policy"
         tools={
           <>
-            <span className="hidden text-[11px] text-faint sm:inline">Local preview controls</span>
+            <span className="hidden text-[11px] text-faint sm:inline">Market controls</span>
             <SlidersHorizontal size={14} className="text-faint" aria-hidden="true" />
           </>
         }
@@ -158,7 +159,10 @@ export function RiskLimits({ selected, onSelect }: { selected: string; onSelect:
                   className={`absolute inset-y-2 left-0 w-0.5 rounded-full bg-brand transition-opacity duration-200 ${active ? "opacity-100" : "opacity-0"}`}
                 />
                 <span className="flex items-center justify-between gap-2">
-                  <span className="truncate text-xs text-ink">{series?.displayName ?? risk.seriesId}</span>
+                  <span className="flex min-w-0 items-center gap-1.5 text-xs text-ink">
+                    <MarketMark code={risk.seriesId} size={14} />
+                    <span className="truncate">{series?.displayName ?? risk.seriesId}</span>
+                  </span>
                   <Chip tone={tone}>{risk.state.replace("_", " ")}</Chip>
                 </span>
                 <span className="mt-2 flex items-baseline justify-between text-[11px]">
@@ -311,8 +315,13 @@ export function Inventory({ selected }: { selected: string }) {
               return (
                 <tr key={position.id} className={`transition-colors duration-150 ${active ? "bg-raised" : "hover:bg-raised/40"}`}>
                   <td className="h-11 px-3">
-                    <span className={`block truncate text-xs ${active ? "text-ink" : "text-dim"}`}>{position.label}</span>
-                    <span className="block truncate text-[11px] text-faint">{position.hedgeVenue}</span>
+                    <span className="flex min-w-0 items-center gap-2">
+                      <MarketMark code={position.seriesId} size={16} />
+                      <span className="min-w-0">
+                        <span className={`block truncate text-xs ${active ? "text-ink" : "text-dim"}`}>{position.label}</span>
+                        <span className="block truncate text-[11px] text-faint">{position.hedgeVenue}</span>
+                      </span>
+                    </span>
                   </td>
                   <td className="tnum px-3 text-right font-mono text-dim">{signedNumber(position.netPackageQuantity, 2)}</td>
                   <td className={`tnum px-3 text-right font-mono ${position.deltaUsd >= 0 ? "text-up" : "text-down"}`}>

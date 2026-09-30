@@ -34,6 +34,7 @@ import {
   signedPrice,
   ticksText,
 } from "./board-kit";
+import { MarketMark } from "@/components/portfolio/MarketMark";
 
 const HISTORY_WINDOW_SECONDS = 3_600;
 
@@ -120,7 +121,7 @@ function BatchLanes({
 }) {
   return (
     <Panel className={motion.mount} label="Batch clearing rounds">
-      <PanelHeader right={<ProvenanceChip value="MODELED" title="Round cadence scheduled from market fixtures; bids price off the shared preview feed." />}>
+      <PanelHeader right={<ProvenanceChip value="MODELED" title="Round cadence scheduled from market fixtures; bids price off the shared index feed." />}>
         <PanelTitle icon={<Layers size={14} aria-hidden="true" />}>Batch clearing rounds</PanelTitle>
         <span className="hidden text-[11px] text-faint sm:inline">Uniform price, sealed bids, fixed cadence</span>
       </PanelHeader>
@@ -148,9 +149,12 @@ function BatchLanes({
                 }`}
               >
                 <span className="flex min-w-0 items-start justify-between gap-3 lg:block">
-                  <span className="min-w-0">
-                    <span className="block truncate text-[13px] font-medium text-ink">{packageLabel(market)}</span>
-                    <span className="tnum block truncate font-mono text-[11px] text-faint">{market.code}</span>
+                  <span className="flex min-w-0 items-start gap-2">
+                    <MarketMark underlying={market.underlying} size={18} className="mt-px" />
+                    <span className="min-w-0">
+                      <span className="block truncate text-[13px] font-medium text-ink">{packageLabel(market)}</span>
+                      <span className="tnum block truncate font-mono text-[11px] text-faint">{market.code}</span>
+                    </span>
                   </span>
                   <span className="tnum shrink-0 text-right font-mono text-xs text-dim lg:mt-1 lg:block lg:text-left">
                     <span className="text-faint">mark </span>
@@ -203,7 +207,7 @@ function SealedAuctions({
 }) {
   return (
     <Panel className={motion.mount} label="Sealed auctions">
-      <PanelHeader right={<ProvenanceChip value="MODELED" title="Scheduled from market fixtures on the shared preview clock." />}>
+      <PanelHeader right={<ProvenanceChip value="MODELED" title="Scheduled from market fixtures on the shared market clock." />}>
         <PanelTitle icon={<Gavel size={14} aria-hidden="true" />}>Sealed auctions</PanelTitle>
         <span className="hidden text-[11px] text-faint sm:inline">Commit, reveal, clear</span>
       </PanelHeader>
@@ -239,7 +243,10 @@ function SealedAuctions({
                       <AuctionStatusChip status={record.version.status} />
                     </span>
                     <span className="min-w-0">
-                      <span className="block truncate text-xs text-ink">{packageLabel(market)}</span>
+                      <span className="flex min-w-0 items-center gap-1.5 text-xs text-ink">
+                        <MarketMark underlying={market.underlying} size={14} />
+                        <span className="truncate">{packageLabel(market)}</span>
+                      </span>
                       <span className="tnum block truncate font-mono text-[11px] text-faint">
                         {`${kindCopy(record)} · #${record.label.split("#").pop()}`}
                         {liveMarket ? ` · mark ${priceText(liveMarket.netPrice, market)}` : ""}
@@ -276,9 +283,12 @@ function SealedAuctions({
                   className="focus-ring flex w-full flex-col gap-2 px-3 py-3 text-left hover:bg-raised/40"
                 >
                   <span className="flex items-center justify-between gap-2">
-                    <span className="min-w-0">
-                      <span className="block truncate text-[13px] text-ink">{packageLabel(market)}</span>
-                      <span className="block truncate text-[11px] text-faint">{kindCopy(record)}</span>
+                    <span className="flex min-w-0 items-center gap-2">
+                      <MarketMark underlying={market.underlying} size={18} />
+                      <span className="min-w-0">
+                        <span className="block truncate text-[13px] text-ink">{packageLabel(market)}</span>
+                        <span className="block truncate text-[11px] text-faint">{kindCopy(record)}</span>
+                      </span>
                     </span>
                     <AuctionStatusChip status={record.version.status} />
                   </span>
@@ -475,11 +485,11 @@ export function AuctionBoard() {
             <>
               <ProvenanceChip
                 value="MODELED"
-                title="The web gateway does not read SealedAuctionHouse or BatchClearingEngine yet. Rounds are scheduled from the market fixtures and bids price off the shared preview feed."
+                title="The web gateway does not read SealedAuctionHouse or BatchClearingEngine yet. Rounds are scheduled from the market fixtures and bids price off the shared index feed."
               />
               <span className="inline-flex h-7 items-center gap-2 rounded-md border border-line bg-raised px-2.5 text-xs text-dim">
                 <span aria-hidden="true" className="live-dot h-1.5 w-1.5 rounded-full bg-brand text-brand" />
-                <span className="text-faint">Preview clock</span>
+                <span className="text-faint">Market clock</span>
                 <span className="tnum font-mono text-ink">{`${clockText(epoch)} UTC`}</span>
               </span>
               <Link href="/solver" className={BUTTON_QUIET}>

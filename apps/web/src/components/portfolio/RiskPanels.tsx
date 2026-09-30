@@ -32,6 +32,8 @@ import type {
   ScenarioResult,
 } from "@/lib/portfolio/types";
 import type { WithdrawalAvailability } from "@/lib/terminal/account";
+import { AssetIcon } from "@/components/icons/AssetIcon";
+import { MarketMark, knownUnderlying } from "@/components/portfolio/MarketMark";
 
 const WITHDRAWAL_LABEL: Record<WithdrawalAvailability, string> = {
   IMMEDIATE: "Immediate",
@@ -101,7 +103,8 @@ export function ExposurePanel({
             {groups.map((group) => (
               <tr key={group.id} className={ROW}>
                 <th scope="row" className={`${TD} h-9 text-left font-normal text-ink`}>
-                  <span className="flex items-baseline gap-2">
+                  <span className="flex items-center gap-2">
+                    <MarketMark underlying={knownUnderlying(group.label)} size={14} />
                     <span className="truncate">{group.label}</span>
                     <span className="shrink-0 text-off">{group.count}</span>
                   </span>
@@ -140,7 +143,8 @@ export function ExposurePanel({
         {groups.map((group) => (
           <StackRow key={group.id}>
             <div className="flex items-baseline justify-between gap-3">
-              <span className="flex min-w-0 items-baseline gap-2">
+              <span className="flex min-w-0 items-center gap-2">
+                <MarketMark underlying={knownUnderlying(group.label)} size={16} />
                 <span className="truncate text-[13px] text-ink">{group.label}</span>
                 <span className="shrink-0 text-xs text-off">
                   {`${group.count} ${group.count === 1 ? "package" : "packages"}`}
@@ -440,9 +444,12 @@ export function CollateralPanel({
             {lines.map((line) => (
               <tr key={line.asset.id} className={ROW}>
                 <th scope="row" className={`${TD} h-10 text-left font-normal`}>
-                  <span className="flex min-w-0 flex-col">
-                    <span className="truncate text-xs text-ink">{line.asset.asset}</span>
-                    <span className="truncate text-xs text-off">{line.asset.source}</span>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <AssetIcon symbol={line.asset.asset} size={16} />
+                    <span className="flex min-w-0 flex-col">
+                      <span className="truncate text-xs text-ink">{line.asset.asset}</span>
+                      <span className="truncate text-xs text-off">{line.asset.source}</span>
+                    </span>
                   </span>
                 </th>
                 <td className={`${NUM} text-dim`}>{`${formatNumber(line.asset.value, 0)} ${unit}`}</td>
@@ -481,9 +488,12 @@ export function CollateralPanel({
         {lines.map((line) => (
           <StackRow key={line.asset.id}>
             <div className="flex items-baseline justify-between gap-3">
-              <span className="min-w-0">
-                <span className="block truncate text-[13px] text-ink">{line.asset.asset}</span>
-                <span className="block truncate text-xs text-off">{line.asset.source}</span>
+              <span className="flex min-w-0 items-center gap-2">
+                <AssetIcon symbol={line.asset.asset} size={18} />
+                <span className="min-w-0">
+                  <span className="block truncate text-[13px] text-ink">{line.asset.asset}</span>
+                  <span className="block truncate text-xs text-off">{line.asset.source}</span>
+                </span>
               </span>
               <span className="shrink-0 text-xs text-dim">
                 {WITHDRAWAL_LABEL[line.asset.withdrawal]}

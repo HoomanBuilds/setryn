@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Chip, Metric, Panel, PanelHead, TH, TH_NUM } from "@/components/strategies/desk/Desk";
 import type { PartnerDeployment, UsageRow } from "./api";
+import { MarketMark } from "@/components/portfolio/MarketMark";
 
 const DAYS = 30;
 
@@ -117,7 +118,12 @@ export function UsagePanel({ usage, partners }: { usage: UsageRow[]; partners: P
                   placements.map((item) => (
                     <tr key={`${item.widget}|${item.marketId}`} className="border-b border-line-soft">
                       <td className="px-3 py-2 text-ink">{item.widget}</td>
-                      <td className="px-3 py-2 font-mono text-dim">{item.marketId === "ALL" ? "all markets" : item.marketId}</td>
+                      <td className="px-3 py-2 font-mono text-dim">
+                        <span className="flex items-center gap-1.5">
+                          {item.marketId === "ALL" ? null : <MarketMark code={item.marketId} size={14} />}
+                          {item.marketId === "ALL" ? "all markets" : item.marketId}
+                        </span>
+                      </td>
                       <td className="tnum px-3 py-2 text-right font-mono text-ink">{item.impressions.toLocaleString("en-US")}</td>
                       <td className="tnum px-3 py-2 text-right font-mono text-dim">{item.clicks.toLocaleString("en-US")}</td>
                     </tr>

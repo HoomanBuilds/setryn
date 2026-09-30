@@ -8,6 +8,7 @@ import { Chip, TabBody, deskMotion } from "@/components/strategies/desk/Desk";
 import { ORGANIZATION_CONTROL_FIXTURE } from "@/lib/settings/organization";
 import { ApprovalsSection, FixtureNote, OrganizationSection, RolesSection, SubaccountsSection } from "./OrgSections";
 import { PrivacySection, SecuritySection, TradingSection } from "./PreferenceSections";
+import { ChainIcon } from "@/components/icons/AssetIcon";
 
 const SECTIONS = [
   { id: "organization", label: "Organization", icon: Building2, group: "Organization" },
@@ -56,7 +57,10 @@ export function SettingsWorkspace() {
         chips={
           <>
             <Chip tone="neutral">{organization?.name ?? "Personal"}</Chip>
-            <Chip tone="neutral" title={`Chain ${snapshot.environment.chainId}`}>{snapshot.environment.label}</Chip>
+            <Chip tone="neutral" title={`Chain ${snapshot.environment.chainId}`}>
+              <ChainIcon size={11} />
+              {snapshot.environment.label}
+            </Chip>
           </>
         }
         actions={<WalletBadge />}

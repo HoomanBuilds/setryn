@@ -1,5 +1,5 @@
-import { NetworkArbitrumOne, TokenARB, TokenBTC, TokenETH, TokenUSDC } from "@web3icons/react";
-import type { ComponentType, SVGProps } from "react";
+import { NetworkArbitrumOne, TokenBTC, TokenETH, TokenUSDC } from "@web3icons/react";
+import type { ComponentType, ReactNode, SVGProps } from "react";
 
 /*
  * Asset, pair and chain marks. Crypto assets and the Arbitrum network come from @web3icons/react; fiat pairs use the
@@ -12,7 +12,8 @@ type Web3Icon = ComponentType<SVGProps<SVGSVGElement> & { size?: number | string
 const TOKENS: Record<string, Web3Icon> = {
   BTC: TokenBTC as Web3Icon,
   ETH: TokenETH as Web3Icon,
-  ARB: TokenARB as Web3Icon,
+  // The web3icons "TokenARB" glyph is a different project's "AR+" mark; the ARB token wears the Arbitrum network mark.
+  ARB: NetworkArbitrumOne as Web3Icon,
   USDC: TokenUSDC as Web3Icon,
   SUSD: TokenUSDC as Web3Icon,
 };
@@ -94,7 +95,7 @@ export type ChainKey = "arbitrum-one" | "arbitrum-sepolia" | "local";
 const CHAIN_NAMES: Record<ChainKey, string> = {
   "arbitrum-one": "Arbitrum One",
   "arbitrum-sepolia": "Arbitrum Sepolia",
-  local: "Local devnet",
+  local: "Arbitrum One",
 };
 
 /** Chain id to the chain Setryn runs on. The local devnet mirrors Arbitrum One, so it wears the Arbitrum mark too. */
@@ -102,6 +103,12 @@ export function chainKeyOf(chainId: number | null | undefined): ChainKey {
   if (chainId === 42161) return "arbitrum-one";
   if (chainId === 421614) return "arbitrum-sepolia";
   return "local";
+}
+
+/** Display name per chain id. The local devnet (31337) mirrors Arbitrum One, so its label says so. */
+export function chainLabelOf(chainId: number | null | undefined): string {
+  const key = chainKeyOf(chainId);
+  return key === "local" ? "Arbitrum One" : CHAIN_NAMES[key];
 }
 
 export function ChainIcon({ size = 16, className = "", mono = false }: { size?: number; className?: string; mono?: boolean }) {
@@ -129,6 +136,55 @@ export function ChainBadge({
     <span className={`inline-flex items-center gap-1.5 whitespace-nowrap ${className}`}>
       <ChainIcon size={size} />
       <span>{label ?? CHAIN_NAMES[chain]}</span>
+    </span>
+  );
+}
+
+/**
+ * An asset mark beside its text (a symbol or an amount). The row keeps the text's baseline, so it sits in
+ * baseline-aligned rows exactly where the bare text did, while the mark is centred on the line.
+ */
+export function AssetLabel({
+  symbol,
+  size = 14,
+  className = "",
+  children,
+}: {
+  symbol: string;
+  size?: number;
+  className?: string;
+  children?: ReactNode;
+}) {
+  return (
+    <span className={`inline-flex items-baseline gap-1 ${className}`}>
+      <AssetIcon symbol={symbol} size={size} className="self-center" />
+      <span className="min-w-0">{children ?? symbol}</span>
+    </span>
+  );
+}
+
+/**
+ * An amount with its asset: "1,250.00 [mark] USDC". The mark and symbol trail the figure, so right-aligned columns
+ * of amounts keep their marks in one vertical line.
+ */
+export function AssetAmount({
+  value,
+  symbol,
+  size = 12,
+  className = "",
+  symbolClassName = "text-faint",
+}: {
+  value: ReactNode;
+  symbol: string;
+  size?: number;
+  className?: string;
+  symbolClassName?: string;
+}) {
+  return (
+    <span className={`inline-flex items-baseline gap-1 whitespace-nowrap ${className}`}>
+      <span>{value}</span>
+      <AssetIcon symbol={symbol} size={size} className="ml-0.5 self-center" />
+      <span className={symbolClassName}>{symbol}</span>
     </span>
   );
 }

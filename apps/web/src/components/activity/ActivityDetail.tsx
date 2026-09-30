@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { ChevronDown, FileCheck2, FileSearch, Lock } from "lucide-react";
 import type { ActivityAttemptView } from "@/lib/activity/types";
 import type { GatewaySnapshot, RestingPackageOrder } from "@/lib/internal-gateway/types";
-import { formatLots, formatUsd } from "@/lib/terminal/format";
+import { formatLots, formatUsd, evidenceLabel } from "@/lib/terminal/format";
 import {
   BUTTON_QUIET,
   Chip,
@@ -28,6 +28,7 @@ import {
   sideLabel,
 } from "./activity-view";
 import { StepTimeline, type TimelineStep } from "./StepTimeline";
+import { MarketMark, TxChainMark } from "@/components/portfolio/MarketMark";
 
 function Row({ label, value, hint }: { label: string; value: ReactNode; hint?: string }) {
   return (
@@ -122,7 +123,10 @@ export function AttemptDetail({ attempt }: { attempt: ActivityAttemptView }) {
               {formatUtcTime(attempt.createdAt)}
             </span>
           </div>
-          <h2 className="mt-2 truncate text-sm font-medium text-ink">{attempt.packageCode}</h2>
+          <h2 className="mt-2 flex min-w-0 items-center gap-2 text-sm font-medium text-ink">
+            <MarketMark code={attempt.packageCode} size={18} />
+            <span className="truncate">{attempt.packageCode}</span>
+          </h2>
           <p className={`mt-0.5 text-xs ${attempt.packageSide === "SHORT" ? "text-down" : "text-up"}`}>
             {`${outcomeLabel(attempt.outcome)} ${side} · ${attempt.environment}`}
           </p>
@@ -151,7 +155,7 @@ export function AttemptDetail({ attempt }: { attempt: ActivityAttemptView }) {
           <Row label="Guarantee" value={<span className="truncate">{attempt.guarantee}</span>} />
           <Row
             label="Evidence"
-            value={<span className="truncate">{`${attempt.evidence.toLowerCase()} / ${attempt.freshness.label}`}</span>}
+            value={<span className="truncate">{`${evidenceLabel(attempt.evidence)} / ${attempt.freshness.label}`}</span>}
             hint={attempt.freshness.detail}
           />
         </div>
@@ -159,7 +163,10 @@ export function AttemptDetail({ attempt }: { attempt: ActivityAttemptView }) {
         {attempt.receipt ? (
           <div className="border-b border-line px-4 py-3">
             <SectionHead right={attempt.result === "SIMULATED" ? "not onchain" : "dev chain"}>{referenceLabel}</SectionHead>
-            <Hash value={attempt.receipt.transactionReference} label={referenceLabel.toLowerCase()} head={14} tail={10} className="mt-1" />
+            <span className="mt-1 flex min-w-0 items-center gap-1.5">
+              {attempt.result === "SIMULATED" ? null : <TxChainMark size={13} />}
+              <Hash value={attempt.receipt.transactionReference} label={referenceLabel.toLowerCase()} head={14} tail={10} />
+            </span>
             <p className="mt-1.5 text-[11px] leading-relaxed text-faint">
               {attempt.result === "SIMULATED"
                 ? "This identifier belongs to a local simulation and is not an onchain transaction."
@@ -222,7 +229,10 @@ export function OrderDetail({
               {formatUtcTime(order.createdAt)}
             </span>
           </div>
-          <h2 className="mt-2 truncate text-sm font-medium text-ink">{order.packageCode}</h2>
+          <h2 className="mt-2 flex min-w-0 items-center gap-2 text-sm font-medium text-ink">
+            <MarketMark code={order.packageCode} size={18} />
+            <span className="truncate">{order.packageCode}</span>
+          </h2>
           <p className={`mt-0.5 text-xs ${order.packageSide === "SHORT" ? "text-down" : "text-up"}`}>
             {`${order.side === "EXIT" ? "Exit" : "Enter"} ${sideLabel(order.packageSide)} · ${order.orderType === "MARKET" ? "Market" : "Limit"} ${order.timeInForce}`}
           </p>

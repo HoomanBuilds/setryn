@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { UnderlyingIcon } from "@/components/icons/AssetIcon";
 import { EmptyState, SOURCE_LABEL, SourceMark, Tabs, tone } from "@/components/terminal/primitives";
 import { CONSOLE_TABS } from "@/lib/terminal/console";
 import {
@@ -13,6 +14,7 @@ import {
   formatSignedUsd,
   formatUsd,
   priceUnitSuffix,
+  evidenceLabel,
 } from "@/lib/terminal/format";
 import { packageLabel } from "@/lib/terminal/markets";
 import { strategyPnl } from "@/lib/portfolio/model";
@@ -50,6 +52,18 @@ function resolveRuntimeConsoleMarket(
     throw new Error(`Unknown runtime market: ${marketId}`);
   }
   return market;
+}
+
+/** Package name with its underlying mark; the mark sits in a fixed slot so names line up down the column. */
+function PackageCell({ underlying, children }: { underlying?: string; children: ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="inline-flex w-5 shrink-0">
+        {underlying ? <UnderlyingIcon underlying={underlying} size={14} /> : null}
+      </span>
+      <span>{children}</span>
+    </span>
+  );
 }
 
 function State({ value }: { value: string }) {
@@ -199,7 +213,7 @@ export function ConsolePanel({
       kind: "BEST_EXECUTION",
       commitment: `${receipt.orderHash.slice(0, 10)}...${receipt.orderHash.slice(-6)}`,
       state: "READY",
-      detail: `${receipt.packageSide === "SHORT" ? "Short" : "Long"} · ${receipt.routeLabel}. ${receipt.guarantee}. ${receipt.evidence.toLowerCase()} evidence.`,
+      detail: `${receipt.packageSide === "SHORT" ? "Short" : "Long"} · ${receipt.routeLabel}. ${receipt.guarantee}. ${evidenceLabel(receipt.evidence)} evidence.`,
       href: `/activity/receipts/${receipt.id}`,
     }),
   );
@@ -221,6 +235,7 @@ export function ConsolePanel({
       at: formatFillAt(receipt.createdAt),
     };
   });
+  const underlyingOf = (marketId: string) => markets.find((candidate) => candidate.id === marketId)?.underlying;
   const keep = <T extends { marketId: string }>(rows: T[]) =>
     scoped ? rows.filter((row) => row.marketId === market.id) : rows;
 
@@ -269,8 +284,9 @@ export function ConsolePanel({
           type="button"
           onClick={() => onScopedChange(!scoped)}
           aria-pressed={scoped}
-          className="focus-ring hidden h-7 shrink-0 rounded-sm px-2 text-xs text-dim transition-colors hover:text-ink sm:block"
+          className="focus-ring hidden h-7 shrink-0 items-center gap-1.5 rounded-sm px-2 text-xs text-dim transition-colors hover:text-ink sm:flex"
         >
+          {scoped ? <UnderlyingIcon underlying={market.underlying} size={12} /> : null}
           {scoped ? `Scoped to ${market.name}` : "All markets"}
         </button>
       </div>
@@ -305,7 +321,9 @@ export function ConsolePanel({
                 return (
                 <Tr key={row.id} highlight={!scoped && row.marketId === market.id}>
                   <td className={`${TD} tnum font-mono whitespace-nowrap text-faint`}>{row.id}</td>
-                  <td className={`${TD} whitespace-nowrap text-ink`}>{`${packageLabel(rowMarket)} · ${row.side === "SHORT" ? "Short" : "Long"}`}</td>
+                  <td className={`${TD} whitespace-nowrap text-ink`}>
+                    <PackageCell underlying={rowMarket.underlying}>{`${packageLabel(rowMarket)} · ${row.side === "SHORT" ? "Short" : "Long"}`}</PackageCell>
+                  </td>
                   <td className={NUM}>{formatSigned(row.lots, 0)}</td>
                   <td className={NUM}>
                     {`${formatNumber(row.entryPrice, rowMarket.priceDecimals)} ${unit}`}
@@ -384,7 +402,9 @@ export function ConsolePanel({
                 return (
                   <Tr key={order.id} highlight={!scoped && order.marketId === market.id}>
                     <td className={`${TD} tnum font-mono whitespace-nowrap text-faint`}>{order.id}</td>
-                    <td className={`${TD} whitespace-nowrap text-ink`}>{packageLabel(rowMarket)}</td>
+                    <td className={`${TD} whitespace-nowrap text-ink`}>
+                      <PackageCell underlying={rowMarket.underlying}>{packageLabel(rowMarket)}</PackageCell>
+                    </td>
                     <td className={`${TD} whitespace-nowrap text-dim`}>
                       {`${order.side === "ENTER" ? "Enter" : "Exit"} ${order.packageSide === "SHORT" ? "Short" : "Long"}`}
                     </td>
@@ -458,7 +478,9 @@ export function ConsolePanel({
               {rfqs.map((row) => (
                 <Tr key={row.id} highlight={!scoped && row.marketId === market.id}>
                   <td className={`${TD} tnum font-mono whitespace-nowrap text-faint`}>{row.id}</td>
-                  <td className={`${TD} whitespace-nowrap text-ink`}>{row.package}</td>
+                  <td className={`${TD} whitespace-nowrap text-ink`}>
+                    <PackageCell underlying={underlyingOf(row.marketId)}>{row.package}</PackageCell>
+                  </td>
                   <td className={NUM}>{formatLots(row.lots)}</td>
                   <td className={NUM}>{`${row.responded} / ${row.invited}`}</td>
                   <td className={`${TD} tnum font-mono whitespace-nowrap text-ink`}>{row.best}</td>
@@ -494,7 +516,9 @@ export function ConsolePanel({
               {fills.map((row) => (
                 <Tr key={row.id} highlight={!scoped && row.marketId === market.id}>
                   <td className={`${TD} tnum font-mono whitespace-nowrap text-faint`}>{row.id}</td>
-                  <td className={`${TD} whitespace-nowrap text-ink`}>{row.package}</td>
+                  <td className={`${TD} whitespace-nowrap text-ink`}>
+                    <PackageCell underlying={underlyingOf(row.marketId)}>{row.package}</PackageCell>
+                  </td>
                   <td className={`${TD} whitespace-nowrap text-dim`}>
                     {row.side === "ENTER" ? "Enter" : "Exit"}
                   </td>
@@ -531,7 +555,9 @@ export function ConsolePanel({
               {recovery.map((row) => (
                 <Tr key={row.id} highlight={!scoped && row.marketId === market.id}>
                   <td className={`${TD} tnum font-mono whitespace-nowrap text-faint`}>{row.id}</td>
-                  <td className={`${TD} whitespace-nowrap text-ink`}>{row.package}</td>
+                  <td className={`${TD} whitespace-nowrap text-ink`}>
+                    <PackageCell underlying={underlyingOf(row.marketId)}>{row.package}</PackageCell>
+                  </td>
                   <td className={`${TD} whitespace-nowrap text-dim`}>{row.stage}</td>
                   <td className={`${TD} whitespace-nowrap`}>
                     <State value={row.state} />
@@ -569,7 +595,9 @@ export function ConsolePanel({
                       row.id
                     )}
                   </td>
-                  <td className={`${TD} whitespace-nowrap text-ink`}>{row.package}</td>
+                  <td className={`${TD} whitespace-nowrap text-ink`}>
+                    <PackageCell underlying={underlyingOf(row.marketId)}>{row.package}</PackageCell>
+                  </td>
                   <td className={`${TD} whitespace-nowrap text-dim`}>{stateLabel(row.kind)}</td>
                   <td className={`${TD} tnum font-mono whitespace-nowrap text-ink`}>
                     {row.commitment}

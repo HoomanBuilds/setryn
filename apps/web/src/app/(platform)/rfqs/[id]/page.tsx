@@ -11,7 +11,7 @@ const REQUEST_ID = /^0x[0-9a-fA-F]{64}$/;
 export async function generateMetadata({ params }: RfqPageProps): Promise<Metadata> {
   const { id } = await params;
   if (id === SAMPLE_REQUEST_ID) {
-    return { title: "RFQ walkthrough / Setryn", description: "Modeled multi-maker quote competition built from the preview feed." };
+    return { title: "RFQ walkthrough / Setryn", description: "Modeled multi-maker quote competition built from the index feed." };
   }
   return {
     title: REQUEST_ID.test(id) ? `RFQ ${id.slice(0, 10)} / Setryn` : "RFQ not found / Setryn",

@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { ChartSpline, Rows3, SlidersHorizontal, Star, Table2 } from "lucide-react";
+import { UnderlyingIcon } from "@/components/icons/AssetIcon";
 import { ExpiryLadder } from "@/components/markets/ExpiryLadder";
 import { Highlights } from "@/components/markets/Highlights";
 import { MarketsTable } from "@/components/markets/MarketsTable";
@@ -188,12 +189,12 @@ export function MarketsDirectory() {
             <span className="flex min-w-0 flex-wrap items-center gap-1.5">
               <Chip
                 tone="up"
-                title="Coherent local preview feed: marks, quotes, books, routes, and charts move together. Not live venue data."
+                title="Setryn index feed: marks, quotes, books, routes and charts move together."
               >
                 <LiveDot />
-                Preview feed
+                Index feed
               </Chip>
-              <Chip tone="muted" title="Age of the local preview stream snapshot behind each row.">
+              <Chip tone="muted" title="Age of the index snapshot behind each row.">
                 <span className="tnum font-mono">{`obs ${observed}`}</span>
               </Chip>
             </span>
@@ -291,7 +292,10 @@ export function MarketsDirectory() {
                   value={filters.underlying}
                   options={options.underlying}
                   onChange={(underlying) => patch({ underlying })}
-                  className="lg:w-[132px]"
+                  icon={
+                    filters.underlying !== ANY ? <UnderlyingIcon underlying={filters.underlying} size={14} /> : null
+                  }
+                  className="lg:w-[148px]"
                 />
                 <FilterSelect
                   label="Expiry"

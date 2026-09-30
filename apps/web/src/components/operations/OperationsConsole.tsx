@@ -15,6 +15,7 @@ import { RecoveryBoard } from "./OpsRecovery";
 import { AlertTable, DependencyTable, IndexerTable, PolicyTable, QueueTable } from "./OpsTables";
 import { OpsTiles } from "./OpsTiles";
 import type { Detail, DevnetStatus, ViewId } from "./ops-model";
+import { ChainIcon } from "@/components/icons/AssetIcon";
 
 export function OperationsConsole() {
   const [snapshot, setSnapshot] = useState<OperationsSnapshot>(OPERATIONS_FIXTURE);
@@ -139,11 +140,12 @@ export function OperationsConsole() {
                 id="operations-environment"
                 value={environment}
                 onChange={(event) => setEnvironment(event.target.value as OperationsEnvironment)}
-                className="focus-ring h-8 appearance-none rounded-md border border-line bg-raised py-0 pr-8 pl-2.5 text-xs text-dim transition-colors hover:border-line-strong"
+                className="focus-ring h-8 appearance-none rounded-md border border-line bg-raised py-0 pr-8 pl-8 text-xs text-dim transition-colors hover:border-line-strong"
               >
                 <option value="ARBITRUM_SEPOLIA">Arbitrum Sepolia</option>
                 <option value="ARBITRUM_ONE">Arbitrum One</option>
               </select>
+              <ChainIcon size={15} className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2" />
               <ChevronDown size={13} aria-hidden="true" className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-faint" />
             </span>
             <span

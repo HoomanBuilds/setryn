@@ -265,7 +265,7 @@ export function SettlementsWorkspace() {
             </div>
             <div className="flex flex-wrap items-center gap-2 lg:justify-end">
               <span
-                title="All countdowns run on the shared preview feed clock"
+                title="All countdowns run on the shared index feed clock"
                 className="inline-flex h-7 items-center gap-2 rounded-md border border-line px-2.5 text-xs text-dim"
               >
                 <span aria-hidden="true" className="live-dot relative h-[6px] w-[6px] rounded-full bg-up text-up" />

@@ -5,6 +5,7 @@ import { valueAt } from "@/components/strategies/desk/PayoffPlot";
 import { formatNumber, formatShare, priceUnitSuffix } from "@/lib/terminal/format";
 import type { HedgeCandidate } from "@/lib/hedges/types";
 import type { HedgeCurves } from "./HedgePayoff";
+import { MarketMark } from "@/components/portfolio/MarketMark";
 
 function offsetAt(curves: HedgeCurves, move: number): number | null {
   const bare = valueAt(curves.unhedged, move);
@@ -32,7 +33,12 @@ export function HedgeSummary({ candidate, curves }: { candidate: HedgeCandidate 
     <Panel label="Hedge summary" delay={120}>
       <PanelHead
         title="Hedge summary"
-        tools={<span className="tnum font-mono text-[11px] text-faint">{`#${candidate.rank} ${candidate.market.code}`}</span>}
+        tools={
+          <span className="tnum flex items-center gap-1.5 font-mono text-[11px] text-faint">
+            <MarketMark underlying={candidate.market.underlying} size={13} />
+            {`#${candidate.rank} ${candidate.market.code}`}
+          </span>
+        }
       />
       <div className="px-3 pt-3 pb-2">
         <div className="flex items-baseline justify-between gap-2">

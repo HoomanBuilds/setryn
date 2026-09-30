@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, type Ref } from "react";
+import { useId, type ReactNode, type Ref } from "react";
 import { ChevronDown, Search, X } from "lucide-react";
 import { QUALIFICATION_LABEL, SOURCE_LABEL, SourceMark } from "@/components/terminal/primitives";
 import { formatNumber } from "@/lib/terminal/format";
@@ -17,12 +17,15 @@ export function FilterSelect({
   options,
   onChange,
   className = "",
+  icon = null,
 }: {
   label: string;
   value: string;
   options: FilterOption[];
   onChange: (value: string) => void;
   className?: string;
+  /** Mark for the current choice, drawn inside the closed control, for example the chosen asset. */
+  icon?: ReactNode;
 }) {
   const id = useId();
   const selected = value !== ANY;
@@ -36,7 +39,9 @@ export function FilterSelect({
         id={id}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className={`focus-ring h-11 w-full min-w-0 cursor-pointer appearance-none truncate rounded-md border pr-7 pl-2.5 text-xs transition-colors duration-150 lg:h-7 ${
+        className={`focus-ring h-11 w-full min-w-0 cursor-pointer appearance-none truncate rounded-md border pr-7 text-xs transition-colors duration-150 lg:h-7 ${
+          icon ? "pl-8" : "pl-2.5"
+        } ${
           selected
             ? "border-brand-edge bg-brand-soft text-ink"
             : "border-line bg-inset text-dim hover:border-line-strong hover:text-ink"
@@ -49,6 +54,7 @@ export function FilterSelect({
           </option>
         ))}
       </select>
+      {icon ? <span className="pointer-events-none absolute left-2 flex">{icon}</span> : null}
       <ChevronDown
         size={12}
         aria-hidden="true"

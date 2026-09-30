@@ -10,7 +10,7 @@ import { DEFAULT_MARKET_ID, MARKETS } from "@/lib/terminal/markets";
  * production RfqRequest type so the competition page renders it through the
  * same code as a real request, but nothing here is signed or committed: the
  * authorization carries zeroed evidence fields and the page disables every
- * action. Quotes price off the shared preview feed at the moment each maker
+ * action. Quotes price off the shared index feed at the moment each maker
  * answers, and the walkthrough restarts every request window.
  */
 
@@ -49,7 +49,7 @@ function iso(epochSeconds: number): string {
   return new Date(epochSeconds * 1000).toISOString();
 }
 
-/** The walkthrough request as it stands at `epoch` on the preview clock. */
+/** The walkthrough request as it stands at `epoch` on the market clock. */
 export function sampleRequest(epoch: number): RfqRequest {
   const market = MARKETS.find((candidate) => candidate.id === DEFAULT_MARKET_ID) ?? MARKETS[0];
   const route = market.routes.find((candidate) => candidate.id === "SOLVER_RFQ") ?? market.routes[0];

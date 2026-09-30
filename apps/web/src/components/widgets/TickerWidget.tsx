@@ -1,5 +1,6 @@
 "use client";
 
+import { UnderlyingIcon } from "@/components/icons/AssetIcon";
 import { usePreviewBoard } from "@/components/terminal/PreviewMarketProvider";
 import { changePercent, formatPercent, formatPrice, priceUnitSuffix } from "@/lib/terminal/format";
 import { platformTradeHref } from "./embed-params";
@@ -28,7 +29,10 @@ export function TickerWidget({ marketIds, partner }: { marketIds: string[]; part
                 rel="noopener noreferrer"
                 className="focus-ring flex h-full flex-col gap-0.5 px-3 py-2 hover:bg-raised"
               >
-                <span className="font-mono text-[11px] whitespace-nowrap text-faint">{market.code}</span>
+                <span className="flex items-center gap-1.5 font-mono text-[11px] whitespace-nowrap text-faint">
+                  <UnderlyingIcon underlying={market.underlying} size={13} />
+                  {market.code}
+                </span>
                 <span className="flex items-baseline gap-2 whitespace-nowrap">
                   <span className="tnum font-mono text-sm text-ink">
                     {formatPrice(market.netPrice, market)}

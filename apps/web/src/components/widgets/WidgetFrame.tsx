@@ -99,7 +99,7 @@ export function WidgetFrame({
         children
       )}
       <footer className="flex min-w-0 items-center justify-between gap-2 border-t border-line px-3 py-1.5 text-[11px] text-faint">
-        <span className="truncate">Preview market data, not executable</span>
+        <span className="truncate">Indicative data, not executable</span>
         <a
           href="/"
           target="_blank"

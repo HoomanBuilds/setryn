@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { ChevronDown, FileText } from "lucide-react";
+import { AssetIcon, AssetLabel } from "@/components/icons/AssetIcon";
 import { MarketSwitcher } from "@/components/terminal/MarketSwitcher";
 import { FlashValue } from "@/components/terminal/motion";
 import { Delta, QUALIFICATION_LABEL, SectionLabel } from "@/components/terminal/primitives";
@@ -28,18 +29,22 @@ function Stat({
   sub,
   tone = "default",
   title,
+  asset,
 }: {
   label: string;
   value: string;
   sub?: string;
   tone?: "default" | "up" | "down";
   title?: string;
+  /** Asset mark drawn before the value, for example the settlement asset. */
+  asset?: string;
 }) {
   const valueTone = tone === "up" ? "text-up" : tone === "down" ? "text-down" : "text-ink";
   return (
     <div className="flex shrink-0 flex-col justify-center" title={title}>
       <span className="text-xs whitespace-nowrap text-faint">{label}</span>
-      <span className="tnum font-mono text-[13px] whitespace-nowrap">
+      <span className="tnum flex items-baseline font-mono text-[13px] whitespace-nowrap">
+        {asset ? <AssetIcon symbol={asset} size={13} className="mr-1.5 self-center" /> : null}
         <span className={valueTone}>{value}</span>
         {sub ? <span className="ml-1.5 text-off">{sub}</span> : null}
       </span>
@@ -89,6 +94,13 @@ function statsFor(market: PackageMarket) {
       sub: `${daysToExpiry(market.expiryIso)}d`,
     },
     { label: "Open interest", value: `${formatLots(market.openInterestLots)} lots` },
+    {
+      label: "Settlement",
+      value: "USDC",
+      sub: market.settlementClass === "CASH_USDC_NDF" ? "NDF" : "cash",
+      asset: "USDC",
+      title: SETTLEMENT_LABEL[market.settlementClass],
+    },
   ];
 }
 
@@ -100,14 +112,14 @@ export function MarketHeader({
 }: {
   market: PackageMarket;
   onSelectMarket: (market: PackageMarket) => void;
-  /** Whether orders on this market settle on the connected chain; preview markets are quoted but not executable. */
+  /** Whether orders on this market settle on the connected chain; index markets are quoted but not executable. */
   onchain?: boolean;
 }) {
   const change = changePercent(market.netPrice, market.priorNetPrice);
   const unit = priceUnitSuffix(market.priceUnit);
 
   return (
-    <div className="relative z-20 flex h-[52px] shrink-0 items-stretch border-b border-line bg-panel lg:mx-1 lg:mt-1 lg:h-12 lg:rounded-lg lg:border lg:border-line">
+    <div className="relative z-[35] flex h-[52px] shrink-0 items-stretch border-b border-line bg-panel lg:mx-1 lg:mt-1 lg:h-12 lg:rounded-lg lg:border lg:border-line">
       <div className="flex min-w-0 shrink-0 items-center gap-3 pr-3 pl-3 lg:pl-4">
         <MarketSwitcher market={market} onSelect={onSelectMarket} />
 
@@ -127,11 +139,11 @@ export function MarketHeader({
           title={
             onchain
               ? "Orders on this market are signed and settled on the connected chain."
-              : "Preview market: quotes and depth come from the preview feed and this market is not activated onchain in the current environment."
+              : "Reference market: quotes and depth come from the Setryn index feed; trading is not open for this market."
           }
         >
           <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${onchain ? "bg-up" : "bg-faint"}`} />
-          {onchain ? "Onchain" : "Preview"}
+          {onchain ? "Onchain" : "Reference"}
         </span>
       </div>
 
@@ -209,7 +221,10 @@ export function ContractSpec({ market }: { market: PackageMarket }) {
           value={`${formatExpiry(market.expiryIso)}, ${daysToExpiry(market.expiryIso)}d`}
           mono
         />
-        <SpecRow label="Settlement" value={SETTLEMENT_LABEL[market.settlementClass]} />
+        <SpecRow
+          label="Settlement"
+          value={<AssetLabel symbol="USDC" size={12} className="gap-1.5">{SETTLEMENT_LABEL[market.settlementClass]}</AssetLabel>}
+        />
         <SpecRow label="Fixing" value={market.fixingSource} />
         <SpecRow
           label="Qualification"

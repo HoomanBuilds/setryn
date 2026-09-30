@@ -17,6 +17,7 @@ import type { ScheduleBoundary, SettlementCenter } from "@/lib/settlements/types
 import { formatLots } from "@/lib/terminal/format";
 import { tradeHref } from "@/lib/terminal/markets";
 import { OriginChip, ProvenanceChip } from "./trust";
+import { MarketMark } from "@/components/portfolio/MarketMark";
 
 function monthStart(ms: number): number {
   const date = new Date(ms);
@@ -93,7 +94,10 @@ function Detail({ boundary, nowMs }: { boundary: ScheduleBoundary; nowMs: number
     <div key={boundary.id} className="panel-in grid gap-3 border-t border-line px-3 py-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_auto] lg:items-start lg:px-4">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono text-sm text-ink">{market.code}</span>
+          <span className="flex items-center gap-1.5 font-mono text-sm text-ink">
+            <MarketMark underlying={market.underlying} size={16} />
+            {market.code}
+          </span>
           <span className="text-xs text-faint">{boundary.label}</span>
           <ProvenanceChip provenance={boundary.provenance} source={boundary.source} compact />
           {market.qualification !== "QUALIFIED" ? (
@@ -249,9 +253,12 @@ export function BoundaryCalendar({
           <div className="relative grid grid-cols-[132px_minmax(0,1fr)]">
             <div className="sticky left-0 z-[3] flex flex-col bg-panel shadow-[8px_0_8px_-8px_rgba(0,0,0,0.6)] lg:shadow-none">
               {center.families.map((family) => (
-                <div key={family.id} className="flex h-11 min-w-0 flex-col justify-center border-t border-line-soft pr-2">
-                  <span className="truncate text-xs text-ink">{family.label}</span>
-                  <span className="truncate font-mono text-[10.5px] text-faint">{family.underlying}</span>
+                <div key={family.id} className="flex h-11 min-w-0 items-center gap-2 border-t border-line-soft pr-2">
+                  <MarketMark underlying={family.underlying} size={16} />
+                  <span className="flex min-w-0 flex-col justify-center">
+                    <span className="truncate text-xs text-ink">{family.label}</span>
+                    <span className="truncate font-mono text-[10.5px] text-faint">{family.underlying}</span>
+                  </span>
                 </div>
               ))}
               <div className="flex h-7 items-center border-t border-line-soft text-[10.5px] text-faint">LDN holidays</div>

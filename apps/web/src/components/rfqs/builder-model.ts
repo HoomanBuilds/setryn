@@ -164,7 +164,7 @@ export function preflight(
     wallet === "CONNECTED"
       ? { id: "wallet", label: "Wallet connected", state: "pass", detail: `Signing as the taker on ${snapshot.environment.label}.` }
       : wallet === "WRONG_NETWORK"
-        ? { id: "wallet", label: "Wrong network", state: "block", detail: "Switch the wallet to the Setryn local devnet.", fix: { kind: "CONNECT" } }
+        ? { id: "wallet", label: "Wrong network", state: "block", detail: "Switch the wallet to the Setryn network.", fix: { kind: "CONNECT" } }
         : {
             id: "wallet",
             label: "Wallet not connected",
@@ -179,11 +179,11 @@ export function preflight(
       ? { id: "environment", label: "Market activated onchain", state: "pass", detail: `${market.code} settles on ${snapshot.environment.label}.` }
       : {
           id: "environment",
-          label: "Preview market",
+          label: "Reference market",
           state: "block",
           detail: onchainMarket
-            ? `${market.code} is quoted from the preview feed but not activated in this environment. ${onchainMarket.code} accepts requests.`
-            : `${market.code} is quoted from the preview feed but not activated in this environment.`,
+            ? `${market.code} is quoted from the Setryn index feed but not open for trading. ${onchainMarket.code} accepts requests.`
+            : `${market.code} is quoted from the Setryn index feed but not open for trading.`,
           fix: onchainMarket ? { kind: "MARKET", marketId: onchainMarket.id, label: `Switch to ${onchainMarket.code}` } : undefined,
         },
   );

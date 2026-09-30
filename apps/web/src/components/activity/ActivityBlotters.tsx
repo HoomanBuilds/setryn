@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { ChevronRight, FileCheck2 } from "lucide-react";
 import type { ActivityAttemptView } from "@/lib/activity/types";
 import type { GatewaySnapshot, RestingPackageOrder } from "@/lib/internal-gateway/types";
-import { formatLots, formatUsd } from "@/lib/terminal/format";
+import { formatLots, formatUsd, evidenceLabel } from "@/lib/terminal/format";
 import {
   Chip,
   formatUtcClockTime,
@@ -27,6 +27,7 @@ import {
   receiptsForOrder,
   sideLabel,
 } from "./activity-view";
+import { CollateralMark, MarketMark } from "@/components/portfolio/MarketMark";
 
 /* ------------------------------------------------------------------ */
 /* Shared blotter scaffolding                                          */
@@ -144,6 +145,7 @@ function FillRow({
           }}
           className="focus-ring flex max-w-full items-baseline gap-1.5 rounded-sm text-left"
         >
+          <MarketMark code={attempt.packageCode} size={14} className="self-center" />
           <span className="truncate text-[13px] text-ink">{attempt.packageCode}</span>
           <span className={`shrink-0 text-xs ${attempt.packageSide === "SHORT" ? "text-down" : "text-up"}`}>
             {`${outcomeLabel(attempt.outcome)} ${side}`}
@@ -169,14 +171,17 @@ function FillRow({
       </span>
       <span role="cell" className="tnum relative px-3 text-right font-mono text-xs text-dim">
         {formatUsd(attempt.feeAmount, 2).replace(" USDC", "")}
-        <span className="block text-[11px] text-off">USDC</span>
+        <span className="flex items-center justify-end gap-1 text-[11px] text-off">
+          <CollateralMark size={11} />
+          USDC
+        </span>
       </span>
       <span role="cell" className="relative min-w-0 px-3">
         <span className="block truncate text-xs text-dim">{attempt.routeLabel}</span>
         <span className="block truncate text-[11px] text-faint">{attempt.guarantee}</span>
       </span>
       <span role="cell" className="relative hidden min-w-0 px-3 2xl:block">
-        <span className="block truncate text-xs text-dim">{`${attempt.source.toLowerCase()} / ${attempt.evidence.toLowerCase()}`}</span>
+        <span className="block truncate text-xs text-dim">{`${attempt.source.toLowerCase()} / ${evidenceLabel(attempt.evidence)}`}</span>
         <span className="block truncate text-[11px] text-faint">{attempt.freshness.label}</span>
       </span>
       <span role="cell" className="relative flex justify-center">
@@ -221,6 +226,7 @@ function FillCompactRow({
       >
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
+            <MarketMark code={attempt.packageCode} size={14} className="self-center" />
             <span className="truncate text-[13px] text-ink">{attempt.packageCode}</span>
             <span className={`shrink-0 text-xs ${attempt.packageSide === "SHORT" ? "text-down" : "text-up"}`}>
               {`${outcomeLabel(attempt.outcome)} ${sideLabel(attempt.packageSide)}`}
@@ -386,9 +392,10 @@ function OrderRow({
             event.stopPropagation();
             onSelect(order.id);
           }}
-          className="focus-ring block max-w-full truncate rounded-sm text-left text-[13px] text-ink"
+          className="focus-ring flex max-w-full items-center gap-1.5 rounded-sm text-left text-[13px] text-ink"
         >
-          {order.packageCode}
+          <MarketMark code={order.packageCode} size={14} />
+          <span className="truncate">{order.packageCode}</span>
         </button>
         <span title={`Order hash: ${order.orderHash}`} className="tnum block truncate font-mono text-[11px] text-faint">
           {middleTruncate(order.orderHash, 10, 6)}
@@ -454,6 +461,7 @@ function OrderCompactRow({
       >
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
+            <MarketMark code={order.packageCode} size={14} className="self-center" />
             <span className="truncate text-[13px] text-ink">{order.packageCode}</span>
             <span className={`shrink-0 text-xs ${order.packageSide === "SHORT" ? "text-down" : "text-up"}`}>
               {`${order.side === "EXIT" ? "Exit" : "Enter"} ${sideLabel(order.packageSide)}`}

@@ -21,6 +21,7 @@ import {
   type SizeUnit,
 } from "@/lib/settings/preferences";
 import { WRITE_POLICY, shortHex } from "@/lib/settings/organization";
+import { ChainIcon } from "@/components/icons/AssetIcon";
 
 function Setting({
   title,
@@ -289,7 +290,16 @@ export function SecuritySection() {
         <PanelHead title="Signing authority" tools={<ProvenanceChip kind="OBSERVED" title="Read from the connected wallet and gateway." />} />
         <div className="px-3 py-2">
           <Row label="Wallet" value={connected ? shortHex(snapshot.wallet.address ?? "") : "Not connected"} tone={connected ? "neutral" : "dim"} />
-          <Row label="Network" value={`${snapshot.environment.label} / chain ${snapshot.wallet.chainId ?? snapshot.environment.chainId}`} tone="dim" />
+          <Row
+            label="Network"
+            value={
+              <span className="inline-flex items-center gap-1.5">
+                <ChainIcon size={13} className="self-center" />
+                {`${snapshot.environment.label} / chain ${snapshot.wallet.chainId ?? snapshot.environment.chainId}`}
+              </span>
+            }
+            tone="dim"
+          />
           <Row label="Order authority" value="Wallet signs every order" tone="dim" />
           <Row label="Delegated signers" value="None" tone="dim" />
           <Row label="API sessions" value="None" tone="dim" />

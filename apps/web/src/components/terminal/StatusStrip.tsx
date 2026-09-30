@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useGatewaySnapshot } from "@/components/gateway/InternalGatewayProvider";
+import { ChainIcon, UnderlyingIcon, chainLabelOf } from "@/components/icons/AssetIcon";
 import { usePreviewBoard } from "@/components/terminal/PreviewMarketProvider";
 import { pendingActions, serviceHealth } from "@/components/shell/signals";
 import type { HealthState } from "@/lib/operations/types";
@@ -15,7 +16,7 @@ const HEALTH_DOT: Record<HealthState, string> = {
 
 /**
  * Exchange-style status bar: connection and environment on the left, a live ticker of every package market from the
- * shared preview feed in the middle, and the feed clock on the right.
+ * shared index feed in the middle, and the feed clock on the right.
  */
 export function StatusStrip() {
   const snapshot = useGatewaySnapshot();
@@ -43,6 +44,7 @@ export function StatusStrip() {
         tabIndex={repeat ? -1 : undefined}
         className="flex shrink-0 items-baseline gap-1.5 px-3 text-[11px] text-faint transition-colors hover:text-ink"
       >
+        <UnderlyingIcon underlying={market.underlying} size={12} className="self-center" />
         <span className="text-dim">{market.id}</span>
         <span className="tnum font-mono text-ink">{formatNumber(market.netPrice, market.priceDecimals)}</span>
         <span className={`tnum font-mono ${change >= 0 ? "text-up" : "text-down"}`}>
@@ -59,12 +61,10 @@ export function StatusStrip() {
         title={`${snapshot.environment.label}: collateral and public orders settle onchain. Market observations use the development feed. Mainnet writes are disabled.`}
       >
         <span aria-hidden="true" className="live-dot h-1.5 w-1.5 rounded-full bg-up text-up shadow-[0_0_6px_var(--color-up)]" />
-        <span className="text-dim">{snapshot.environment.label}</span>
-        <span className="tnum hidden font-mono xl:inline">{`chain ${snapshot.environment.chainId}`}</span>
+        <ChainIcon size={13} />
+        <span className="text-dim">{chainLabelOf(snapshot.environment.chainId)}</span>
         <span className="hidden text-off xl:inline">·</span>
         <span className="hidden 2xl:inline">{connected ? "wallet connected" : "wallet not connected"}</span>
-        <span className="hidden text-off 2xl:inline">·</span>
-        <span className="hidden xl:inline">mainnet writes disabled</span>
       </div>
       <div className="flex h-full shrink-0 items-center gap-3 border-r border-line px-3 text-faint">
         <span title="Collateral available for new risk in the connected account">
@@ -79,12 +79,13 @@ export function StatusStrip() {
         {services.map((service) => (
           <span key={service.id} className="flex items-center gap-1.5" title={`${service.detail} Recorded operations snapshot.`}>
             <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${HEALTH_DOT[service.state]}`} />
+            {service.id === "sequencer" ? <ChainIcon size={11} mono className="text-faint" /> : null}
             {service.label}
           </span>
         ))}
         <span
           className="flex items-center gap-1.5"
-          title="Private RFQ and firm quote service on the local devnet runtime"
+          title="Private RFQ and firm quote service"
         >
           <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-up" />
           Private exec
@@ -104,7 +105,7 @@ export function StatusStrip() {
         </div>
       </div>
       <div className="flex h-full shrink-0 items-center gap-2 border-l border-line px-3 text-faint">
-        <span className="text-dim">Preview feed</span>
+        <span className="text-dim">Index feed</span>
         <span className="tnum font-mono">
           {`${formatUtcClock(previewEpochSeconds)}:${String(previewEpochSeconds % 60).padStart(2, "0")} UTC`}
         </span>

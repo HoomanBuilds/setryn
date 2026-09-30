@@ -10,13 +10,14 @@ import { LIFECYCLE_STRATEGIES } from "@/lib/lifecycle/fixtures";
 import { positionHref } from "@/lib/positions/dossier";
 import { formatLots } from "@/lib/terminal/format";
 import { SideTag, shortId } from "./parts";
+import { MarketMark } from "@/components/portfolio/MarketMark";
 
 function ReferenceList() {
   return (
     <div className="border-t border-line">
       <div className="flex items-center justify-between gap-3 px-6 pt-4 pb-2 sm:px-8">
         <h2 className="text-[11px] font-medium tracking-[0.08em] text-faint uppercase">Reference positions</h2>
-        <span className="hidden text-[11px] text-off sm:inline">static lifecycle preview, not account evidence</span>
+        <span className="hidden text-[11px] text-off sm:inline">reference lifecycle, not account evidence</span>
       </div>
       <ul className="px-3 pb-3 sm:px-5">
         {LIFECYCLE_STRATEGIES.map((strategy) => (
@@ -30,7 +31,10 @@ function ReferenceList() {
                   <span className="truncate text-sm text-ink">{strategy.label}</span>
                   <OriginChip origin="REFERENCE" />
                 </span>
-                <span className="mt-0.5 block truncate font-mono text-[11px] text-faint">{strategy.market.code}</span>
+                <span className="mt-0.5 flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-faint">
+                  <MarketMark underlying={strategy.market.underlying} size={13} />
+                  <span className="truncate">{strategy.market.code}</span>
+                </span>
               </span>
               <span className="flex items-center gap-2">
                 <span className="tnum font-mono text-xs text-dim">{`${formatLots(strategy.lots)} lots`}</span>

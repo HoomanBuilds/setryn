@@ -21,6 +21,7 @@ import { formatLots, formatNumber, priceUnitSuffix } from "@/lib/terminal/format
 import { tradeHref } from "@/lib/terminal/markets";
 import type { PackageMarket } from "@/lib/terminal/types";
 import { OriginChip, ProvenanceChip, SeverityChip } from "./trust";
+import { CollateralMark, MarketMark, WithMark } from "@/components/portfolio/MarketMark";
 
 function priceText(value: number, market: PackageMarket, withUnit = true): string {
   const text = formatNumber(value, market.priceDecimals);
@@ -197,11 +198,14 @@ export function UpcomingTable({ rows, nowMs, selectedId, onSelect }: { rows: Sch
                         event.stopPropagation();
                         onSelect(row.id);
                       }}
-                      className="focus-ring rounded-sm text-left"
+                      className="focus-ring flex items-center gap-2 rounded-sm text-left"
                       aria-pressed={selected}
                     >
-                      <span className="block font-mono text-xs text-ink">{row.market.code}</span>
-                      <span className="block text-[11px] text-faint">{row.market.name}</span>
+                      <MarketMark underlying={row.market.underlying} size={16} />
+                      <span className="min-w-0">
+                        <span className="block font-mono text-xs text-ink">{row.market.code}</span>
+                        <span className="block text-[11px] text-faint">{row.market.name}</span>
+                      </span>
                     </button>
                   </td>
                   <td className="px-3">
@@ -245,7 +249,7 @@ export function UpcomingTable({ rows, nowMs, selectedId, onSelect }: { rows: Sch
           return (
             <li key={row.id} className="flex flex-col gap-1.5 border-b border-line-soft px-3 py-2.5 last:border-b-0">
               <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-xs text-ink">{row.market.code}</span>
+                <WithMark underlying={row.market.underlying} className="font-mono text-xs text-ink">{row.market.code}</WithMark>
                 <span className={`tnum font-mono text-xs ${when.urgent ? "text-brand" : "text-dim"}`}>{when.secondary}</span>
               </div>
               <div className="flex items-center justify-between gap-2 text-[11px] text-faint">
@@ -302,7 +306,8 @@ export function ObservationsTable({ groups, nowMs }: { groups: ObservationGroup[
               <tr className="bg-inset/50">
                 <th scope="rowgroup" className="px-3 py-2 text-left font-normal">
                   <span className="flex flex-wrap items-center gap-2">
-                    <Link href={tradeHref(group.market)} className="focus-ring rounded-sm font-mono text-xs text-ink hover:text-brand">
+                    <Link href={tradeHref(group.market)} className="focus-ring flex items-center gap-1.5 rounded-sm font-mono text-xs text-ink hover:text-brand">
+                      <MarketMark underlying={group.market.underlying} size={14} />
                       {group.market.code}
                     </Link>
                     {group.held.map((held) => (
@@ -327,7 +332,7 @@ export function ObservationsTable({ groups, nowMs }: { groups: ObservationGroup[
                 <td className="px-3 text-[11px] text-faint">Mark to market</td>
                 <td className="tnum px-3 text-right font-mono text-xs text-ink">{priceText(group.packageMark, group.market)}</td>
                 <td className="tnum px-3 text-right font-mono text-[11px] text-dim">{`${group.market.snapshotAgeSeconds}s`}</td>
-                <td className="px-3 text-[11px] text-faint">Shared preview board</td>
+                <td className="px-3 text-[11px] text-faint">Shared board</td>
                 <td className="px-3">
                   <ProvenanceChip provenance="ESTIMATED" source="Derived from the executable package book" compact />
                 </td>
@@ -379,8 +384,9 @@ export function PayoutsTable({ rows, nowMs }: { rows: PayoutRow[]; nowMs: number
         {list.map((row) => (
           <tr key={row.id} className={ROW}>
             <td className="px-3 py-2">
-              <Link href={positionHref(row.positionId)} className="focus-ring block rounded-sm text-xs text-ink hover:text-brand">
-                {row.label}
+              <Link href={positionHref(row.positionId)} className="focus-ring flex items-center gap-1.5 rounded-sm text-xs text-ink hover:text-brand">
+                <MarketMark underlying={row.market.underlying} size={14} />
+                <span className="truncate">{row.label}</span>
               </Link>
               <span className="mt-0.5 flex items-center gap-1.5">
                 <OriginChip origin={row.origin} />
@@ -436,10 +442,14 @@ export function PayoutsTable({ rows, nowMs }: { rows: PayoutRow[]; nowMs: number
           {list.map((row) => (
             <li key={row.id} className="flex flex-col gap-1.5 border-b border-line-soft px-3 py-2.5 last:border-b-0">
               <div className="flex items-center justify-between gap-2">
-                <Link href={positionHref(row.positionId)} className="focus-ring min-w-0 truncate rounded-sm text-xs text-ink">
-                  {row.label}
+                <Link href={positionHref(row.positionId)} className="focus-ring flex min-w-0 items-center gap-1.5 rounded-sm text-xs text-ink">
+                  <MarketMark underlying={row.market.underlying} size={14} />
+                  <span className="truncate">{row.label}</span>
                 </Link>
-                <span className={`tnum shrink-0 font-mono text-sm ${tone(row.amount)}`}>{`${signed(row.amount, row.kind === "REALIZED" ? 2 : 0)} USDC`}</span>
+                <span className={`tnum flex shrink-0 items-center gap-1 font-mono text-sm ${tone(row.amount)}`}>
+                  <CollateralMark size={13} />
+                  {`${signed(row.amount, row.kind === "REALIZED" ? 2 : 0)} USDC`}
+                </span>
               </div>
               <div className="flex items-center justify-between gap-2 text-[11px] text-faint">
                 <span className="tnum font-mono">
@@ -473,7 +483,12 @@ export function PayoutsTable({ rows, nowMs }: { rows: PayoutRow[]; nowMs: number
               <th scope="col" className={TH_NUM}>Lots</th>
               <th scope="col" className={TH_NUM}>Entry</th>
               <th scope="col" className={TH_NUM}>Reference</th>
-              <th scope="col" className={TH_NUM}>Payout, USDC</th>
+              <th scope="col" className={TH_NUM}>
+                <span className="inline-flex items-center gap-1">
+                  <CollateralMark size={11} />
+                  Payout, USDC
+                </span>
+              </th>
               <th scope="col" className={TH_NUM} title="USDC per 1.0 move in the settlement reference">Per 1.0 move</th>
               <th scope="col" className={TH_NUM}>Collateral</th>
               <th scope="col" className={TH}>Stage</th>

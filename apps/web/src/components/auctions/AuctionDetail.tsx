@@ -26,6 +26,7 @@ import {
   signedPrice,
   ticksText,
 } from "./board-kit";
+import { MarketMark } from "@/components/portfolio/MarketMark";
 
 function bondText(outcome: string): string {
   if (outcome === "SLASH") return "slash";
@@ -220,7 +221,10 @@ export function AuctionDetail({
               {middleTruncate(record.id, 8, 6)}
             </span>
           </div>
-          <h2 className="mt-2 truncate text-sm font-medium text-ink">{record.label}</h2>
+          <h2 className="mt-2 flex min-w-0 items-center gap-2 text-sm font-medium text-ink">
+            <MarketMark underlying={market.underlying} size={18} />
+            <span className="truncate">{record.label}</span>
+          </h2>
           <p className="mt-0.5 truncate text-xs text-dim">{`${packageLabel(market)} · ${kindCopy(record)}`}</p>
           <div className="mt-3 grid grid-cols-2 gap-3">
             <div className="min-w-0">
@@ -240,7 +244,7 @@ export function AuctionDetail({
               <div className="tnum mt-0.5 font-serif text-[26px] leading-8 text-ink">
                 {liveMarket ? <Flash value={liveMarket.netPrice}>{priceText(liveMarket.netPrice, market)}</Flash> : "—"}
               </div>
-              <div className="mt-0.5 text-[11px] text-faint">Shared preview feed</div>
+              <div className="mt-0.5 text-[11px] text-faint">Shared index feed</div>
             </div>
           </div>
         </div>

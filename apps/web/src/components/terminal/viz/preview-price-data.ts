@@ -126,7 +126,7 @@ function historyAnchors(market: PackageMarket, count: number): { index: number; 
 }
 
 /**
- * Minute history for a preview market. Returns follow a volatility-clustering process with rare jumps and
+ * Minute history for a index market. Returns follow a volatility-clustering process with rare jumps and
  * session-dependent activity, so candles and volume read like a traded market.
  */
 function buildMinuteHistory(market: PackageMarket): PreviewCandle[] {

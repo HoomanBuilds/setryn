@@ -5,13 +5,13 @@
 
 const COPY: Record<string, string> = {
   CONNECT_WALLET: "Connect a wallet before signing this request.",
-  WRONG_NETWORK: "Switch the wallet to the Setryn local devnet and try again.",
+  WRONG_NETWORK: "Switch the wallet to the Setryn network and try again.",
   WALLET_UNAVAILABLE: "No browser wallet was found. Install or unlock a wallet, then connect.",
   WALLET_CONNECTION_REJECTED: "The wallet did not share an account. Approve the connection to continue.",
   RUNTIME_UNAVAILABLE:
     "The local Setryn runtime is not running, so nothing can be signed. Start the local chain and deployment, then retry.",
-  MARKET_NOT_ONCHAIN_ENABLED: "This market is a preview and is not activated in the current onchain environment.",
-  UNSUPPORTED_ONCHAIN_MARKET: "This market is a preview and is not activated in the current onchain environment.",
+  MARKET_NOT_ONCHAIN_ENABLED: "This market is not open for trading right now.",
+  UNSUPPORTED_ONCHAIN_MARKET: "This market is not open for trading right now.",
   RECIPIENT_MISMATCH: "The recipient does not match the connected wallet.",
   ACCOUNT_MISMATCH: "The trading account does not match the connected wallet. Reconnect and retry.",
   INVALID_LOTS: "The local runtime authorizes 1 to 10 whole lots per order.",
@@ -29,7 +29,7 @@ const COPY: Record<string, string> = {
   SIGNER_MISMATCH: "The active wallet does not match the order authorization.",
   ORDER_REGISTRATION_FAILED: "The signed order did not register onchain, so no request was committed.",
   RFQ_QUOTE_FAILED:
-    "The request is committed, but the devnet maker did not return a quote. It stays open until its deadline in the RFQ ledger.",
+    "The request is committed, but the maker did not return a quote. It stays open until its deadline in the RFQ ledger.",
   RFQ_NOT_FOUND: "The request is no longer available.",
   RFQ_NOT_OPEN: "The request is no longer open for selection.",
   RFQ_NOT_SELECTED: "The request has no selected quote to execute.",

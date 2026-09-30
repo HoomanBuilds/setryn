@@ -37,7 +37,7 @@ import {
 } from "@/components/activity/ledger-ui";
 import { StepTimeline } from "@/components/activity/StepTimeline";
 import { DEFAULT_TRADE_HREF, findMarket, tradeHref } from "@/lib/terminal/markets";
-import { formatLotCount, formatLots, formatNumber, formatSignedUsd, formatUsd, priceUnitSuffix } from "@/lib/terminal/format";
+import { formatLotCount, formatLots, formatNumber, formatSignedUsd, formatUsd, priceUnitSuffix, evidenceLabel } from "@/lib/terminal/format";
 
 /* ------------------------------------------------------------------ */
 /* Hash chain                                                          */
@@ -337,7 +337,7 @@ export function ReceiptExplorer({ receiptId }: { receiptId: string }) {
               </span>
             </span>
           }
-          description={`${receipt.packageCode} · ${snapshot.environment.label} · ${receipt.evidence.toLowerCase()} evidence`}
+          description={`${receipt.packageCode} · ${snapshot.environment.label} · ${evidenceLabel(receipt.evidence)} evidence`}
           right={
             <>
               <Chip tone="muted" title="Mainnet writes are disabled.">
@@ -511,7 +511,7 @@ export function ReceiptExplorer({ receiptId }: { receiptId: string }) {
                   <Chip tone="brand" dot>
                     {snapshot.environment.label}
                   </Chip>
-                  <Chip tone="muted">{`${receipt.evidence.toLowerCase()} evidence`}</Chip>
+                  <Chip tone="muted">{`${evidenceLabel(receipt.evidence)} evidence`}</Chip>
                 </div>
                 <p className="mt-2 text-xs leading-relaxed text-faint">
                   Mainnet writes are disabled. This receipt is reconstructed from local contract state and events.

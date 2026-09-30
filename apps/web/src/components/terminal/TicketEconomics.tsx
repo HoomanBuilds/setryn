@@ -1,5 +1,6 @@
 "use client";
 
+import { AssetAmount } from "@/components/icons/AssetIcon";
 import { DataRow, Disclosure } from "@/components/terminal/primitives";
 import { RECOVERY_COPY, type EconomicsPreview } from "@/lib/terminal/economics";
 import {
@@ -56,7 +57,15 @@ export function TicketEconomics({
         <DataRow
           dense
           label={isExit ? "New collateral" : "Collateral required"}
-          value={isExit ? "No new collateral" : sized ? formatUsd(preview.totalCollateral, 2) : dash}
+          value={
+            isExit ? (
+              "No new collateral"
+            ) : sized ? (
+              <AssetAmount value={formatNumber(preview.totalCollateral, 2)} symbol="USDC" />
+            ) : (
+              dash
+            )
+          }
           title={
             isExit
               ? "Exits require no new collateral. Pro-rata collateral is released and the fee cap is paid from released plus available funds."
@@ -67,9 +76,14 @@ export function TicketEconomics({
           dense
           label="All-in fee"
           value={
-            sized && route
-              ? `${formatUsd(preview.totalFees, 2)} (${formatBps(feeBps)})`
-              : dash
+            sized && route ? (
+              <span className="inline-flex items-baseline gap-1">
+                <span className="text-faint">{`(${formatBps(feeBps)})`}</span>
+                <AssetAmount value={formatNumber(preview.totalFees, 2)} symbol="USDC" />
+              </span>
+            ) : (
+              dash
+            )
           }
         />
         <DataRow

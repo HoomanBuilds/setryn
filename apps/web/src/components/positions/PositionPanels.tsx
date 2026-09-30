@@ -9,7 +9,7 @@ import { DeskTabs, Meter, Panel, PanelHead, TH, TH_NUM, TabBody } from "@/compon
 import { ProvenanceChip } from "@/components/settlements/trust";
 import { receiptHref, type LinkedFill, type PositionDossier } from "@/lib/positions/dossier";
 import type { PositionMetrics } from "@/lib/positions/economics";
-import { formatLots, formatNumber, priceUnitSuffix } from "@/lib/terminal/format";
+import { evidenceLabel, formatLots, formatNumber, priceUnitSuffix } from "@/lib/terminal/format";
 import { tradeHref } from "@/lib/terminal/markets";
 import type { PackageMarket } from "@/lib/terminal/types";
 import { GUARANTEE_COPY } from "@/lib/terminal/economics";
@@ -85,7 +85,7 @@ function FillsTable({ fills, market }: { fills: LinkedFill[]; market: PackageMar
                       <ArrowUpRight size={11} aria-hidden="true" />
                     </Link>
                     <HashCell value={fill.receipt.transactionHash} label="transaction reference" />
-                    <ProvenanceChip provenance="OBSERVED" source={`${fill.receipt.evidence.toLowerCase()} evidence`} compact />
+                    <ProvenanceChip provenance="OBSERVED" source={`${evidenceLabel(fill.receipt.evidence)} evidence`} compact />
                   </span>
                 </td>
               </tr>

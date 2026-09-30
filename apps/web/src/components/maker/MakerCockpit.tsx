@@ -19,6 +19,7 @@ import {
 } from "./MakerPanels";
 import { QuoteLadder } from "./QuoteLadder";
 import { RfqBlotter } from "./RfqBlotter";
+import { MarketMark } from "@/components/portfolio/MarketMark";
 
 /** A scope covers a series when it is the all-series stop or names that series. */
 function scopeCovers(scope: KillSwitchScope, series: MakerSeries): boolean {
@@ -54,6 +55,7 @@ function SeriesTabs({
             <span className="flex items-center justify-between gap-2">
               <span className="flex min-w-0 items-center gap-1.5">
                 <LiveDot tone={item.status === "QUALIFIED" ? "up" : item.status === "CONDITIONAL" ? "brand" : "down"} />
+                <MarketMark code={item.id} size={15} />
                 <span className={`truncate text-[13px] font-medium ${active ? "text-ink" : "text-dim"}`}>{item.displayName}</span>
               </span>
               {market ? (
@@ -155,7 +157,7 @@ export function MakerCockpit() {
         <div className="flex flex-col gap-2 px-3 py-2 lg:flex-row lg:items-center lg:gap-4">
           <div className="flex min-w-0 items-center gap-3">
             <h1 className="shrink-0 font-serif text-[22px] leading-7 text-ink">Maker desk</h1>
-            <span className="hidden truncate text-xs text-faint sm:inline">Quote operations / Arbitrum Sepolia</span>
+            <span className="hidden truncate text-xs text-faint sm:inline">Quote operations / Arbitrum One</span>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             <Chip tone="brand">Testnet simulation</Chip>

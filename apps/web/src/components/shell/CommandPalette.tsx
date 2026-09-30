@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, CornerDownLeft, Search } from "lucide-react";
 import { useInternalGateway } from "@/components/gateway/InternalGatewayProvider";
+import { UnderlyingIcon } from "@/components/icons/AssetIcon";
 import { usePreviewBoard } from "@/components/terminal/PreviewMarketProvider";
 import { changePercent, formatNumber, priceUnitSuffix } from "@/lib/terminal/format";
 import { ALL_ROUTES } from "./routes";
@@ -23,6 +24,8 @@ interface Entry {
   haystack: string;
   run: () => void;
   trailing?: React.ReactNode;
+  /** Leading mark, for example a market's underlying. */
+  leading?: React.ReactNode;
 }
 
 function matches(haystack: string, query: string): boolean {
@@ -75,6 +78,11 @@ export function CommandPalette() {
         detail: market.id,
         haystack: `${market.id} ${market.name} ${market.underlying} ${market.code}`.toLowerCase(),
         run: go(`/trade/${market.id}`),
+        leading: (
+          <span className="flex w-7 shrink-0">
+            <UnderlyingIcon underlying={market.underlying} size={20} />
+          </span>
+        ),
         trailing: (
           <span className="flex items-baseline gap-2 font-mono text-xs">
             <span className="tnum text-ink">
@@ -224,6 +232,7 @@ export function CommandPalette() {
                       index === selected ? "bg-raised" : ""
                     }`}
                   >
+                    {entry.leading}
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm text-ink">{entry.label}</span>
                       <span className="block truncate text-xs text-faint">{entry.detail}</span>
@@ -251,7 +260,7 @@ export function CommandPalette() {
             <CornerDownLeft size={11} aria-hidden="true" />
             open
           </span>
-          <span className="ml-auto">Live marks from the preview feed</span>
+          <span className="ml-auto">Live marks from the index feed</span>
         </div>
       </div>
     </div>

@@ -14,6 +14,7 @@ import type { LifecycleActionKey, OnchainPositionLifecycle } from "@/lib/interna
 import { platformNow } from "@/lib/terminal/clock";
 import { formatLots, formatNumber } from "@/lib/terminal/format";
 import { PHASE_COPY, chainTimeLabel, lifecycleActions, nextBoundary, type LifecycleActionView } from "./election";
+import { MarketMark } from "@/components/portfolio/MarketMark";
 
 /** Chain time, re-read every second so windows open and close on screen without a refresh. */
 function useChainNow(initialMs: number): number {
@@ -120,7 +121,10 @@ export function TerminalLifecycle({
         <p className="mt-1.5 text-xs leading-relaxed text-faint">{phase.detail}</p>
         {showLink ? (
           <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-faint">
-            <span className="tnum font-mono text-dim">{`${view.marketId} · ${formatLots(view.lots)} lots at ${formatNumber(view.entryPrice, 2)}`}</span>
+            <span className="tnum inline-flex items-center gap-1.5 font-mono text-dim">
+              <MarketMark code={view.marketId} size={13} />
+              {`${view.marketId} · ${formatLots(view.lots)} lots at ${formatNumber(view.entryPrice, 2)}`}
+            </span>
             <Link href={positionHref(view.positionId)} className="focus-ring inline-flex items-center gap-1 rounded-sm text-dim underline decoration-line-strong underline-offset-[3px] hover:text-ink">
               {middleTruncate(view.positionId, 8, 6)}
               <ArrowUpRight size={11} aria-hidden="true" />

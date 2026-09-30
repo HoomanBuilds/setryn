@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { AssetLabel } from "@/components/icons/AssetIcon";
 import { ConnectWalletButton, ProvenanceChip } from "@/components/home/kit";
 import type { PortfolioRead } from "@/components/portfolio/usePortfolio";
 import { Chip, Flash, Meter, Panel, deskMotion } from "@/components/strategies/desk/Desk";
@@ -64,7 +65,7 @@ export function AccountSummary({ read, unit }: { read: PortfolioRead; unit: Size
                 {whole}
                 <span className="text-dim">{`.${fraction}`}</span>
               </span>
-              <span className="font-mono text-xs text-faint">{asset}</span>
+              <AssetLabel symbol={asset} size={13} className="font-mono text-xs text-faint" />
             </p>
           ) : (
             <div className="flex flex-col items-start gap-2">
@@ -112,8 +113,8 @@ export function AccountSummary({ read, unit }: { read: PortfolioRead; unit: Size
             }
             valueTone={connected ? tone(runtimePnl.total) : "text-ink"}
             note={
-              <span title="Estimated: open packages marked on the coherent preview feed. Not oracle settlement values.">
-                estimated on preview marks
+              <span title="Estimated: open packages marked on the coherent index feed. Not oracle settlement values.">
+                estimated on index marks
               </span>
             }
           />

@@ -20,6 +20,7 @@ import {
 } from "@/lib/alerts";
 import { formatMultiple, formatNumber, priceUnitSuffix } from "@/lib/terminal/format";
 import type { PackageMarket } from "@/lib/terminal/types";
+import { MarketMark } from "@/components/portfolio/MarketMark";
 
 const FIELD =
   "focus-ring mt-1 h-11 w-full rounded-md border border-line bg-inset px-2 text-xs text-ink transition-colors hover:border-line-strong lg:h-8";
@@ -108,20 +109,23 @@ export function NewRulePanel({
           <div className="space-y-2.5">
             <label className="block">
               <span className="text-[11px] text-faint">Market</span>
-              <select
-                value={market.id}
-                onChange={(event) => {
-                  setMarketId(event.target.value);
-                  setLevelInput(null);
-                }}
-                className={FIELD}
-              >
-                {markets.map((candidate) => (
-                  <option key={candidate.id} value={candidate.id}>
-                    {candidate.code}
-                  </option>
-                ))}
-              </select>
+              <span className="relative block">
+                <select
+                  value={market.id}
+                  onChange={(event) => {
+                    setMarketId(event.target.value);
+                    setLevelInput(null);
+                  }}
+                  className={`${FIELD} pl-8`}
+                >
+                  {markets.map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {candidate.code}
+                    </option>
+                  ))}
+                </select>
+                <MarketMark underlying={market.underlying} size={16} className="pointer-events-none absolute top-1/2 left-2.5 mt-0.5 -translate-y-1/2" />
+              </span>
             </label>
             <div className="flex items-baseline justify-between rounded-md bg-inset px-2.5 py-2 text-xs">
               <span className="text-faint">Live mark</span>
@@ -148,7 +152,7 @@ export function NewRulePanel({
             </label>
             <p className="text-[11px] leading-snug text-faint">
               {levelValid
-                ? `Fires when the mark ${direction === "ABOVE" ? "rises to or above" : "falls to or below"} ${formatNumber(level, market.priceDecimals)}. The level is compared with the same preview mark the terminal and charts use.`
+                ? `Fires when the mark ${direction === "ABOVE" ? "rises to or above" : "falls to or below"} ${formatNumber(level, market.priceDecimals)}. The level is compared with the same index mark the terminal and charts use.`
                 : "Enter a trigger level."}
             </p>
           </div>
@@ -161,7 +165,7 @@ export function NewRulePanel({
             <p className="text-[11px] leading-snug text-faint">
               {health === null
                 ? "No maintenance margin is in use, so this rule waits for the first open package."
-                : `Health is ${formatMultiple(health)} now: equity over maintenance margin, marked on the preview feed.`}
+                : `Health is ${formatMultiple(health)} now: equity over maintenance margin, marked on the index feed.`}
             </p>
           </div>
         ) : null}

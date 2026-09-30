@@ -29,6 +29,7 @@ import { formatLots, formatNumber, priceUnitSuffix } from "@/lib/terminal/format
 import { MARKETS, tradeHref } from "@/lib/terminal/markets";
 import type { PackageMarket } from "@/lib/terminal/types";
 import { SubHead, TrustRow, price, signedUsd, toneOf, usd } from "./parts";
+import { MarketMark } from "@/components/portfolio/MarketMark";
 
 export type ManageAction = "close" | "roll" | "settle";
 
@@ -176,7 +177,7 @@ function CloseTab({ dossier, market }: { dossier: PositionDossier; market: Packa
           note={preview.route ? preview.route.label : "Best package touch"}
           value={price(preview.price, market)}
           provenance="EXECUTABLE"
-          source={preview.route ? `${preview.route.label}, preview book` : "Package book touch"}
+          source={preview.route ? `${preview.route.label}, reference book` : "Package book touch"}
         />
         <TrustRow
           label="Closing / remaining"
@@ -269,6 +270,7 @@ function RollTab({
               >
                 <span className="min-w-0">
                   <span className="flex items-center gap-2">
+                    <MarketMark underlying={candidate.underlying} size={14} />
                     <span className={`font-mono text-xs ${active ? "text-ink" : "text-dim"}`}>{candidate.code}</span>
                     {candidate.qualification !== "QUALIFIED" ? (
                       <span className="rounded-[3px] border border-line-strong px-1 font-mono text-[9.5px] tracking-[0.05em] text-dim uppercase">
@@ -313,14 +315,14 @@ function RollTab({
           note={roll.close.route?.label}
           value={price(roll.close.price, market)}
           provenance="EXECUTABLE"
-          source="Exit touch, preview book"
+          source="Exit touch, reference book"
         />
         <TrustRow
           label={`Open ${target.code}`}
           note={roll.openRoute?.label}
           value={price(roll.openPrice, target)}
           provenance="EXECUTABLE"
-          source="Entry touch, preview book"
+          source="Entry touch, reference book"
         />
         <TrustRow
           label="Roll spread"

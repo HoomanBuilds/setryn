@@ -105,7 +105,7 @@ export function OriginChip({ origin, className = "" }: { origin: PositionOrigin;
     </span>
   ) : (
     <span
-      title="Static lifecycle preview record. Not held by any account and not evidence."
+      title="Reference lifecycle record. Not held by any account and not evidence."
       className={`inline-flex h-[18px] shrink-0 items-center gap-1 rounded-[4px] border border-dashed border-line-strong px-1.5 font-mono text-[10px] leading-none tracking-[0.05em] text-faint uppercase ${className}`}
     >
       Reference

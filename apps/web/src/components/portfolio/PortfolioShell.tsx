@@ -8,6 +8,8 @@ import { Chip, LiveDot, motion } from "@/components/markets/ui";
 import { AccountHero } from "@/components/portfolio/AccountHero";
 import { PortfolioNav } from "@/components/portfolio/PortfolioNav";
 import { usePortfolio } from "@/components/portfolio/usePortfolio";
+import { ChainIcon } from "@/components/icons/AssetIcon";
+import { evidenceLabel } from "@/lib/terminal/format";
 
 function shortAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -48,7 +50,8 @@ export function PortfolioShell({ children }: { children: ReactNode }) {
             <span className="flex min-w-0 flex-wrap items-center gap-1.5">
               <Chip tone="neutral">{snapshot.account.label}</Chip>
               <Chip tone="muted" title={`Chain ${snapshot.environment.chainId}`}>
-                {`${snapshot.environment.label} / ${snapshot.environment.evidence.toLowerCase()} evidence`}
+                <ChainIcon size={11} />
+                {`${snapshot.environment.label} / ${evidenceLabel(snapshot.environment.evidence)} evidence`}
               </Chip>
               <Chip tone="muted">{snapshot.account.riskDomain}</Chip>
               <Chip tone="muted">{`${count} active package${count === 1 ? "" : "s"}`}</Chip>

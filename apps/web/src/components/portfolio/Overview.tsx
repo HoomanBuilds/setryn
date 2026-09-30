@@ -29,6 +29,7 @@ import {
 } from "@/lib/terminal/format";
 import { positionOrigin } from "@/lib/portfolio/runtime";
 import type { PnlBreakdown, Position } from "@/lib/portfolio/types";
+import { MarketMark } from "@/components/portfolio/MarketMark";
 
 const COMPONENTS: { key: keyof Omit<PnlBreakdown, "total">; label: string }[] = [
   { key: "price", label: "Mark to market" },
@@ -73,9 +74,12 @@ function PositionRows({ positions }: { positions: Position[] }) {
           {positions.map((position) => (
             <tr key={position.id} className={ROW}>
               <th scope="row" className={`${TD} h-10 font-normal`}>
-                <Link href={position.href} className="focus-ring flex min-w-0 flex-col rounded-sm">
-                  <span className="truncate text-[13px] leading-4 text-ink">{position.label}</span>
-                  <span className="truncate text-[11px] leading-[14px] text-faint">{positionOrigin(position)}</span>
+                <Link href={position.href} className="focus-ring flex min-w-0 items-center gap-2 rounded-sm">
+                  <MarketMark underlying={position.market.underlying} size={16} />
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate text-[13px] leading-4 text-ink">{position.label}</span>
+                    <span className="truncate text-[11px] leading-[14px] text-faint">{positionOrigin(position)}</span>
+                  </span>
                 </Link>
               </th>
               <td className={`${NUM} ${position.side === "LONG" ? "text-up" : "text-down"}`}>
@@ -99,6 +103,7 @@ function PositionRows({ positions }: { positions: Position[] }) {
         {positions.map((position) => (
           <li key={position.id} className="border-b border-line-soft last:border-b-0">
             <Link href={position.href} className="focus-ring flex min-h-14 items-center gap-3 px-3 py-2.5">
+              <MarketMark underlying={position.market.underlying} size={18} />
               <span className="flex min-w-0 flex-1 flex-col gap-1">
                 <span className="truncate text-sm text-ink">{position.label}</span>
                 <span className="flex items-center gap-2 text-[11px]">
@@ -128,7 +133,7 @@ function Attribution({ pnl }: { pnl: PnlBreakdown }) {
   const scale = Math.max(...COMPONENTS.map((component) => Math.abs(pnl[component.key])), 1);
   return (
     <table className={TABLE}>
-      <caption className="sr-only">Account profit and loss by component, marked against the development market feed.</caption>
+      <caption className="sr-only">Account profit and loss by component, marked against the index feed.</caption>
       <tbody>
         {COMPONENTS.map((component) => {
           const value = pnl[component.key];
@@ -176,7 +181,7 @@ export function OverviewView() {
         <div className="border-t border-line lg:border-t-0 lg:border-l">
           <Panel
             title="PnL attribution"
-            note={<Chip tone="muted">Preview marks</Chip>}
+            note={<Chip tone="muted">Index marks</Chip>}
             delay={40}
           >
             <Attribution pnl={portfolio.runtimePnl} />
@@ -200,12 +205,12 @@ export function OverviewView() {
         chips={
           <>
             <Chip tone="muted">Onchain balances</Chip>
-            <Chip tone="muted">Preview marks</Chip>
+            <Chip tone="muted">Index marks</Chip>
           </>
         }
       >
-        Balances and reservations are read from the local onchain account. Position marks use the
-        current development market feed and are not oracle settlement values.
+        Balances and reservations are read from the onchain account. Position marks use the
+        current index feed and are not oracle settlement values.
       </PlaneNote>
     </div>
   );

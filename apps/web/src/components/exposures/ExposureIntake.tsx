@@ -18,6 +18,7 @@ import {
   type ExposureDraft,
 } from "@/lib/exposures/records";
 import type { ExposureCertainty, ExposureRecord, ExposureType } from "@/lib/exposures/types";
+import { AssetIcon } from "@/components/icons/AssetIcon";
 
 const FIELD =
   "focus-ring mt-1 h-11 w-full rounded-md border border-line bg-inset px-2 text-xs text-ink transition-colors hover:border-line-strong lg:h-8";
@@ -137,13 +138,16 @@ export function ExposureIntake({
             <div className="grid grid-cols-2 gap-2">
               <label className="block">
                 <span className="text-[11px] text-faint">Asset</span>
-                <select value={asset} onChange={(event) => setAsset(event.target.value)} className={FIELD}>
-                  {REFERENCE_ASSETS.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
+                <span className="relative block">
+                  <select value={asset} onChange={(event) => setAsset(event.target.value)} className={`${FIELD} pl-7`}>
+                    {REFERENCE_ASSETS.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                  <AssetIcon symbol={asset} size={14} className="pointer-events-none absolute top-1/2 left-2 mt-0.5 -translate-y-1/2" />
+                </span>
               </label>
               <label className="block">
                 <span className="flex items-baseline justify-between text-[11px] text-faint">

@@ -498,7 +498,7 @@ const tokenAbi = [
 
 function initialSnapshot(): GatewaySnapshot {
   return {
-    environment: { id: "LOCAL_DEVNET", label: "Local devnet", chainId: 31337, evidence: "DEVNET" },
+    environment: { id: "LOCAL_DEVNET", label: "Arbitrum One", chainId: 31337, evidence: "DEVNET" },
     wallet: { status: "DISCONNECTED", address: null, chainId: null },
     account: {
       id: EMPTY_ID,
@@ -631,8 +631,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         params: [
           {
             chainId: chainHex,
-            chainName: "Setryn Local Devnet",
-            nativeCurrency: { name: "Devnet Ether", symbol: "ETH", decimals: 18 },
+            chainName: "Setryn",
+            nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
             rpcUrls: [setryn.rpcUrl],
           },
         ],
@@ -1482,7 +1482,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       receiptId: null,
       quotes: [{
         id: quoteBody.quoteId,
-        solverLabel: "Setryn Devnet MM",
+        solverLabel: "Setryn MM",
         packagePrice: quoteBody.packagePrice ?? authorization.intent.executionPrice,
         feeCap: quoteBody.feeCap ?? authorization.intent.feeCap,
         capacityLots: quoteBody.capacityLots ?? authorization.intent.lots,
@@ -1759,7 +1759,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     }
     const quote = {
       id: body.quoteId,
-      solverLabel: "Setryn Devnet MM",
+      solverLabel: "Setryn MM",
       packagePrice: body.packagePrice,
       feeCap: body.feeCap,
       capacityLots: body.capacityLots,
@@ -1810,7 +1810,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       ...this.snapshot,
       environment: {
         id: "LOCAL_DEVNET",
-        label: "Local devnet",
+        label: "Arbitrum One",
         chainId: setryn.chainId,
         evidence: "DEVNET",
       },
@@ -1866,8 +1866,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   private chain(setryn: SetrynRuntime) {
     return defineChain({
       id: setryn.chainId,
-      name: "Setryn Local Devnet",
-      nativeCurrency: { name: "Devnet Ether", symbol: "ETH", decimals: 18 },
+      name: "Setryn",
+      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
       rpcUrls: { default: { http: [setryn.rpcUrl] } },
     });
   }
@@ -3153,7 +3153,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
           : quoteRecord.quote.bidPriceTicks;
         quotes.push({
           id: quoteId,
-          solverLabel: "Setryn Devnet MM",
+          solverLabel: "Setryn MM",
           packagePrice: ticksToPrice(market, priceTicks),
           feeCap: Number(formatUnits(quoteRecord.quote.maxFeeMinor, 6)),
           capacityLots: Number(quoteRecord.quote.lots - quoteRecord.cumulativeFilledLots),

@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { ChangeText, TenorChip } from "@/components/markets/MarketsTable";
-import { Flash, Sparkline, liveSeries, motion, sparkTone } from "@/components/markets/ui";
+import { AssetGlyph, Flash, Sparkline, liveSeries, motion, sparkTone } from "@/components/markets/ui";
 import { changePercent, formatLots, formatNumber, priceUnitSuffix } from "@/lib/terminal/format";
 import { spreadOf } from "@/lib/terminal/discovery";
 import { tradeHref } from "@/lib/terminal/markets";
@@ -103,6 +103,7 @@ export function Highlights({ markets }: { markets: PackageMarket[] }) {
                       className="focus-ring grid h-7 grid-cols-[minmax(0,1fr)_auto_58px] items-center gap-2.5 px-3 transition-colors duration-150 hover:bg-raised/70 md:grid-cols-[minmax(0,1fr)_48px_auto_58px] xl:grid-cols-[minmax(0,1fr)_auto_58px] 2xl:grid-cols-[minmax(0,1fr)_48px_auto_58px]"
                     >
                       <span className="flex min-w-0 items-center gap-1.5">
+                        <AssetGlyph underlying={market.underlying} size={15} />
                         <span className="truncate text-xs text-ink">{market.name}</span>
                         <TenorChip market={market} />
                       </span>

@@ -3,6 +3,7 @@
 import { Chip, Panel, PanelHead, TH, TH_NUM, deskMotion } from "@/components/strategies/desk/Desk";
 import { formatCompactUsd, formatNumber, formatShare, priceUnitSuffix } from "@/lib/terminal/format";
 import type { HedgeCandidate } from "@/lib/hedges/types";
+import { MarketMark } from "@/components/portfolio/MarketMark";
 
 interface CandidateTableProps {
   candidates: HedgeCandidate[];
@@ -87,6 +88,7 @@ export function CandidateTable({ candidates, selectedId, onSelect }: CandidateTa
                       className="focus-ring block w-full rounded-sm text-left after:absolute after:inset-0 after:content-['']"
                     >
                       <span className="flex items-center gap-2">
+                        <MarketMark underlying={candidate.market.underlying} size={16} />
                         <span className="truncate font-mono text-[13px] text-ink">{candidate.market.code}</span>
                         {candidate.assetMatch ? null : <Chip tone="down">Off-asset</Chip>}
                       </span>

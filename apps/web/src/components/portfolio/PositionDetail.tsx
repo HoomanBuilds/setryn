@@ -19,6 +19,7 @@ import {
 import { positionScenarioImpact } from "@/lib/portfolio/model";
 import { positionOrigin } from "@/lib/portfolio/runtime";
 import type { PnlBreakdown, Position, ScenarioResult } from "@/lib/portfolio/types";
+import { MarketMark } from "@/components/portfolio/MarketMark";
 
 const COMPONENTS: { key: keyof Omit<PnlBreakdown, "total">; label: string }[] = [
   { key: "price", label: "Price" },
@@ -58,7 +59,7 @@ function Attribution({
   return (
     <table className={TABLE}>
       <caption className="sr-only">
-        {`Profit and loss attribution for ${label} against the whole book. Estimated from the preview snapshot.`}
+        {`Profit and loss attribution for ${label} against the whole book. Estimated from the index snapshot.`}
       </caption>
       <thead>
         <tr className="border-b border-line">
@@ -180,13 +181,16 @@ export function PositionDetail({
     <div className="flex min-w-0 flex-col gap-4 px-3 py-3 lg:px-4">
       <div className="flex min-w-0 flex-col gap-2.5">
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
+          <div className="flex min-w-0 items-start gap-2">
+            <MarketMark underlying={position.market.underlying} size={variant === "pane" ? 20 : 16} className="mt-0.5" />
+            <div className="min-w-0">
             {variant === "pane" ? (
               <h3 className="text-sm leading-5 font-medium text-ink">{position.label}</h3>
             ) : null}
             <p className="tnum truncate font-mono text-[11px] text-faint">
               {`${position.market.code} / ${position.id}`}
             </p>
+            </div>
           </div>
           <StateTag state={position.state} />
         </div>

@@ -5,7 +5,7 @@ import type { MakerSeries, QuoteLevel } from "@/lib/maker/types";
 import { usdCompact } from "./format";
 
 /**
- * Two-sided quote surface. Levels track the preview mark so the ladder and the
+ * Two-sided quote surface. Levels track the index mark so the ladder and the
  * terminal book read one feed; widths, capacity and costs are fixture values.
  */
 export function QuoteLadder({
@@ -149,7 +149,7 @@ export function QuoteLadder({
         </span>
         <span className="text-off">
           {previewMark !== null
-            ? `Levels track the preview mark ${previewMark.toFixed(1)}. All capacity is simulated and cannot execute; firm sim. requires a hypothetical reservation.`
+            ? `Levels track the index mark ${previewMark.toFixed(1)}. All capacity is simulated and cannot execute; firm sim. requires a hypothetical reservation.`
             : "All capacity is simulated and cannot execute; firm sim. requires a hypothetical reservation."}
         </span>
       </div>
