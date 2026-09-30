@@ -43,7 +43,6 @@ const COLUMNS: { title: string; links: FooterLink[] }[] = [
     links: [
       { label: "Arbitrum One", href: "https://arbitrum.io", mark: "arbitrum" },
       { label: "Native USDC", href: "https://www.circle.com/usdc", mark: "usdc" },
-      { label: "Field notes", href: "#field-notes" },
     ],
   },
 ];

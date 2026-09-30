@@ -7,7 +7,6 @@ import ScrollRail from "@/components/landing/ScrollRail";
 import Build from "@/components/landing/sections/Build";
 import Cta from "@/components/landing/sections/Cta";
 import Faq from "@/components/landing/sections/Faq";
-import FieldNotes from "@/components/landing/sections/FieldNotes";
 import Footer from "@/components/landing/sections/Footer";
 import HowItWorks from "@/components/landing/sections/HowItWorks";
 import Marquee from "@/components/landing/sections/Marquee";
@@ -29,7 +28,6 @@ export default function Landing() {
         <HowItWorks />
         <Network />
         <Build />
-        <FieldNotes />
         <Faq />
         <Cta />
       </main>
