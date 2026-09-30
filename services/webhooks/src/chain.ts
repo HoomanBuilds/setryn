@@ -16,7 +16,7 @@ const RUNTIME_CONTRACTS: readonly (readonly [runtimeField: string, contractName:
   ["positionEngine", "PositionEngine", true],
   ["marketRegistry", "MarketRegistry", true],
   ["seriesRegistry", "SeriesRegistry", true],
-  // Not deployed by the local reset today; watched automatically once the runtime or manifest names them.
+  // Optional: resolved from the deployment manifest when the environment deploys them.
   ["cashSettlementCoordinator", "CashSettlementCoordinator", false],
   ["verifiableReceiptLedger", "VerifiableReceiptLedger", false],
 ];
@@ -66,6 +66,11 @@ function assertLoopback(rpcUrl: string): void {
   }
 }
 
+interface ManifestShape {
+  contracts?: { name: string; address: string | null }[];
+  phase2?: { deployments?: { name: string; address: string | null }[] };
+}
+
 /** Loads watched addresses from deployments/local/runtime.json (plus manifest.json for optional contracts). */
 export async function loadLocalChainConfig(): Promise<ChainConfig> {
   const runtimePath = process.env.SETRYN_RUNTIME_PATH
@@ -73,8 +78,10 @@ export async function loadLocalChainConfig(): Promise<ChainConfig> {
     : join(repoRoot(), "deployments", "local", "runtime.json");
   const runtime = JSON.parse(await readFile(runtimePath, "utf8")) as Record<string, unknown>;
   const manifest = await readFile(join(dirname(runtimePath), "manifest.json"), "utf8")
-    .then((text) => JSON.parse(text) as { contracts?: { name: string; address: string | null }[] })
-    .catch(() => ({ contracts: [] as { name: string; address: string | null }[] }));
+    .then((text) => JSON.parse(text) as ManifestShape)
+    .catch((): ManifestShape => ({ contracts: [] }));
+  // Protocol contracts beyond the core registries are recorded under the Phase 2 deployments.
+  const deployed = [...(manifest.contracts ?? []), ...(manifest.phase2?.deployments ?? [])];
   const chainId = Number(runtime.chainId);
   if (chainId !== 31337) throw new Error(`runtime chain ${chainId} is not the local devnet (31337)`);
   const rpcUrl = process.env.LOCAL_RPC_URL ?? "http://127.0.0.1:8545";
@@ -84,7 +91,7 @@ export async function loadLocalChainConfig(): Promise<ChainConfig> {
   for (const [field, name, required] of RUNTIME_CONTRACTS) {
     const address =
       (typeof runtime[field] === "string" ? (runtime[field] as string) : null) ??
-      manifest.contracts?.find((contract) => contract.name === name)?.address ??
+      deployed.find((contract) => contract.name === name)?.address ??
       null;
     if (!address || !/^0x[0-9a-fA-F]{40}$/.test(address)) {
       if (required) throw new Error(`runtime is missing ${field}`);
