@@ -52,6 +52,9 @@ import type {
 const ACCOUNT_SALT = keccak256(stringToHex("SETRYN_PRIMARY_ACCOUNT_V1"));
 const EMPTY_ID = `0x${"0".repeat(64)}` as Hex;
 const PRIMARY_MARKET_ID = "BTC-YC-24DEC26";
+const LOCAL_CHAIN_ID = 31337;
+/** Seconds a maker order must remain live past the latest block so it cannot expire before the match lands. */
+const MAKER_DEADLINE_MARGIN_SECONDS = BigInt(15);
 const PUBLIC_SERIES_POLICY = keccak256(stringToHex("SETRYN_POLICY_PUBLIC_SERIES_V1"));
 const BOOK_ID_TYPEHASH = keccak256(
   stringToHex(
@@ -470,20 +473,23 @@ export class OnchainTradingGateway implements InternalTradingGateway {
 
     const accountId = await this.accountId(address);
     if (intent.accountId.toLowerCase() !== accountId.toLowerCase()) throw new Error("ACCOUNT_MISMATCH");
-    const clearingApproved = await publicClient.readContract({
-      address: setryn.collateralVault,
-      abi: vaultAbi,
-      functionName: "isLockOperator",
-      args: [accountId, setryn.atomicClearingEngine],
-    });
-    if (!clearingApproved) {
+    // A match locks the taker's collateral twice: the clearing engine reserves consideration and the position
+    // engine reserves terminal liability. Both must be approved lock operators on the account, as for the maker.
+    for (const operator of [setryn.atomicClearingEngine, setryn.positionEngine]) {
+      const approved = await publicClient.readContract({
+        address: setryn.collateralVault,
+        abi: vaultAbi,
+        functionName: "isLockOperator",
+        args: [accountId, operator],
+      });
+      if (approved) continue;
       const approvalHash = await walletClient.writeContract({
         account: address,
         chain: this.chain(setryn),
         address: setryn.collateralVault,
         abi: vaultAbi,
         functionName: "setLockOperator",
-        args: [accountId, setryn.atomicClearingEngine, true],
+        args: [accountId, operator, true],
       });
       const approvalReceipt = await publicClient.waitForTransactionReceipt({ hash: approvalHash });
       if (approvalReceipt.status !== "success") throw new Error("CLEARING_APPROVAL_FAILED");
@@ -627,37 +633,58 @@ export class OnchainTradingGateway implements InternalTradingGateway {
 
     const bookId = this.deriveBookId(setryn);
     const makerSide = order.side === 1 ? 2 : 1;
-    const levelId = await publicClient.readContract({
-      address: setryn.publicOrderBook,
-      abi: publicOrderBookAbi,
-      functionName: "bestLevel",
-      args: [bookId, makerSide],
-    });
-    if (levelId === EMPTY_ID) {
+    // The book prunes an expired maker order during matching instead of filling it, so the head order must still be
+    // live on the chain clock. On the local devnet an expired head is refreshed once through the devnet maker.
+    const readHead = async () => {
+      const levelId = await publicClient.readContract({
+        address: setryn.publicOrderBook,
+        abi: publicOrderBookAbi,
+        functionName: "bestLevel",
+        args: [bookId, makerSide],
+      });
+      if (levelId === EMPTY_ID) return null;
+      const level = await publicClient.readContract({
+        address: setryn.publicOrderBook,
+        abi: publicOrderBookAbi,
+        functionName: "getPriceLevel",
+        args: [levelId],
+      });
+      const [bookOrder, orderRecord, latest] = await Promise.all([
+        publicClient.readContract({
+          address: setryn.publicOrderBook,
+          abi: publicOrderBookAbi,
+          functionName: "getBookOrder",
+          args: [level.headOrderHash],
+        }),
+        publicClient.readContract({
+          address: setryn.orderState,
+          abi: orderStateAbi,
+          functionName: "getOrder",
+          args: [level.headOrderHash],
+        }),
+        publicClient.getBlock(),
+      ]);
+      const live =
+        (orderRecord.status === 1 || orderRecord.status === 2) &&
+        orderRecord.order.deadline > latest.timestamp + MAKER_DEADLINE_MARGIN_SECONDS;
+      return { hash: level.headOrderHash, bookOrder, orderRecord, live };
+    };
+    let head = await readHead();
+    if ((!head || !head.live) && setryn.chainId === LOCAL_CHAIN_ID) {
+      await fetch("/api/internal/devnet/liquidity", { method: "POST" }).catch(() => undefined);
+      head = await readHead();
+    }
+    if (!head) {
       await this.cancelUnmatchedOrder(authorization);
       throw new Error("NO_ONCHAIN_LIQUIDITY");
     }
-    const level = await publicClient.readContract({
-      address: setryn.publicOrderBook,
-      abi: publicOrderBookAbi,
-      functionName: "getPriceLevel",
-      args: [levelId],
-    });
-    const makerOrderHash = level.headOrderHash;
-    const [makerBookOrder, makerOrderRecord] = await Promise.all([
-      publicClient.readContract({
-        address: setryn.publicOrderBook,
-        abi: publicOrderBookAbi,
-        functionName: "getBookOrder",
-        args: [makerOrderHash],
-      }),
-      publicClient.readContract({
-        address: setryn.orderState,
-        abi: orderStateAbi,
-        functionName: "getOrder",
-        args: [makerOrderHash],
-      }),
-    ]);
+    if (!head.live) {
+      await this.cancelUnmatchedOrder(authorization);
+      throw new Error("MAKER_ORDER_EXPIRED");
+    }
+    const makerOrderHash = head.hash;
+    const makerBookOrder = head.bookOrder;
+    const makerOrderRecord = head.orderRecord;
     if (
       authorization.intent.side === "EXIT" &&
       makerOrderRecord.order.signer.toLowerCase() !== setryn.operator.toLowerCase()
@@ -730,7 +757,11 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       args: [bookId, [proposal]],
     });
     const matchReceipt = await publicClient.waitForTransactionReceipt({ hash: matchHash });
-    if (matchReceipt.status !== "success") throw new Error("MATCH_FAILED");
+    if (matchReceipt.status !== "success") {
+      // Nothing filled, so the registered taker order and its risk reservation must not be left behind.
+      await this.cancelUnmatchedOrder(authorization);
+      throw new Error("MATCH_FAILED");
+    }
     onUpdate({
       step: "INCLUDED",
       label: "Match included",
@@ -758,7 +789,10 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     });
     const fillId = matchEvents[0]?.args.fillId;
     const positionId = positionEvents[0]?.args.positionId;
-    if (!fillId || !positionId) throw new Error("CLEARING_EVIDENCE_MISSING");
+    if (!fillId || !positionId) {
+      await this.cancelUnmatchedOrder(authorization);
+      throw new Error("CLEARING_EVIDENCE_MISSING");
+    }
     const filledLots = Number(fillLots);
     const requestedLots = Number(order.lots);
     const remainingLots = requestedLots - filledLots;

@@ -136,6 +136,9 @@ function executionError(error: unknown): string {
   if (error.message === "ORDER_NOT_MARKETABLE") return "The limit does not cross the best public-book price.";
   if (error.message === "FOK_NOT_FILLED") return "The public book cannot fill the complete FOK quantity.";
   if (error.message === "MAKER_RISK_ADMISSION_MISSING") return "The best maker quote no longer has valid risk capacity.";
+  if (error.message === "MAKER_ORDER_EXPIRED") {
+    return "The best resting maker order expired before it could be matched. No fill was created; try again.";
+  }
   if (error.message === "MATCH_FAILED") return "The public-book match reverted before a fill was created.";
   if (error.message === "CLEARING_EVIDENCE_MISSING") return "The clearing transaction completed without the required fill evidence.";
   if (error.message === "REMAINDER_PLACEMENT_FAILED") {
