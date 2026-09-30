@@ -182,6 +182,14 @@ export const NAV_GROUPS: NavGroup[] = [
         keywords: "routing capacity solver",
       },
       {
+        id: "treasury",
+        label: "Treasury",
+        prefix: "/treasury",
+        href: "/treasury",
+        description: "Protocol fee account, fee schedule, and revenue",
+        keywords: "fees revenue treasury withdraw fee schedule maker taker",
+      },
+      {
         id: "operations",
         label: "Operations",
         prefix: "/operations",

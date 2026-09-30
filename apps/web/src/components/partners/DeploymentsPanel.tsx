@@ -255,13 +255,14 @@ function PermissionsEditor({ partner, onChanged }: { partner: PartnerDeployment;
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <NumberField id={`${base}-rev`} label="Fee share (bp)" value={revShare} onChange={setRevShare} />
+          <NumberField id={`${base}-rev`} label="Fee share (bp, modeled)" value={revShare} onChange={setRevShare} />
           <NumberField id={`${base}-imp`} label="Impressions / month" value={impressions} onChange={setImpressions} />
           <NumberField id={`${base}-subs`} label="Webhook subscriptions" value={subscriptions} onChange={setSubscriptions} />
           <NumberField id={`${base}-rpm`} label="API requests / min" value={requests} onChange={setRequests} />
         </div>
         <p className="text-[11px] text-faint">
-          API request quota is recorded for the deployment; enforcement belongs to the public API key gateway.
+          API request quota is recorded for the deployment; enforcement belongs to the public API key gateway. The fee share
+          is modeled: it sizes the partner&apos;s attributed share in revenue reconciliation, and no payout is made onchain.
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <button type="submit" className={PRIMARY} disabled={busy}>Save permissions</button>

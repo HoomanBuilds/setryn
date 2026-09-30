@@ -75,7 +75,7 @@ export function PartnersConsole() {
         <div className="flex flex-col gap-2 px-3 py-2 lg:flex-row lg:items-center lg:gap-4">
           <div className="flex min-w-0 items-center gap-3">
             <h1 className="shrink-0 font-serif text-[22px] leading-7 text-ink">Partners</h1>
-            <span className="hidden truncate text-xs text-faint sm:inline">Embeds, webhooks, attribution and revenue share</span>
+            <span className="hidden truncate text-xs text-faint sm:inline">Embeds, webhooks, attribution and modeled revenue share</span>
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-1.5 lg:ml-auto">
             <Chip tone="dim" title="Management is limited to the operator console host until API keys are enabled">Console</Chip>
