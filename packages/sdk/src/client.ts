@@ -10,6 +10,7 @@ import type {
   Order,
   OrderState,
   Page,
+  PreparedCancel,
   PageParams,
   Position,
   PrepareOrderInput,
@@ -196,6 +197,11 @@ export class SetrynClient {
    */
   async submitOrder(input: { order: SerializedPublicOrder; signature: Hex }): Promise<SubmitOrderResult> {
     return (await this.request<{ data: SubmitOrderResult }>("POST", "/orders", { body: input })).data;
+  }
+
+  /** Prepares the cancellation of a working order for its signer to execute. Needs `trade`. */
+  async prepareCancel(orderHash: Hex): Promise<PreparedCancel> {
+    return (await this.request<{ data: PreparedCancel }>("POST", `/orders/${orderHash}/cancel`, { body: {} })).data;
   }
 }
 

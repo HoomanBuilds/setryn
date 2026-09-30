@@ -187,6 +187,22 @@ export function openApiDocument(serverUrl: string) {
         tags: ["Orders"],
         parameters: [{ name: "orderHash", in: "path", required: true, schema: hex(64) }],
       }),
+      "/orders/{orderHash}/cancel": {
+        post: {
+          summary: "Prepare the cancellation of a working order: transactions to send and the risk-release message to sign",
+          tags: ["Orders"],
+          security: writeSecurity,
+          "x-setryn-scope": "trade",
+          parameters: [{ name: "orderHash", in: "path", required: true, schema: hex(64) }],
+          responses: {
+            200: {
+              description: "Cancellation to execute from the order's signer",
+              content: { "application/json": { schema: { type: "object", properties: { data: { type: "object" } } } } },
+            },
+            ...errorResponses(400, 401, 403, 404, 409, 429, 503),
+          },
+        },
+      },
       "/keys": {
         get: {
           summary: "List API keys with usage, rate-limit state and recent requests (local console only)",

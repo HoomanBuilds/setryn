@@ -281,3 +281,28 @@ export interface SubmitOrderResult {
   transactions: TransactionRequest[];
   next: string;
 }
+
+/** A prepared cancellation: transactions for the order's signer, and the risk-release message to sign and submit. */
+export interface PreparedCancel {
+  order: Order;
+  transactions: TransactionRequest[];
+  riskRelease: {
+    description: string;
+    to: Address;
+    functionName: "cancelBoundAdmission";
+    typedData: {
+      domain: { name: string; version: string; chainId: number; verifyingContract: Address };
+      types: Record<string, { name: string; type: string }[]>;
+      primaryType: "SetrynRiskAdmissionCancellationV1";
+      message: {
+        admissionId: Hex;
+        orderHash: Hex;
+        accountId: Hex;
+        signer: Address;
+        nonce: string;
+        deadline: string;
+        cancellationReference: Hex;
+      };
+    };
+  } | null;
+}

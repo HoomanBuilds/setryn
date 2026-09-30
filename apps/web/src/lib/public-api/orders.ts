@@ -35,6 +35,7 @@ import {
   hashOrder,
   levelHint,
   loadAccount,
+  loadOrder,
   orderTypedDataDomain,
   readOrderIfRegistered,
   timeInForceName,
@@ -411,3 +412,78 @@ export async function submitSignedOrder(context: ChainContext, key: StoredApiKey
 }
 
 export type { SerializedPublicOrder };
+
+/**
+ * Cancelling a working order, prepared for the signer to execute. The API never cancels on anyone's behalf: it returns
+ * the order-state cancellation and the book sync to send, and the typed risk-release message whose signature the
+ * signer submits to `cancelBoundAdmission` so the reserved collateral is freed.
+ */
+export async function prepareCancel(context: ChainContext, key: StoredApiKey, orderHash: Hex) {
+  const { client, setryn } = context;
+  const order = await loadOrder(context, orderHash);
+  if (!order) throw new PublicApiError(404, "NOT_FOUND", "No registered order on the active series has that hash.");
+  assertSignerAllowed(key, order.signer);
+  if (order.state !== "WORKING" && order.state !== "PARTIALLY_FILLED") {
+    throw new PublicApiError(409, "ORDER_NOT_WORKING", `The order is ${order.state} and cannot be cancelled.`);
+  }
+  const admissionId = (await client.readContract({
+    address: setryn.riskAdmissionBindingRegistry,
+    abi: riskBindingAbi,
+    functionName: "admissionForOrder",
+    args: [orderHash],
+  })) as Hex;
+  const transactions: TransactionRequest[] = [
+    {
+      step: "CANCEL_ORDER",
+      description: "Cancel the signed order in order state.",
+      chainId: setryn.chainId,
+      from: order.signer,
+      to: setryn.orderState,
+      data: encodeFunctionData({ abi: orderStateAbi, functionName: "cancelOrder", args: [orderHash] }),
+      value: "0",
+    },
+    {
+      step: "SYNC_BOOK",
+      description: "Remove the cancelled order from the public book (permissionless).",
+      chainId: setryn.chainId,
+      from: order.signer,
+      to: setryn.publicOrderBook,
+      data: encodeFunctionData({ abi: publicOrderBookAbi, functionName: "syncOrder", args: [orderHash] }),
+      value: "0",
+    },
+  ];
+  const nonce = BigInt(`0x${randomUUID().replaceAll("-", "")}`);
+  const riskRelease =
+    admissionId === EMPTY_ID
+      ? null
+      : {
+          description: "Sign this message, then call cancelBoundAdmission(message, signature) on the risk binding registry to release the reserved collateral.",
+          to: setryn.riskAdmissionBindingRegistry,
+          functionName: "cancelBoundAdmission",
+          typedData: {
+            domain: { name: "Setryn", version: "1", chainId: setryn.chainId, verifyingContract: setryn.riskAdmissionBindingRegistry },
+            types: {
+              SetrynRiskAdmissionCancellationV1: [
+                { name: "admissionId", type: "bytes32" },
+                { name: "orderHash", type: "bytes32" },
+                { name: "accountId", type: "bytes32" },
+                { name: "signer", type: "address" },
+                { name: "nonce", type: "uint256" },
+                { name: "deadline", type: "uint64" },
+                { name: "cancellationReference", type: "bytes32" },
+              ],
+            },
+            primaryType: "SetrynRiskAdmissionCancellationV1" as const,
+            message: {
+              admissionId,
+              orderHash,
+              accountId: order.accountId,
+              signer: order.signer,
+              nonce: nonce.toString(),
+              deadline: (context.chainTime + DEFAULT_LIFETIME_SECONDS).toString(),
+              cancellationReference: keccak256(stringToHex(`${orderHash}:${nonce}`)),
+            },
+          },
+        };
+  return { order, transactions, riskRelease };
+}

@@ -1,7 +1,7 @@
 import type { Account, Chain, Hex, PublicClient, Transport, WalletClient } from "viem";
 import type { SetrynClient } from "./client.ts";
 import { SetrynOrderError } from "./errors.ts";
-import type { PrepareOrderInput, PreparedOrder, SerializedPublicOrder, SubmitOrderResult, TransactionRequest } from "./types.ts";
+import type { PrepareOrderInput, PreparedCancel, PreparedOrder, SerializedPublicOrder, SubmitOrderResult, TransactionRequest } from "./types.ts";
 
 /** EIP-712 type of a Setryn public order (primary type `PublicOrder`, domain `Setryn` v1 on OrderState). */
 export const publicOrderTypes = {
@@ -134,4 +134,67 @@ export async function placeOrder(
   // Approvals already sent are not repeated: the server lists only the ones still missing.
   const transactionHashes = [...approvalHashes, ...(await sendOrderTransactions(wallet, publicClient, submitted.transactions, onStep))];
   return { prepared, signature, submitted, transactionHashes };
+}
+
+const riskReleaseAbi = [
+  {
+    type: "function",
+    name: "cancelBoundAdmission",
+    stateMutability: "nonpayable",
+    inputs: [
+      {
+        name: "cancellation",
+        type: "tuple",
+        components: [
+          { name: "admissionId", type: "bytes32" },
+          { name: "orderHash", type: "bytes32" },
+          { name: "accountId", type: "bytes32" },
+          { name: "signer", type: "address" },
+          { name: "nonce", type: "uint256" },
+          { name: "deadline", type: "uint64" },
+          { name: "cancellationReference", type: "bytes32" },
+        ],
+      },
+      { name: "signature", type: "bytes" },
+    ],
+    outputs: [],
+  },
+] as const;
+
+/**
+ * Cancels a working order end to end from the signer's wallet: prepares it through the API, sends the order-state
+ * cancellation and book sync, then signs and submits the risk release that frees the reserved collateral.
+ */
+export async function cancelOrder(
+  client: SetrynClient,
+  wallet: WalletClient<Transport, Chain | undefined, Account | undefined>,
+  publicClient: PublicClient,
+  orderHash: Hex,
+): Promise<{ prepared: PreparedCancel; transactionHashes: Hex[] }> {
+  const prepared = await client.prepareCancel(orderHash);
+  const transactionHashes = await sendOrderTransactions(wallet, publicClient, prepared.transactions);
+  if (prepared.riskRelease) {
+    const { typedData, to } = prepared.riskRelease;
+    const account = wallet.account ?? typedData.message.signer;
+    const message = { ...typedData.message, nonce: BigInt(typedData.message.nonce), deadline: BigInt(typedData.message.deadline) };
+    const signature = await wallet.signTypedData({
+      account,
+      domain: typedData.domain,
+      types: typedData.types,
+      primaryType: typedData.primaryType,
+      message,
+    });
+    const hash = await wallet.writeContract({
+      account,
+      chain: wallet.chain ?? null,
+      address: to,
+      abi: riskReleaseAbi,
+      functionName: "cancelBoundAdmission",
+      args: [message, signature],
+    });
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    if (receipt.status !== "success") throw new SetrynOrderError("RELEASE_RISK", `Risk release reverted in ${hash}.`);
+    transactionHashes.push(hash);
+  }
+  return { prepared, transactionHashes };
 }

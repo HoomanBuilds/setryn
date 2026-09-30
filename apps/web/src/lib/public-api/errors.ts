@@ -1,6 +1,7 @@
 /** Stable machine-readable codes of the public API error envelope `{ error: { code, message } }`. */
 export type PublicApiErrorCode =
   | "UNAUTHENTICATED"
+  | "ORDER_NOT_WORKING"
   | "INVALID_API_KEY"
   | "API_KEY_REVOKED"
   | "INSUFFICIENT_SCOPE"
