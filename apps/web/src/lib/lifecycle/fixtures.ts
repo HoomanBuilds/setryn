@@ -1,5 +1,20 @@
 import { findMarket } from "@/lib/terminal/markets";
+import type { PackageMarket } from "@/lib/terminal/types";
 import type { LifecycleLeg, LifecycleStrategy } from "./types";
+
+/* Collateral and residual derive from the market's per-lot terms exactly as runtime positions do, so a preview
+   position never contradicts the ticket or the market's contract specification. */
+function collateral(market: PackageMarket, lots: number): number {
+  return lots * market.collateralPerLot;
+}
+
+function residual(market: PackageMarket, lots: number): number {
+  return Math.round(lots * market.residualPerLot);
+}
+
+function usdc(value: number): string {
+  return value >= 10_000 ? `${(value / 1_000).toFixed(1)}k USDC` : `${Math.round(value).toLocaleString("en-US")} USDC`;
+}
 
 function leg(
   marketId: string,
@@ -27,6 +42,7 @@ function leg(
 }
 
 const BTC_YIELD_CARRY = findMarket("BTC-YC-24DEC26");
+const BTC_YIELD_CARRY_MARCH = findMarket("BTC-YC-26MAR27");
 const ETH_FUNDING_CARRY = findMarket("ETH-FC-25SEP26");
 const EURUSD_FORWARD = findMarket("EURUSD-FW-30DEC26");
 
@@ -48,9 +64,9 @@ export const LIFECYCLE_STRATEGIES: LifecycleStrategy[] = [
     markPrice: BTC_YIELD_CARRY.netPrice,
     closeCost: 142,
     timeToUnwindSeconds: 48,
-    collateral: 30240,
+    collateral: collateral(BTC_YIELD_CARRY, 120),
     liquidationDistance: 18.4,
-    maxResidual: 180,
+    maxResidual: residual(BTC_YIELD_CARRY, 120),
     settlementClass: "Cash USDC at benchmark fixing",
     guarantee: "PACKAGE_ATOMIC",
     recoveryClass: "Same-domain terminal completion",
@@ -108,8 +124,8 @@ export const LIFECYCLE_STRATEGIES: LifecycleStrategy[] = [
         estimatedTimeToUnwindSeconds: 62,
         impacts: [
           { label: "Expiry", before: "24 Dec 2026", after: "26 Mar 2027", tone: "up" },
-          { label: "Collateral", before: "30.2k USDC", after: "31.6k USDC" },
-          { label: "Max residual", before: "180 USDC", after: "190 USDC", tone: "brand" },
+          { label: "Collateral", before: usdc(collateral(BTC_YIELD_CARRY, 120)), after: usdc(collateral(BTC_YIELD_CARRY_MARCH, 120)) },
+          { label: "Max residual", before: usdc(residual(BTC_YIELD_CARRY, 120)), after: usdc(residual(BTC_YIELD_CARRY_MARCH, 120)), tone: "brand" },
           { label: "Net delta", before: "+0.02", after: "+0.02" },
         ],
         constraints: [
@@ -131,7 +147,7 @@ export const LIFECYCLE_STRATEGIES: LifecycleStrategy[] = [
         estimatedTimeToUnwindSeconds: 31,
         impacts: [
           { label: "Lots", before: "120", after: "80", tone: "up" },
-          { label: "Collateral", before: "30.2k USDC", after: "20.2k USDC", tone: "up" },
+          { label: "Collateral", before: usdc(collateral(BTC_YIELD_CARRY, 120)), after: usdc(collateral(BTC_YIELD_CARRY, 80)), tone: "up" },
           { label: "Liquidation distance", before: "18.4%", after: "21.1%", tone: "up" },
           { label: "Net delta", before: "+0.02", after: "+0.01" },
         ],
@@ -154,8 +170,8 @@ export const LIFECYCLE_STRATEGIES: LifecycleStrategy[] = [
         estimatedTimeToUnwindSeconds: 48,
         impacts: [
           { label: "Lots", before: "120", after: "0", tone: "up" },
-          { label: "Collateral", before: "30.2k USDC", after: "0 USDC", tone: "up" },
-          { label: "Max residual", before: "180 USDC", after: "0 USDC", tone: "up" },
+          { label: "Collateral", before: usdc(collateral(BTC_YIELD_CARRY, 120)), after: "0 USDC", tone: "up" },
+          { label: "Max residual", before: usdc(residual(BTC_YIELD_CARRY, 120)), after: "0 USDC", tone: "up" },
           { label: "Lifecycle state", before: "Active", after: "Terminal" },
         ],
         constraints: [
@@ -182,9 +198,9 @@ export const LIFECYCLE_STRATEGIES: LifecycleStrategy[] = [
     markPrice: ETH_FUNDING_CARRY.netPrice,
     closeCost: 96,
     timeToUnwindSeconds: 43,
-    collateral: 14110,
+    collateral: collateral(ETH_FUNDING_CARRY, 68),
     liquidationDistance: 11.7,
-    maxResidual: 102,
+    maxResidual: residual(ETH_FUNDING_CARRY, 68),
     settlementClass: "Cash USDC at qualified fixing",
     guarantee: "SOLVER_BONDED",
     recoveryClass: "Solver-bounded recovery reserve",
@@ -242,8 +258,8 @@ export const LIFECYCLE_STRATEGIES: LifecycleStrategy[] = [
         estimatedTimeToUnwindSeconds: 43,
         impacts: [
           { label: "Funding window", before: "Open", after: "No exposure", tone: "up" },
-          { label: "Collateral", before: "14.1k USDC", after: "0 USDC", tone: "up" },
-          { label: "Recovery reserve", before: "102 USDC", after: "0 USDC", tone: "up" },
+          { label: "Collateral", before: usdc(collateral(ETH_FUNDING_CARRY, 68)), after: "0 USDC", tone: "up" },
+          { label: "Recovery reserve", before: usdc(residual(ETH_FUNDING_CARRY, 68)), after: "0 USDC", tone: "up" },
           { label: "Settlement path", before: "Solver bounded", after: "Terminal" },
         ],
         constraints: [
@@ -265,8 +281,14 @@ export const LIFECYCLE_STRATEGIES: LifecycleStrategy[] = [
         estimatedTimeToUnwindSeconds: 77,
         impacts: [
           { label: "Guarantee", before: "Solver bounded", after: "Package atomic", tone: "up" },
-          { label: "Recovery reserve", before: "102 USDC", after: "0 USDC", tone: "up" },
-          { label: "Collateral", before: "14.1k USDC", after: "15.0k USDC", tone: "brand" },
+          { label: "Recovery reserve", before: usdc(residual(ETH_FUNDING_CARRY, 68)), after: "0 USDC", tone: "up" },
+          // Direct settlement no longer offsets margin with the solver's recovery reserve, so it posts that reserve.
+          {
+            label: "Collateral",
+            before: usdc(collateral(ETH_FUNDING_CARRY, 68)),
+            after: usdc(collateral(ETH_FUNDING_CARRY, 68) + residual(ETH_FUNDING_CARRY, 68)),
+            tone: "brand",
+          },
           { label: "Net delta", before: "+0.03", after: "+0.03" },
         ],
         constraints: [
@@ -294,9 +316,9 @@ export const LIFECYCLE_STRATEGIES: LifecycleStrategy[] = [
     markPrice: EURUSD_FORWARD.netPrice,
     closeCost: 218,
     timeToUnwindSeconds: 94,
-    collateral: 23750,
+    collateral: collateral(EURUSD_FORWARD, 250),
     liquidationDistance: 8.9,
-    maxResidual: 375,
+    maxResidual: residual(EURUSD_FORWARD, 250),
     settlementClass: "Cash USDC NDF at WMR fixing",
     guarantee: "LEG_SEQUENCED",
     recoveryClass: "Sequenced route with bounded residual policy",
@@ -346,7 +368,7 @@ export const LIFECYCLE_STRATEGIES: LifecycleStrategy[] = [
           { label: "Reference ratio", before: "1.00x", after: "0.96x", tone: "up" },
           { label: "Net delta", before: "-0.08", after: "-0.02", tone: "up" },
           { label: "Close cost", before: "218 USDC", after: "196 USDC", tone: "up" },
-          { label: "Max residual", before: "375 USDC", after: "340 USDC", tone: "up" },
+          { label: "Max residual", before: usdc(residual(EURUSD_FORWARD, 250)), after: usdc(residual(EURUSD_FORWARD, 250) * 0.96), tone: "up" },
         ],
         constraints: [
           { label: "WMR fixing dependency", state: "SATISFIED", detail: "The target keeps the committed fixing source." },
@@ -367,9 +389,9 @@ export const LIFECYCLE_STRATEGIES: LifecycleStrategy[] = [
         estimatedTimeToUnwindSeconds: 51,
         impacts: [
           { label: "Lots", before: "250", after: "150", tone: "up" },
-          { label: "Collateral", before: "23.8k USDC", after: "14.3k USDC", tone: "up" },
+          { label: "Collateral", before: usdc(collateral(EURUSD_FORWARD, 250)), after: usdc(collateral(EURUSD_FORWARD, 150)), tone: "up" },
           { label: "Liquidation distance", before: "8.9%", after: "13.8%", tone: "up" },
-          { label: "Max residual", before: "375 USDC", after: "225 USDC", tone: "up" },
+          { label: "Max residual", before: usdc(residual(EURUSD_FORWARD, 250)), after: usdc(residual(EURUSD_FORWARD, 150)), tone: "up" },
         ],
         constraints: [
           { label: "Package completion", state: "REQUIRES_QUOTE", detail: "Leg-sequenced execution needs an identified residual bound." },
