@@ -33,6 +33,8 @@ import type {
   RfqRequest,
 } from "@/lib/internal-gateway/types";
 import { platformNow } from "@/lib/terminal/clock";
+import { useConfirmationPrefs } from "@/lib/settings/preferences";
+import { useConfirmStep } from "@/components/terminal/confirm-step";
 
 const INTENTS: { value: Intent; label: string }[] = [
   { value: "ENTER", label: "Enter" },
@@ -877,6 +879,8 @@ function StageArea({
   onExecuteRfqQuote?: () => void;
   onCancelRfq?: () => void;
 }) {
+  const [confirmations] = useConfirmationPrefs();
+  const cancelStep = useConfirmStep(confirmations.cancels);
   const unit = priceUnitSuffix(market.priceUnit);
   const verb = state.intent === "ENTER" ? "Enter" : "Exit";
   const idleSide = preview.packageSide === "LONG" ? "Long" : "Short";
@@ -1023,15 +1027,18 @@ function StageArea({
   }
 
   if (stage.kind === "RESTING") {
+    const armed = cancelStep.armed === "working-order";
     return (
       <div className="space-y-2">
         <ExecutionTimeline progress={execution} />
         <button
           type="button"
-          onClick={onCancelResting}
-          className="focus-ring h-11 w-full rounded-md border border-line text-sm text-dim transition-colors hover:border-line-strong hover:text-ink lg:h-9"
+          onClick={() => cancelStep.run("working-order", onCancelResting)}
+          className={`focus-ring h-11 w-full rounded-md border text-sm transition-colors lg:h-9 ${
+            armed ? "border-down/60 bg-down-soft text-down" : "border-line text-dim hover:border-line-strong hover:text-ink"
+          }`}
         >
-          Cancel working order
+          {armed ? "Confirm cancel" : "Cancel working order"}
         </button>
       </div>
     );

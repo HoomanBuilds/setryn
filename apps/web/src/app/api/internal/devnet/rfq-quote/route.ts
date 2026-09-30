@@ -129,9 +129,9 @@ export async function POST(request: Request) {
       permittedExecutor: setryn.atomicClearingEngine,
       nonce: orderNonce,
       salt: keccak256(stringToHex(`${rfqId}:${orderNonce}:maker-order`)),
-      allowPartialFills: rfq.request.allowPartialFills,
-      minimumFillLots: rfq.request.minimumFillLots,
-      remainderPolicy: rfq.request.remainderPolicy as 1 | 2,
+      allowPartialFills: false,
+      minimumFillLots: lots,
+      remainderPolicy: 2 as const,
       postOnly: false,
       reduceOnly: false,
     };

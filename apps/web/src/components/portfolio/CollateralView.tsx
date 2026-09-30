@@ -9,6 +9,8 @@ import { CollateralPanel } from "@/components/portfolio/RiskPanels";
 import { usePortfolio } from "@/components/portfolio/usePortfolio";
 import { Segmented } from "@/components/terminal/primitives";
 import { formatNumber, formatShare, parseDecimal } from "@/lib/terminal/format";
+import { useConfirmationPrefs } from "@/lib/settings/preferences";
+import { useConfirmStep } from "@/components/terminal/confirm-step";
 
 type Kind = "DEPOSIT" | "WITHDRAW";
 
@@ -123,6 +125,9 @@ function TransferCard() {
     }
   };
 
+  const [confirmations] = useConfirmationPrefs();
+  const confirmStep = useConfirmStep(confirmations.collateral, 6_000);
+
   const submit = async () => {
     setPending(true);
     setMessage(null);
@@ -207,11 +212,17 @@ function TransferCard() {
       {connected ? (
         <button
           type="button"
-          onClick={submit}
+          onClick={() => confirmStep.run("collateral", () => void submit())}
           disabled={!valid || pending}
           className="focus-ring h-11 rounded-md bg-ink text-[13px] font-medium text-app transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 lg:h-9"
         >
-          {pending ? "Waiting for wallet..." : kind === "DEPOSIT" ? `Deposit ${asset}` : `Withdraw ${asset}`}
+          {pending
+            ? "Waiting for wallet..."
+            : confirmStep.armed
+              ? `Confirm ${kind === "DEPOSIT" ? "deposit" : "withdrawal"} of ${amount} ${asset}`
+              : kind === "DEPOSIT"
+                ? `Deposit ${asset}`
+                : `Withdraw ${asset}`}
         </button>
       ) : (
         <button

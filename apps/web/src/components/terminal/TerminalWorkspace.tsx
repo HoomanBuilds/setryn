@@ -32,6 +32,7 @@ import { usePersistentState } from "@/lib/terminal/use-persistent-state";
 import type { BookRow, ConsoleTabId, PackageMarket } from "@/lib/terminal/types";
 import type { OrderExecutionProgress } from "@/lib/internal-gateway/types";
 import { platformNow } from "@/lib/terminal/clock";
+import { useConfirmationPrefs, useDisclosurePrefs } from "@/lib/settings/preferences";
 
 type MobileTab = "market" | "book" | "order" | "positions";
 
@@ -218,6 +219,12 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   const [amendmentOrderId, setAmendmentOrderId] = useState<string | null>(null);
   const [amendmentError, setAmendmentError] = useState<string | null>(null);
   const replacementInFlightRef = useRef<string | null>(null);
+  // Settings: whether orders and RFQ quote selections get a review step, and where a new ticket routes first.
+  const [confirmations] = useConfirmationPrefs();
+  const [disclosure] = useDisclosurePrefs();
+  const autoConfirmRef = useRef(false);
+  const autoExecuteQuoteRef = useRef(false);
+  const ticketTouchedRef = useRef(false);
 
   /* Shared coherent preview feed: one tick drives every market, so the
      terminal never owns a page-local interval or stream. */
@@ -599,6 +606,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
 
   const patchTicket = useCallback(
     (patch: Partial<TicketState>) => {
+      ticketTouchedRef.current = true;
       setStage({ kind: "IDLE" });
       setExecution({ status: "IDLE", updates: [] });
       setRfqError(null);
@@ -716,11 +724,13 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   const onStage = useCallback(() => {
     if (effectiveHandoff.blockedReason !== null) return;
     setRfqError(null);
+    // With order confirmations off, the review sheet is skipped and the wallet prompt follows directly.
+    autoConfirmRef.current = !confirmations.orders;
     setStage({
       kind: "COMPILED",
       reference: previewReference(liveMarket.id, preview.requestedLots, preview.limitPrice),
     });
-  }, [effectiveHandoff.blockedReason, liveMarket.id, preview.requestedLots, preview.limitPrice]);
+  }, [confirmations.orders, effectiveHandoff.blockedReason, liveMarket.id, preview.requestedLots, preview.limitPrice]);
 
   const onConfirm = useCallback(async () => {
     if (stage.kind !== "COMPILED" || !route) return;
@@ -966,13 +976,15 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       const requestId = stage.requestId;
       try {
         await gateway.selectRfqQuote(requestId, quoteId);
+        // With quote-selection confirmations off, selecting a quote executes it.
+        autoExecuteQuoteRef.current = !confirmations.rfqSelection;
         setStage({ kind: "RFQ_SELECTED", reference, requestId, quoteId });
         setRfqError(null);
       } catch (error) {
         setRfqError(executionError(error));
       }
     },
-    [gateway, stage],
+    [confirmations.rfqSelection, gateway, stage],
   );
 
   const onCancelRfq = useCallback(async () => {
@@ -1046,6 +1058,29 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       setRfqError(executionError(error));
     }
   }, [gateway, gatewaySnapshot.rfqRequests, stage]);
+
+  /* Confirmation preferences that are off turn the review step into a pass-through: the stage change that would show
+     the review runs the next step immediately, with the stage state that step expects. */
+  useEffect(() => {
+    if (stage.kind === "COMPILED" && autoConfirmRef.current) {
+      autoConfirmRef.current = false;
+      void onConfirm();
+    }
+    if (stage.kind === "RFQ_SELECTED" && autoExecuteQuoteRef.current) {
+      autoExecuteQuoteRef.current = false;
+      void onExecuteRfqQuote();
+    }
+  }, [onConfirm, onExecuteRfqQuote, stage]);
+
+  /* A viewer who defaults to private RFQ starts untouched tickets on the solver route when the market offers one. */
+  useEffect(() => {
+    if (disclosure.route !== "PRIVATE_RFQ" || ticketTouchedRef.current || handoff.present) return;
+    if (!liveMarket.routes.some((candidate) => candidate.id === "SOLVER_RFQ")) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- applies a stored viewer preference once it is readable after hydration
+    setTicket((current) =>
+      current.privateRfq ? current : { ...current, privateRfq: true, routeId: "SOLVER_RFQ", postOnly: false },
+    );
+  }, [disclosure.route, handoff.present, liveMarket.routes]);
 
   const show = (tab: MobileTab) => (mobileTab === tab ? "flex" : "hidden");
   const activePrice = Number.parseFloat(ticket.limitInput);

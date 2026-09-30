@@ -19,6 +19,8 @@ import {
   isGroupActive,
   type NavGroup,
 } from "@/components/shell/routes";
+import { useConfirmationPrefs } from "@/lib/settings/preferences";
+import { useConfirmStep } from "@/components/terminal/confirm-step";
 
 const MOBILE_NAV: NavGroup[] = [
   { id: "trade", label: "Trade", items: [HOME_ITEM, ...PRIMARY_NAV] },
@@ -82,6 +84,9 @@ export function GlobalHeader() {
     setOpenGroup((group) => (group === groupId ? null : groupId));
     setAccountOpen(false);
   };
+
+  const [confirmations] = useConfirmationPrefs();
+  const collateralStep = useConfirmStep(confirmations.collateral, 6_000);
 
   const submitCollateral = async () => {
     const amount = Number.parseFloat(collateralAmount);
@@ -315,10 +320,16 @@ export function GlobalHeader() {
                       <button
                         type="button"
                         disabled={collateralPending}
-                        onClick={submitCollateral}
-                        className="focus-ring h-9 rounded-md border border-line px-3 text-xs text-dim hover:border-line-strong hover:text-ink disabled:opacity-60"
+                        onClick={() => collateralStep.run("collateral", () => void submitCollateral())}
+                        className={`focus-ring h-9 rounded-md border px-3 text-xs disabled:opacity-60 ${
+                          collateralStep.armed ? "border-brand-edge text-ink" : "border-line text-dim hover:border-line-strong hover:text-ink"
+                        }`}
                       >
-                        {collateralPending ? "Pending" : "Submit"}
+                        {collateralPending
+                          ? "Pending"
+                          : collateralStep.armed
+                            ? `Confirm ${collateralKind === "DEPOSIT" ? "deposit" : "withdrawal"}`
+                            : "Submit"}
                       </button>
                     </div>
                     {accountMessage ? <p className="mt-2 text-xs leading-snug text-dim">{accountMessage}</p> : null}

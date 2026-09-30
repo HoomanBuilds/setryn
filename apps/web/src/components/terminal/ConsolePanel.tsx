@@ -32,6 +32,8 @@ import type {
   RestingPackageOrder,
 } from "@/lib/internal-gateway/types";
 import { platformNow } from "@/lib/terminal/clock";
+import { useConfirmationPrefs } from "@/lib/settings/preferences";
+import { useConfirmStep } from "@/components/terminal/confirm-step";
 
 const ADVERSE = new Set(["REJECTED", "SUBMISSION_UNKNOWN", "RECONCILING", "EXPIRED", "CANCELLED"]);
 
@@ -175,6 +177,8 @@ export function ConsolePanel({
   onCancelRestingOrder?: (orderId: string) => void;
   onAmendRestingOrder?: (orderId: string) => void;
 }) {
+  const [confirmations] = useConfirmationPrefs();
+  const cancelStep = useConfirmStep(confirmations.cancels);
   const runtimeStrategies: StrategyRecord[] = runtimePositions.map((position) => ({
     id: position.id,
     marketId: position.marketId,
@@ -414,11 +418,15 @@ export function ConsolePanel({
                           {cancellable ? (
                             <button
                               type="button"
-                              aria-label={`Cancel ${order.id}`}
-                              onClick={() => onCancelRestingOrder?.(order.id)}
-                              className="focus-ring shrink-0 rounded-sm border border-line px-1.5 py-0.5 text-[11px] text-dim transition-colors hover:text-ink"
+                              aria-label={cancelStep.armed === order.id ? `Confirm cancelling ${order.id}` : `Cancel ${order.id}`}
+                              onClick={() => cancelStep.run(order.id, () => onCancelRestingOrder?.(order.id))}
+                              className={`focus-ring shrink-0 rounded-sm border px-1.5 py-0.5 text-[11px] transition-colors ${
+                                cancelStep.armed === order.id
+                                  ? "border-down/60 bg-down-soft text-down"
+                                  : "border-line text-dim hover:text-ink"
+                              }`}
                             >
-                              Cancel
+                              {cancelStep.armed === order.id ? "Confirm cancel" : "Cancel"}
                             </button>
                           ) : null}
                         </span>
