@@ -6,6 +6,7 @@ import { formatNumber, formatUsd, priceUnitSuffix } from "@/lib/terminal/format"
 import { executableAction } from "@/lib/terminal/economics";
 import type { PackageMarket } from "@/lib/terminal/types";
 import type { RfqRequest } from "@/lib/internal-gateway/types";
+import { platformNow } from "@/lib/terminal/clock";
 
 export function RfqQuotePanel({
   market,
@@ -22,9 +23,9 @@ export function RfqQuotePanel({
   onExecuteRfqQuote?: () => void;
   onCancelRfq?: () => void;
 }) {
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState(() => platformNow());
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    const timer = window.setInterval(() => setNow(platformNow()), 1000);
     return () => window.clearInterval(timer);
   }, []);
   const unit = priceUnitSuffix(market.priceUnit);

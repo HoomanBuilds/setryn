@@ -54,6 +54,7 @@ import {
   type PreflightCheck,
 } from "./builder-model";
 import { gatewayErrorCode, gatewayErrorCopy } from "./rfq-errors";
+import { platformNow } from "@/lib/terminal/clock";
 
 type Phase = "IDLE" | "CONNECTING" | "AUTHORIZING" | "REQUESTING" | "OPENING";
 
@@ -554,7 +555,7 @@ function BuilderContent() {
       /* Re-derive against the feed at signing time so the authorization matches what is on screen now. */
       setPhase("AUTHORIZING");
       const current = gateway.getSnapshot();
-      const signingOrder = deriveOrder(draft, liveMarket, current.positions, Date.now());
+      const signingOrder = deriveOrder(draft, liveMarket, current.positions, platformNow());
       const signingBlock = blockingChecks(preflight(draft, signingOrder, current, current.publicBookMarketId))[0];
       const route = signingOrder.route;
       if (signingBlock || !route) {

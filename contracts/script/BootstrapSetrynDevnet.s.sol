@@ -690,7 +690,8 @@ contract BootstrapSetrynDevnet is Script {
     function _schedule(uint32 day) private pure returns (Schedule memory schedule) {
         uint64 dayStart = uint64(uint256(day) * 1 days);
         schedule = Schedule({
-            tradingStartsAt: dayStart + 10 hours,
+            // Trading opens with the 08:00 UTC session so a devnet started on the preview's 09:00 scenario clock trades.
+            tradingStartsAt: dayStart + 8 hours,
             lastTradingAt: dayStart + 18 hours,
             expiryAt: dayStart + 20 hours,
             exerciseOpensAt: dayStart + 20 hours,

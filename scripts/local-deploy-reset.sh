@@ -9,6 +9,9 @@ log_file="$state_directory/anvil.log"
 deployment_directory="$repository_root/deployments/local"
 rpc_url="${LOCAL_RPC_URL:-http://127.0.0.1:8545}"
 chain_id="${LOCAL_CHAIN_ID:-31337}"
+# The devnet starts on the web preview's scenario clock (SCENARIO_CLOCK_ISO), so chain-stamped fills, receipts, and
+# order deadlines fall on the same day and hour as the preview feed. Its trading session is open from 08:00 UTC.
+devnet_epoch_iso="${SETRYN_DEVNET_EPOCH:-2026-09-22T09:00:00Z}"
 
 require_command() {
     if ! command -v "$1" >/dev/null 2>&1; then
@@ -180,7 +183,12 @@ rm -f \
     "$deployment_directory/runtime.json" \
     "$deployment_directory/runtime.tmp.json"
 
-anvil --silent --host "$rpc_bind_host" --port "$rpc_port" --chain-id "$chain_id" --state "$state_file" >"$log_file" 2>&1 &
+devnet_epoch="$(date -u -d "$devnet_epoch_iso" +%s)" || {
+    printf 'SETRYN_DEVNET_EPOCH must be an ISO-8601 UTC timestamp.\n' >&2
+    exit 1
+}
+anvil --silent --host "$rpc_bind_host" --port "$rpc_port" --chain-id "$chain_id" --timestamp "$devnet_epoch" \
+    --state "$state_file" >"$log_file" 2>&1 &
 anvil_pid=$!
 trap cleanup_failed_start ERR INT TERM
 
@@ -224,8 +232,6 @@ if [[ "$observed_chain_id" != "$chain_id" ]]; then
     exit 1
 fi
 
-safe_timestamp="$((($(date -u +%s) / 86400 + 1) * 86400 + 43200))"
-cast rpc evm_setNextBlockTimestamp "$safe_timestamp" --rpc-url "$rpc_url" >/dev/null
 cast rpc evm_mine --rpc-url "$rpc_url" >/dev/null
 
 accounts_json="$(cast rpc eth_accounts --rpc-url "$rpc_url")"

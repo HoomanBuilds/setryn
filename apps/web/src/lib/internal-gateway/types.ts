@@ -71,6 +71,8 @@ export interface GatewaySnapshot {
   publicBookMarketId: string | null;
   /** Economics of the onchain series behind the public book market, once the runtime is loaded. */
   publicBookEconomics: OnchainMarketEconomics | null;
+  /** Settlement chain time minus browser time; deadlines and countdowns read the chain clock. */
+  chainClockOffsetMs: number;
   publicBookOrders: BookRow[];
   rfqRequests: RfqRequest[];
 }

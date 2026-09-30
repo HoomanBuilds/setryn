@@ -1,4 +1,5 @@
 import type { Guarantee, PackageMarket, RouteQuote } from "./types";
+import { platformNow } from "@/lib/terminal/clock";
 
 export type Intent = "ENTER" | "EXIT";
 export type PackageSide = "LONG" | "SHORT";
@@ -34,12 +35,12 @@ export function isRestingTimeInForce(tif: TimeInForce): boolean {
   return tif === "GTC" || tif === "GTD";
 }
 
-export function defaultGtdExpiry(fromMs = Date.now()): string {
+export function defaultGtdExpiry(fromMs = platformNow()): string {
   return new Date(fromMs + 60 * 60 * 1000).toISOString();
 }
 
 /** UI blocker for a GTD expiry. Null when the expiry is a finite future time within 30 days. */
-export function gtdExpiryBlocker(expiresAt: string | null, nowMs = Date.now()): string | null {
+export function gtdExpiryBlocker(expiresAt: string | null, nowMs = platformNow()): string | null {
   if (typeof expiresAt !== "string" || expiresAt.length === 0) {
     return "Select a GTD expiry in the future within 30 days.";
   }

@@ -227,7 +227,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const block = await publicClient.getBlock();
+    const block = await publicClient.getBlock({ blockTag: "pending" });
     const bookId = deriveBookId(setryn);
     const created: Hex[] = [];
     for (const quote of [{ side: 1, priceTicks: BigInt(6110) }, { side: 2, priceTicks: BigInt(6130) }] as const) {

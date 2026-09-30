@@ -31,6 +31,7 @@ import { tradeHref } from "@/lib/terminal/markets";
 import { usePersistentState } from "@/lib/terminal/use-persistent-state";
 import type { BookRow, ConsoleTabId, PackageMarket } from "@/lib/terminal/types";
 import type { OrderExecutionProgress } from "@/lib/internal-gateway/types";
+import { platformNow } from "@/lib/terminal/clock";
 
 type MobileTab = "market" | "book" | "order" | "positions";
 
@@ -386,7 +387,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       idle("The RFQ request already executed and cannot resume as an actionable quote.");
       return;
     }
-    if (Date.parse(request.expiresAt) <= Date.now()) {
+    if (Date.parse(request.expiresAt) <= platformNow()) {
       idle("The RFQ request expired. Confirm the ticket again for a fresh quote.");
       return;
     }
@@ -1006,8 +1007,8 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       return;
     }
     if (
-      Date.parse(currentRequest.expiresAt) <= Date.now() ||
-      Date.parse(currentQuote.expiresAt) <= Date.now()
+      Date.parse(currentRequest.expiresAt) <= platformNow() ||
+      Date.parse(currentQuote.expiresAt) <= platformNow()
     ) {
       setRfqError(executionError(new Error("RFQ_EXPIRED")));
       return;

@@ -5,6 +5,7 @@ import { Check, Copy } from "lucide-react";
 import { useGatewaySnapshot, useInternalGateway } from "@/components/gateway/InternalGatewayProvider";
 import { StatusDot } from "@/components/terminal/primitives";
 import motion from "./ledger.module.css";
+import { platformNow } from "@/lib/terminal/clock";
 
 export { motion };
 
@@ -348,9 +349,9 @@ export function formatCountdown(seconds: number): string {
 
 /** One shared one-second clock for live countdowns. */
 export function useNow(intervalMs = 1000): number {
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState(() => platformNow());
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), intervalMs);
+    const timer = window.setInterval(() => setNow(platformNow()), intervalMs);
     return () => window.clearInterval(timer);
   }, [intervalMs]);
   return now;

@@ -24,7 +24,7 @@ export async function POST(request: Request) {
     });
     if (quote.quote.maker.toLowerCase() !== maker.toLowerCase()) throw new Error("QUOTE_MAKER_MISMATCH");
     if (quote.status === 3) throw new Error("RFQ_SELECTION_LOCKED");
-    const block = await publicClient.getBlock();
+    const block = await publicClient.getBlock({ blockTag: "pending" });
     const nonce = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(crypto.getRandomValues(new Uint32Array(1))[0]);
     const cancellation = {
       quoteId,

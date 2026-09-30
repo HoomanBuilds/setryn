@@ -32,6 +32,7 @@ import type {
   OrderExecutionProgress,
   RfqRequest,
 } from "@/lib/internal-gateway/types";
+import { platformNow } from "@/lib/terminal/clock";
 
 const INTENTS: { value: Intent; label: string }[] = [
   { value: "ENTER", label: "Enter" },
@@ -264,7 +265,7 @@ export function OrderTicket({
     : null;
   const bestRouteId = bestRoute?.id ?? null;
   // Wall clock for the GTD picker bounds, refreshed when GTD is chosen rather than read during render.
-  const [gtdClockMs, setGtdClockMs] = useState(() => Date.now());
+  const [gtdClockMs, setGtdClockMs] = useState(() => platformNow());
   // Smart default: the best executable route is preselected and stays editable in the route selector.
   useEffect(() => {
     if (!state.routeId && bestRouteId && !locked && !isAmending) onChange({ routeId: bestRouteId });
@@ -598,7 +599,7 @@ export function OrderTicket({
                   aria-checked={state.tif === option.value}
                   disabled={isAmending}
                   onClick={() => {
-                    if (option.value === "GTD") setGtdClockMs(Date.now());
+                    if (option.value === "GTD") setGtdClockMs(platformNow());
                     onChange(
                       option.value === "GTD"
                         ? {
@@ -606,7 +607,7 @@ export function OrderTicket({
                             expiresAt:
                               state.expiresAt &&
                               Number.isFinite(Date.parse(state.expiresAt)) &&
-                              Date.parse(state.expiresAt) > Date.now()
+                              Date.parse(state.expiresAt) > platformNow()
                                 ? state.expiresAt
                                 : defaultGtdExpiry(),
                           }
@@ -630,7 +631,7 @@ export function OrderTicket({
                     key={preset.label}
                     type="button"
                     onClick={() =>
-                      onChange({ expiresAt: new Date(Date.now() + preset.minutes * 60 * 1000).toISOString() })
+                      onChange({ expiresAt: new Date(platformNow() + preset.minutes * 60 * 1000).toISOString() })
                     }
                     className="focus-ring tnum h-7 rounded-sm bg-inset font-mono text-[11px] text-faint transition-colors hover:text-ink"
                   >

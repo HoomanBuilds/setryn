@@ -87,7 +87,7 @@ export async function POST(request: Request) {
         functionName: "deriveAccountId",
         args: [maker, ACCOUNT_SALT],
       }),
-      publicClient.getBlock(),
+      publicClient.getBlock({ blockTag: "pending" }),
     ]);
     if (rfq.status !== 2 || rfq.request.deadline <= block.timestamp) throw new Error("RFQ_NOT_COLLECTING");
 

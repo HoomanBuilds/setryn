@@ -182,7 +182,7 @@ export async function POST(request: Request) {
         functionName: "deriveAccountId",
         args: [order.signer, ACCOUNT_SALT],
       }),
-      publicClient.getBlock(),
+      publicClient.getBlock({ blockTag: "pending" }),
     ]);
     if (
       canonicalOrderHash.toLowerCase() !== body.orderHash.toLowerCase() ||
