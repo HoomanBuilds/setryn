@@ -227,6 +227,9 @@ library DeployArtifacts {
         if (key == keccak256("RecoveryReceiptAuthority")) {
             return "ProtocolReceiptAuthorities.sol:RecoveryReceiptAuthority";
         }
+        if (key == keccak256("RegistryStatusController")) {
+            return "RegistryStatusController.sol:RegistryStatusController";
+        }
         if (key == keccak256("RfqReceiptAuthority")) return "ProtocolReceiptAuthorities.sol:RfqReceiptAuthority";
         if (key == keccak256("RiskAdmissionBindingRegistry")) {
             return "RiskAdmissionBindingRegistry.sol:RiskAdmissionBindingRegistry";

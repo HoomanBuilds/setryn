@@ -46,7 +46,9 @@ contract PlanArbitrumOneDeployment is DeploySetryn {
             maximumRfqCapacityTail: 1 days,
             sequencerRecoveryGrace: 1 hours,
             deploymentId: keccak256("SetrynArbitrumOneUnsignedPlanningV1"),
-            sequencerFeed: ISequencerUptimeFeed(PLANNING_SEQUENCER_UPTIME_FEED)
+            sequencerFeed: ISequencerUptimeFeed(PLANNING_SEQUENCER_UPTIME_FEED),
+            statusGovernance: 0xA4b1000000000000000000000000000000000001,
+            retainOperatorStatusRoles: false
         });
 
         vm.startBroadcast(PLANNING_SENDER);

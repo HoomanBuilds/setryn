@@ -79,6 +79,7 @@ const contracts = [
   ["PrivacyReceiptAuthority", "contracts/out/ProtocolReceiptAuthorities.sol/PrivacyReceiptAuthority.json"],
   ["AsyncReceiptAuthority", "contracts/out/ProtocolReceiptAuthorities.sol/AsyncReceiptAuthority.json"],
   ["VerifiableReceiptLedger", "contracts/out/VerifiableReceiptLedger.sol/VerifiableReceiptLedger.json"],
+  ["RegistryStatusController", "contracts/out/RegistryStatusController.sol/RegistryStatusController.json"],
   ["CappedForwardPayoffModule", "contracts/out/ProductionPayoffModules.sol/CappedForwardPayoffModule.json"],
   ["NdfPayoffModule", "contracts/out/ProductionPayoffModules.sol/NdfPayoffModule.json"],
   ["EuropeanCallPayoffModule", "contracts/out/ProductionPayoffModules.sol/EuropeanCallPayoffModule.json"],

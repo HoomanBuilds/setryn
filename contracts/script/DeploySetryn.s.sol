@@ -107,6 +107,9 @@ import {PositionLifecycleExecutor} from "../src/lifecycle/PositionLifecycleExecu
 import {SignedLifecycleEngine} from "../src/lifecycle/SignedLifecycleEngine.sol";
 import {CompressionCoordinator} from "../src/lifecycle/CompressionCoordinator.sol";
 import {PrivacyCommitmentRegistry} from "../src/privacy/PrivacyCommitmentRegistry.sol";
+import {IRegistryStatusController} from "../src/interfaces/IRegistryStatusController.sol";
+import {RegistryStatusController} from "../src/policy/RegistryStatusController.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {AccountPolicyAuthority} from "../src/policy/AccountPolicyAuthority.sol";
 import {DefaultBidderGate} from "../src/policy/DefaultBidderGate.sol";
 import {LifecyclePolicyValidator} from "../src/policy/LifecyclePolicyValidator.sol";
@@ -149,6 +152,9 @@ contract DeploySetryn is ArtifactDeployer {
     error Uint48EnvironmentValueOutOfRange(string name, uint256 value);
     error Uint64EnvironmentValueOutOfRange(string name, uint256 value);
     error InvalidSequencerUptimeFeed(address feed);
+    error InvalidStatusGovernance(address statusGovernance);
+    error LocalOnlyStatusShortcut(uint256 chainId);
+    error RegistryStatusRoleMisassigned(address registry, bytes32 role, address holder);
 
     struct Deployment {
         AssetRegistry assetRegistry;
@@ -216,6 +222,7 @@ contract DeploySetryn is ArtifactDeployer {
         CollateralAwareRouteEngine routeEngine;
         address[18] receiptAuthorities;
         VerifiableReceiptLedger receiptLedger;
+        RegistryStatusController registryStatusController;
     }
 
     struct DeploymentConfig {
@@ -238,6 +245,12 @@ contract DeploySetryn is ArtifactDeployer {
         uint64 sequencerRecoveryGrace;
         bytes32 deploymentId;
         ISequencerUptimeFeed sequencerFeed;
+        /// Governance principal of the registry status controller: the governance timelock (`governanceAdmin`) on
+        /// every public environment. Local devnets may use `governanceOperator` so one sender drives bootstrap.
+        address statusGovernance;
+        /// Local devnet only: the governance operator also keeps every direct registry status role, so the current
+        /// devnet bootstrap keeps activating registries directly until it routes through the controller.
+        bool retainOperatorStatusRoles;
     }
 
     function run() external returns (Deployment memory deployment) {
@@ -274,7 +287,8 @@ contract DeploySetryn is ArtifactDeployer {
         bytes32 deploymentId = vm.envBytes32("SETRYN_DEPLOYMENT_ID");
 
         ISequencerUptimeFeed sequencerFeed;
-        if (keccak256(bytes(environment)) == LOCAL_ENVIRONMENT) {
+        bool localEnvironment = keccak256(bytes(environment)) == LOCAL_ENVIRONMENT;
+        if (localEnvironment) {
             sequencerFeed = ISequencerUptimeFeed(address(0));
         } else {
             sequencerFeed = _deployOrResolveSequencerFeed(environment);
@@ -299,7 +313,9 @@ contract DeploySetryn is ArtifactDeployer {
             maximumRfqCapacityTail: maximumRfqCapacityTail,
             sequencerRecoveryGrace: sequencerRecoveryGrace,
             deploymentId: deploymentId,
-            sequencerFeed: sequencerFeed
+            sequencerFeed: sequencerFeed,
+            statusGovernance: localEnvironment ? governanceOperator : governanceAdmin,
+            retainOperatorStatusRoles: localEnvironment
         });
 
         vm.startBroadcast(deployer);
@@ -329,6 +345,7 @@ contract DeploySetryn is ArtifactDeployer {
             config.privacyKeyPublisher,
             config.lifecycleWitnessStager
         );
+        _requireStatusControlTopology(config);
 
         ISequencerUptimeFeed resolvedFeed;
         if (address(config.sequencerFeed) == address(0)) {
@@ -727,6 +744,12 @@ contract DeploySetryn is ArtifactDeployer {
             CorrelationDispersionScalarPayoffModule(_create("CorrelationDispersionScalarPayoffModule", ""));
         _deployExecutionVenues(deployment, config.defaultAdminDelay, config.bootstrapAdmin);
         _deployReceiptLedger(deployment, config.deploymentId);
+        deployment.registryStatusController = RegistryStatusController(
+            _create(
+                "RegistryStatusController",
+                abi.encode(config.guardian, config.statusGovernance, _statusRegistryBindings(deployment))
+            )
+        );
 
         _wireInternalRoles(
             deployment,
@@ -736,17 +759,140 @@ contract DeploySetryn is ArtifactDeployer {
             config.guardian,
             config.excessRecovery,
             config.privacyKeyPublisher,
-            config.lifecycleWitnessStager
+            config.lifecycleWitnessStager,
+            config.retainOperatorStatusRoles
         );
-        postWiringEvidence = _postWiringEvidence(
-            deployment,
-            config.bootstrapAdmin,
-            config.governanceAdmin,
-            config.governanceOperator,
-            config.guardian,
-            config.excessRecovery,
-            config.privacyKeyPublisher,
-            config.lifecycleWitnessStager
+        postWiringEvidence = keccak256(
+            abi.encode(
+                _postWiringEvidence(
+                    deployment,
+                    config.bootstrapAdmin,
+                    config.governanceAdmin,
+                    config.governanceOperator,
+                    config.guardian,
+                    config.excessRecovery,
+                    config.privacyKeyPublisher,
+                    config.lifecycleWitnessStager
+                ),
+                _statusControlEvidence(deployment, config)
+            )
+        );
+    }
+
+    /// Status principals: the guardian may only pause, the timelock may only activate, resume, or deprecate, and the
+    /// operator shortcut exists only on a local devnet chain.
+    function _requireStatusControlTopology(DeploymentConfig memory config) private view {
+        bool localChain = block.chainid == ANVIL_CHAIN_ID || block.chainid == GANACHE_CHAIN_ID;
+        if (config.statusGovernance != config.governanceAdmin) {
+            if (!localChain || config.statusGovernance != config.governanceOperator) {
+                revert InvalidStatusGovernance(config.statusGovernance);
+            }
+        }
+        if (config.retainOperatorStatusRoles && !localChain) revert LocalOnlyStatusShortcut(block.chainid);
+    }
+
+    /// Every registry whose activation, pause, and deprecation share one status role, with its kind.
+    function _statusRegistryBindings(Deployment memory d)
+        private
+        view
+        returns (IRegistryStatusController.RegistryBinding[] memory bindings)
+    {
+        (address[13] memory registries,) = _statusRoles(d);
+        IRegistryStatusController.RegistryKind[13] memory kinds = [
+            IRegistryStatusController.RegistryKind.Asset,
+            IRegistryStatusController.RegistryKind.Adapter,
+            IRegistryStatusController.RegistryKind.Calendar,
+            IRegistryStatusController.RegistryKind.Session,
+            IRegistryStatusController.RegistryKind.SettlementAsset,
+            IRegistryStatusController.RegistryKind.Benchmark,
+            IRegistryStatusController.RegistryKind.FeeSchedule,
+            IRegistryStatusController.RegistryKind.RiskDomain,
+            IRegistryStatusController.RegistryKind.Instrument,
+            IRegistryStatusController.RegistryKind.Market,
+            IRegistryStatusController.RegistryKind.Series,
+            IRegistryStatusController.RegistryKind.Package,
+            IRegistryStatusController.RegistryKind.PrivacyPolicy
+        ];
+        bindings = new IRegistryStatusController.RegistryBinding[](registries.length);
+        for (uint256 i; i < registries.length; ++i) {
+            bindings[i] = IRegistryStatusController.RegistryBinding({kind: kinds[i], registry: registries[i]});
+        }
+    }
+
+    /// The combined status role of each controller-held registry, in `_statusRegistryBindings` order.
+    function _statusRoles(Deployment memory d)
+        private
+        view
+        returns (address[13] memory registries, bytes32[13] memory roles)
+    {
+        registries = [
+            address(d.assetRegistry),
+            address(d.adapterRegistry),
+            address(d.calendarRegistry),
+            address(d.sessionRegistry),
+            address(d.settlementAssetRegistry),
+            address(d.benchmarkRegistry),
+            address(d.feeScheduleRegistry),
+            address(d.riskDomainRegistry),
+            address(d.instrumentRegistry),
+            address(d.marketRegistry),
+            address(d.seriesRegistry),
+            address(d.packageRegistry),
+            address(d.privacyCommitmentRegistry)
+        ];
+        roles = [
+            d.assetRegistry.STATUS_MANAGER_ROLE(),
+            d.adapterRegistry.ADAPTER_STATUS_MANAGER_ROLE(),
+            d.calendarRegistry.CALENDAR_STATUS_MANAGER_ROLE(),
+            d.sessionRegistry.SESSION_STATUS_MANAGER_ROLE(),
+            d.settlementAssetRegistry.STATUS_MANAGER_ROLE(),
+            d.benchmarkRegistry.BENCHMARK_STATUS_MANAGER_ROLE(),
+            d.feeScheduleRegistry.FEE_SCHEDULE_STATUS_MANAGER_ROLE(),
+            d.riskDomainRegistry.RISK_DOMAIN_STATUS_MANAGER_ROLE(),
+            d.instrumentRegistry.INSTRUMENT_STATUS_MANAGER_ROLE(),
+            d.marketRegistry.MARKET_STATUS_MANAGER_ROLE(),
+            d.seriesRegistry.SERIES_STATUS_MANAGER_ROLE(),
+            d.packageRegistry.PACKAGE_STATUS_MANAGER_ROLE(),
+            d.privacyCommitmentRegistry.POLICY_ACTIVATOR_ROLE()
+        ];
+    }
+
+    /// Proves from direct reads that the controller alone (plus the local operator shortcut) holds every combined
+    /// status role, that the guardian and bootstrap hold none, and that the controller is bound to exact principals.
+    function _statusControlEvidence(Deployment memory d, DeploymentConfig memory config)
+        private
+        view
+        returns (bytes32)
+    {
+        RegistryStatusController controller = d.registryStatusController;
+        if (controller.guardian() != config.guardian || controller.governance() != config.statusGovernance) {
+            revert InvalidStatusGovernance(controller.governance());
+        }
+        (address[13] memory registries, bytes32[13] memory roles) = _statusRoles(d);
+        for (uint256 i; i < registries.length; ++i) {
+            IAccessControl registry = IAccessControl(registries[i]);
+            if (!registry.hasRole(roles[i], address(controller))) {
+                revert RegistryStatusRoleMisassigned(registries[i], roles[i], address(controller));
+            }
+            if (registry.hasRole(roles[i], config.guardian)) {
+                revert RegistryStatusRoleMisassigned(registries[i], roles[i], config.guardian);
+            }
+            if (registry.hasRole(roles[i], config.bootstrapAdmin)) {
+                revert RegistryStatusRoleMisassigned(registries[i], roles[i], config.bootstrapAdmin);
+            }
+            if (registry.hasRole(roles[i], config.governanceOperator) != config.retainOperatorStatusRoles) {
+                revert RegistryStatusRoleMisassigned(registries[i], roles[i], config.governanceOperator);
+            }
+        }
+        return keccak256(
+            abi.encode(
+                address(controller),
+                config.guardian,
+                config.statusGovernance,
+                config.retainOperatorStatusRoles,
+                registries,
+                roles
+            )
         );
     }
 
@@ -1086,9 +1232,10 @@ contract DeploySetryn is ArtifactDeployer {
         address guardian,
         address excessRecovery,
         address privacyKeyPublisher,
-        address lifecycleWitnessStager
+        address lifecycleWitnessStager,
+        bool retainOperatorStatusRoles
     ) private {
-        _wireRegistryRoles(deployment, bootstrapAdmin, governanceOperator);
+        _wireRegistryRoles(deployment, bootstrapAdmin, governanceOperator, retainOperatorStatusRoles);
         _wireExecutionVenueRoles(deployment, bootstrapAdmin, governanceAdmin, governanceOperator, guardian);
         deployment.executionPolicyRegistry
             .grantRole(deployment.executionPolicyRegistry.POLICY_ADMIN_ROLE(), governanceOperator);
@@ -1190,64 +1337,50 @@ contract DeploySetryn is ArtifactDeployer {
         deployment.privacyCommitmentRegistry
             .grantRole(deployment.privacyCommitmentRegistry.POLICY_QUALIFIER_ROLE(), governanceOperator);
         deployment.privacyCommitmentRegistry
-            .grantRole(deployment.privacyCommitmentRegistry.POLICY_ACTIVATOR_ROLE(), governanceOperator);
-        deployment.privacyCommitmentRegistry
             .grantRole(deployment.privacyCommitmentRegistry.EPOCH_KEY_PUBLISHER_ROLE(), privacyKeyPublisher);
 
         _revokeBootstrapOperationalRoles(deployment, bootstrapAdmin);
         _beginAdminTransfers(deployment, governanceAdmin);
     }
 
-    function _wireRegistryRoles(Deployment memory d, address bootstrap, address operator) private {
+    function _wireRegistryRoles(Deployment memory d, address bootstrap, address operator, bool retainOperatorStatus)
+        private
+    {
         d.assetRegistry.grantRole(d.assetRegistry.REGISTRAR_ROLE(), operator);
-        d.assetRegistry.grantRole(d.assetRegistry.STATUS_MANAGER_ROLE(), operator);
         d.adapterRegistry.grantRole(d.adapterRegistry.ADAPTER_QUALIFIER_ROLE(), operator);
-        d.adapterRegistry.grantRole(d.adapterRegistry.ADAPTER_STATUS_MANAGER_ROLE(), operator);
         d.calendarRegistry.grantRole(d.calendarRegistry.CALENDAR_REGISTRAR_ROLE(), operator);
-        d.calendarRegistry.grantRole(d.calendarRegistry.CALENDAR_STATUS_MANAGER_ROLE(), operator);
         d.sessionRegistry.grantRole(d.sessionRegistry.SESSION_REGISTRAR_ROLE(), operator);
-        d.sessionRegistry.grantRole(d.sessionRegistry.SESSION_STATUS_MANAGER_ROLE(), operator);
         d.settlementAssetRegistry.grantRole(d.settlementAssetRegistry.QUALIFIER_ROLE(), operator);
-        d.settlementAssetRegistry.grantRole(d.settlementAssetRegistry.STATUS_MANAGER_ROLE(), operator);
         d.benchmarkRegistry.grantRole(d.benchmarkRegistry.BENCHMARK_QUALIFIER_ROLE(), operator);
-        d.benchmarkRegistry.grantRole(d.benchmarkRegistry.BENCHMARK_STATUS_MANAGER_ROLE(), operator);
         d.feeScheduleRegistry.grantRole(d.feeScheduleRegistry.FEE_SCHEDULE_QUALIFIER_ROLE(), operator);
-        d.feeScheduleRegistry.grantRole(d.feeScheduleRegistry.FEE_SCHEDULE_STATUS_MANAGER_ROLE(), operator);
         d.riskDomainRegistry.grantRole(d.riskDomainRegistry.RISK_DOMAIN_QUALIFIER_ROLE(), operator);
-        d.riskDomainRegistry.grantRole(d.riskDomainRegistry.RISK_DOMAIN_STATUS_MANAGER_ROLE(), operator);
         d.instrumentRegistry.grantRole(d.instrumentRegistry.INSTRUMENT_QUALIFIER_ROLE(), operator);
-        d.instrumentRegistry.grantRole(d.instrumentRegistry.INSTRUMENT_STATUS_MANAGER_ROLE(), operator);
         d.marketRegistry.grantRole(d.marketRegistry.MARKET_QUALIFIER_ROLE(), operator);
-        d.marketRegistry.grantRole(d.marketRegistry.MARKET_STATUS_MANAGER_ROLE(), operator);
         d.seriesRegistry.grantRole(d.seriesRegistry.SERIES_QUALIFIER_ROLE(), operator);
-        d.seriesRegistry.grantRole(d.seriesRegistry.SERIES_STATUS_MANAGER_ROLE(), operator);
         d.packageRegistry.grantRole(d.packageRegistry.PACKAGE_QUALIFIER_ROLE(), operator);
-        d.packageRegistry.grantRole(d.packageRegistry.PACKAGE_STATUS_MANAGER_ROLE(), operator);
+
+        // Combined activate, pause, and deprecate roles belong to the status controller, which gives the guardian
+        // only pause selectors and governance only activate and deprecate selectors. Never grant them to the guardian.
+        (address[13] memory registries, bytes32[13] memory statusRoles) = _statusRoles(d);
+        address controller = address(d.registryStatusController);
+        for (uint256 i; i < registries.length; ++i) {
+            IAccessControl(registries[i]).grantRole(statusRoles[i], controller);
+            if (retainOperatorStatus) IAccessControl(registries[i]).grantRole(statusRoles[i], operator);
+            IAccessControl(registries[i]).revokeRole(statusRoles[i], bootstrap);
+        }
 
         d.assetRegistry.revokeRole(d.assetRegistry.REGISTRAR_ROLE(), bootstrap);
-        d.assetRegistry.revokeRole(d.assetRegistry.STATUS_MANAGER_ROLE(), bootstrap);
         d.adapterRegistry.revokeRole(d.adapterRegistry.ADAPTER_QUALIFIER_ROLE(), bootstrap);
-        d.adapterRegistry.revokeRole(d.adapterRegistry.ADAPTER_STATUS_MANAGER_ROLE(), bootstrap);
         d.calendarRegistry.revokeRole(d.calendarRegistry.CALENDAR_REGISTRAR_ROLE(), bootstrap);
-        d.calendarRegistry.revokeRole(d.calendarRegistry.CALENDAR_STATUS_MANAGER_ROLE(), bootstrap);
         d.sessionRegistry.revokeRole(d.sessionRegistry.SESSION_REGISTRAR_ROLE(), bootstrap);
-        d.sessionRegistry.revokeRole(d.sessionRegistry.SESSION_STATUS_MANAGER_ROLE(), bootstrap);
         d.settlementAssetRegistry.revokeRole(d.settlementAssetRegistry.QUALIFIER_ROLE(), bootstrap);
-        d.settlementAssetRegistry.revokeRole(d.settlementAssetRegistry.STATUS_MANAGER_ROLE(), bootstrap);
         d.benchmarkRegistry.revokeRole(d.benchmarkRegistry.BENCHMARK_QUALIFIER_ROLE(), bootstrap);
-        d.benchmarkRegistry.revokeRole(d.benchmarkRegistry.BENCHMARK_STATUS_MANAGER_ROLE(), bootstrap);
         d.feeScheduleRegistry.revokeRole(d.feeScheduleRegistry.FEE_SCHEDULE_QUALIFIER_ROLE(), bootstrap);
-        d.feeScheduleRegistry.revokeRole(d.feeScheduleRegistry.FEE_SCHEDULE_STATUS_MANAGER_ROLE(), bootstrap);
         d.riskDomainRegistry.revokeRole(d.riskDomainRegistry.RISK_DOMAIN_QUALIFIER_ROLE(), bootstrap);
-        d.riskDomainRegistry.revokeRole(d.riskDomainRegistry.RISK_DOMAIN_STATUS_MANAGER_ROLE(), bootstrap);
         d.instrumentRegistry.revokeRole(d.instrumentRegistry.INSTRUMENT_QUALIFIER_ROLE(), bootstrap);
-        d.instrumentRegistry.revokeRole(d.instrumentRegistry.INSTRUMENT_STATUS_MANAGER_ROLE(), bootstrap);
         d.marketRegistry.revokeRole(d.marketRegistry.MARKET_QUALIFIER_ROLE(), bootstrap);
-        d.marketRegistry.revokeRole(d.marketRegistry.MARKET_STATUS_MANAGER_ROLE(), bootstrap);
         d.seriesRegistry.revokeRole(d.seriesRegistry.SERIES_QUALIFIER_ROLE(), bootstrap);
-        d.seriesRegistry.revokeRole(d.seriesRegistry.SERIES_STATUS_MANAGER_ROLE(), bootstrap);
         d.packageRegistry.revokeRole(d.packageRegistry.PACKAGE_QUALIFIER_ROLE(), bootstrap);
-        d.packageRegistry.revokeRole(d.packageRegistry.PACKAGE_STATUS_MANAGER_ROLE(), bootstrap);
     }
 
     function _revokeBootstrapOperationalRoles(Deployment memory d, address bootstrap) private {
@@ -1271,7 +1404,6 @@ contract DeploySetryn is ArtifactDeployer {
         d.signedLifecycleEngine.revokeRole(d.signedLifecycleEngine.LIFECYCLE_GUARDIAN_ROLE(), bootstrap);
         d.compressionCoordinator.revokeRole(d.compressionCoordinator.COMPRESSION_GUARDIAN_ROLE(), bootstrap);
         d.privacyCommitmentRegistry.revokeRole(d.privacyCommitmentRegistry.POLICY_QUALIFIER_ROLE(), bootstrap);
-        d.privacyCommitmentRegistry.revokeRole(d.privacyCommitmentRegistry.POLICY_ACTIVATOR_ROLE(), bootstrap);
         d.privacyCommitmentRegistry.revokeRole(d.privacyCommitmentRegistry.EPOCH_KEY_PUBLISHER_ROLE(), bootstrap);
         d.executionPolicyRegistry.revokeRole(d.executionPolicyRegistry.POLICY_ADMIN_ROLE(), bootstrap);
         d.orderState.revokeRole(d.orderState.ORDER_CONSUMER_ROLE(), bootstrap);
@@ -1525,5 +1657,6 @@ contract DeploySetryn is ArtifactDeployer {
         console2.log("ProtocolRouteLiquiditySource", address(deployment.routeLiquiditySource));
         console2.log("CollateralAwareRouteEngine", address(deployment.routeEngine));
         console2.log("VerifiableReceiptLedger", address(deployment.receiptLedger));
+        console2.log("RegistryStatusController", address(deployment.registryStatusController));
     }
 }

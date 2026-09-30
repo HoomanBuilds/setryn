@@ -7,6 +7,8 @@ import {DeploySetryn} from "../../script/DeploySetryn.s.sol";
 import {ISequencerUptimeFeed} from "../../src/interfaces/ISequencerUptimeFeed.sol";
 import {ReceiptAuthorityBase} from "../../src/evidence/ProtocolReceiptAuthorities.sol";
 import {ReceiptAuthorityBinding} from "../../src/types/EvidenceTypes.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {IRegistryStatusController} from "../../src/interfaces/IRegistryStatusController.sol";
 
 interface IPendingDefaultAdmin {
     function pendingDefaultAdmin() external view returns (address newAdmin, uint48 acceptSchedule);
@@ -94,7 +96,9 @@ contract ArbitrumOneDeploymentRehearsalForkTest is Test, DeploySetryn {
             maximumRfqCapacityTail: REHEARSAL_RFQ_TAIL,
             sequencerRecoveryGrace: REHEARSAL_RECOVERY_GRACE,
             deploymentId: REHEARSAL_DEPLOYMENT_ID,
-            sequencerFeed: ISequencerUptimeFeed(sequencerFeed)
+            sequencerFeed: ISequencerUptimeFeed(sequencerFeed),
+            statusGovernance: governanceAdmin,
+            retainOperatorStatusRoles: false
         });
 
         // Mirror production: the bootstrap deployer is the contract creator.
@@ -119,6 +123,7 @@ contract ArbitrumOneDeploymentRehearsalForkTest is Test, DeploySetryn {
         _assertAdminTransfers(deployment, governanceAdmin);
         _assertExecutionVenues(deployment, bootstrap, governanceAdmin, governanceOperator, guardian);
         _assertReceiptAuthorities(deployment);
+        _assertStatusController(deployment, bootstrap, governanceAdmin, governanceOperator, guardian);
 
         assertEq(NATIVE_USDC.codehash, usdcCodeHashBefore, "native USDC code must be unchanged");
         assertEq(_totalSupply(), usdcSupplyBefore, "native USDC supply must be unchanged");
@@ -188,6 +193,62 @@ contract ArbitrumOneDeploymentRehearsalForkTest is Test, DeploySetryn {
         _assertCode(address(d.batchClearingEngine), "batchClearingEngine");
         _assertCode(address(d.routeLiquiditySource), "routeLiquiditySource");
         _assertCode(address(d.routeEngine), "routeEngine");
+        _assertCode(address(d.registryStatusController), "registryStatusController");
+    }
+
+    /// Every combined status role is held only by the status controller, which gives the guardian pause selectors and
+    /// the governance timelock activate and deprecate selectors.
+    function _assertStatusController(
+        Deployment memory d,
+        address bootstrap,
+        address governanceAdmin,
+        address governanceOperator,
+        address guardian
+    ) private view {
+        IRegistryStatusController controller = IRegistryStatusController(address(d.registryStatusController));
+        assertEq(controller.guardian(), guardian, "status controller guardian");
+        assertEq(controller.governance(), governanceAdmin, "status controller governance must be the timelock");
+        address[13] memory registries = [
+            address(d.assetRegistry),
+            address(d.adapterRegistry),
+            address(d.calendarRegistry),
+            address(d.sessionRegistry),
+            address(d.settlementAssetRegistry),
+            address(d.benchmarkRegistry),
+            address(d.feeScheduleRegistry),
+            address(d.riskDomainRegistry),
+            address(d.instrumentRegistry),
+            address(d.marketRegistry),
+            address(d.seriesRegistry),
+            address(d.packageRegistry),
+            address(d.privacyCommitmentRegistry)
+        ];
+        bytes32[13] memory roles = [
+            d.assetRegistry.STATUS_MANAGER_ROLE(),
+            d.adapterRegistry.ADAPTER_STATUS_MANAGER_ROLE(),
+            d.calendarRegistry.CALENDAR_STATUS_MANAGER_ROLE(),
+            d.sessionRegistry.SESSION_STATUS_MANAGER_ROLE(),
+            d.settlementAssetRegistry.STATUS_MANAGER_ROLE(),
+            d.benchmarkRegistry.BENCHMARK_STATUS_MANAGER_ROLE(),
+            d.feeScheduleRegistry.FEE_SCHEDULE_STATUS_MANAGER_ROLE(),
+            d.riskDomainRegistry.RISK_DOMAIN_STATUS_MANAGER_ROLE(),
+            d.instrumentRegistry.INSTRUMENT_STATUS_MANAGER_ROLE(),
+            d.marketRegistry.MARKET_STATUS_MANAGER_ROLE(),
+            d.seriesRegistry.SERIES_STATUS_MANAGER_ROLE(),
+            d.packageRegistry.PACKAGE_STATUS_MANAGER_ROLE(),
+            d.privacyCommitmentRegistry.POLICY_ACTIVATOR_ROLE()
+        ];
+        IRegistryStatusController.RegistryBinding[] memory bound = controller.registries();
+        assertEq(bound.length, registries.length, "status controller must bind every combined-status registry");
+        for (uint256 i; i < registries.length; ++i) {
+            IAccessControl registry = IAccessControl(registries[i]);
+            assertEq(bound[i].registry, registries[i], "status controller registry order");
+            assertTrue(registry.hasRole(roles[i], address(controller)), "controller must hold the status role");
+            assertFalse(registry.hasRole(roles[i], guardian), "guardian must never hold a combined status role");
+            assertFalse(registry.hasRole(roles[i], governanceOperator), "operator must not hold a status role");
+            assertFalse(registry.hasRole(roles[i], governanceAdmin), "timelock acts only through the controller");
+            assertFalse(registry.hasRole(roles[i], bootstrap), "bootstrap status role must be revoked");
+        }
     }
 
     function _assertReceiptAuthorities(Deployment memory d) private view {

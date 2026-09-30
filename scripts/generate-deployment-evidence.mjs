@@ -487,35 +487,46 @@ async function main() {
   ]);
   const operatorRoles = [
     ["AssetRegistry", "REGISTRAR_ROLE", "SETRYN_REGISTRAR_ROLE"],
-    ["AssetRegistry", "STATUS_MANAGER_ROLE", "SETRYN_STATUS_MANAGER_ROLE"],
     ["AdapterRegistry", "ADAPTER_QUALIFIER_ROLE", "SETRYN_ADAPTER_QUALIFIER_ROLE"],
-    ["AdapterRegistry", "ADAPTER_STATUS_MANAGER_ROLE", "SETRYN_ADAPTER_STATUS_MANAGER_ROLE"],
     ["CalendarRegistry", "CALENDAR_REGISTRAR_ROLE", "SETRYN_CALENDAR_REGISTRAR_ROLE"],
-    ["CalendarRegistry", "CALENDAR_STATUS_MANAGER_ROLE", "SETRYN_CALENDAR_STATUS_MANAGER_ROLE"],
     ["SessionRegistry", "SESSION_REGISTRAR_ROLE", "SETRYN_SESSION_REGISTRAR_ROLE"],
-    ["SessionRegistry", "SESSION_STATUS_MANAGER_ROLE", "SETRYN_SESSION_STATUS_MANAGER_ROLE"],
     ["SettlementAssetRegistry", "QUALIFIER_ROLE", "SETRYN_QUALIFIER_ROLE"],
-    ["SettlementAssetRegistry", "STATUS_MANAGER_ROLE", "SETRYN_SETTLEMENT_STATUS_MANAGER_ROLE"],
     ["BenchmarkRegistry", "BENCHMARK_QUALIFIER_ROLE", "SETRYN_BENCHMARK_QUALIFIER_ROLE"],
-    ["BenchmarkRegistry", "BENCHMARK_STATUS_MANAGER_ROLE", "SETRYN_BENCHMARK_STATUS_MANAGER_ROLE"],
     ["FeeScheduleRegistry", "FEE_SCHEDULE_QUALIFIER_ROLE", "SETRYN_FEE_SCHEDULE_QUALIFIER_ROLE"],
-    ["FeeScheduleRegistry", "FEE_SCHEDULE_STATUS_MANAGER_ROLE", "SETRYN_FEE_SCHEDULE_STATUS_MANAGER_ROLE"],
     ["RiskDomainRegistry", "RISK_DOMAIN_QUALIFIER_ROLE", "SETRYN_RISK_DOMAIN_QUALIFIER_ROLE"],
-    ["RiskDomainRegistry", "RISK_DOMAIN_STATUS_MANAGER_ROLE", "SETRYN_RISK_DOMAIN_STATUS_MANAGER_ROLE"],
     ["InstrumentRegistry", "INSTRUMENT_QUALIFIER_ROLE", "SETRYN_INSTRUMENT_QUALIFIER_ROLE"],
-    ["InstrumentRegistry", "INSTRUMENT_STATUS_MANAGER_ROLE", "SETRYN_INSTRUMENT_STATUS_MANAGER_ROLE"],
     ["MarketRegistry", "MARKET_QUALIFIER_ROLE", "SETRYN_MARKET_QUALIFIER_ROLE"],
-    ["MarketRegistry", "MARKET_STATUS_MANAGER_ROLE", "SETRYN_MARKET_STATUS_MANAGER_ROLE"],
     ["SeriesRegistry", "SERIES_QUALIFIER_ROLE", "SETRYN_SERIES_QUALIFIER_ROLE"],
-    ["SeriesRegistry", "SERIES_STATUS_MANAGER_ROLE", "SETRYN_SERIES_STATUS_MANAGER_ROLE"],
     ["PackageRegistry", "PACKAGE_QUALIFIER_ROLE", "SETRYN_PACKAGE_QUALIFIER_ROLE"],
-    ["PackageRegistry", "PACKAGE_STATUS_MANAGER_ROLE", "SETRYN_PACKAGE_STATUS_MANAGER_ROLE"],
     ["PrivacyCommitmentRegistry", "POLICY_QUALIFIER_ROLE", "SETRYN_PRIVACY_POLICY_QUALIFIER_ROLE"],
-    ["PrivacyCommitmentRegistry", "POLICY_ACTIVATOR_ROLE", "SETRYN_PRIVACY_POLICY_ACTIVATOR_ROLE"],
     ["ExecutionPolicyRegistry", "POLICY_ADMIN_ROLE", "SETRYN_EXECUTION_POLICY_ADMIN_ROLE"],
   ].map(([contractName, role, label]) => ({contractName, role, label, member: principalValues.governanceOperator}));
+  // Combined activate, pause, and deprecate roles belong to the registry status controller, which gives the guardian
+  // only pause selectors and the governance timelock only activate and deprecate selectors.
+  const statusRoles = [
+    ["AssetRegistry", "STATUS_MANAGER_ROLE", "SETRYN_STATUS_MANAGER_ROLE"],
+    ["AdapterRegistry", "ADAPTER_STATUS_MANAGER_ROLE", "SETRYN_ADAPTER_STATUS_MANAGER_ROLE"],
+    ["CalendarRegistry", "CALENDAR_STATUS_MANAGER_ROLE", "SETRYN_CALENDAR_STATUS_MANAGER_ROLE"],
+    ["SessionRegistry", "SESSION_STATUS_MANAGER_ROLE", "SETRYN_SESSION_STATUS_MANAGER_ROLE"],
+    ["SettlementAssetRegistry", "STATUS_MANAGER_ROLE", "SETRYN_SETTLEMENT_STATUS_MANAGER_ROLE"],
+    ["BenchmarkRegistry", "BENCHMARK_STATUS_MANAGER_ROLE", "SETRYN_BENCHMARK_STATUS_MANAGER_ROLE"],
+    ["FeeScheduleRegistry", "FEE_SCHEDULE_STATUS_MANAGER_ROLE", "SETRYN_FEE_SCHEDULE_STATUS_MANAGER_ROLE"],
+    ["RiskDomainRegistry", "RISK_DOMAIN_STATUS_MANAGER_ROLE", "SETRYN_RISK_DOMAIN_STATUS_MANAGER_ROLE"],
+    ["InstrumentRegistry", "INSTRUMENT_STATUS_MANAGER_ROLE", "SETRYN_INSTRUMENT_STATUS_MANAGER_ROLE"],
+    ["MarketRegistry", "MARKET_STATUS_MANAGER_ROLE", "SETRYN_MARKET_STATUS_MANAGER_ROLE"],
+    ["SeriesRegistry", "SERIES_STATUS_MANAGER_ROLE", "SETRYN_SERIES_STATUS_MANAGER_ROLE"],
+    ["PackageRegistry", "PACKAGE_STATUS_MANAGER_ROLE", "SETRYN_PACKAGE_STATUS_MANAGER_ROLE"],
+    ["PrivacyCommitmentRegistry", "POLICY_ACTIVATOR_ROLE", "SETRYN_PRIVACY_POLICY_ACTIVATOR_ROLE"],
+  ];
+  const statusControllerRoles = statusRoles.map(([contractName, role, label]) => ({
+    contractName,
+    role,
+    label,
+    memberContract: "RegistryStatusController",
+  }));
   const roleChecks = [
     ...operatorRoles,
+    ...statusControllerRoles,
     {contractName: "CollateralVault", role: "COLLATERAL_LOCKER_ROLE", label: "SETRYN_COLLATERAL_LOCKER_ROLE", memberContract: "PositionEngine"},
     {contractName: "CollateralVault", role: "COLLATERAL_LOCKER_ROLE", label: "SETRYN_COLLATERAL_LOCKER_ROLE", memberContract: "AtomicClearingEngine"},
     {contractName: "CollateralVault", role: "COLLATERAL_SETTLER_ROLE", label: "SETRYN_COLLATERAL_SETTLER_ROLE", memberContract: "FundedFeeEngine"},
@@ -572,6 +583,30 @@ async function main() {
   ];
   const verifiedRoles = [];
   for (const check of roleChecks) verifiedRoles.push(await verifyRole(rpcUrl, addresses, blockTag, check, bootstrap));
+  const statusController = addresses.get("RegistryStatusController");
+  const statusGuardian = `0x${(await ethCall(rpcUrl, statusController, calldata("guardian()"), blockTag)).slice(26, 66)}`;
+  const statusGovernance = `0x${(await ethCall(rpcUrl, statusController, calldata("governance()"), blockTag)).slice(26, 66)}`;
+  if (statusGuardian.toLowerCase() !== principalValues.guardian.toLowerCase()) {
+    throw new Error("RegistryStatusController guardian drifted");
+  }
+  // The governance timelock activates, resumes, and deprecates; only a local devnet may use the governance operator.
+  const allowedStatusGovernance = [principalValues.governanceAdmin];
+  if (options.environment === "local") allowedStatusGovernance.push(principalValues.governanceOperator);
+  if (!allowedStatusGovernance.some((principal) => principal.toLowerCase() === statusGovernance.toLowerCase())) {
+    throw new Error("RegistryStatusController governance must be the governance timelock");
+  }
+  for (const [contractName, role, label] of statusRoles) {
+    const guardianHeld = await ethCall(
+      rpcUrl, addresses.get(contractName), calldata("hasRole(bytes32,address)", [roleId(label), principalValues.guardian]), blockTag,
+    );
+    if (BigInt(guardianHeld) !== 0n) throw new Error(`${contractName}.${role} must never be held by the guardian`);
+    if (options.environment !== "local") {
+      const operatorHeld = await ethCall(
+        rpcUrl, addresses.get(contractName), calldata("hasRole(bytes32,address)", [roleId(label), principalValues.governanceOperator]), blockTag,
+      );
+      if (BigInt(operatorHeld) !== 0n) throw new Error(`${contractName}.${role} must be held only by the status controller`);
+    }
+  }
   for (const [contractName, label] of [
     ["PublicOrderBook", "SETRYN_BOOK_ROUTE_RESERVER_ROLE"],
     ["PrivateRfqBook", "SETRYN_RFQ_ROUTE_RESERVER_ROLE"],

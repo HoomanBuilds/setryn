@@ -7,6 +7,9 @@ import {DeploySetryn} from "../../script/DeploySetryn.s.sol";
 import {OperationalAdapterExecutor} from "../../src/adapters/operational/OperationalAdapterExecutor.sol";
 import {IExternalVenueExecutionAdapterV1} from "../../src/interfaces/IOperationalAdapters.sol";
 import {ISequencerUptimeFeed} from "../../src/interfaces/ISequencerUptimeFeed.sol";
+import {IAdapterRegistry} from "../../src/interfaces/IAdapterRegistry.sol";
+import {IRegistryStatusController} from "../../src/interfaces/IRegistryStatusController.sol";
+import {RegistryStatusController} from "../../src/policy/RegistryStatusController.sol";
 import {AdapterDefinitionLib} from "../../src/libraries/AdapterDefinitionLib.sol";
 import {OperationalAdapterLib} from "../../src/libraries/OperationalAdapterLib.sol";
 import {AdapterDefinition, AdapterVersion} from "../../src/types/AdapterDefinition.sol";
@@ -276,7 +279,9 @@ contract ArbitrumOneControlRehearsalForkTest is Test, DeploySetryn {
             maximumRfqCapacityTail: REHEARSAL_RFQ_TAIL,
             sequencerRecoveryGrace: REHEARSAL_RECOVERY_GRACE,
             deploymentId: REHEARSAL_DEPLOYMENT_ID,
-            sequencerFeed: ISequencerUptimeFeed(sequencerFeed)
+            sequencerFeed: ISequencerUptimeFeed(sequencerFeed),
+            statusGovernance: governanceAdmin,
+            retainOperatorStatusRoles: false
         });
 
         vm.startPrank(bootstrap);
@@ -290,10 +295,18 @@ contract ArbitrumOneControlRehearsalForkTest is Test, DeploySetryn {
             deployment.adapterRegistry.hasRole(deployment.adapterRegistry.ADAPTER_QUALIFIER_ROLE(), operator),
             "operator must hold qualifier role"
         );
+        RegistryStatusController statusController = deployment.registryStatusController;
+        bytes32 adapterStatusRole = deployment.adapterRegistry.ADAPTER_STATUS_MANAGER_ROLE();
         assertTrue(
-            deployment.adapterRegistry.hasRole(deployment.adapterRegistry.ADAPTER_STATUS_MANAGER_ROLE(), operator),
-            "operator must hold status manager role"
+            deployment.adapterRegistry.hasRole(adapterStatusRole, address(statusController)),
+            "status controller must hold the combined status role"
         );
+        assertFalse(deployment.adapterRegistry.hasRole(adapterStatusRole, operator), "operator must not hold status");
+        assertFalse(deployment.adapterRegistry.hasRole(adapterStatusRole, guardian), "guardian must not hold status");
+        assertEq(statusController.guardian(), guardian, "controller guardian");
+        assertEq(statusController.governance(), governanceAdmin, "controller governance is the timelock");
+        StatusPrincipals memory status =
+            StatusPrincipals({controller: statusController, guardian: guardian, governance: governanceAdmin});
 
         // 1) Upgrade: register and activate a new immutable version; old stays reconstructible.
         ControlAsyncVenueV1 implV1 = new ControlAsyncVenueV1();
@@ -316,8 +329,22 @@ contract ArbitrumOneControlRehearsalForkTest is Test, DeploySetryn {
             "v1 version hash must reconstruct"
         );
 
+        // The guardian can never reach activation, and the operator no longer holds the status role directly.
+        vm.prank(guardian);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IRegistryStatusController.StatusCallerUnauthorized.selector,
+                guardian,
+                IRegistryStatusController.StatusCallClass.Govern
+            )
+        );
+        statusController.govern(
+            address(deployment.adapterRegistry), abi.encodeCall(IAdapterRegistry.activateAdapter, (lineageId, 1))
+        );
         vm.prank(operator);
+        vm.expectRevert();
         deployment.adapterRegistry.activateAdapter(lineageId, 1);
+        _activateAdapter(status, deployment, lineageId, 1);
         assertEq(deployment.adapterRegistry.activeVersion(lineageId), 1);
         assertTrue(deployment.adapterRegistry.isOpenForNewRisk(lineageId, 1));
 
@@ -337,11 +364,9 @@ contract ArbitrumOneControlRehearsalForkTest is Test, DeploySetryn {
         assertTrue(deployment.adapterRegistry.isLifecycleEnabled(lineageId, 1));
 
         // 2) Migration: move the active pointer; new requests resolve only the new version.
-        vm.prank(operator);
-        deployment.adapterRegistry.pauseAdapter(lineageId, 1);
+        _pauseAdapter(status, deployment, lineageId, 1);
         assertEq(deployment.adapterRegistry.activeVersion(lineageId), 0);
-        vm.prank(operator);
-        deployment.adapterRegistry.activateAdapter(lineageId, 2);
+        _activateAdapter(status, deployment, lineageId, 2);
         assertEq(deployment.adapterRegistry.activeVersion(lineageId), 2);
         assertTrue(deployment.adapterRegistry.isOpenForNewRisk(lineageId, 2));
         assertFalse(deployment.adapterRegistry.isOpenForNewRisk(lineageId, 1));
@@ -371,8 +396,7 @@ contract ArbitrumOneControlRehearsalForkTest is Test, DeploySetryn {
         ExternalVenueRequest memory requestB = _asyncRequest(bindingB, 3);
         (bytes32 actionB,) = executor.submitExternal(newRef, requestB);
 
-        vm.prank(operator);
-        deployment.adapterRegistry.pauseAdapter(lineageId, 2);
+        _pauseAdapter(status, deployment, lineageId, 2);
         assertEq(deployment.adapterRegistry.activeVersion(lineageId), 0);
         assertFalse(deployment.adapterRegistry.isOpenForNewRisk(lineageId, 2));
         assertTrue(deployment.adapterRegistry.isLifecycleEnabled(lineageId, 2));
@@ -393,8 +417,7 @@ contract ArbitrumOneControlRehearsalForkTest is Test, DeploySetryn {
         assertTrue(executor.getExternalAction(actionB).resultHash != bytes32(0));
 
         // 4) Bounded async recovery: Pending, recoverable only at timeout, terminal, deadline-bound.
-        vm.prank(operator);
-        deployment.adapterRegistry.activateAdapter(lineageId, 2);
+        _activateAdapter(status, deployment, lineageId, 2);
         assertTrue(deployment.adapterRegistry.isOpenForNewRisk(lineageId, 2));
 
         OperationalBinding memory bindingR1 = _binding(executor, 10);
@@ -450,8 +473,7 @@ contract ArbitrumOneControlRehearsalForkTest is Test, DeploySetryn {
         AdapterDefinition memory defAtomic = _atomicDefinition(address(implAtomic));
         vm.prank(operator);
         (AdapterId atomicId, uint32 atomicVersion) = deployment.adapterRegistry.registerAdapter(defAtomic);
-        vm.prank(operator);
-        deployment.adapterRegistry.activateAdapter(atomicId, atomicVersion);
+        _activateAdapter(status, deployment, atomicId, atomicVersion);
         AdapterReference memory atomicRef = AdapterReference({adapterId: atomicId, adapterVersion: atomicVersion});
 
         OperationalBinding memory bindingAtom = _binding(executor, 20);
@@ -627,6 +649,28 @@ contract ArbitrumOneControlRehearsalForkTest is Test, DeploySetryn {
         (bool success, bytes memory data) = NATIVE_USDC.staticcall(abi.encodeWithSelector(TOTAL_SUPPLY_SELECTOR));
         assertTrue(success, "native USDC supply read failed");
         supply = abi.decode(data, (uint256));
+    }
+
+    struct StatusPrincipals {
+        RegistryStatusController controller;
+        address guardian;
+        address governance;
+    }
+
+    /// Activation and resumption go through the controller's governance path only.
+    function _activateAdapter(StatusPrincipals memory status, Deployment memory d, AdapterId id, uint32 version)
+        internal
+    {
+        vm.prank(status.governance);
+        status.controller
+            .govern(address(d.adapterRegistry), abi.encodeCall(IAdapterRegistry.activateAdapter, (id, version)));
+    }
+
+    /// Emergency pause goes through the controller's guardian path only.
+    function _pauseAdapter(StatusPrincipals memory status, Deployment memory d, AdapterId id, uint32 version) internal {
+        vm.prank(status.guardian);
+        status.controller
+            .pause(address(d.adapterRegistry), abi.encodeCall(IAdapterRegistry.pauseAdapter, (id, version)));
     }
 }
 

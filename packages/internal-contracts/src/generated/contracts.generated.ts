@@ -1,6 +1,6 @@
 import type { InternalContractBinding } from "../types.ts";
 
-export const generatedBindingsHash = "sha256:912efdbb9d87d2bd26a488ae08e8680b72e3f7e376d02da1ce45ab4323bff18f";
+export const generatedBindingsHash = "sha256:82aa83d2f2b728cb73d9e037acb4b0846c510123f294e0adeaf99fe6d8097afb";
 
 export const contractBindings = {
   "AssetRegistry": {
@@ -86261,6 +86261,387 @@ export const contractBindings = {
         "type": "error",
         "name": "ZeroPrivacyRegistry",
         "inputs": []
+      }
+    ]
+  },
+  "RegistryStatusController": {
+    "artifact": "contracts/out/RegistryStatusController.sol/RegistryStatusController.json",
+    "sourceName": "src/policy/RegistryStatusController.sol",
+    "contractName": "RegistryStatusController",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "guardian_",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "governance_",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "bindings",
+            "type": "tuple[]",
+            "internalType": "struct IRegistryStatusController.RegistryBinding[]",
+            "components": [
+              {
+                "name": "kind",
+                "type": "uint8",
+                "internalType": "enum IRegistryStatusController.RegistryKind"
+              },
+              {
+                "name": "registry",
+                "type": "address",
+                "internalType": "address"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "govern",
+        "inputs": [
+          {
+            "name": "registry",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "data",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "result",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "governance",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "guardian",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "pause",
+        "inputs": [
+          {
+            "name": "registry",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "data",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "result",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "registries",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "tuple[]",
+            "internalType": "struct IRegistryStatusController.RegistryBinding[]",
+            "components": [
+              {
+                "name": "kind",
+                "type": "uint8",
+                "internalType": "enum IRegistryStatusController.RegistryKind"
+              },
+              {
+                "name": "registry",
+                "type": "address",
+                "internalType": "address"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "registryKind",
+        "inputs": [
+          {
+            "name": "registry",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "uint8",
+            "internalType": "enum IRegistryStatusController.RegistryKind"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "statusCallClass",
+        "inputs": [
+          {
+            "name": "registry",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "selector",
+            "type": "bytes4",
+            "internalType": "bytes4"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "uint8",
+            "internalType": "enum IRegistryStatusController.StatusCallClass"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "event",
+        "name": "StatusCallForwarded",
+        "inputs": [
+          {
+            "name": "registry",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          },
+          {
+            "name": "selector",
+            "type": "bytes4",
+            "indexed": true,
+            "internalType": "bytes4"
+          },
+          {
+            "name": "caller",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          },
+          {
+            "name": "callClass",
+            "type": "uint8",
+            "indexed": false,
+            "internalType": "enum IRegistryStatusController.StatusCallClass"
+          },
+          {
+            "name": "callDataHash",
+            "type": "bytes32",
+            "indexed": false,
+            "internalType": "bytes32"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "StatusPrincipalsBound",
+        "inputs": [
+          {
+            "name": "guardian",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          },
+          {
+            "name": "governance",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "StatusSelectorBound",
+        "inputs": [
+          {
+            "name": "registry",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          },
+          {
+            "name": "selector",
+            "type": "bytes4",
+            "indexed": true,
+            "internalType": "bytes4"
+          },
+          {
+            "name": "kind",
+            "type": "uint8",
+            "indexed": false,
+            "internalType": "enum IRegistryStatusController.RegistryKind"
+          },
+          {
+            "name": "callClass",
+            "type": "uint8",
+            "indexed": false,
+            "internalType": "enum IRegistryStatusController.StatusCallClass"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "error",
+        "name": "DuplicateStatusRegistry",
+        "inputs": [
+          {
+            "name": "registry",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "EmptyStatusRegistrySet",
+        "inputs": []
+      },
+      {
+        "type": "error",
+        "name": "InvalidStatusPrincipal",
+        "inputs": [
+          {
+            "name": "principal",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "InvalidStatusRegistry",
+        "inputs": [
+          {
+            "name": "registry",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "kind",
+            "type": "uint8",
+            "internalType": "enum IRegistryStatusController.RegistryKind"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "MalformedStatusCall",
+        "inputs": [
+          {
+            "name": "length",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "StatusCallClassMismatch",
+        "inputs": [
+          {
+            "name": "registry",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "selector",
+            "type": "bytes4",
+            "internalType": "bytes4"
+          },
+          {
+            "name": "requiredClass",
+            "type": "uint8",
+            "internalType": "enum IRegistryStatusController.StatusCallClass"
+          },
+          {
+            "name": "boundClass",
+            "type": "uint8",
+            "internalType": "enum IRegistryStatusController.StatusCallClass"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "StatusCallerUnauthorized",
+        "inputs": [
+          {
+            "name": "caller",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "callClass",
+            "type": "uint8",
+            "internalType": "enum IRegistryStatusController.StatusCallClass"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "UnknownStatusCall",
+        "inputs": [
+          {
+            "name": "registry",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "selector",
+            "type": "bytes4",
+            "internalType": "bytes4"
+          }
+        ]
       }
     ]
   },

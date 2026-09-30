@@ -13,6 +13,15 @@ import {ISequencerUptimeFeed} from "../../src/interfaces/ISequencerUptimeFeed.so
 import {IPortfolioRiskAdapterV1} from "../../src/interfaces/IPortfolioRiskAdapterV1.sol";
 import {IAdapterRegistry} from "../../src/interfaces/IAdapterRegistry.sol";
 import {IRiskDomainRegistry} from "../../src/interfaces/IRiskDomainRegistry.sol";
+import {IBenchmarkRegistry} from "../../src/interfaces/IBenchmarkRegistry.sol";
+import {ICalendarRegistry} from "../../src/interfaces/ICalendarRegistry.sol";
+import {IFeeScheduleRegistry} from "../../src/interfaces/IFeeScheduleRegistry.sol";
+import {IInstrumentRegistry} from "../../src/interfaces/IInstrumentRegistry.sol";
+import {IMarketRegistry} from "../../src/interfaces/IMarketRegistry.sol";
+import {ISeriesRegistry} from "../../src/interfaces/ISeriesRegistry.sol";
+import {ISessionRegistry} from "../../src/interfaces/ISessionRegistry.sol";
+import {ISettlementAssetRegistry} from "../../src/interfaces/ISettlementAssetRegistry.sol";
+import {RegistryStatusController} from "../../src/policy/RegistryStatusController.sol";
 import {AdapterDefinitionLib} from "../../src/libraries/AdapterDefinitionLib.sol";
 import {BenchmarkDefinitionLib} from "../../src/libraries/BenchmarkDefinitionLib.sol";
 import {CalendarDefinitionLib} from "../../src/libraries/CalendarDefinitionLib.sol";
@@ -226,6 +235,8 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
     address internal sequencerFeed;
     address internal chainlinkFeed;
     address internal govOperator;
+    address internal govAdmin;
+    RegistryStatusController internal statusController;
     bytes32 internal feedKey;
     uint80 internal pinnedRoundId;
     bool internal hasPinnedRound;
@@ -450,6 +461,7 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
         address privacyKeyPublisher = makeAddr("journey-privacy");
         address lifecycleWitnessStager = makeAddr("journey-witness");
         govOperator = governanceOperator;
+        govAdmin = governanceAdmin;
         DeploymentConfig memory config = DeploymentConfig({
             bootstrapAdmin: bootstrap,
             governanceAdmin: governanceAdmin,
@@ -469,12 +481,21 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
             maximumRfqCapacityTail: 1 days,
             sequencerRecoveryGrace: 1 hours,
             deploymentId: keccak256("SetrynCompleteJourneyV1"),
-            sequencerFeed: ISequencerUptimeFeed(sequencerFeed)
+            sequencerFeed: ISequencerUptimeFeed(sequencerFeed),
+            statusGovernance: governanceAdmin,
+            retainOperatorStatusRoles: false
         });
         vm.startPrank(bootstrap);
         (d,) = _deployAndWire(config);
         vm.stopPrank();
         assertEq(address(d.sequencerUptimeFeed), sequencerFeed, "must reuse exact sequencer feed");
+        statusController = d.registryStatusController;
+    }
+
+    /// Activation runs only through the status controller's governance path, held by the governance timelock.
+    function _govern(address registry, bytes memory data) internal {
+        vm.prank(govAdmin);
+        statusController.govern(registry, data);
     }
 
     function _resolveRoundId() internal view returns (uint80) {
@@ -707,12 +728,13 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
                     evidenceHash: keccak256("SETRYN_COMPLETE_JOURNEY_PAYOFF_EVIDENCE_V1")
                 })
             );
-        vm.prank(govOperator);
-        d.adapterRegistry.activateAdapter(fixingAdapterId, VERSION);
-        vm.prank(govOperator);
-        d.adapterRegistry.activateAdapter(riskAdapterId, VERSION);
-        vm.prank(govOperator);
-        d.adapterRegistry.activateAdapter(payoffAdapterId, VERSION);
+        _govern(
+            address(d.adapterRegistry), abi.encodeCall(IAdapterRegistry.activateAdapter, (fixingAdapterId, VERSION))
+        );
+        _govern(address(d.adapterRegistry), abi.encodeCall(IAdapterRegistry.activateAdapter, (riskAdapterId, VERSION)));
+        _govern(
+            address(d.adapterRegistry), abi.encodeCall(IAdapterRegistry.activateAdapter, (payoffAdapterId, VERSION))
+        );
     }
 
     function _calendarId() internal view returns (CalendarId) {
@@ -849,8 +871,10 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
         (CalendarId registeredId, uint32 calendarVersion) = d.calendarRegistry.registerCalendar(definition);
         require(CalendarId.unwrap(registeredId) == CalendarId.unwrap(calendarId), "calendar id mismatch");
         require(calendarVersion == VERSION, "calendar version");
-        vm.prank(govOperator);
-        d.calendarRegistry.activateCalendar(calendarId, calendarVersion);
+        _govern(
+            address(d.calendarRegistry),
+            abi.encodeCall(ICalendarRegistry.activateCalendar, (calendarId, calendarVersion))
+        );
     }
 
     function _registerSession(Deployment memory d, CalendarId calendarId, JourneyTiming memory timing)
@@ -899,8 +923,7 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
         uint32 version;
         (sessionId, version) = d.sessionRegistry.registerSession(definition);
         require(version == VERSION, "session version");
-        vm.prank(govOperator);
-        d.sessionRegistry.activateSession(sessionId, version);
+        _govern(address(d.sessionRegistry), abi.encodeCall(ISessionRegistry.activateSession, (sessionId, version)));
         d.tradingSessionPolicy.publishSessionDay(sessionId, version, sessionDay, windows, new bytes32[](0));
     }
 
@@ -916,8 +939,10 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
                 })
             );
         require(version == VERSION, "usdc binding version");
-        vm.prank(govOperator);
-        d.settlementAssetRegistry.activateBinding(settlementAssetId, version);
+        _govern(
+            address(d.settlementAssetRegistry),
+            abi.encodeCall(ISettlementAssetRegistry.activateBinding, (settlementAssetId, version))
+        );
         assertTrue(d.settlementAssetRegistry.isOpenForNewRisk(settlementAssetId, version), "usdc open for risk");
     }
 
@@ -959,8 +984,9 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
         uint32 version;
         (benchmarkId, version) = d.benchmarkRegistry.registerBenchmark(definition);
         require(version == VERSION, "benchmark version");
-        vm.prank(govOperator);
-        d.benchmarkRegistry.activateBenchmark(benchmarkId, version);
+        _govern(
+            address(d.benchmarkRegistry), abi.encodeCall(IBenchmarkRegistry.activateBenchmark, (benchmarkId, version))
+        );
     }
 
     function _registerFees(Deployment memory d, AssetId settlementAssetId)
@@ -1036,8 +1062,10 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
         uint32 version;
         (feeScheduleId, version) = d.feeScheduleRegistry.registerFeeSchedule(definition);
         require(version == VERSION, "fee version");
-        vm.prank(govOperator);
-        d.feeScheduleRegistry.activateFeeSchedule(feeScheduleId, version);
+        _govern(
+            address(d.feeScheduleRegistry),
+            abi.encodeCall(IFeeScheduleRegistry.activateFeeSchedule, (feeScheduleId, version))
+        );
         d.fundedFeeEngine.installScheduleWitness(feeScheduleId, version, rules, recipients);
         assertTrue(d.fundedFeeEngine.witnessInstalled(feeScheduleId, version), "fee witness installed");
     }
@@ -1073,8 +1101,10 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
         uint32 version;
         (riskDomainId, version) = d.riskDomainRegistry.registerRiskDomain(definition);
         require(version == VERSION, "risk version");
-        vm.prank(govOperator);
-        d.riskDomainRegistry.activateRiskDomain(riskDomainId, version);
+        _govern(
+            address(d.riskDomainRegistry),
+            abi.encodeCall(IRiskDomainRegistry.activateRiskDomain, (riskDomainId, version))
+        );
     }
 
     function _registerInstrument(Deployment memory d, AdapterId payoffAdapterId)
@@ -1102,8 +1132,10 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
         uint32 version;
         (instrumentId, version) = d.instrumentRegistry.registerInstrument(definition);
         require(version == VERSION, "instrument version");
-        vm.prank(govOperator);
-        d.instrumentRegistry.activateInstrument(instrumentId, version);
+        _govern(
+            address(d.instrumentRegistry),
+            abi.encodeCall(IInstrumentRegistry.activateInstrument, (instrumentId, version))
+        );
     }
 
     function _registerMarket(
@@ -1147,8 +1179,7 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
         uint32 version;
         (marketId, version) = d.marketRegistry.registerMarket(definition);
         require(version == VERSION, "market version");
-        vm.prank(govOperator);
-        d.marketRegistry.activateMarket(marketId, version);
+        _govern(address(d.marketRegistry), abi.encodeCall(IMarketRegistry.activateMarket, (marketId, version)));
     }
 
     function _allowExecution(Deployment memory d) internal {
@@ -1234,8 +1265,10 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
         uint32 version;
         (seriesId, version) = d.seriesRegistry.registerSeries(definition, qualification);
         require(version == VERSION, "series version");
-        vm.prank(govOperator);
-        d.seriesRegistry.activateSeries(seriesId, version, qualification);
+        _govern(
+            address(d.seriesRegistry),
+            abi.encodeCall(ISeriesRegistry.activateSeries, (seriesId, version, qualification))
+        );
         slots = qualification.fixingSlots;
     }
 
