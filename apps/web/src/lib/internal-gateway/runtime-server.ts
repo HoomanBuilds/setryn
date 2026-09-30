@@ -41,6 +41,15 @@ const HASH_FIELDS = [
   "enterActionId",
 ] as const;
 
+const POSITIVE_INTEGER_FIELDS = [
+  "maxLongDebitMinorPerLot",
+  "maxShortDebitMinorPerLot",
+  "tickSizeMinor",
+  "maxOrderLots",
+  "makerFeeRatePpm",
+  "takerFeeRatePpm",
+] as const;
+
 /** Read at request time from the local deployment; excluded from output tracing so the server bundle stays scoped. */
 function runtimePath(): string {
   if (process.env.SETRYN_RUNTIME_PATH) return resolve(/*turbopackIgnore: true*/ process.env.SETRYN_RUNTIME_PATH);
@@ -59,7 +68,7 @@ function localRpcUrl(): string {
 function validateRuntime(candidate: unknown): Omit<SetrynRuntime, "rpcUrl"> {
   if (!candidate || typeof candidate !== "object") throw new Error("INVALID_RUNTIME");
   const record = candidate as Record<string, unknown>;
-  if (record.schemaVersion !== 7 || record.chainId !== 31337 || typeof record.day !== "number") {
+  if (record.schemaVersion !== 8 || record.chainId !== 31337 || typeof record.day !== "number") {
     throw new Error("INVALID_RUNTIME");
   }
   for (const field of ADDRESS_FIELDS) {
@@ -71,12 +80,10 @@ function validateRuntime(candidate: unknown): Omit<SetrynRuntime, "rpcUrl"> {
   if (typeof record.payoffTerms !== "string" || !/^0x(?:[0-9a-fA-F]{2})+$/.test(record.payoffTerms)) {
     throw new Error("INVALID_RUNTIME");
   }
-  if (
-    !Number.isSafeInteger(record.maxLongDebitMinorPerLot) ||
-    Number(record.maxLongDebitMinorPerLot) <= 0 ||
-    !Number.isSafeInteger(record.maxShortDebitMinorPerLot) ||
-    Number(record.maxShortDebitMinorPerLot) <= 0
-  ) {
+  for (const field of POSITIVE_INTEGER_FIELDS) {
+    if (!Number.isSafeInteger(record[field]) || Number(record[field]) <= 0) throw new Error("INVALID_RUNTIME");
+  }
+  if (Number(record.takerFeeRatePpm) >= 1_000_000 || Number(record.makerFeeRatePpm) >= 1_000_000) {
     throw new Error("INVALID_RUNTIME");
   }
   return record as unknown as Omit<SetrynRuntime, "rpcUrl">;

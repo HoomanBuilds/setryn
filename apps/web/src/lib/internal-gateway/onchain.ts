@@ -18,9 +18,12 @@ import {
   type Hex,
 } from "viem";
 import { executableAction, limitCrosses } from "@/lib/terminal/economics";
+import { formatLotCount } from "@/lib/terminal/format";
 import {
+  accountFeesPaidMinor,
   orderStateAbi,
   atomicClearingAbi,
+  fundedFeeLedgerAbi,
   privateRfqBookAbi,
   privateRfqRequestTypedData,
   publicOrderBookAbi,
@@ -52,6 +55,23 @@ import type {
 const ACCOUNT_SALT = keccak256(stringToHex("SETRYN_PRIMARY_ACCOUNT_V1"));
 const EMPTY_ID = `0x${"0".repeat(64)}` as Hex;
 const PRIMARY_MARKET_ID = "BTC-YC-24DEC26";
+const PRIMARY_CONTRACT_MULTIPLIER = 2.5;
+const CONSIDERATION_ENTRY = 1;
+
+interface LedgerFlow {
+  args: { fillId?: Hex; kind?: number; payerAccountId?: Hex; receiverAccountId?: Hex; amount?: bigint };
+}
+
+/** Consideration the account received minus what it paid on one fill, in USD, read from the clearing ledger. */
+function netConsiderationUsd(events: readonly LedgerFlow[], fillId: string, accountId: string): number {
+  let net = BigInt(0);
+  for (const { args } of events) {
+    if (args.fillId?.toLowerCase() !== fillId.toLowerCase() || args.kind !== CONSIDERATION_ENTRY || args.amount == null) continue;
+    if (args.receiverAccountId?.toLowerCase() === accountId.toLowerCase()) net += args.amount;
+    if (args.payerAccountId?.toLowerCase() === accountId.toLowerCase()) net -= args.amount;
+  }
+  return Number(formatUnits(net, 6));
+}
 const LOCAL_CHAIN_ID = 31337;
 /** Seconds a maker order must remain live past the latest block so it cannot expire before the match lands. */
 const MAKER_DEADLINE_MARGIN_SECONDS = BigInt(15);
@@ -73,6 +93,7 @@ const positionLifecycleAbi = parseAbi([
   lifecycleSnapshotStruct,
   "function getLifecyclePosition(bytes32 positionId) view returns (LifecyclePositionSnapshot snapshot)",
   "function positionStatus(bytes32 positionId) view returns (uint8)",
+  "event PositionQuantityChanged(bytes32 indexed positionId, uint128 remainingLots, uint128 exercisedLots, uint128 closedLots, uint64 lifecycleNonce, bytes32 indexed transitionReference)",
 ]);
 const lifecyclePolicyAbi = parseAbi([
   lifecycleActionStruct,
@@ -283,6 +304,7 @@ function initialSnapshot(): GatewaySnapshot {
     executions: [],
     restingOrders: [],
     publicBookMarketId: PRIMARY_MARKET_ID,
+    publicBookEconomics: null,
     publicBookOrders: [],
     rfqRequests: [],
   };
@@ -841,16 +863,19 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       state: "ACTIVE" as const,
       createdAt: new Date().toISOString(),
     };
-    const takerFeeMinor = ledgerEvents.find(
+    const feeEvents = parseEventLogs({
+      abi: fundedFeeLedgerAbi,
+      eventName: "FeeLedgerEntryRecorded",
+      logs: matchReceipt.logs,
+      strict: true,
+    });
+    const takerFeeMinor = (ledgerEvents.find(
       (event) => event.args.fillId === fillId && event.args.kind === 3,
-    )?.args.amount ?? BigInt(0);
+    )?.args.amount ?? BigInt(0)) + accountFeesPaidMinor(feeEvents, order.accountId);
     const closedPosition = authorization.intent.side === "EXIT"
       ? this.snapshot.positions.find((candidate) => candidate.id === authorization.intent.closePositionId) ?? null
       : null;
-    const realizedPnlUsd = closedPosition
-      ? (closedPosition.side === "LONG" ? executionPrice - closedPosition.entryPrice : closedPosition.entryPrice - executionPrice) *
-        authorization.intent.contractMultiplier * filledLots
-      : undefined;
+    const realizedPnlUsd = closedPosition ? await this.exitRealizedPnlUsd(closedPosition.id, fillId) : undefined;
     const receipt: ExecutionReceipt = {
       id: fillId,
       orderHash: authorization.orderHash,
@@ -887,7 +912,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       { step: "AUTHORIZED", label: "Order authorized", detail: "Signature and risk admission are bound." },
       { step: "SUBMITTED", label: "Order registered", detail: "Signed order registered onchain.", transactionHash: registrationHash },
       { step: "INCLUDED", label: "Match included", detail: "Best public liquidity cleared atomically.", transactionHash: matchHash },
-      { step: "FILLED", label: "Package filled", detail: `${filledLots} lots filled at ${executionPrice}.`, transactionHash: matchHash },
+      { step: "FILLED", label: "Package filled", detail: `${formatLotCount(filledLots)} filled at ${executionPrice.toFixed(1)}.`, transactionHash: matchHash },
       authorization.intent.side === "EXIT"
         ? { step: "POSITION_CLOSED", label: "Position closed", detail: "Original and close-fill positions were fully unwound onchain.", transactionHash: lifecycleHash ?? matchHash }
         : { step: "POSITION_CREATED", label: "Position created", detail: `Position ${positionId} is active.`, transactionHash: matchHash },
@@ -1307,10 +1332,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const closedPosition = authorization.intent.side === "EXIT"
       ? this.snapshot.positions.find((candidate) => candidate.id === authorization.intent.closePositionId) ?? null
       : null;
-    const realizedPnlUsd = closedPosition
-      ? (closedPosition.side === "LONG" ? executionPrice - closedPosition.entryPrice : closedPosition.entryPrice - executionPrice) *
-        authorization.intent.contractMultiplier * filledLots
-      : undefined;
+    const realizedPnlUsd = closedPosition ? await this.exitRealizedPnlUsd(closedPosition.id, body.fillId as Hex) : undefined;
     const receipt: ExecutionReceipt = {
       id: body.fillId,
       orderHash: authorization.orderHash,
@@ -1347,7 +1369,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       { step: "AUTHORIZED", label: "RFQ authorized", detail: "Selected quote and capacity were locked onchain." },
       { step: "SUBMITTED", label: "Private handoff submitted", detail: "The RFQ entered private channel clearing." },
       { step: "INCLUDED", label: "Handoff included", detail: "The RFQ handoff cleared atomically.", transactionHash: body.transactionHash },
-      { step: "FILLED", label: "Package filled", detail: `${filledLots} lots filled at ${executionPrice}.`, transactionHash: body.transactionHash },
+      { step: "FILLED", label: "Package filled", detail: `${formatLotCount(filledLots)} filled at ${executionPrice.toFixed(1)}.`, transactionHash: body.transactionHash },
       authorization.intent.side === "EXIT"
         ? { step: "POSITION_CLOSED", label: "Position closed", detail: "Original and close-fill positions were fully unwound onchain.", transactionHash: lifecycleHash ?? body.transactionHash }
         : { step: "POSITION_CREATED", label: "Position created", detail: `Position ${body.positionId} is active.`, transactionHash: body.transactionHash },
@@ -1473,6 +1495,15 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         label: "Local devnet",
         chainId: setryn.chainId,
         evidence: "DEVNET",
+      },
+      publicBookEconomics: {
+        // Package prices carry one decimal onchain, so one price unit is ten ticks.
+        considerationPerPriceUnit: (setryn.tickSizeMinor * 10) / 1_000_000,
+        longCollateralPerLot: setryn.maxLongDebitMinorPerLot / 1_000_000,
+        shortCollateralPerLot: setryn.maxShortDebitMinorPerLot / 1_000_000,
+        maxOrderLots: setryn.maxOrderLots,
+        makerFeeBps: setryn.makerFeeRatePpm / 100,
+        takerFeeBps: setryn.takerFeeRatePpm / 100,
       },
     });
     return setryn;
@@ -1620,7 +1651,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         fillLots: lots,
         limitPrice,
         executionPrice: limitPrice,
-        contractMultiplier: 2.5,
+        contractMultiplier: PRIMARY_CONTRACT_MULTIPLIER,
         orderType: "LIMIT",
         timeInForce,
         expiresAt: new Date(Number(record.order.deadline) * 1000).toISOString(),
@@ -1670,7 +1701,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         createdAt: new Date(Number(record.registeredAt) * 1000).toISOString(),
         state,
         orderType: "LIMIT",
-        contractMultiplier: 2.5,
+        contractMultiplier: PRIMARY_CONTRACT_MULTIPLIER,
         settlementGuarantee: intent.settlementGuarantee,
         disclosure: "PUBLIC",
         recipient: record.order.recipient,
@@ -1734,10 +1765,28 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     this.publish({ ...this.snapshot, publicBookMarketId: PRIMARY_MARKET_ID, publicBookOrders: rows });
   }
 
+  /** Realized PnL of a full exit: the account's net consideration over the fill that opened the position and the close fill. */
+  private async exitRealizedPnlUsd(closePositionId: string, exitFillId: Hex): Promise<number | undefined> {
+    if (!this.setryn || !this.publicClient || !this.walletAddress) return undefined;
+    const entryFillId = this.snapshot.executions.find((execution) => execution.result?.position?.id === closePositionId)
+      ?.result?.fillId as Hex | undefined;
+    if (!entryFillId) return undefined;
+    const accountId = await this.accountId(this.walletAddress);
+    const events = await this.publicClient.getContractEvents({
+      address: this.setryn.atomicClearingEngine,
+      abi: atomicClearingAbi,
+      eventName: "FillLedgerEntry",
+      args: { fillId: [entryFillId, exitFillId], kind: CONSIDERATION_ENTRY },
+      fromBlock: BigInt(0),
+      toBlock: "latest",
+    });
+    return netConsiderationUsd(events, entryFillId, accountId) + netConsiderationUsd(events, exitFillId, accountId);
+  }
+
   private async refreshActivity(): Promise<void> {
     if (!this.setryn || !this.publicClient || !this.walletAddress) return;
     const accountId = await this.accountId(this.walletAddress);
-    const [positionEvents, ledgerEvents] = await Promise.all([
+    const [positionEvents, ledgerEvents, quantityEvents, feeEvents] = await Promise.all([
       this.publicClient.getContractEvents({
         address: this.setryn.atomicClearingEngine,
         abi: atomicClearingAbi,
@@ -1752,10 +1801,33 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         fromBlock: BigInt(0),
         toBlock: "latest",
       }),
+      this.publicClient.getContractEvents({
+        address: this.setryn.positionEngine,
+        abi: positionLifecycleAbi,
+        eventName: "PositionQuantityChanged",
+        fromBlock: BigInt(0),
+        toBlock: "latest",
+      }),
+      this.publicClient.getContractEvents({
+        address: this.setryn.fundedFeeEngine,
+        abi: fundedFeeLedgerAbi,
+        eventName: "FeeLedgerEntryRecorded",
+        fromBlock: BigInt(0),
+        toBlock: "latest",
+      }),
     ]);
-    const positions = [] as GatewaySnapshot["positions"];
-    const receipts = [] as GatewaySnapshot["receipts"];
-    const executions = [] as GatewaySnapshot["executions"];
+    // A full exit closes the original position and the close-fill position in one lifecycle action, so both carry the
+    // same transition reference on the event that takes them to zero remaining lots.
+    const closings = new Map<string, { reference: Hex; transactionHash: Hex }>();
+    const closedByReference = new Map<string, string[]>();
+    for (const event of quantityEvents) {
+      const { positionId, remainingLots, transitionReference } = event.args;
+      if (!positionId || !transitionReference || remainingLots !== BigInt(0)) continue;
+      const key = positionId.toLowerCase();
+      closings.set(key, { reference: transitionReference, transactionHash: event.transactionHash });
+      closedByReference.set(transitionReference, [...(closedByReference.get(transitionReference) ?? []), key]);
+    }
+    const fills = [];
     for (const positionEvent of positionEvents) {
       const fillId = positionEvent.args.fillId;
       const positionId = positionEvent.args.positionId;
@@ -1797,12 +1869,17 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       const packageSide: "LONG" | "SHORT" = ownRecord.order.side === 1 ? "LONG" : "SHORT";
       const price = Number(fill.executionPriceTicks) / 10;
       const ownFeeKind = isTaker ? 3 : 2;
-      const feeMinor = ledgerEvents.find(
+      // Fees are charged by the funded fee engine in the fill's transaction, or on the clearing ledger when funded
+      // from a direct fee lock.
+      const feeMinor = (ledgerEvents.find(
         (event) =>
           event.args.fillId === fillId &&
           event.args.kind === ownFeeKind &&
           event.args.payerAccountId?.toLowerCase() === accountId.toLowerCase(),
-      )?.args.amount ?? BigInt(0);
+      )?.args.amount ?? BigInt(0)) + accountFeesPaidMinor(
+        feeEvents.filter((event) => event.transactionHash === positionEvent.transactionHash),
+        accountId,
+      );
       const createdAt = new Date(Number(fill.clearedAt) * 1000).toISOString();
       const position = {
         id: positionId,
@@ -1820,53 +1897,100 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       const cancelledLots = isTaker && (ownRecord.order.timeInForce === 3 || ownRecord.order.timeInForce === 4)
         ? requestedLots - Number(ownRecord.filledLots)
         : 0;
-      const receipt: ExecutionReceipt = {
-        id: fillId,
-        orderHash: ownOrderHash,
+      fills.push({
         fillId,
-        transactionHash: positionEvent.transactionHash,
-        marketId: PRIMARY_MARKET_ID,
-        packageCode: PRIMARY_MARKET_ID,
-        packageSide,
-        routeLabel: fill.channelKind === 2 ? "Private firm RFQ" : "Direct package book",
-        lots: filledLots,
+        positionId,
+        positionLive,
+        ownOrderHash,
         requestedLots,
         filledLots,
         cancelledLots,
+        packageSide,
         price,
-        fees: Number(formatUnits(feeMinor, 6)),
+        feeMinor,
+        createdAt,
+        position,
+        channelKind: fill.channelKind,
+        transactionHash: positionEvent.transactionHash,
+      });
+    }
+    // Pair each exit fill with the position it closed: the earlier fill opened it, the later one hedged it out.
+    const fillByPosition = new Map(fills.map((record, index) => [record.positionId.toLowerCase(), { record, index }]));
+    const closedBy = new Map<string, { exit: (typeof fills)[number]; transactionHash: Hex }>();
+    const closes = new Map<string, { entry: (typeof fills)[number]; transactionHash: Hex }>();
+    for (const [positionKey, closing] of closings) {
+      const own = fillByPosition.get(positionKey);
+      if (!own || closedBy.has(positionKey) || closes.has(positionKey)) continue;
+      const peerKey = closedByReference.get(closing.reference)?.find((candidate) => candidate !== positionKey);
+      const peer = peerKey ? fillByPosition.get(peerKey) : undefined;
+      if (!peer || peer.record.packageSide === own.record.packageSide) continue;
+      const [entry, exit] = own.index < peer.index ? [own.record, peer.record] : [peer.record, own.record];
+      closedBy.set(entry.positionId.toLowerCase(), { exit, transactionHash: closing.transactionHash });
+      closes.set(exit.positionId.toLowerCase(), { entry, transactionHash: closing.transactionHash });
+    }
+    const positions = [] as GatewaySnapshot["positions"];
+    const receipts = [] as GatewaySnapshot["receipts"];
+    const executions = [] as GatewaySnapshot["executions"];
+    for (const record of fills) {
+      const { fillId, positionId, positionLive, filledLots, price, position, transactionHash } = record;
+      const closedEntry = closes.get(positionId.toLowerCase());
+      const openedAndClosed = closedBy.has(positionId.toLowerCase());
+      const entry = closedEntry?.entry;
+      const receipt: ExecutionReceipt = {
+        id: fillId,
+        orderHash: record.ownOrderHash,
+        fillId,
+        transactionHash,
+        marketId: PRIMARY_MARKET_ID,
+        packageCode: PRIMARY_MARKET_ID,
+        packageSide: record.packageSide,
+        routeLabel: record.channelKind === 2 ? "Private firm RFQ" : "Direct package book",
+        lots: filledLots,
+        requestedLots: record.requestedLots,
+        filledLots,
+        cancelledLots: record.cancelledLots,
+        price,
+        fees: Number(formatUnits(record.feeMinor, 6)),
+        realizedPnlUsd: entry
+          ? netConsiderationUsd(ledgerEvents, entry.fillId, accountId) + netConsiderationUsd(ledgerEvents, fillId, accountId)
+          : undefined,
+        collateralReleasedUsd: entry ? entry.position.collateral + position.collateral : undefined,
         guarantee: "Atomic onchain settlement",
         evidence: "DEVNET",
-        createdAt,
+        createdAt: record.createdAt,
       };
+      const positionUpdate: SubmissionUpdate = closedEntry
+        ? { step: "POSITION_CLOSED", label: "Position closed", detail: "Original and close-fill positions were fully unwound onchain.", transactionHash: closedEntry.transactionHash }
+        : positionLive || openedAndClosed
+          ? { step: "POSITION_CREATED", label: "Position created", detail: `Position ${positionId} ${positionLive ? "is active" : "was opened"}.`, transactionHash }
+          : { step: "POSITION_CLOSED", label: "Position closed", detail: `Position ${positionId} reached a terminal lifecycle state.`, transactionHash };
       const updates: SubmissionUpdate[] = [
         { step: "AUTHORIZED", label: "Order authorized", detail: "Signature and risk admission were bound." },
         { step: "SUBMITTED", label: "Order registered", detail: "Signed order registered onchain." },
-        { step: "INCLUDED", label: "Match included", detail: `${receipt.routeLabel} cleared atomically.`, transactionHash: positionEvent.transactionHash },
-        { step: "FILLED", label: "Package filled", detail: `${filledLots} lots filled at ${price}.`, transactionHash: positionEvent.transactionHash },
-        positionLive
-          ? { step: "POSITION_CREATED", label: "Position created", detail: `Position ${positionId} is active.`, transactionHash: positionEvent.transactionHash }
-          : { step: "POSITION_CLOSED", label: "Position closed", detail: `Position ${positionId} reached a terminal lifecycle state.`, transactionHash: positionEvent.transactionHash },
-        { step: "RECEIPT_READY", label: "Receipt ready", detail: `Fill ${fillId} is verifiable onchain.`, transactionHash: positionEvent.transactionHash },
+        { step: "INCLUDED", label: "Match included", detail: `${receipt.routeLabel} cleared atomically.`, transactionHash },
+        { step: "FILLED", label: "Package filled", detail: `${formatLotCount(filledLots)} filled at ${price.toFixed(1)}.`, transactionHash },
+        positionUpdate,
+        { step: "RECEIPT_READY", label: "Receipt ready", detail: `Fill ${fillId} is verifiable onchain.`, transactionHash },
       ];
       if (positionLive) positions.push(position);
       receipts.push(receipt);
+      const opened = !closedEntry && (positionLive || openedAndClosed);
       executions.push({
         id: fillId,
-        orderHash: ownOrderHash,
+        orderHash: record.ownOrderHash,
         updates,
         result: {
           fillId,
-          outcome: positionLive ? "OPENED" : "CLOSED",
-          requestedLots,
+          outcome: opened ? "OPENED" : "CLOSED",
+          requestedLots: record.requestedLots,
           filledLots,
-          cancelledLots,
-          position: positionLive ? position : null,
-          closedPositionId: positionLive ? null : positionId,
-          closedLots: positionLive ? 0 : filledLots,
+          cancelledLots: record.cancelledLots,
+          position: opened ? position : null,
+          closedPositionId: opened ? null : entry?.positionId ?? positionId,
+          closedLots: opened ? 0 : filledLots,
           receipt,
         },
-        createdAt,
+        createdAt: record.createdAt,
       });
     }
     this.publish({ ...this.snapshot, positions, receipts, executions });
@@ -1977,7 +2101,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         fillLots: lots,
         limitPrice,
         executionPrice: limitPrice,
-        contractMultiplier: 2.5,
+        contractMultiplier: PRIMARY_CONTRACT_MULTIPLIER,
         orderType: "LIMIT",
         timeInForce,
         expiresAt: new Date(Number(orderRecord.order.deadline) * 1000).toISOString(),

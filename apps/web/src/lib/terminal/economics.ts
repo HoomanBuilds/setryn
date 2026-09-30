@@ -167,7 +167,9 @@ export function buildPreview(
     ? Math.min(requestedLots, route.availableLots)
     : requestedLots;
   const cancelledLots = Math.max(0, requestedLots - fillLots);
-  const notional = fillLots * market.notionalPerLot;
+  const notional = market.feeOnConsideration
+    ? fillLots * Math.abs(effectivePrice) * market.contractMultiplier
+    : fillLots * market.notionalPerLot;
 
   const protocolFeeBps = route?.protocolFeeBps ?? 2.5;
   const counterpartyFeeBps = route?.counterpartyFeeBps ?? 0;
@@ -181,6 +183,9 @@ export function buildPreview(
 
   const blockers: string[] = [];
   if (requestedLots <= 0) blockers.push("Enter a package quantity above zero.");
+  if (market.maxOrderLots != null && requestedLots > market.maxOrderLots) {
+    blockers.push(`This market accepts at most ${market.maxOrderLots} lots per order.`);
+  }
   if (limitPrice === 0) blockers.push("Enter a package-price limit.");
   if (isExit) {
     if (!closePosition || !(closePosition.lots > 0)) {

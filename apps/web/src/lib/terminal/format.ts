@@ -78,6 +78,11 @@ export function formatLots(value: number): string {
   return formatNumber(value, 0);
 }
 
+/** Lot count with its unit, singular for exactly one lot. */
+export function formatLotCount(value: number): string {
+  return `${formatLots(value)} ${value === 1 ? "lot" : "lots"}`;
+}
+
 export function formatBps(value: number): string {
   return `${formatNumber(value, 2)} bp`;
 }

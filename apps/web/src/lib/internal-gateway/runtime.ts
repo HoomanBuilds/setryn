@@ -31,6 +31,11 @@ export interface SetrynRuntime {
   payoffTerms: Hex;
   maxLongDebitMinorPerLot: number;
   maxShortDebitMinorPerLot: number;
+  /** Settlement minor units per price tick per lot: consideration is lots x price ticks x tick size. */
+  tickSizeMinor: number;
+  maxOrderLots: number;
+  makerFeeRatePpm: number;
+  takerFeeRatePpm: number;
   executionModeSetHash: Hex;
   executionModeId: Hex;
   privateRfqExecutionModeId: Hex;

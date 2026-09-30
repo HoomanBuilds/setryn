@@ -37,7 +37,7 @@ import {
 } from "@/components/activity/ledger-ui";
 import { StepTimeline } from "@/components/activity/StepTimeline";
 import { DEFAULT_TRADE_HREF, findMarket, tradeHref } from "@/lib/terminal/markets";
-import { formatLots, formatNumber, formatSignedUsd, formatUsd, priceUnitSuffix } from "@/lib/terminal/format";
+import { formatLotCount, formatLots, formatNumber, formatSignedUsd, formatUsd, priceUnitSuffix } from "@/lib/terminal/format";
 
 /* ------------------------------------------------------------------ */
 /* Hash chain                                                          */
@@ -261,7 +261,7 @@ export function ReceiptExplorer({ receiptId }: { receiptId: string }) {
     {
       id: "fill",
       label: "Atomic fill",
-      caption: `${formatLots(filledLots)} lots at ${priceText}`,
+      caption: `${formatLotCount(filledLots)} at ${priceText}`,
       value: receipt.fillId,
       icon: <Zap size={14} aria-hidden="true" />,
     },
@@ -295,7 +295,7 @@ export function ReceiptExplorer({ receiptId }: { receiptId: string }) {
     { label: "Execution route", value: receipt.routeLabel, state: "pass" },
     {
       label: "Fill within request",
-      value: partial ? `${formatLots(filledLots)} of ${formatLots(requestedLots)}` : `${formatLots(filledLots)} lots`,
+      value: partial ? `${formatLots(filledLots)} of ${formatLots(requestedLots)}` : formatLotCount(filledLots),
       state: filledLots <= requestedLots + 1e-9 ? "pass" : "info",
       note: "Filled lots do not exceed the signed request.",
     },

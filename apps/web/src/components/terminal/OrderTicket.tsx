@@ -24,7 +24,7 @@ import {
   routePrice,
   SLIPPAGE_PRESETS_BPS,
 } from "@/lib/terminal/economics";
-import { formatAsset, formatLots, formatNumber, formatUsd, priceUnitSuffix } from "@/lib/terminal/format";
+import { formatAsset, formatLotCount, formatLots, formatNumber, formatUsd, priceUnitSuffix } from "@/lib/terminal/format";
 import type { HandoffContext } from "@/lib/terminal/handoff";
 import type { PackageMarket, RouteQuote } from "@/lib/terminal/types";
 import type {
@@ -334,7 +334,7 @@ export function OrderTicket({
                 </span>
                 {handoff.direction || handoff.lots !== null ? (
                   <span className="tnum font-mono text-[11px] text-dim">
-                    {[handoff.direction, handoff.lots !== null ? `${handoff.lots} lots` : null]
+                    {[handoff.direction, handoff.lots !== null ? formatLotCount(handoff.lots) : null]
                       .filter(Boolean)
                       .join(" · ")}
                   </span>
@@ -438,11 +438,15 @@ export function OrderTicket({
             </div>
             <div className="flex items-baseline justify-between gap-2">
               <dt className="text-faint">{isExit ? "Max close size" : "Max size"}</dt>
-              <dd className="tnum font-mono text-dim">{wallet.connected || isExit ? `${formatLots(maxLots)} lots` : "–"}</dd>
+              <dd className="tnum font-mono text-dim">{wallet.connected || isExit ? formatLotCount(maxLots) : "–"}</dd>
             </div>
             <div className="flex items-baseline justify-between gap-2">
               <dt className="text-faint">Contract</dt>
-              <dd className="tnum font-mono text-dim">{`1 lot = ${formatUsd(market.notionalPerLot, 0)}`}</dd>
+              <dd className="tnum font-mono text-dim">
+                {market.feeOnConsideration
+                  ? `1 lot = ${formatUsd(market.contractMultiplier, 2)} per ${priceUnitSuffix(market.priceUnit)}`
+                  : `1 lot = ${formatUsd(market.notionalPerLot, 0)}`}
+              </dd>
             </div>
           </dl>
 
@@ -488,7 +492,7 @@ export function OrderTicket({
                   key={percent}
                   type="button"
                   disabled={!sizingKnown}
-                  title={sizingKnown ? `${percent}% of ${formatLots(maxLots)} lots` : "Connect a wallet to size from available collateral"}
+                  title={sizingKnown ? `${percent}% of ${formatLotCount(maxLots)}` : "Connect a wallet to size from available collateral"}
                   onClick={() => onChange({ lotsInput: String(Math.max(0, Math.floor((maxLots * percent) / 100))) })}
                   className="focus-ring tnum h-7 rounded-sm bg-inset font-mono text-[11px] text-faint transition-colors enabled:hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -913,8 +917,8 @@ function StageArea({
         {routeMissing
           ? "Select a route to continue"
           : state.intent === "ENTER"
-            ? `${verb} ${idleSide} · ${formatLots(preview.requestedLots)} lots`
-            : `Close ${formatLots(preview.requestedLots)} lots`}
+            ? `${verb} ${idleSide} · ${formatLotCount(preview.requestedLots)}`
+            : `Close ${formatLotCount(preview.requestedLots)}`}
       </button>
     );
   }
@@ -937,10 +941,10 @@ function StageArea({
             value={`${verb} ${sideLabel.toLowerCase()}, ${state.orderType === "LIMIT" ? "limit" : "marketable"}, ${state.tif}`}
           />
           <PayloadRow label="Package side" value={`${sideLabel} · ${actionLabel}`} />
-          <PayloadRow label="Requested" value={`${formatLots(preview.requestedLots)} lots`} />
+          <PayloadRow label="Requested" value={formatLotCount(preview.requestedLots)} />
           {preview.cancelledLots > 1e-9 ? (
             <>
-              <PayloadRow label="Expected fill" value={`${formatLots(preview.fillLots)} lots`} />
+              <PayloadRow label="Expected fill" value={formatLotCount(preview.fillLots)} />
               <PayloadRow label="IOC remainder" value={`${formatLots(preview.cancelledLots)} lots cancelled`} />
             </>
           ) : null}

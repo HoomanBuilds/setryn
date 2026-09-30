@@ -100,6 +100,10 @@ contract BootstrapSetrynDevnet is Script {
     bytes32 private constant PAYOFF_INTERFACE = keccak256("SETRYN_SERIES_PAYOFF_INTERFACE_V1");
     bytes32 private constant PAYOFF_CAPABILITY = keccak256("SETRYN_EXACT_LOTS_PAYOFF_V1");
     bytes32 private constant TERMS_SCHEMA = keccak256("SETRYN_CANONICAL_CAPPED_FORWARD_TERMS_V1");
+    uint128 private constant MARKET_TICK_SIZE_MINOR = 100_000;
+    uint128 private constant MARKET_MAX_ORDER_LOTS = 10;
+    uint32 private constant MAKER_FEE_RATE_PPM = 500;
+    uint32 private constant TAKER_FEE_RATE_PPM = 1_000;
 
     error PublicNetworkBootstrapDisabled(uint256 chainId);
     error InvalidDependency(string name);
@@ -406,7 +410,7 @@ contract BootstrapSetrynDevnet is Script {
         rules[0] = FeeRule({
             actionId: FeeScheduleDefinitionLib.FEE_ACTION_MAKER_FILL,
             requiresOpenSchedule: true,
-            chargeRatePpm: FeeRatePpm.wrap(500),
+            chargeRatePpm: FeeRatePpm.wrap(MAKER_FEE_RATE_PPM),
             rebateRatePpm: FeeRatePpm.wrap(0),
             flatChargeMinor: 0,
             flatRebateMinor: 0,
@@ -415,7 +419,7 @@ contract BootstrapSetrynDevnet is Script {
         rules[1] = FeeRule({
             actionId: FeeScheduleDefinitionLib.FEE_ACTION_TAKER_FILL,
             requiresOpenSchedule: true,
-            chargeRatePpm: FeeRatePpm.wrap(1_000),
+            chargeRatePpm: FeeRatePpm.wrap(TAKER_FEE_RATE_PPM),
             rebateRatePpm: FeeRatePpm.wrap(0),
             flatChargeMinor: 0,
             flatRebateMinor: 0,
@@ -509,10 +513,10 @@ contract BootstrapSetrynDevnet is Script {
             feeScheduleId: runtime.feeScheduleId,
             feeScheduleVersion: VERSION,
             quoteUnitId: MarketDefinitionLib.QUOTE_UNIT_SETTLEMENT_MINOR_PER_LOT,
-            tickSizeMinor: TickSizeMinor.wrap(100_000),
+            tickSizeMinor: TickSizeMinor.wrap(MARKET_TICK_SIZE_MINOR),
             lotStep: Lots.wrap(1),
             minOrderLots: Lots.wrap(1),
-            maxOrderLots: Lots.wrap(10),
+            maxOrderLots: Lots.wrap(MARKET_MAX_ORDER_LOTS),
             minPriceTicks: PriceTicks.wrap(-1_000_000_000),
             maxPriceTicks: PriceTicks.wrap(1_000_000_000),
             executionModeSetHash: EXECUTION_MODE_SET,
@@ -761,7 +765,7 @@ contract BootstrapSetrynDevnet is Script {
 
     function _writeRuntime(Contracts memory c, Runtime memory runtime, address operator, string memory output) private {
         string memory objectKey = "setryn-runtime";
-        vm.serializeUint(objectKey, "schemaVersion", 7);
+        vm.serializeUint(objectKey, "schemaVersion", 8);
         vm.serializeUint(objectKey, "chainId", block.chainid);
         vm.serializeUint(objectKey, "day", runtime.day);
         vm.serializeAddress(objectKey, "operator", operator);
@@ -806,6 +810,11 @@ contract BootstrapSetrynDevnet is Script {
         vm.serializeBytes32(objectKey, "feeRecipientAccountId", AccountId.unwrap(runtime.feeRecipientAccountId));
         vm.serializeUint(objectKey, "maxLongDebitMinorPerLot", runtime.maxLongDebitMinorPerLot);
         vm.serializeUint(objectKey, "maxShortDebitMinorPerLot", runtime.maxShortDebitMinorPerLot);
+        // Market economics the terminal previews against: consideration is lots x price ticks x tick size.
+        vm.serializeUint(objectKey, "tickSizeMinor", MARKET_TICK_SIZE_MINOR);
+        vm.serializeUint(objectKey, "maxOrderLots", MARKET_MAX_ORDER_LOTS);
+        vm.serializeUint(objectKey, "makerFeeRatePpm", MAKER_FEE_RATE_PPM);
+        vm.serializeUint(objectKey, "takerFeeRatePpm", TAKER_FEE_RATE_PPM);
         vm.serializeBytes32(objectKey, "riskDomainId", RiskDomainId.unwrap(runtime.riskDomainId));
         vm.serializeBytes32(objectKey, "instrumentId", InstrumentId.unwrap(runtime.instrumentId));
         vm.serializeBytes32(objectKey, "marketId", MarketId.unwrap(runtime.marketId));

@@ -69,8 +69,20 @@ export interface GatewaySnapshot {
   executions: GatewayExecution[];
   restingOrders: RestingPackageOrder[];
   publicBookMarketId: string | null;
+  /** Economics of the onchain series behind the public book market, once the runtime is loaded. */
+  publicBookEconomics: OnchainMarketEconomics | null;
   publicBookOrders: BookRow[];
   rfqRequests: RfqRequest[];
+}
+
+export interface OnchainMarketEconomics {
+  /** Settlement units of consideration per lot for each unit of package price. */
+  considerationPerPriceUnit: number;
+  longCollateralPerLot: number;
+  shortCollateralPerLot: number;
+  maxOrderLots: number;
+  makerFeeBps: number;
+  takerFeeBps: number;
 }
 
 export interface CollateralIntent {

@@ -863,3 +863,37 @@ export function parsePublicOrder(candidate: unknown): OnchainPublicOrder {
     reduceOnly: boolean("reduceOnly"),
   };
 }
+
+export const fundedFeeLedgerAbi = [
+  {
+    type: "event",
+    name: "FeeLedgerEntryRecorded",
+    inputs: [
+      { name: "consumptionId", type: "bytes32", indexed: true },
+      { name: "kind", type: "uint8", indexed: true },
+      { name: "actionId", type: "bytes32", indexed: true },
+      { name: "accountId", type: "bytes32", indexed: false },
+      { name: "amountMinor", type: "int256", indexed: false },
+    ],
+    anonymous: false,
+  },
+] as const;
+
+const FEE_CHARGE_DEBIT = 1;
+const FEE_REBATE_CREDIT = 4;
+
+/**
+ * Net fee an account paid in minor units, from the funded fee engine's ledger: charge debits are recorded negative and
+ * rebates positive, so the fee paid is the negated sum of both for the account.
+ */
+export function accountFeesPaidMinor(
+  events: readonly { args: { kind?: number; accountId?: Hex; amountMinor?: bigint } }[],
+  accountId: string,
+): bigint {
+  let paid = BigInt(0);
+  for (const { args } of events) {
+    if (args.accountId?.toLowerCase() !== accountId.toLowerCase() || args.amountMinor == null) continue;
+    if (args.kind === FEE_CHARGE_DEBIT || args.kind === FEE_REBATE_CREDIT) paid -= args.amountMinor;
+  }
+  return paid;
+}

@@ -101,6 +101,10 @@ export interface PackageMarket {
   /** USDC of package value per 1.00 of quoted package price, per lot. */
   contractMultiplier: number;
   collateralPerLot: number;
+  /** Fees are charged on the fill's consideration (price x multiplier) rather than on notional, as onchain. */
+  feeOnConsideration?: boolean;
+  /** Largest quantity one order may carry, when the venue enforces one. */
+  maxOrderLots?: number;
   residualPerLot: number;
   openInterestLots: number;
   firmDepthLots: number;

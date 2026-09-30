@@ -9,7 +9,9 @@ import {
   type Hex,
 } from "viem";
 import {
+  accountFeesPaidMinor,
   atomicClearingAbi,
+  fundedFeeLedgerAbi,
   privateRfqBookAbi,
   riskBindingAbi,
   riskEngineAbi,
@@ -353,9 +355,12 @@ export async function POST(request: Request) {
     });
     const createdPositionId = positionEvents[0]?.args.positionId;
     if (!createdPositionId || createdPositionId !== positionId) throw new Error("RFQ_CLEARING_EVIDENCE_MISSING");
-    const takerFeeMinor = ledgerEvents.find(
+    // The funded fee engine records fees; the clearing ledger carries them only for directly funded fee locks.
+    const feeEvents = parseEventLogs({ abi: fundedFeeLedgerAbi, eventName: "FeeLedgerEntryRecorded", logs: receipt.logs, strict: true });
+    const clearingFeeMinor = ledgerEvents.find(
       (event) => event.args.fillId === fillId && event.args.kind === 3,
     )?.args.amount ?? BigInt(0);
+    const takerFeeMinor = clearingFeeMinor + accountFeesPaidMinor(feeEvents, rfq.request.takerAccountId);
     return Response.json({
       fillId,
       positionId,

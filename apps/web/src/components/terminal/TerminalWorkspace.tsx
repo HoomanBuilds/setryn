@@ -436,9 +436,30 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     rfqParam,
   ]);
 
+  /* The onchain-activated market settles on its deployed series, so the ticket prices collateral, fees, and order
+     size from the chain rather than from the preview definition; charts and books keep the shared preview feed. */
+  const onchainMarket = gatewaySnapshot.publicBookMarketId === liveMarket.id;
+  const onchainEconomics = onchainMarket ? gatewaySnapshot.publicBookEconomics : null;
+  const ticketMarket = useMemo<PackageMarket>(() => {
+    if (!onchainEconomics) return liveMarket;
+    return {
+      ...liveMarket,
+      contractMultiplier: onchainEconomics.considerationPerPriceUnit,
+      collateralPerLot: Math.max(onchainEconomics.longCollateralPerLot, onchainEconomics.shortCollateralPerLot),
+      feeOnConsideration: true,
+      maxOrderLots: onchainEconomics.maxOrderLots,
+      routes: liveMarket.routes.map((candidate) => ({
+        ...candidate,
+        protocolFeeBps: onchainEconomics.takerFeeBps,
+        counterpartyFeeBps: 0,
+        collateralMultiple: 1,
+      })),
+    };
+  }, [liveMarket, onchainEconomics]);
+
   const route = useMemo(
-    () => liveMarket.routes.find((candidate) => candidate.id === ticket.routeId) ?? null,
-    [liveMarket, ticket.routeId],
+    () => ticketMarket.routes.find((candidate) => candidate.id === ticket.routeId) ?? null,
+    [ticketMarket, ticket.routeId],
   );
 
   const rfqRequest = useMemo(() => {
@@ -487,7 +508,6 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
 
   /* The onchain-activated market shows the public book read from the chain. Preview markets keep their preview
      direct depth so the ladder reads like a market, marked indicative because nothing there rests onchain. */
-  const onchainMarket = gatewaySnapshot.publicBookMarketId === liveMarket.id;
   const directBookOrders = useMemo<BookRow[]>(
     () =>
       onchainMarket
@@ -533,8 +553,8 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   );
 
   const preview = useMemo(
-    () => buildPreview(liveMarket, ticket, route, selectedClosePosition),
-    [liveMarket, ticket, route, selectedClosePosition],
+    () => buildPreview(ticketMarket, ticket, route, selectedClosePosition),
+    [ticketMarket, ticket, route, selectedClosePosition],
   );
 
   const amendmentOrder = amendmentOrderId
@@ -550,9 +570,12 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       return Math.max(1, Math.min(selectedClosePosition.lots, byCapacity));
     }
     const multiple = route?.collateralMultiple ?? 1;
+    const feeBasePerLot = ticketMarket.feeOnConsideration
+      ? Math.abs(route ? routePrice(route, executableAction(ticket.intent, ticket.side)) : ticketMarket.netPrice) *
+        ticketMarket.contractMultiplier
+      : ticketMarket.notionalPerLot;
     const feePerLot =
-      (liveMarket.notionalPerLot * ((route?.protocolFeeBps ?? 2.5) + (route?.counterpartyFeeBps ?? 0))) /
-      10_000;
+      (feeBasePerLot * ((route?.protocolFeeBps ?? 2.5) + (route?.counterpartyFeeBps ?? 0))) / 10_000;
     const creditedAvailable =
       amendmentOrder && amendmentOrder.side === "ENTER"
         ? gatewaySnapshot.account.available +
@@ -561,12 +584,13 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
             ? amendmentOrder.remainingCollateralReservation
             : amendmentOrder.collateralReservation)
         : gatewaySnapshot.account.available;
-    const byCollateral = Math.floor(
-      creditedAvailable / (liveMarket.collateralPerLot * multiple + feePerLot),
+    const byCollateral = Math.min(
+      Math.floor(creditedAvailable / (ticketMarket.collateralPerLot * multiple + feePerLot)),
+      ticketMarket.maxOrderLots ?? Number.POSITIVE_INFINITY,
     );
     if (iocUncapped) return Math.max(1, byCollateral);
     return Math.max(1, Math.min(byCollateral, byCapacity));
-  }, [amendmentOrder, gatewaySnapshot.account.available, liveMarket, route, selectedClosePosition, ticket.intent, ticket.tif]);
+  }, [amendmentOrder, gatewaySnapshot.account.available, liveMarket.firmDepthLots, ticketMarket, route, selectedClosePosition, ticket.intent, ticket.side, ticket.tif]);
 
   const selectMarket = useCallback((next: PackageMarket) => router.push(tradeHref(next)), [router]);
 
@@ -617,6 +641,10 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
           const matched = positionsNow.find((position) => position.id === next.closePositionId);
           if (matched && isPackageSide(matched.side)) {
             next.side = matched.side;
+          }
+          // A lifecycle exit closes the whole position, so choosing one fills in its full size.
+          if (matched && patch.lotsInput === undefined && next.closePositionId !== current.closePositionId) {
+            next.lotsInput = String(matched.lots);
           }
         }
         if (safePatch.side !== undefined && !isPackageSide(safePatch.side)) {
@@ -780,7 +808,9 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
           updates: [...current.updates, update],
         }));
       });
-      setExecution((current) => ({ ...current, status: "COMPLETED", result }));
+      // The gateway records every step, including the position and receipt steps it finishes after streaming.
+      const recorded = gateway.getSnapshot().executions.find((candidate) => candidate.result.receipt.id === result.receipt.id);
+      setExecution((current) => ({ ...current, status: "COMPLETED", result, updates: recorded?.updates ?? current.updates }));
       setStage({ kind: "COMPLETED", reference, receiptId: result.receipt.id });
       setConsoleTab("strategies");
       setConsoleScoped(true);
@@ -996,7 +1026,9 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
           updates: [...current.updates, update],
         }));
       });
-      setExecution((current) => ({ ...current, status: "COMPLETED", result }));
+      // The gateway records every step, including the position and receipt steps it finishes after streaming.
+      const recorded = gateway.getSnapshot().executions.find((candidate) => candidate.result.receipt.id === result.receipt.id);
+      setExecution((current) => ({ ...current, status: "COMPLETED", result, updates: recorded?.updates ?? current.updates }));
       setStage({ kind: "COMPLETED", reference, receiptId: result.receipt.id });
       setConsoleTab("strategies");
       setConsoleScoped(true);
@@ -1094,7 +1126,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
             </p>
           ) : null}
           <OrderTicket
-            market={liveMarket}
+            market={ticketMarket}
             state={ticket}
             preview={preview}
             route={route}
