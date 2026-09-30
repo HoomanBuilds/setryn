@@ -3173,8 +3173,9 @@ export class OnchainTradingGateway implements InternalTradingGateway {
           })
         : [];
       const packageSide = orderRecord.order.side === 1 ? "LONG" : "SHORT";
+      // An all-or-none RFQ order signs as GTD without partial fills; it reads back as the all-or-none the user chose.
       const timeInForce = orderRecord.order.timeInForce === 2
-        ? "GTD"
+        ? orderRecord.order.allowPartialFills === false ? "FOK" : "GTD"
         : orderRecord.order.timeInForce === 3
           ? "IOC"
           : orderRecord.order.timeInForce === 4
