@@ -200,8 +200,6 @@ export default function EnterScreen() {
         </button>
       </div>
 
-      <p className={`label ${styles.edge} ${styles.bottom}`}>Headphones recommended</p>
-
       {/* Sound is off until you turn it on here or in the header; entering never switches it on. */}
       <div className={styles.soundCorner}>
         <SoundToggle />

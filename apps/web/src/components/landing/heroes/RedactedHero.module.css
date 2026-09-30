@@ -79,54 +79,17 @@
   white-space: nowrap;
 }
 
-/* The redacted word: the bar sits on top; peeking slides it aside */
-.redacted {
-  position: relative;
-  display: inline-block;
-  overflow: hidden;
-  padding: 0 0.04em;
-  vertical-align: top;
-}
-
-.redacted > span {
-  letter-spacing: -0.03em;
-}
-
-.bar {
-  position: absolute;
-  inset: 0.12em 0 0;
-  background: var(--mint);
-  transform-origin: left;
-  /* taceo's pixel dither along the leading edge */
-  -webkit-mask-image:
-    linear-gradient(90deg, #000 calc(100% - 0.28em), transparent calc(100% - 0.28em)),
-    repeating-conic-gradient(#000 0 25%, transparent 0 50%) 100% 0 / 0.14em 0.14em;
-  mask-image:
-    linear-gradient(90deg, #000 calc(100% - 0.28em), transparent calc(100% - 0.28em)),
-    repeating-conic-gradient(#000 0 25%, transparent 0 50%) 100% 0 / 0.14em 0.14em;
-}
-
-.bar span {
-  position: absolute;
-  left: 0.3em;
-  bottom: 0.16em;
-  font-size: max(9px, 0.1em);
-  font-style: normal;
-  letter-spacing: 0;
-  line-height: 1;
-}
-
 .side {
   flex: none;
-  width: min(360px, 30vw);
+  width: min(320px, 25vw);
   padding-bottom: 0.6vw;
 }
 
 .side p {
-  margin: 0 0 20px;
+  margin: 0 0 18px;
   font-family: var(--font-display), sans-serif;
-  font-size: clamp(16px, 1.3vw, 19px);
-  line-height: 1.35;
+  font-size: clamp(14px, 1vw, 16px);
+  line-height: 1.45;
 }
 
 .actions {

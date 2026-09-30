@@ -168,8 +168,10 @@ export default function HowItWorks() {
               <p>{body}</p>
             </article>
           ))}
-          <a href="/protect/new" className={`${styles.case} ${styles.caseOpen}`} data-reveal data-sfx="ui" data-cursor="Protect">
-            <span className={styles.plus} aria-hidden="true" />
+          <a href="/protect/new" className={`${styles.case} ${styles.caseLink}`} data-reveal data-sfx="ui" data-cursor="Protect">
+            <Diamonds />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img className={styles.caseImage} src="/zkemail/Blueprint.png" alt="" />
             <h4>Your exposure</h4>
             <p>Receivables, inventory, debt, a fund&apos;s basis trade or a maker&apos;s quote surface. Describe it in Protect and see what the hedge costs.</p>
           </a>

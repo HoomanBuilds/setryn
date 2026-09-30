@@ -14,8 +14,8 @@ const LEAN = 0.14;
 const f = (value: number) => value.toFixed(1);
 
 /**
- * Hero B, light and editorial: taceo's paper, labels and giant type setting
- * out a dated order, its size redacted by a mint bar you can peek under.
+ * The Setryn hero, light and editorial: taceo's paper, labels and giant type
+ * naming the exchange.
  * Below, zk.email's hero card rises from the bottom edge holding aztec's
  * painting, split by a draggable diagonal: the scene as a public order book
  * shows it, and as a private RFQ leaves it (taceo halftone). Scrolling opens the card to full bleed and
@@ -67,19 +67,8 @@ export default function RedactedHero() {
 
       const split = SplitText.create(q("[data-line]"), { type: "words", mask: "words", wordsClass: "split-word" });
 
-      // Peek under the redaction to see the order size. Listeners go on the
-      // split DOM, which React no longer tracks.
-      const redacted = q<HTMLElement>(`.${styles.redacted}`)[0];
-      const bar = redacted.querySelector(`.${styles.bar}`);
-      const peek = (open: boolean) => () => {
-        gsap.to(bar, { xPercent: open ? 104 : 0, duration: 0.5, ease: "power3.out", overwrite: "auto" });
-        if (open) sound.play("HoverUI_In");
-      };
-      redacted.addEventListener("pointerenter", peek(true));
-      redacted.addEventListener("pointerleave", peek(false));
 
       gsap.set(split.words, { yPercent: 115 });
-      gsap.set(q(`.${styles.bar}`), { scaleX: 0 });
       gsap.set(q("[data-hero-fade]"), { opacity: 0, y: 16, filter: "blur(8px)" });
       gsap.set(q(`.${styles.window}`), { yPercent: 60, opacity: 0 });
 
@@ -134,8 +123,6 @@ export default function RedactedHero() {
             gsap.to(label, { duration: 0.9, scrambleText: { text: label.textContent!, chars: DECODE_CHARS, speed: 0.5 } }),
           );
         }, 0.3)
-        .to(q(`.${styles.bar}`), { scaleX: 1, duration: 0.7, ease: "power4.inOut" }, 1.25)
-        .add(() => sound.play("ClickUI"), 1.4)
         .to(q("[data-hero-fade]"), { opacity: 1, y: 0, filter: "blur(0px)", duration: 1, stagger: 0.1 }, 1)
         .to(q(`.${styles.window}`), { yPercent: 0, opacity: 1, duration: 1.6, ease: "expo.out" }, 1.1)
         // The divider glides to the middle, unless the reader has already taken hold of it.
@@ -205,17 +192,8 @@ export default function RedactedHero() {
           </div>
           <div className={styles.headline}>
             <h1 className={styles.title}>
-              <span data-line>
-                Sell{" "}
-                <span className={styles.redacted} data-cursor="Peek">
-                  <span>2,400</span>
-                  <i className={styles.bar} aria-hidden="true">
-                    <span className="mono">redacted</span>
-                  </i>
-                </span>{" "}
-                ETH
-              </span>
-              <span data-line>on 26 March 2027</span>
+              <span data-line>Private exchange</span>
+              <span data-line>for dated risk</span>
             </h1>
             <div className={styles.side} data-hero-fade>
               <p>

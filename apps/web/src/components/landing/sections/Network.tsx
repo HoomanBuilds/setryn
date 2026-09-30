@@ -20,22 +20,10 @@ const ROLES = [
   { name: "Auditors", job: "Rebuild any trade from its receipt", planet: "/hatom/planet_04.jpg" },
 ];
 
-/** Every way an order can meet liquidity, all on one order and instrument model. */
-const MODES = [
-  { name: "Central limit order book", access: "Public" },
-  { name: "Firm maker quotes", access: "Signed" },
-  { name: "Multi-dealer RFQ", access: "Private" },
-  { name: "Request for stream", access: "Private" },
-  { name: "Sealed auction and batch", access: "Commit and reveal" },
-  { name: "Solver competition", access: "Whole package" },
-  { name: "Direct and implied liquidity", access: "Packages" },
-  { name: "Netting and compression", access: "Portfolio" },
-];
-
 /**
  * Part 04 in aztec's register: a painted background on parallax, its serif
  * headline and counters, taceo's mint stat boxes, hatom's planets for the
- * roles that keep the market running, and the execution modes as a board.
+ * roles that keep the market running.
  */
 export default function Network() {
   const root = useRef<HTMLElement>(null);
@@ -124,22 +112,6 @@ export default function Network() {
               </li>
             ))}
           </ul>
-
-          <div className={styles.feedPanel} data-reveal>
-            <div className={styles.feedHead}>
-              <span className="label">Execution modes</span>
-              <span className={styles.live}>One order model</span>
-            </div>
-            <ol className={`mono ${styles.feed}`}>
-              {MODES.map(({ name, access }, index) => (
-                <li key={name}>
-                  <span>{index + 1}</span>
-                  <span className={styles.hash}>{name}</span>
-                  <span>{access}</span>
-                </li>
-              ))}
-            </ol>
-          </div>
         </div>
       </div>
     </section>

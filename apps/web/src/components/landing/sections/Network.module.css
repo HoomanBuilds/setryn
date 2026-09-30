@@ -284,17 +284,16 @@
 }
 
 .lower {
-  display: grid;
-  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
-  gap: clamp(24px, 4vw, 64px);
-  align-items: end;
+  display: flex;
+  justify-content: center;
   margin-top: clamp(64px, 7vw, 110px);
 }
 
 .clusters {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
+  gap: clamp(16px, 3vw, 48px);
+  width: min(100%, 880px);
   margin: 0;
   padding: 0;
   list-style: none;
