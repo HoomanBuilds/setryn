@@ -157,7 +157,7 @@ Evidence:
 
 | Check | Result |
 | --- | --- |
-| Contract tests, excluding invariant and fork | 744 passed, 0 failed, 0 skipped |
+| Contract tests, excluding fork (unit, fuzz, integration, invariant) | 798 passed, 0 failed, 0 skipped (109 suites) |
 | Pinned fork suite | 26/26, including the deployment rehearsal with venue-role and receipt-binding assertions, and the complete journey |
 | Local deployment on plain Anvil | Deploys and generates evidence: 111 transactions, 29 CREATE2 libraries, 70 qualified Phase 2 deployments, every venue role verified on chain |
 | Unsigned Arbitrum One intent | 291 operations (82 contracts, 29 libraries, 180 calls); 280,590,802 gas; deployer requirement 0.02244726 ETH including the 2x reserve |
