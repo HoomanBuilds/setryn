@@ -84,7 +84,8 @@ export class WebhookWorker {
     const to = from + BigInt(this.options.maxBlockRange - 1) < safeHead ? from + BigInt(this.options.maxBlockRange - 1) : safeHead;
 
     const logs = await this.chain.decodedLogs(from, to);
-    const derived = deriveWebhookEvents({ chainId, environment: this.chain.config.environment }, logs);
+    const references = await this.chain.resolveReferences(logs, to);
+    const derived = deriveWebhookEvents({ chainId, environment: this.chain.config.environment, references }, logs);
     const fresh = await this.store.appendEvents(derived);
 
     const subscriptions = await this.store.listSubscriptions();

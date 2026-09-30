@@ -4,6 +4,7 @@ import type { SolverExecutionPort } from "../ports.ts";
 import type { OperatorExecutionContext, OperatorExecutionResult, SolverExecutionIntent } from "../types.ts";
 import { ensureTradingAccount, hashOrder, reserveOrderRisk, signOrder } from "./book.ts";
 import { transactionSummary, type OperatorChainClient, type OperatorTransaction } from "./chain.ts";
+import { requireMarketById, requireMarketBySeries, type OperatorMarket } from "./deployment.ts";
 import { describeChainError, isContractRevert, OperatorExecutionError } from "./errors.ts";
 import { PayloadReader } from "./payload.ts";
 import {
@@ -39,8 +40,9 @@ import { assertIntentEnvironment, completed } from "./results.ts";
  *   { "action": "withdraw-quote", "quoteId": bytes32 }
  *     Cancels the solver's unselected firm capacity with a signed cancellation. Any risk class.
  *
- * The intent's `marketId` must be the deployed market, `packageHash` must equal the RFQ's package id (zero for a
- * single-series RFQ), and `accountId` must be an account on the RFQ (the solver's for quoting and withdrawal).
+ * The intent's `marketId` must be the market the RFQ's series trades as (any market of the deployment), `packageHash`
+ * must equal the RFQ's package id (zero for a single-series RFQ), and `accountId` must be an account on the RFQ (the
+ * solver's for quoting and withdrawal). Liability, lot caps and payoff terms come from that market.
  */
 export class ChainSolverExecutionPort implements SolverExecutionPort {
   readonly #client: OperatorChainClient;
@@ -64,9 +66,7 @@ export class ChainSolverExecutionPort implements SolverExecutionPort {
     if (action !== "withdraw-quote" && intent.riskClass !== "new-risk") {
       throw new OperatorExecutionError("invalid-payload", `${action} creates exposure and must be classed new-risk so kill switches apply`);
     }
-    if (intent.marketId.toLowerCase() !== this.#client.deployment.ids.marketId) {
-      throw new OperatorExecutionError("invalid-payload", `market ${intent.marketId} is not the deployed market`);
-    }
+    requireMarketById(this.#client.deployment, intent.marketId);
     if (!this.#client.isDeploymentOperator()) {
       throw new OperatorExecutionError("precondition", "solver execution needs the deployment operator's risk-consumer and match-executor roles");
     }
@@ -89,6 +89,7 @@ export class ChainSolverExecutionPort implements SolverExecutionPort {
     const rfqId = plan.bytes32("rfqId");
     const rfq = await this.#readRfq(rfqId);
     this.#assertTarget(intent, rfq.request.packageId);
+    const market = this.#marketFor(intent, rfq.request.seriesId);
     const account = await ensureTradingAccount(client, { fundingMinor: this.#fundingMinor });
     if (intent.accountId.toLowerCase() !== account.accountId) {
       throw new OperatorExecutionError("invalid-payload", `accountId must be the solver account ${account.accountId}`);
@@ -111,6 +112,9 @@ export class ChainSolverExecutionPort implements SolverExecutionPort {
     const makerSide = rfq.request.sidePolicy === 1 ? 2 : 1;
     const priceTicks = plan.bigint("priceTicks", { min: 1n });
     const lots = plan.bigint("lots", { fallback: rfq.request.lots, min: 1n, max: rfq.request.lots });
+    if (lots > market.economics.maxOrderLots) {
+      throw new OperatorExecutionError("precondition", `${market.marketKey} caps orders at ${market.economics.maxOrderLots} lots; the RFQ asks ${lots}`);
+    }
     const maxFeeMinor = plan.bigint("maxFeeMinor", { fallback: rfq.request.maxFeeMinor, min: 0n, max: rfq.request.maxFeeMinor });
     const ttl = BigInt(plan.integer("ttlSeconds", { fallback: 120, min: 5, max: 120 }));
     const tail = BigInt(plan.integer("capacityTailSeconds", { fallback: 60, min: 1, max: 300 }));
@@ -186,7 +190,7 @@ export class ChainSolverExecutionPort implements SolverExecutionPort {
       })));
     }
 
-    const liabilityPerLot = makerSide === 1 ? deployment.economics.maxLongDebitMinorPerLot : deployment.economics.maxShortDebitMinorPerLot;
+    const liabilityPerLot = makerSide === 1 ? market.economics.maxLongDebitMinorPerLot : market.economics.maxShortDebitMinorPerLot;
     const quoteNonce = deterministicWord(`setryn.operator.solver:${intent.environment}:${intent.idempotencyKey}:quote`);
     const quote = {
       rfqId,
@@ -245,6 +249,8 @@ export class ChainSolverExecutionPort implements SolverExecutionPort {
     return completed(
       {
         action: "submit-quote",
+        marketKey: market.marketKey,
+        seriesId: market.seriesId,
         rfqId,
         quoteId,
         makerOrderHash,
@@ -266,6 +272,7 @@ export class ChainSolverExecutionPort implements SolverExecutionPort {
     const rfqId = plan.bytes32("rfqId");
     const rfq = await this.#readRfq(rfqId);
     this.#assertTarget(intent, rfq.request.packageId);
+    const market = this.#marketFor(intent, rfq.request.seriesId);
     if (rfq.status === 7 || rfq.status === rfqStatus.settled) {
       return completed({ action: "execute-handoff", rfqId, previouslyExecuted: true, rfqStatus: enumName(rfqStatusNames, rfq.status) }, []);
     }
@@ -298,7 +305,7 @@ export class ChainSolverExecutionPort implements SolverExecutionPort {
           address: deployment.addresses.atomicClearingEngine,
           abi: abis.atomicClearingEngine,
           functionName: "previewSeriesFillId",
-          args: [rfq.request.takerOrderHash, quote.quote.makerOrderHash, rfq.request.lots, executionPriceTicks, deployment.payoffTerms],
+          args: [rfq.request.takerOrderHash, quote.quote.makerOrderHash, rfq.request.lots, executionPriceTicks, market.payoffTerms],
         }),
       ),
     ]);
@@ -329,7 +336,7 @@ export class ChainSolverExecutionPort implements SolverExecutionPort {
       entryPriceTicks: executionPriceTicks,
       longFunding: makerSide === 1 ? capacityFunding : emptyFunding,
       shortFunding: makerSide === 2 ? capacityFunding : emptyFunding,
-      payoffTerms: deployment.payoffTerms,
+      payoffTerms: market.payoffTerms,
     } as const;
     const positionId = await client.read("derive position id", (reader) =>
       reader.readContract({ address: deployment.addresses.positionEngine, abi: abis.positionEngine, functionName: "derivePositionId", args: [positionCreation] }),
@@ -352,7 +359,7 @@ export class ChainSolverExecutionPort implements SolverExecutionPort {
     const shortAdmissionId = takerIsLong ? makerAdmissionId : takerAdmissionId;
     const longAdmissionResultHash = takerIsLong ? takerAdmission.resultHash : makerAdmission.resultHash;
     const shortAdmissionResultHash = takerIsLong ? makerAdmission.resultHash : takerAdmission.resultHash;
-    const reservationAmount = rfq.request.lots * (makerSide === 1 ? deployment.economics.maxLongDebitMinorPerLot : deployment.economics.maxShortDebitMinorPerLot);
+    const reservationAmount = rfq.request.lots * (makerSide === 1 ? market.economics.maxLongDebitMinorPerLot : market.economics.maxShortDebitMinorPerLot);
     const clearingRequest = {
       matchData: {
         takerOrderHash: rfq.request.takerOrderHash,
@@ -368,7 +375,7 @@ export class ChainSolverExecutionPort implements SolverExecutionPort {
         takerFeeFunding: zeroFeeFunding,
         makerFeeFunding: zeroFeeFunding,
       },
-      payoffTerms: deployment.payoffTerms,
+      payoffTerms: market.payoffTerms,
       channelKind: 2,
     } as const;
     const claim = {
@@ -432,6 +439,8 @@ export class ChainSolverExecutionPort implements SolverExecutionPort {
     return completed(
       {
         action: "execute-handoff",
+        marketKey: market.marketKey,
+        seriesId: market.seriesId,
         rfqId,
         quoteId: rfq.selectedQuoteId,
         fillId,
@@ -480,6 +489,15 @@ export class ChainSolverExecutionPort implements SolverExecutionPort {
     return this.#client.read("read RFQ", (reader) =>
       reader.readContract({ address: this.#client.deployment.addresses.privateRfqBook, abi: abis.privateRfqBook, functionName: "getRfq", args: [rfqId] }),
     );
+  }
+
+  /** The RFQ's series must be a market of this deployment, and the one the intent names. */
+  #marketFor(intent: SolverExecutionIntent, seriesId: Hex): OperatorMarket {
+    const market = requireMarketBySeries(this.#client.deployment, seriesId);
+    if (market.marketId !== intent.marketId.toLowerCase()) {
+      throw new OperatorExecutionError("invalid-payload", `RFQ series ${seriesId} trades as ${market.marketKey} (${market.marketId}), not market ${intent.marketId}`);
+    }
+    return market;
   }
 
   #assertTarget(intent: SolverExecutionIntent, packageId: Hex): void {

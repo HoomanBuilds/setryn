@@ -107,6 +107,41 @@ export async function fundAccount(client: OperatorChainClient, accountId: Hex, a
   return transactions;
 }
 
+/** The account's settlement-asset collateral (binding version 1): total, locked, and free to back new risk. */
+export async function accountCollateral(
+  client: OperatorChainClient,
+  accountId: Hex,
+): Promise<{ readonly total: bigint; readonly locked: bigint; readonly available: bigint }> {
+  const { deployment } = client;
+  const vault = deployment.addresses.collateralVault;
+  const collateralId = await client.read("derive collateral id", (reader) =>
+    reader.readContract({ address: vault, abi: abis.collateralVault, functionName: "deriveCollateralId", args: [deployment.ids.settlementAssetId, 1] }),
+  );
+  const [total, locked, available] = await client.read("read collateral balance", (reader) =>
+    reader.readContract({ address: vault, abi: abis.collateralVault, functionName: "balanceOf", args: [accountId, collateralId] }),
+  );
+  return { total, locked, available };
+}
+
+/**
+ * Makes sure an account holds at least `requiredMinor` of free collateral. On the local devnet a shortfall is minted
+ * from the faucet (plus `headroomMinor`); elsewhere nothing is minted and the caller sizes down to what is free.
+ */
+export async function ensureFreeCollateral(
+  client: OperatorChainClient,
+  accountId: Hex,
+  requiredMinor: bigint,
+  options: { readonly faucet: boolean; readonly headroomMinor?: bigint },
+): Promise<{ readonly available: bigint; readonly transactions: readonly OperatorTransaction[] }> {
+  const balance = await accountCollateral(client, accountId);
+  if (balance.available >= requiredMinor || !options.faucet || client.environment !== "local") {
+    return { available: balance.available, transactions: [] };
+  }
+  const topUp = requiredMinor - balance.available + (options.headroomMinor ?? 0n);
+  const transactions = await fundAccount(client, accountId, topUp);
+  return { available: balance.available + topUp, transactions };
+}
+
 export async function hashOrder(client: OperatorChainClient, order: PublicOrder): Promise<Hex> {
   return client.read("hash order", (reader) =>
     reader.readContract({ address: client.deployment.addresses.orderState, abi: abis.orderState, functionName: "hashOrder", args: [order] }),

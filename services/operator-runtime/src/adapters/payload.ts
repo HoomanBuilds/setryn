@@ -84,6 +84,16 @@ export class PayloadReader {
     });
   }
 
+  strings(key: string): string[] {
+    const value = this.#value[key];
+    if (value === undefined || value === null) return [];
+    if (!Array.isArray(value)) throw this.#invalid(key, "must be an array of strings");
+    return value.map((item, index) => {
+      if (typeof item !== "string" || item.trim().length === 0) throw this.#invalid(`${key}[${index}]`, "must be a non-empty string");
+      return item;
+    });
+  }
+
   objects(key: string): PayloadReader[] {
     const value = this.#value[key];
     if (value === undefined || value === null) return [];

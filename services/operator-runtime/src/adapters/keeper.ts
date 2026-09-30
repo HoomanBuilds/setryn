@@ -5,6 +5,7 @@ import type { KeeperExecutionPort } from "../ports.ts";
 import type { KeeperWorkIntent, OperatorExecutionContext, OperatorExecutionResult } from "../types.ts";
 import { isLiveOrderStatus, readBookSide } from "./book.ts";
 import { transactionSummary, type OperatorChainClient, type OperatorTransaction } from "./chain.ts";
+import { requireMarket, requireMarketBySeries, type OperatorMarket } from "./deployment.ts";
 import { describeChainError, isContractRevert, OperatorExecutionError } from "./errors.ts";
 import { toAbiSlot } from "./oracle.ts";
 import { PayloadReader } from "./payload.ts";
@@ -23,7 +24,10 @@ import {
 import { assertIntentEnvironment, completed } from "./results.ts";
 import { SeriesCatalog } from "./series.ts";
 
-type KeeperWorkType = "expire-orders" | "resolve-fixing" | "settle-positions" | "recover";
+type KeeperWorkType = "expire-orders" | "resolve-fixing" | "settle-positions" | "recover" | "sweep";
+
+const sweepSteps = ["expire-orders", "resolve-fixing", "settle-positions", "recover-positions"] as const;
+type SweepStep = (typeof sweepSteps)[number];
 
 interface KeeperAction {
   readonly target: string;
@@ -63,7 +67,15 @@ const recoveryKinds = [
  *     finalize-terminal-reservation, materialize-terminal-claim, fulfill-terminal-claim. For positionIds, both terminal
  *     liability reservations are finalized (or materialized into claims after final resolution) when due.
  *
- * Positions default to every PositionCreated on the series. Work that is not yet due is reported, not failed.
+ * - "sweep":            { marketKeys?: string[], steps?: ("expire-orders" | "resolve-fixing" | "settle-positions" |
+ *                         "recover-positions")[], seriesVersion? }
+ *     Runs the listed steps (default: all four, in that order) for every market of the deployment (or the listed
+ *     catalog keys). "recover-positions" finalizes or materializes the terminal reservations of every position on the
+ *     series. `resourceId` must be the zero id: the sweep is deployment-scoped. One market's failure is recorded and
+ *     the sweep continues; transport failures still throw so the runtime retries the (idempotent) sweep.
+ *
+ * Series-scoped work only runs on series that are markets of the deployment. Positions default to every
+ * PositionCreated on the series. Work that is not yet due is reported, not failed.
  */
 export class ChainKeeperExecutionPort implements KeeperExecutionPort {
   readonly #client: OperatorChainClient;
@@ -88,6 +100,8 @@ export class ChainKeeperExecutionPort implements KeeperExecutionPort {
           return await this.#settlePositions(intent, work);
         case "recover":
           return await this.#recover(work);
+        case "sweep":
+          return await this.#sweep(intent, work);
         default:
           throw new OperatorExecutionError("invalid-payload", `unsupported keeper work type ${intent.workType}`);
       }
@@ -140,7 +154,7 @@ export class ChainKeeperExecutionPort implements KeeperExecutionPort {
       actions.push(executed.action);
       if (executed.transaction) transactions.push(executed.transaction);
     }
-    return completed({ workType: "expire-orders", seriesId, bookId, chainTime: now, actions: [...actions] }, transactions);
+    return completed({ workType: "expire-orders", marketKey: requireMarketBySeries(deployment, seriesId).marketKey, seriesId, bookId, chainTime: now, actions: [...actions] }, transactions);
   }
 
   async #resolveFixing(intent: KeeperWorkIntent, work: PayloadReader): Promise<OperatorExecutionResult> {
@@ -238,6 +252,7 @@ export class ChainKeeperExecutionPort implements KeeperExecutionPort {
     return completed(
       {
         workType: "resolve-fixing",
+        marketKey: requireMarketBySeries(deployment, seriesId).marketKey,
         seriesId,
         seriesVersion,
         chainTime: now,
@@ -328,7 +343,7 @@ export class ChainKeeperExecutionPort implements KeeperExecutionPort {
         settlements.push({ positionId, settlementId, positionStatus: enumName(positionStatusNames, after) });
       }
     }
-    return completed({ workType: "settle-positions", seriesId, seriesVersion, chainTime: now, settlements, actions: [...actions] }, transactions);
+    return completed({ workType: "settle-positions", marketKey: requireMarketBySeries(deployment, seriesId).marketKey, seriesId, seriesVersion, chainTime: now, settlements, actions: [...actions] }, transactions);
   }
 
   async #recover(work: PayloadReader): Promise<OperatorExecutionResult> {
@@ -412,6 +427,60 @@ export class ChainKeeperExecutionPort implements KeeperExecutionPort {
     return completed({ workType: "recover", chainTime: now, actions: [...actions] }, transactions);
   }
 
+  async #sweep(intent: KeeperWorkIntent, work: PayloadReader): Promise<OperatorExecutionResult> {
+    const { deployment } = this.#client;
+    if (intent.resourceId.toLowerCase() !== zeroId) {
+      throw new OperatorExecutionError("invalid-payload", "a sweep is deployment-scoped; its resourceId must be the zero id");
+    }
+    const markets: OperatorMarket[] = work.has("marketKeys")
+      ? work.strings("marketKeys").map((key) => requireMarket(deployment, key))
+      : [...deployment.markets];
+    const steps: SweepStep[] = work.has("steps") ? work.strings("steps").map((step) => {
+      if (!(sweepSteps as readonly string[]).includes(step)) throw new OperatorExecutionError("invalid-payload", `work.steps has unknown step ${step}`);
+      return step as SweepStep;
+    }) : [...sweepSteps];
+    const seriesVersion = work.integer("seriesVersion", { fallback: 1, min: 1 });
+    const now = await this.#client.chainNow();
+    const transactions: { label: string; hash: Hex; blockNumber: string; gasUsed: string }[] = [];
+    const perMarket: JsonObject[] = [];
+    let failures = 0;
+    for (const market of markets) {
+      const seriesWork = new PayloadReader({ seriesId: market.seriesId, seriesVersion }, `work.${market.marketKey}`);
+      const seriesIntent = { ...intent, resourceId: market.seriesId as never };
+      const results: Record<string, JsonObject> = {};
+      try {
+        for (const step of steps) {
+          let result: OperatorExecutionResult;
+          if (step === "expire-orders") result = await this.#expireOrders(seriesIntent, seriesWork);
+          else if (step === "resolve-fixing") result = await this.#resolveFixing(seriesIntent, seriesWork);
+          else if (step === "settle-positions") result = await this.#settlePositions(seriesIntent, seriesWork);
+          else {
+            const positionIds = await this.#catalog.positionIds(market.seriesId);
+            if (positionIds.length === 0) {
+              results[step] = { actions: [], reason: "no positions on the series" };
+              continue;
+            }
+            result = await this.#recover(new PayloadReader({ positionIds }, `work.${market.marketKey}.recover`));
+          }
+          const { transactions: stepTransactions, transactionCount: _count, ...details } = result.details as JsonObject & { transactions?: unknown };
+          results[step] = details as JsonObject;
+          for (const transaction of (Array.isArray(stepTransactions) ? stepTransactions : []) as { label: string; hash: Hex; blockNumber: string }[]) {
+            transactions.push({ label: `${market.marketKey}: ${transaction.label}`, hash: transaction.hash, blockNumber: transaction.blockNumber, gasUsed: "0" });
+          }
+        }
+        perMarket.push({ marketKey: market.marketKey, seriesId: market.seriesId, outcome: "swept", steps: results });
+      } catch (error) {
+        if (error instanceof OperatorExecutionError && error.retryable && !isContractRevert(error)) throw error;
+        failures += 1;
+        perMarket.push({ marketKey: market.marketKey, seriesId: market.seriesId, outcome: "failed", reason: error instanceof Error ? error.message : String(error), steps: results });
+      }
+    }
+    if (markets.length > 0 && failures === markets.length) {
+      throw new OperatorExecutionError("precondition", `keeper sweep failed on every market: ${perMarket.map((entry) => `${String(entry.marketKey)}: ${String(entry.reason)}`).join("; ")}`);
+    }
+    return completed({ workType: "sweep", chainTime: now, steps: [...steps], markets: perMarket }, transactions);
+  }
+
   /**
    * Simulates first: a contract revert means the work is not due or already done, which is recorded with its decoded
    * reason instead of failing the job. Transport failures still throw so the runtime retries.
@@ -449,6 +518,7 @@ export class ChainKeeperExecutionPort implements KeeperExecutionPort {
     if (seriesId !== intent.resourceId.toLowerCase()) {
       throw new OperatorExecutionError("invalid-payload", `work.seriesId ${seriesId} must equal the intent resourceId ${intent.resourceId}`);
     }
+    requireMarketBySeries(this.#client.deployment, seriesId);
     return seriesId;
   }
 }

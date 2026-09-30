@@ -1,12 +1,12 @@
 import { readFile } from "node:fs/promises";
 
-import { getAddress, type Address, type Hex } from "viem";
+import { decodeAbiParameters, getAddress, type Address, type Hex } from "viem";
 
 import { OperatorExecutionError } from "./errors.ts";
 
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const hashPattern = /^0x[0-9a-fA-F]{64}$/;
-/** Schema 9 adds a `markets` array; its single-series fields still name the primary market this runtime operates. */
+/** Schema 9 adds a `markets` array (one series per catalog market); its single-series fields name the primary market. */
 const runtimeSchemaVersions: readonly unknown[] = [8, 9];
 
 /** Addresses the operator ports call; every one is checked against the deployment manifest. */
@@ -49,6 +49,37 @@ export interface OperatorDeploymentEconomics {
   readonly maxOrderLots: bigint;
 }
 
+/** The canonical payoff terms a series committed to, decoded from its `payoffTerms` bytes. */
+export interface OperatorPayoffTerms {
+  readonly kind: number;
+  readonly valueDecimals: number;
+  readonly primaryStrike: bigint;
+  readonly secondaryStrike: bigint;
+  readonly maxLongDebitMinorPerLot: bigint;
+  readonly maxShortDebitMinorPerLot: bigint;
+  readonly fixingRequirements: readonly {
+    readonly slot: number;
+    readonly benchmarkId: Hex;
+    readonly benchmarkVersion: number;
+    readonly decimals: number;
+  }[];
+}
+
+/** One onchain market: a catalog market registered as exactly one series, with its own economics and price grid. */
+export interface OperatorMarket {
+  /** The catalog market id (for example BTC-YC-24DEC26); the key every product surface uses. */
+  readonly marketKey: string;
+  readonly marketId: Hex;
+  readonly instrumentId: Hex | null;
+  readonly seriesId: Hex;
+  readonly benchmarkId: Hex;
+  readonly payoffTerms: Hex;
+  readonly terms: OperatorPayoffTerms;
+  /** Price ticks per unit of package price: priceTicks = price x priceScale. */
+  readonly priceScale: number;
+  readonly economics: OperatorDeploymentEconomics;
+}
+
 export interface OperatorDeployment {
   readonly chainId: number;
   readonly day: number;
@@ -56,8 +87,11 @@ export interface OperatorDeployment {
   readonly deploymentBlock: bigint;
   readonly addresses: OperatorDeploymentAddresses;
   readonly ids: OperatorDeploymentIds;
+  /** The primary market's economics; per-market economics live on `markets`. */
   readonly economics: OperatorDeploymentEconomics;
   readonly payoffTerms: Hex;
+  /** Every market this deployment trades. Schema 8 runtimes list only the primary market. */
+  readonly markets: readonly OperatorMarket[];
 }
 
 const runtimeAddressFields = [
@@ -172,6 +206,27 @@ export async function loadOperatorDeployment(options: {
     ? BigInt(blockReference.number)
     : 0n;
 
+  const markets = runtime.schemaVersion === 8
+    ? [buildMarket({
+      marketKey: typeof runtime.marketKey === "string" && runtime.marketKey.trim() ? runtime.marketKey : "PRIMARY",
+      marketId: ids.marketId,
+      instrumentId: typeof runtime.instrumentId === "string" ? runtime.instrumentId : null,
+      seriesId: ids.seriesId,
+      benchmarkId: ids.benchmarkId,
+      payoffTerms: runtime.payoffTerms,
+      priceScale: typeof runtime.priceScale === "number" ? runtime.priceScale : 1,
+      maxLongDebitMinorPerLot: runtime.maxLongDebitMinorPerLot,
+      maxShortDebitMinorPerLot: runtime.maxShortDebitMinorPerLot,
+      tickSizeMinor: runtime.tickSizeMinor,
+      maxOrderLots: runtime.maxOrderLots,
+    }, "runtime")]
+    : parseMarkets(runtime.markets);
+  const primary = markets.find((market) => market.marketId === ids.marketId);
+  if (!primary) throw invalid(`runtime.markets does not list the primary market ${ids.marketId}`);
+  if (primary.seriesId !== ids.seriesId || primary.payoffTerms !== (runtime.payoffTerms as string).toLowerCase()) {
+    throw invalid(`runtime.markets entry ${primary.marketKey} disagrees with the primary series fields`);
+  }
+
   return {
     chainId: options.expectedChainId,
     day: runtime.day,
@@ -181,6 +236,149 @@ export async function loadOperatorDeployment(options: {
     ids,
     economics: integers,
     payoffTerms: runtime.payoffTerms as Hex,
+    markets,
+  };
+}
+
+/** The market registered under an onchain market id; unknown ids are refused rather than defaulted. */
+export function requireMarketById(deployment: OperatorDeployment, marketId: string): OperatorMarket {
+  const needle = marketId.toLowerCase();
+  const market = deployment.markets.find((candidate) => candidate.marketId === needle);
+  if (!market) throw new OperatorExecutionError("invalid-payload", `market ${marketId} is not a market of this deployment`);
+  return market;
+}
+
+/** The market a series trades as; unknown series are refused rather than defaulted. */
+export function requireMarketBySeries(deployment: OperatorDeployment, seriesId: string): OperatorMarket {
+  const needle = seriesId.toLowerCase();
+  const market = deployment.markets.find((candidate) => candidate.seriesId === needle);
+  if (!market) throw new OperatorExecutionError("invalid-payload", `series ${seriesId} is not a market of this deployment`);
+  return market;
+}
+
+/** Resolves a catalog key (BTC-YC-24DEC26) or an onchain market id. */
+export function requireMarket(deployment: OperatorDeployment, keyOrId: string): OperatorMarket {
+  if (hashPattern.test(keyOrId)) return requireMarketById(deployment, keyOrId);
+  const market = deployment.markets.find((candidate) => candidate.marketKey === keyOrId);
+  if (!market) throw new OperatorExecutionError("invalid-payload", `market ${keyOrId} is not a market of this deployment`);
+  return market;
+}
+
+const canonicalPayoffTermsAbi = [
+  {
+    type: "tuple",
+    components: [
+      { name: "schemaVersion", type: "uint8" },
+      { name: "kind", type: "uint8" },
+      { name: "valueDecimals", type: "uint8" },
+      { name: "primaryStrike", type: "int256" },
+      { name: "secondaryStrike", type: "int256" },
+      { name: "premiumMinorPerLot", type: "int256" },
+      { name: "multiplierNumerator", type: "uint256" },
+      { name: "multiplierDenominator", type: "uint256" },
+      { name: "minimumTransferMinorPerLot", type: "int256" },
+      { name: "maximumTransferMinorPerLot", type: "int256" },
+      { name: "maxLongDebitMinorPerLot", type: "uint128" },
+      { name: "maxShortDebitMinorPerLot", type: "uint128" },
+      { name: "disruptionTransferMinorPerLot", type: "int256" },
+      {
+        name: "fixingRequirements",
+        type: "tuple[]",
+        components: [
+          { name: "slot", type: "uint8" },
+          { name: "benchmarkId", type: "bytes32" },
+          { name: "benchmarkVersion", type: "uint32" },
+          { name: "windowKindId", type: "bytes32" },
+          { name: "decimals", type: "uint8" },
+        ],
+      },
+    ],
+  },
+] as const;
+
+/** Decodes `abi.encode(CanonicalPayoffTerms)`; malformed bytes are a stale or corrupt runtime file. */
+export function decodePayoffTerms(payoffTerms: Hex, label: string): OperatorPayoffTerms {
+  let decoded;
+  try {
+    [decoded] = decodeAbiParameters(canonicalPayoffTermsAbi, payoffTerms);
+  } catch (error) {
+    throw invalid(`${label} is not canonical payoff terms: ${error instanceof Error ? error.message.split("\n")[0] : "decode failed"}`);
+  }
+  return {
+    kind: decoded.kind,
+    valueDecimals: decoded.valueDecimals,
+    primaryStrike: decoded.primaryStrike,
+    secondaryStrike: decoded.secondaryStrike,
+    maxLongDebitMinorPerLot: decoded.maxLongDebitMinorPerLot,
+    maxShortDebitMinorPerLot: decoded.maxShortDebitMinorPerLot,
+    fixingRequirements: decoded.fixingRequirements.map((requirement) => ({
+      slot: requirement.slot,
+      benchmarkId: requirement.benchmarkId.toLowerCase() as Hex,
+      benchmarkVersion: requirement.benchmarkVersion,
+      decimals: requirement.decimals,
+    })),
+  };
+}
+
+const maximumMarkets = 256;
+
+function parseMarkets(value: unknown): OperatorMarket[] {
+  if (!Array.isArray(value) || value.length === 0) throw invalid("runtime.markets must be a non-empty array");
+  if (value.length > maximumMarkets) throw invalid(`runtime.markets lists more than ${maximumMarkets} markets`);
+  const markets = value.map((entry, index) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw invalid(`runtime.markets[${index}] must be an object`);
+    return buildMarket(entry as Record<string, unknown>, `runtime.markets[${index}]`);
+  });
+  for (const field of ["marketKey", "marketId", "seriesId"] as const) {
+    const seen = new Set<string>();
+    for (const market of markets) {
+      if (seen.has(market[field])) throw invalid(`runtime.markets repeats ${field} ${market[field]}`);
+      seen.add(market[field]);
+    }
+  }
+  return markets;
+}
+
+/**
+ * Validates one market entry and cross-checks it against its own canonical payoff terms: the debit caps the runtime
+ * advertises must be the ones the terms commit to, and the fixing requirement must name the market's benchmark.
+ */
+function buildMarket(entry: Record<string, unknown>, label: string): OperatorMarket {
+  if (typeof entry.marketKey !== "string" || !/^[A-Z0-9][A-Z0-9-]{1,63}$/.test(entry.marketKey)) {
+    throw invalid(`${label}.marketKey must be a catalog market id`);
+  }
+  if (typeof entry.payoffTerms !== "string" || !/^0x(?:[0-9a-fA-F]{2})+$/.test(entry.payoffTerms)) {
+    throw invalid(`${label}.payoffTerms must be non-empty hex`);
+  }
+  const priceScale = entry.priceScale;
+  if (typeof priceScale !== "number" || !Number.isSafeInteger(priceScale) || priceScale <= 0 || !/^10*$/.test(String(priceScale))) {
+    throw invalid(`${label}.priceScale must be a positive power of ten`);
+  }
+  const payoffTerms = entry.payoffTerms.toLowerCase() as Hex;
+  const economics: OperatorDeploymentEconomics = {
+    maxLongDebitMinorPerLot: requirePositiveInteger(entry.maxLongDebitMinorPerLot, `${label}.maxLongDebitMinorPerLot`),
+    maxShortDebitMinorPerLot: requirePositiveInteger(entry.maxShortDebitMinorPerLot, `${label}.maxShortDebitMinorPerLot`),
+    tickSizeMinor: requirePositiveInteger(entry.tickSizeMinor, `${label}.tickSizeMinor`),
+    maxOrderLots: requirePositiveInteger(entry.maxOrderLots, `${label}.maxOrderLots`),
+  };
+  const benchmarkId = requireHash(entry.benchmarkId, `${label}.benchmarkId`);
+  const terms = decodePayoffTerms(payoffTerms, `${label}.payoffTerms`);
+  if (terms.maxLongDebitMinorPerLot !== economics.maxLongDebitMinorPerLot || terms.maxShortDebitMinorPerLot !== economics.maxShortDebitMinorPerLot) {
+    throw invalid(`${label} debit caps do not match its canonical payoff terms`);
+  }
+  if (terms.fixingRequirements.length === 0 || terms.fixingRequirements.some((requirement) => requirement.benchmarkId !== benchmarkId)) {
+    throw invalid(`${label} payoff terms do not fix on its benchmark ${benchmarkId}`);
+  }
+  return {
+    marketKey: entry.marketKey,
+    marketId: requireHash(entry.marketId, `${label}.marketId`),
+    instrumentId: entry.instrumentId === undefined || entry.instrumentId === null ? null : requireHash(entry.instrumentId, `${label}.instrumentId`),
+    seriesId: requireHash(entry.seriesId, `${label}.seriesId`),
+    benchmarkId,
+    payoffTerms,
+    terms,
+    priceScale,
+    economics,
   };
 }
 

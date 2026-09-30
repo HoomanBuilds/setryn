@@ -1,7 +1,7 @@
 import { contractBindings } from "@setryn/internal-contracts";
 import { encodeAbiParameters, keccak256, stringToHex, type Address, type Hex } from "viem";
 
-import type { OperatorDeployment } from "./deployment.ts";
+import { requireMarketBySeries, type OperatorDeployment } from "./deployment.ts";
 
 /** Generated bindings are the ABI source of truth; the web app's hand-written fragments are not imported. */
 export const abis = {
@@ -328,10 +328,11 @@ export function deriveSeriesBookId(deployment: OperatorDeployment, seriesId: Hex
 
 /**
  * The risk admission witness the devnet risk adapter admits for a single-series order, ported from the web app's
- * reservation route so both producers commit to identical witnesses.
+ * reservation route so both producers commit to identical witnesses. Liability uses the order's own market caps.
  */
 export function orderRiskWitness(deployment: OperatorDeployment, order: PublicOrder, orderHash: Hex, observedAt: bigint) {
-  const liabilityPerLot = order.side === 1 ? deployment.economics.maxLongDebitMinorPerLot : deployment.economics.maxShortDebitMinorPerLot;
+  const { economics } = requireMarketBySeries(deployment, order.seriesId);
+  const liabilityPerLot = order.side === 1 ? economics.maxLongDebitMinorPerLot : economics.maxShortDebitMinorPerLot;
   const terminalLiability = order.lots * liabilityPerLot;
   const positionId = keccak256(
     encodeAbiParameters(

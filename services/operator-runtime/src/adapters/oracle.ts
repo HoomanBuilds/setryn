@@ -1,20 +1,23 @@
-import { keccak256, parseEventLogs, stringToHex, type Hex } from "viem";
+import type { JsonObject } from "@setryn/internal-schemas";
+import { encodePacked, keccak256, parseEventLogs, stringToHex, type Hex } from "viem";
 
 import type { OracleRelayExecutionPort } from "../ports.ts";
 import type { OperatorExecutionContext, OperatorExecutionResult, OracleRelayIntent } from "../types.ts";
-import { transactionSummary, type OperatorChainClient } from "./chain.ts";
-import { describeChainError, OperatorExecutionError } from "./errors.ts";
+import { transactionSummary, type OperatorChainClient, type OperatorTransaction } from "./chain.ts";
+import { requireMarket, requireMarketById, requireMarketBySeries } from "./deployment.ts";
+import { describeChainError, isContractRevert, jsonSafe, OperatorExecutionError } from "./errors.ts";
 import { PayloadReader } from "./payload.ts";
 import { abis, enumName, fixingStatus, fixingStatusNames } from "./protocol.ts";
 import { assertIntentEnvironment, completed } from "./results.ts";
 import { SeriesCatalog, type FixingSlot } from "./series.ts";
 
 /**
- * Accepted `relayPayload` for an oracle-relay intent. `feedKey` is the benchmark feed name (for example
- * "Crypto.BTC/USD") or its 32-byte keccak, and must match the benchmark the series' fixing candidate names.
+ * Accepted `relayPayload` for an oracle-relay intent. Two shapes:
  *
+ * 1. Explicit evidence for one series. `feedKey` is the benchmark feed name (for example "Crypto.BTC/USD") or its
+ *    32-byte keccak, and must match the benchmark the series' fixing candidate names.
  * {
- *   seriesId?: bytes32, seriesVersion?: integer,          // default: the deployed series, version 1
+ *   seriesId?: bytes32, seriesVersion?: integer,          // default: the intent market's series (else the primary), v1
  *   slot?: integer, candidateIndex?: integer,             // default 0, 0 (single-slot series)
  *   observations: [{
  *     value: integer,                                     // scaled to the benchmark's output decimals
@@ -27,6 +30,19 @@ import { SeriesCatalog, type FixingSlot } from "./series.ts";
  *   adapterEvidence?: hex,
  *   submissions?: [{ slot, candidateIndex, observations, adapterEvidence? }]   // multi-slot series only
  * }
+ *
+ * 2. Local devnet fixtures for every benchmark (`feedKey` is informational, for example "devnet-fixtures"):
+ * {
+ *   fixtures: {
+ *     marketKeys?: string[],                              // default: every market of the deployment
+ *     offsetsBps?: { [benchmarkId]: integer },            // default: a deterministic per-benchmark offset in [-80, 80]
+ *     seriesVersion?: integer                             // default 1
+ *   }
+ * }
+ *    One value per benchmark, shared by every series that fixes on it so the devnet tape stays coherent: the forward
+ *    reference (the payoff terms' primary strike) of the benchmark's first listed market, moved by the benchmark's
+ *    offset and rescaled to the benchmark's output decimals. Each series whose fixing window has reached its target
+ *    time gets the value as evidence; series already proposed or final with it are reported, not resubmitted.
  *
  * The relay is permissionless FixingEngine.submitEvidence (or submitEvidenceVector); the benchmark's registered
  * adapter validates the batch inside the engine. Nothing is sent unless the benchmark adapter is one the engine accepts.
@@ -46,7 +62,8 @@ export class ChainOracleRelayExecutionPort implements OracleRelayExecutionPort {
     const cached = this.#results.get(intent.idempotencyKey);
     if (cached) return { ...cached, details: { ...cached.details, replayed: true } };
     try {
-      const result = await this.#relay(intent);
+      const payload = new PayloadReader(intent.relayPayload, "relayPayload");
+      const result = payload.has("fixtures") ? await this.#relayFixtures(intent, payload) : await this.#relay(intent, payload);
       this.#results.set(intent.idempotencyKey, result);
       return result;
     } catch (error) {
@@ -54,19 +71,148 @@ export class ChainOracleRelayExecutionPort implements OracleRelayExecutionPort {
     }
   }
 
-  async #relay(intent: OracleRelayIntent): Promise<OperatorExecutionResult> {
+  async #relay(intent: OracleRelayIntent, payload: PayloadReader): Promise<OperatorExecutionResult> {
+    const { deployment } = this.#client;
+    const intentMarket = intent.marketId !== undefined ? requireMarketById(deployment, intent.marketId) : null;
+    const seriesId = payload.bytes32("seriesId", intentMarket?.seriesId ?? deployment.ids.seriesId);
+    const market = requireMarketBySeries(deployment, seriesId);
+    if (intentMarket && intentMarket.marketId !== market.marketId) {
+      throw new OperatorExecutionError("invalid-payload", `series ${seriesId} trades as ${market.marketKey}, not market ${intent.marketId}`);
+    }
+    const seriesVersion = payload.integer("seriesVersion", { fallback: 1, min: 1 });
+    const feedKey = /^0x[0-9a-fA-F]{64}$/.test(intent.feedKey) ? (intent.feedKey.toLowerCase() as Hex) : keccak256(stringToHex(intent.feedKey));
+    const submissions = payload.has("submissions") ? payload.objects("submissions") : [payload];
+    const outcome = await this.#relaySeries({ seriesId, seriesVersion, feedKey, feedLabel: intent.feedKey, submissions });
+    return completed({ marketKey: market.marketKey, ...outcome.details }, outcome.transactions);
+  }
+
+  /** Local devnet only: one coherent fixture value per benchmark, relayed to every due series that fixes on it. */
+  async #relayFixtures(intent: OracleRelayIntent, payload: PayloadReader): Promise<OperatorExecutionResult> {
     const client = this.#client;
     const { deployment } = client;
-    const payload = new PayloadReader(intent.relayPayload, "relayPayload");
-    const seriesId = payload.bytes32("seriesId", deployment.ids.seriesId);
-    const seriesVersion = payload.integer("seriesVersion", { fallback: 1, min: 1 });
-    if (intent.marketId !== undefined && intent.marketId.toLowerCase() !== deployment.ids.marketId) {
-      throw new OperatorExecutionError("invalid-payload", `market ${intent.marketId} is not the deployed market`);
+    if (client.environment !== "local") {
+      throw new OperatorExecutionError("policy-refused", "fixture fixings are only relayed on the local devnet");
     }
+    const raw = intent.relayPayload.fixtures;
+    if (!payload.has("fixtures") || typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+      throw new OperatorExecutionError("invalid-payload", "relayPayload.fixtures must be an object");
+    }
+    const options = new PayloadReader(raw, "relayPayload.fixtures");
+    const seriesVersion = options.integer("seriesVersion", { fallback: 1, min: 1 });
+    const keys = options.has("marketKeys") ? stringList(raw, "marketKeys") : null;
+    const markets = keys ? keys.map((key) => requireMarket(deployment, key)) : [...deployment.markets];
+    if (intent.marketId !== undefined) {
+      const only = requireMarketById(deployment, intent.marketId);
+      if (!markets.some((market) => market.marketId === only.marketId)) {
+        throw new OperatorExecutionError("invalid-payload", `intent market ${only.marketKey} is outside relayPayload.fixtures.marketKeys`);
+      }
+      markets.splice(0, markets.length, only);
+    }
+    const offsets = options.has("offsetsBps") ? raw.offsetsBps : null;
+
+    const now = await client.chainNow();
+    const references = new Map<Hex, { readonly strike: bigint; readonly valueDecimals: number; readonly marketKey: string }>();
+    for (const market of deployment.markets) {
+      if (!references.has(market.benchmarkId)) {
+        references.set(market.benchmarkId, { strike: market.terms.primaryStrike, valueDecimals: market.terms.valueDecimals, marketKey: market.marketKey });
+      }
+    }
+
+    const transactions: OperatorTransaction[] = [];
+    const results: JsonObject[] = [];
+    const benchmarks: Record<string, JsonObject> = {};
+    let failures = 0;
+    for (const market of markets) {
+      const slots = await this.#catalog.fixingSlots(market.seriesId, seriesVersion);
+      const base = { marketKey: market.marketKey, seriesId: market.seriesId, benchmarkId: market.benchmarkId };
+      try {
+        const submissions: PayloadReader[] = [];
+        let value: bigint | null = null;
+        let decimals = 0;
+        let notDue: string | null = null;
+        for (const fixingSlot of slots) {
+          const candidate = fixingSlot.candidates[0];
+          if (!candidate) throw new OperatorExecutionError("precondition", `slot ${fixingSlot.slot} has no fixing candidate`);
+          const benchmark = await this.#benchmark(candidate.benchmarkId, candidate.benchmarkVersion);
+          const reference = references.get(candidate.benchmarkId);
+          if (!reference) throw new OperatorExecutionError("precondition", `no market references benchmark ${candidate.benchmarkId}`);
+          const offsetBps = fixtureOffsetBps(candidate.benchmarkId, offsets);
+          value = rescale(reference.strike, reference.valueDecimals, benchmark.definition.outputDecimals) * BigInt(10_000 + offsetBps) / 10_000n;
+          decimals = benchmark.definition.outputDecimals;
+          benchmarks[candidate.benchmarkId] = {
+            referenceMarketKey: reference.marketKey,
+            forwardReference: reference.strike.toString(),
+            referenceDecimals: reference.valueDecimals,
+            offsetBps,
+            value: value.toString(),
+            decimals,
+          };
+          const count = Math.max(1, candidate.minimumObservations);
+          const lastObservedAt = candidate.targetAt + BigInt(count - 1);
+          if (now < lastObservedAt || lastObservedAt >= candidate.windowEndsAt) {
+            notDue = now < lastObservedAt ? `fixing target ${candidate.targetAt} not reached at chain time ${now}` : "fixing window closed before the target observations";
+            break;
+          }
+          submissions.push(new PayloadReader({
+            slot: fixingSlot.slot,
+            candidateIndex: 0,
+            observations: Array.from({ length: count }, (_unused, index) => ({
+              value: value!.toString(),
+              observedAt: (candidate.targetAt + BigInt(index)).toString(),
+            })),
+          }, `fixtures.${market.marketKey}.slot${fixingSlot.slot}`));
+        }
+        if (notDue) {
+          results.push({ ...base, outcome: "not-due", reason: notDue });
+          continue;
+        }
+        const outcome = await this.#relaySeries({ seriesId: market.seriesId, seriesVersion, feedKey: null, feedLabel: "devnet-fixtures", submissions });
+        transactions.push(...outcome.transactions);
+        results.push({
+          ...base,
+          outcome: outcome.details.previouslyRelayed === true ? "previously-relayed" : "proposed",
+          value: value?.toString() ?? null,
+          decimals,
+          details: jsonSafe(outcome.details) as JsonObject,
+        });
+      } catch (error) {
+        if (error instanceof OperatorExecutionError && error.retryable && !isContractRevert(error)) throw error;
+        failures += 1;
+        results.push({ ...base, outcome: "failed", reason: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    if (markets.length > 0 && failures === markets.length) {
+      throw new OperatorExecutionError("precondition", `every fixture relay failed: ${results.map((result) => `${result.marketKey}: ${String(result.reason)}`).join("; ")}`, {
+        details: { results },
+      });
+    }
+    return completed({ mode: "devnet-fixtures", seriesVersion, chainTime: now, benchmarks, results }, transactions);
+  }
+
+  async #benchmark(benchmarkId: Hex, benchmarkVersion: number) {
+    const { deployment } = this.#client;
+    return this.#client.read("read benchmark", (reader) =>
+      reader.readContract({
+        address: deployment.addresses.benchmarkRegistry,
+        abi: abis.benchmarkRegistry,
+        functionName: "getBenchmark",
+        args: [benchmarkId, benchmarkVersion],
+      }),
+    );
+  }
+
+  /** Validates and submits evidence for one series. `feedKey` null accepts each candidate's own registered feed. */
+  async #relaySeries(request: {
+    readonly seriesId: Hex;
+    readonly seriesVersion: number;
+    readonly feedKey: Hex | null;
+    readonly feedLabel: string;
+    readonly submissions: readonly PayloadReader[];
+  }): Promise<{ readonly details: Record<string, unknown>; readonly transactions: OperatorTransaction[] }> {
+    const client = this.#client;
+    const { deployment } = client;
+    const { seriesId, seriesVersion, submissions } = request;
     const fixingSlots = await this.#catalog.fixingSlots(seriesId, seriesVersion);
-    const submissions = payload.has("submissions")
-      ? payload.objects("submissions")
-      : [payload];
     if (fixingSlots.length > 1 && submissions.length !== fixingSlots.length) {
       throw new OperatorExecutionError("invalid-payload", `series has ${fixingSlots.length} fixing slots; relay every slot in submissions`);
     }
@@ -81,17 +227,10 @@ export class ChainOracleRelayExecutionPort implements OracleRelayExecutionPort {
       const slot = submission.integer("slot", { fallback: 0, min: 0, max: fixingSlots.length - 1 });
       const candidateIndex = submission.integer("candidateIndex", { fallback: 0, min: 0 });
       const candidate = candidateFor(fixingSlots, slot, candidateIndex);
-      const benchmark = await client.read("read benchmark", (reader) =>
-        reader.readContract({
-          address: deployment.addresses.benchmarkRegistry,
-          abi: abis.benchmarkRegistry,
-          functionName: "getBenchmark",
-          args: [candidate.benchmarkId, candidate.benchmarkVersion],
-        }),
-      );
-      const feedKey = /^0x[0-9a-fA-F]{64}$/.test(intent.feedKey) ? (intent.feedKey.toLowerCase() as Hex) : keccak256(stringToHex(intent.feedKey));
+      const benchmark = await this.#benchmark(candidate.benchmarkId, candidate.benchmarkVersion);
+      const feedKey = request.feedKey ?? benchmark.definition.feedKey;
       if (feedKey !== benchmark.definition.feedKey) {
-        throw new OperatorExecutionError("invalid-payload", `feed ${intent.feedKey} is not the feed of benchmark ${candidate.benchmarkId}`);
+        throw new OperatorExecutionError("invalid-payload", `feed ${request.feedLabel} is not the feed of benchmark ${candidate.benchmarkId}`);
       }
       if (benchmark.definition.requiredInterfaceHash !== engineInterface) {
         throw new OperatorExecutionError(
@@ -147,7 +286,7 @@ export class ChainOracleRelayExecutionPort implements OracleRelayExecutionPort {
     }
 
     const existing = await this.#existingOutcome(seriesId, seriesVersion, prepared);
-    if (existing) return completed({ seriesId, seriesVersion, previouslyRelayed: true, ...existing }, []);
+    if (existing) return { details: { seriesId, seriesVersion, previouslyRelayed: true, ...existing }, transactions: [] };
 
     const write = prepared.length === 1 && fixingSlots.length === 1
       ? await client.write("submit fixing evidence", {
@@ -163,8 +302,8 @@ export class ChainOracleRelayExecutionPort implements OracleRelayExecutionPort {
         args: [seriesId, seriesVersion, fixingSlots.map(toAbiSlot), prepared],
       });
     const proposals = parseEventLogs({ abi: abis.fixingEngine, eventName: "FixingEvidenceProposed", logs: write.receipt.logs, strict: true });
-    return completed(
-      {
+    return {
+      details: {
         seriesId,
         seriesVersion,
         chainTime: now,
@@ -177,8 +316,8 @@ export class ChainOracleRelayExecutionPort implements OracleRelayExecutionPort {
           decimals: event.args.decimals,
         })),
       },
-      [transactionSummary(write)],
-    );
+      transactions: [transactionSummary(write)],
+    };
   }
 
   async #existingOutcome(
@@ -221,4 +360,36 @@ function candidateFor(slots: readonly FixingSlot[], slot: number, candidateIndex
 
 export function toAbiSlot(slot: FixingSlot) {
   return { slot: slot.slot, candidates: slot.candidates.map((candidate) => ({ ...candidate })) };
+}
+
+/** Deterministic per-benchmark fixture offset in [-80, 80] bps unless the payload pins one. */
+function fixtureOffsetBps(benchmarkId: Hex, overrides: unknown): number {
+  if (overrides !== null && overrides !== undefined) {
+    if (typeof overrides !== "object" || Array.isArray(overrides)) {
+      throw new OperatorExecutionError("invalid-payload", "relayPayload.fixtures.offsetsBps must map benchmark ids to integers");
+    }
+    const entry = Object.entries(overrides as Record<string, unknown>).find(([key]) => key.toLowerCase() === benchmarkId);
+    if (entry) {
+      const value = entry[1];
+      if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= -10_000 || value >= 10_000) {
+        throw new OperatorExecutionError("invalid-payload", `relayPayload.fixtures.offsetsBps.${benchmarkId} must be an integer in (-10000, 10000)`);
+      }
+      return value;
+    }
+  }
+  const word = BigInt(keccak256(encodePacked(["string", "bytes32"], ["setryn.devnet.fixture-offset.v1", benchmarkId])));
+  return Number(word % 161n) - 80;
+}
+
+function rescale(value: bigint, fromDecimals: number, toDecimals: number): bigint {
+  if (toDecimals === fromDecimals) return value;
+  return toDecimals > fromDecimals ? value * 10n ** BigInt(toDecimals - fromDecimals) : value / 10n ** BigInt(fromDecimals - toDecimals);
+}
+
+function stringList(value: JsonObject, key: string): string[] {
+  const list = value[key];
+  if (!Array.isArray(list) || list.some((item) => typeof item !== "string" || item.length === 0)) {
+    throw new OperatorExecutionError("invalid-payload", `relayPayload.fixtures.${key} must be an array of market keys`);
+  }
+  return list as string[];
 }
