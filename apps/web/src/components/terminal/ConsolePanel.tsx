@@ -6,6 +6,7 @@ import { EmptyState, SOURCE_LABEL, SourceMark, Tabs, tone } from "@/components/t
 import { CONSOLE_TABS } from "@/lib/terminal/console";
 import {
   formatDuration,
+  formatLotCount,
   formatLots,
   formatNumber,
   formatSigned,
@@ -30,6 +31,7 @@ import type {
   GatewayExecution,
   RestingPackageOrder,
 } from "@/lib/internal-gateway/types";
+import { platformNow } from "@/lib/terminal/clock";
 
 const ADVERSE = new Set(["REJECTED", "SUBMISSION_UNKNOWN", "RECONCILING", "EXPIRED", "CANCELLED"]);
 
@@ -79,7 +81,7 @@ function tifDisplay(order: RestingPackageOrder): { text: string; title?: string 
   if (typeof order.expiresAt !== "string" || !Number.isFinite(Date.parse(order.expiresAt))) {
     return { text: "GTD" };
   }
-  const remainingMs = Date.parse(order.expiresAt) - Date.now();
+  const remainingMs = Date.parse(order.expiresAt) - platformNow();
   const title = new Date(order.expiresAt).toLocaleString();
   if (remainingMs <= 0) return { text: "GTD · expired", title };
   const remainingSeconds = Math.ceil(remainingMs / 1000);
@@ -356,20 +358,20 @@ export function ConsolePanel({
                   order.state === "FILLED"
                     ? `Filled onchain. Receipt ${latestReceipt}.`
                     : order.state === "PARTIALLY_FILLED"
-                      ? `${formatLots(remainingLots)} lots working. Latest receipt ${latestReceipt}.`
+                      ? `${formatLotCount(remainingLots)} working. Latest receipt ${latestReceipt}.`
                       : order.state === "CANCELLED"
                         ? filledLots > 1e-9
-                          ? `Cancelled onchain after ${formatLots(filledLots)} lots filled. Latest receipt ${latestReceipt}.`
+                          ? `Cancelled onchain after ${formatLotCount(filledLots)} filled. Latest receipt ${latestReceipt}.`
                           : "Cancelled onchain without a fill."
                         : order.state === "EXPIRED"
                           ? filledLots > 1e-9
-                            ? `Expired after ${formatLots(filledLots)} lots filled. Latest receipt ${latestReceipt}.`
+                            ? `Expired after ${formatLotCount(filledLots)} filled. Latest receipt ${latestReceipt}.`
                             : "Expired without a fill."
                           : order.state === "REPLACED"
                             ? `Replaced by ${order.replacedByOrderId ?? "unknown"}. New queue priority.`
                             : order.replacesOrderId
                               ? `Replaces ${order.replacesOrderId}. New queue priority.`
-                              : `Resting onchain with ${formatLots(remainingLots)} lots available.`;
+                              : `Resting onchain with ${formatLotCount(remainingLots)} available.`;
                 return (
                   <Tr key={order.id} highlight={!scoped && order.marketId === market.id}>
                     <td className={`${TD} tnum font-mono whitespace-nowrap text-faint`}>{order.id}</td>

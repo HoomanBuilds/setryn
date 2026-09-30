@@ -18,6 +18,7 @@ import {
   type Hex,
 } from "viem";
 import { executableAction, limitCrosses } from "@/lib/terminal/economics";
+import { platformNow, setChainClockOffset } from "@/lib/terminal/clock";
 import { formatLotCount } from "@/lib/terminal/format";
 import {
   accountFeesPaidMinor,
@@ -305,6 +306,7 @@ function initialSnapshot(): GatewaySnapshot {
     restingOrders: [],
     publicBookMarketId: PRIMARY_MARKET_ID,
     publicBookEconomics: null,
+    chainClockOffsetMs: 0,
     publicBookOrders: [],
     rfqRequests: [],
   };
@@ -325,6 +327,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   private walletClient: ReturnType<typeof createWalletClient> | null = null;
   private walletAddress: Address | null = null;
   private readonly authorizations = new Map<string, SignedOrderAuthorization>();
+  /** Fills reconstructed per order hash, and the position an exit order's fill closed. */
+  private orderFills = new Map<string, { fillIds: string[]; receiptIds: string[]; closedPositionId: string | null }>();
   private pollingTimer: number | null = null;
   private polling = false;
 
@@ -516,12 +520,13 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       const approvalReceipt = await publicClient.waitForTransactionReceipt({ hash: approvalHash });
       if (approvalReceipt.status !== "success") throw new Error("CLEARING_APPROVAL_FAILED");
     }
-    const block = await publicClient.getBlock();
+    const block = await publicClient.getBlock({ blockTag: "pending" });
     let lifetime = BigInt(240);
     if (intent.timeInForce === "GTD") {
       const requestedExpiry = intent.expiresAt ? Date.parse(intent.expiresAt) : Number.NaN;
-      if (!Number.isFinite(requestedExpiry) || requestedExpiry <= Date.now()) throw new Error("INVALID_GTD_EXPIRY");
-      const requestedLifetime = BigInt(Math.max(1, Math.floor((requestedExpiry - Date.now()) / 1000)));
+      const nowMs = Number(block.timestamp) * 1000;
+      if (!Number.isFinite(requestedExpiry) || requestedExpiry <= nowMs) throw new Error("INVALID_GTD_EXPIRY");
+      const requestedLifetime = BigInt(Math.max(1, Math.floor((requestedExpiry - nowMs) / 1000)));
       lifetime = requestedLifetime < lifetime ? requestedLifetime : lifetime;
     }
     const deadline = block.timestamp + lifetime;
@@ -684,7 +689,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
           functionName: "getOrder",
           args: [level.headOrderHash],
         }),
-        publicClient.getBlock(),
+        publicClient.getBlock({ blockTag: "pending" }),
       ]);
       const live =
         (orderRecord.status === 1 || orderRecord.status === 2) &&
@@ -1187,7 +1192,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const current = this.snapshot.rfqRequests.find((request) => request.id === requestId);
     if (!current || current.state !== "OPEN") throw new Error("RFQ_NOT_OPEN");
     if (!current.quotes.some((quote) => quote.id === quoteId)) throw new Error("RFQ_QUOTE_NOT_FOUND");
-    const block = await publicClient.getBlock();
+    const block = await publicClient.getBlock({ blockTag: "pending" });
     const deadline = block.timestamp + BigInt(90) < BigInt(Math.floor(Date.parse(current.expiresAt) / 1000))
       ? block.timestamp + BigInt(90)
       : BigInt(Math.floor(Date.parse(current.expiresAt) / 1000));
@@ -1401,7 +1406,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const { setryn, address, walletClient, publicClient } = await this.connected();
     const current = this.snapshot.rfqRequests.find((request) => request.id === requestId);
     if (!current || (current.state !== "OPEN" && current.state !== "SELECTED")) throw new Error("RFQ_NOT_OPEN");
-    const expired = Date.parse(current.expiresAt) <= Date.now();
+    const expired = Date.parse(current.expiresAt) <= platformNow();
     if (current.state === "SELECTED" && !expired) throw new Error("RFQ_SELECTION_LOCKED");
     const hash = await walletClient.writeContract({
       account: address,
@@ -1488,6 +1493,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const setryn = await loadSetrynRuntime();
     this.setryn = setryn;
     this.publicClient = createPublicClient({ chain: this.chain(setryn), transport: http(setryn.rpcUrl) });
+    const head = await this.publicClient.getBlock({ blockTag: "pending" });
+    this.observeChainClock(head.timestamp);
     this.publish({
       ...this.snapshot,
       environment: {
@@ -1507,6 +1514,16 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       },
     });
     return setryn;
+  }
+
+  /** The pending block carries the chain's current time, so one reading fixes the chain-to-browser offset. */
+  private observeChainClock(timestampSeconds: bigint): void {
+    const offsetMs = Number(timestampSeconds) * 1000 - Date.now();
+    setChainClockOffset(offsetMs);
+    // Head timestamps have one-second resolution, so only a real shift is republished.
+    if (Math.abs(offsetMs - this.snapshot.chainClockOffsetMs) > 2_000) {
+      this.publish({ ...this.snapshot, chainClockOffsetMs: offsetMs });
+    }
   }
 
   private runtime(): Promise<SetrynRuntime> {
@@ -1622,7 +1639,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
             functionName: "getAdmission",
             args: [admissionId],
           });
-      const now = BigInt(Math.floor(Date.now() / 1000));
+      const now = BigInt(Math.floor(platformNow() / 1000));
       const state = this.restingState(record.status, record.order.deadline <= now);
       const packageSide = record.order.side === 1 ? "LONG" : "SHORT";
       const timeInForce = record.order.timeInForce === 2
@@ -1709,7 +1726,30 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       });
     }
     orders.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-    this.publish({ ...this.snapshot, restingOrders: orders });
+    this.publish({ ...this.snapshot, restingOrders: this.linkOrderFills(orders) });
+  }
+
+  /** Attaches reconstructed fills and receipts to orders, and marks an order whose fill closed a position as an exit. */
+  private linkOrderFills(orders: RestingPackageOrder[]): RestingPackageOrder[] {
+    return orders.map((order) => {
+      const fills = this.orderFills.get(order.orderHash.toLowerCase());
+      if (!fills) return order;
+      const exit = fills.closedPositionId
+        ? {
+            side: "EXIT" as const,
+            // The ticket names an exit by the side of the position it closes, not the side of the offsetting order.
+            packageSide: order.packageSide === "LONG" ? ("SHORT" as const) : ("LONG" as const),
+            closePositionId: fills.closedPositionId,
+          }
+        : {};
+      return {
+        ...order,
+        ...exit,
+        fillIds: fills.fillIds,
+        receiptIds: fills.receiptIds,
+        receiptId: fills.receiptIds[fills.receiptIds.length - 1],
+      };
+    });
   }
 
   private async refreshPublicBook(): Promise<void> {
@@ -1724,8 +1764,9 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         fromBlock: BigInt(0),
         toBlock: "latest",
       }),
-      this.publicClient.getBlock(),
+      this.publicClient.getBlock({ blockTag: "pending" }),
     ]);
+    this.observeChainClock(block.timestamp);
     const latestHashes = [...new Set(events.map((event) => event.args.orderHash).filter((value) => value != null))];
     const rows = [] as GatewaySnapshot["publicBookOrders"];
     for (const orderHash of latestHashes) {
@@ -1931,6 +1972,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const positions = [] as GatewaySnapshot["positions"];
     const receipts = [] as GatewaySnapshot["receipts"];
     const executions = [] as GatewaySnapshot["executions"];
+    const orderFills = new Map<string, { fillIds: string[]; receiptIds: string[]; closedPositionId: string | null }>();
     for (const record of fills) {
       const { fillId, positionId, positionLive, filledLots, price, position, transactionHash } = record;
       const closedEntry = closes.get(positionId.toLowerCase());
@@ -1975,6 +2017,11 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       if (positionLive) positions.push(position);
       receipts.push(receipt);
       const opened = !closedEntry && (positionLive || openedAndClosed);
+      const links = orderFills.get(record.ownOrderHash.toLowerCase()) ?? { fillIds: [], receiptIds: [], closedPositionId: null };
+      links.fillIds.push(fillId);
+      links.receiptIds.push(receipt.id);
+      if (entry) links.closedPositionId = entry.positionId;
+      orderFills.set(record.ownOrderHash.toLowerCase(), links);
       executions.push({
         id: fillId,
         orderHash: record.ownOrderHash,
@@ -1993,7 +2040,14 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         createdAt: record.createdAt,
       });
     }
-    this.publish({ ...this.snapshot, positions, receipts, executions });
+    this.orderFills = orderFills;
+    this.publish({
+      ...this.snapshot,
+      positions,
+      receipts,
+      executions,
+      restingOrders: this.linkOrderFills(this.snapshot.restingOrders),
+    });
   }
 
   private async refreshRfqs(): Promise<void> {
@@ -2237,7 +2291,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     if (!authorization.onchainOrder || !authorization.riskAdmissionId) {
       throw new Error("ORDER_AUTHORIZATION_UNAVAILABLE");
     }
-    const block = await publicClient.getBlock();
+    const block = await publicClient.getBlock({ blockTag: "pending" });
     const nonce = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(crypto.getRandomValues(new Uint32Array(1))[0]);
     const cancellationReference = keccak256(
       encodeAbiParameters(
@@ -2332,7 +2386,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         collateralId: snapshots[0].collateralId,
         terminalLiabilityBaseUnits: BigInt(0),
       }));
-    const block = await publicClient.getBlock();
+    const block = await publicClient.getBlock({ blockTag: "pending" });
     const deadline = block.timestamp + BigInt(240);
     const nonce = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(crypto.getRandomValues(new Uint32Array(1))[0]);
     const consentNonce = nonce + BigInt(1);
