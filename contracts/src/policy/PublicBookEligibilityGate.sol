@@ -13,7 +13,7 @@ import {ExecutionPolicyLib} from "../libraries/ExecutionPolicyLib.sol";
 import {PublicBookLib} from "../libraries/PublicBookLib.sol";
 import {BookEligibility} from "../types/BookTypes.sol";
 import {BookId, PackageId, SeriesId} from "../types/Identifiers.sol";
-import {OrderTargetKind, PublicOrder, RemainderPolicy, TimeInForce} from "../types/OrderTypes.sol";
+import {OrderTargetKind, PublicOrder} from "../types/OrderTypes.sol";
 
 contract PublicBookEligibilityGate is IPublicBookEligibilityGate, PolicyGateBase {
     bytes32 private constant INELIGIBLE_POLICY = keccak256("SETRYN_BOOK_POLICY_INELIGIBLE");
@@ -39,10 +39,11 @@ contract PublicBookEligibilityGate is IPublicBookEligibilityGate, PolicyGateBase
         view
         returns (BookEligibility memory eligibility)
     {
-        if (
-            orderHash == bytes32(0) || order.timeInForce != TimeInForce.GTC && order.timeInForce != TimeInForce.GTD
-                || order.remainderPolicy != RemainderPolicy.KeepOpen || order.reduceOnly
-        ) return BookEligibility({eligible: false, reason: INELIGIBLE_POLICY});
+        // Time in force and remainder policy are the book's concern: resting orders must be GTC or GTD and keep their
+        // remainder open, while IOC and FOK takers are valid and OrderState enforces their fill semantics.
+        if (orderHash == bytes32(0) || order.reduceOnly) {
+            return BookEligibility({eligible: false, reason: INELIGIBLE_POLICY});
+        }
         try this.validateBookOrder(order, bookId, msg.sender) {
             return BookEligibility({eligible: true, reason: bytes32(0)});
         } catch {
