@@ -657,6 +657,16 @@ export function OrderTicket({
             </div>
           ) : null}
 
+          {state.orderType === "LIMIT" ? (
+            <CheckRow
+              checked={state.postOnly === true}
+              onChange={(postOnly) => onChange({ postOnly })}
+              label="Post only"
+              title="Rest on the book as a maker. The order is rejected instead of taking liquidity."
+              disabled={isAmending || state.privateRfq || (state.tif !== "GTC" && state.tif !== "GTD")}
+            />
+          ) : null}
+
           <CheckRow
             checked={state.privateRfq}
             onChange={(privateRfq) => onChange({ privateRfq })}

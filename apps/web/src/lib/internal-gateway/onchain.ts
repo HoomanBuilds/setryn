@@ -1,4 +1,6 @@
 import {
+  BaseError,
+  ContractFunctionRevertedError,
   createPublicClient,
   createWalletClient,
   custom,
@@ -571,7 +573,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       allowPartialFills: intent.timeInForce !== "FOK",
       minimumFillLots: BigInt(1),
       remainderPolicy: intent.timeInForce === "IOC" || intent.timeInForce === "FOK" ? 2 : 1,
-      postOnly: false,
+      postOnly: intent.postOnly === true,
       reduceOnly: false,
     };
     const signature = await walletClient.signTypedData({
@@ -956,6 +958,27 @@ export class OnchainTradingGateway implements InternalTradingGateway {
 
     const bookId = this.deriveBookId(setryn);
     const hint = await this.levelHint(bookId, order.side, order.priceTicks);
+    // The book may have moved since the ticket was priced. A resting order that would now cross is rejected, so the
+    // registered order is cancelled rather than left open without a place on the book.
+    try {
+      await publicClient.simulateContract({
+        account: address,
+        address: setryn.publicOrderBook,
+        abi: publicOrderBookAbi,
+        functionName: "placeSeriesOrder",
+        args: [authorization.orderHash as Hex, hint],
+      });
+    } catch (error) {
+      const reverted = error instanceof BaseError
+        ? error.walk((cause) => cause instanceof ContractFunctionRevertedError)
+        : null;
+      const errorName = reverted instanceof ContractFunctionRevertedError ? reverted.data?.errorName : undefined;
+      if (errorName === "PostOnlyWouldCross" || errorName === "RestingOrderWouldCross") {
+        await this.cancelUnmatchedOrder(authorization);
+        throw new Error(errorName === "PostOnlyWouldCross" ? "POST_ONLY_WOULD_CROSS" : "RESTING_ORDER_WOULD_CROSS");
+      }
+      throw error;
+    }
     const placementHash = await walletClient.writeContract({
       account: address,
       chain: this.chain(setryn),
@@ -978,6 +1001,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       routeLabel: authorization.intent.routeLabel,
       side: authorization.intent.side,
       packageSide: authorization.intent.packageSide,
+      postOnly: authorization.intent.postOnly === true,
       lots: authorization.intent.lots,
       filledLots: 0,
       remainingLots: authorization.intent.lots,
@@ -1718,6 +1742,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         createdAt: new Date(Number(record.registeredAt) * 1000).toISOString(),
         state,
         orderType: "LIMIT",
+        postOnly: record.order.postOnly,
         contractMultiplier: PRIMARY_CONTRACT_MULTIPLIER,
         settlementGuarantee: intent.settlementGuarantee,
         disclosure: "PUBLIC",

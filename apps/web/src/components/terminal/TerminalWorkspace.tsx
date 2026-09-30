@@ -60,6 +60,8 @@ function executionError(error: unknown): string {
   if (error.message === "EXIT_REQUIRES_ZERO_COLLATERAL") return "Exits require no new collateral. Review the ticket and try again.";
   if (error.message === "FULL_POSITION_EXIT_REQUIRED") return "Select the complete open quantity for this lifecycle exit.";
   if (error.message === "EXIT_REQUIRES_FOK") return "Lifecycle exits require fill-or-kill execution.";
+  if (error.message === "POST_ONLY_WOULD_CROSS") return "The book moved and this post-only order would take liquidity, so it was cancelled without a fill. Reprice behind the touch.";
+  if (error.message === "RESTING_ORDER_WOULD_CROSS") return "The book moved and this limit now crosses, so it was cancelled without a fill. Resubmit to execute against the book.";
   if (error.message === "EXIT_REQUIRES_DEVNET_MAKER") return "The close must use the qualified devnet maker that owns the original counterparty position.";
   if (error.message === "EXIT_QUANTITY_MISMATCH") return "The close fill does not exactly offset the original position. Both positions remain visible for recovery.";
   if (error.message === "EXIT_PARTICIPANT_MISMATCH") return "The close fill changed the counterparty set and cannot use the direct unwind path.";
@@ -620,6 +622,10 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
           }
         }
         const next = { ...current, ...safePatch };
+        // Post-only only means something for a resting limit on the public book.
+        if (next.orderType !== "LIMIT" || (next.tif !== "GTC" && next.tif !== "GTD") || next.privateRfq) {
+          next.postOnly = false;
+        }
         if (safePatch.intent === "EXIT") {
           next.tif = "FOK";
           next.expiresAt = null;
@@ -759,7 +765,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         fillLots: preview.fillLots,
         limitPrice: preview.limitPrice,
         executionPrice: preview.effectivePrice,
-        contractMultiplier: liveMarket.contractMultiplier,
+        contractMultiplier: ticketMarket.contractMultiplier,
         orderType: ticket.orderType === "LIMIT" ? "LIMIT" : "MARKET",
         timeInForce: ticket.tif,
         expiresAt: ticket.expiresAt,
@@ -770,6 +776,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         recipient: signer ?? "",
         disclosure: ticket.privateRfq ? "PRIVATE_RFQ" : "PUBLIC",
         settlementGuarantee: preview.settlementGuarantee,
+        postOnly: ticket.postOnly === true,
       });
 
       if (replacingId) {
@@ -833,7 +840,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         replacementInFlightRef.current = null;
       }
     }
-  }, [amendmentOrderId, gateway, liveMarket, preview, route, selectedClosePosition, stage, ticket]);
+  }, [amendmentOrderId, gateway, liveMarket, preview, route, selectedClosePosition, stage, ticket, ticketMarket.contractMultiplier]);
 
   useEffect(() => {
     if (ticket.intent !== "EXIT") return;

@@ -398,6 +398,22 @@ export const riskEngineAbi = [
 
 export const publicOrderBookAbi = [
   {
+    type: "error",
+    name: "PostOnlyWouldCross",
+    inputs: [
+      { name: "orderHash", type: "bytes32" },
+      { name: "oppositeOrderHash", type: "bytes32" },
+    ],
+  },
+  {
+    type: "error",
+    name: "RestingOrderWouldCross",
+    inputs: [
+      { name: "orderHash", type: "bytes32" },
+      { name: "oppositeOrderHash", type: "bytes32" },
+    ],
+  },
+  {
     type: "event",
     name: "DirectOrderRested",
     inputs: [

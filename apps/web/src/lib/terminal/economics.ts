@@ -20,6 +20,8 @@ export interface TicketState {
   privateRfq: boolean;
   routeId: string | null;
   closePositionId: string | null;
+  /** Rest only: the order is rejected rather than allowed to take liquidity. */
+  postOnly?: boolean;
 }
 
 export interface ClosePositionRef {
@@ -223,6 +225,17 @@ export function buildPreview(
         ? "A marketable limit must be at or above the route offer."
         : "A marketable limit must be at or below the route bid.",
     );
+  }
+  if (state.postOnly) {
+    if (state.orderType !== "LIMIT" || !isRestingTimeInForce(state.tif) || state.privateRfq) {
+      blockers.push("Post-only applies to GTC or GTD limit orders on the public book.");
+    } else if (marketable) {
+      blockers.push(
+        action === "BUY"
+          ? "Post-only would take liquidity. Set the limit below the best offer to rest as a maker."
+          : "Post-only would take liquidity. Set the limit above the best bid to rest as a maker.",
+      );
+    }
   }
   if (state.orderType === "LIMIT" && !marketable && (state.tif === "IOC" || state.tif === "FOK")) {
     blockers.push(

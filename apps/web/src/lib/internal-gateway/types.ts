@@ -125,6 +125,8 @@ export interface PackageOrderIntent {
   recipient: string;
   disclosure: "PUBLIC" | "PRIVATE_RFQ";
   settlementGuarantee: string;
+  /** Rest-only maker order; the book rejects it instead of letting it cross. */
+  postOnly?: boolean;
 }
 
 export type OrderType = "MARKET" | "LIMIT";
@@ -176,6 +178,8 @@ export interface RestingPackageOrder {
   filledAt?: string;
   fillId?: string;
   receiptId?: string;
+  /** Rest-only maker order. */
+  postOnly?: boolean;
 }
 
 export interface SignedOrderAuthorization {

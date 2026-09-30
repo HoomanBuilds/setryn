@@ -77,6 +77,11 @@ function sourceForRouteLabel(routeLabel: string): LiquiditySource {
 }
 
 function tifDisplay(order: RestingPackageOrder): { text: string; title?: string } {
+  const base = baseTifDisplay(order);
+  return order.postOnly ? { ...base, text: `${base.text} · Post` } : base;
+}
+
+function baseTifDisplay(order: RestingPackageOrder): { text: string; title?: string } {
   if (order.timeInForce !== "GTD") return { text: order.timeInForce };
   if (typeof order.expiresAt !== "string" || !Number.isFinite(Date.parse(order.expiresAt))) {
     return { text: "GTD" };
