@@ -98,16 +98,16 @@ contract CashSettlementCoordinator is
         CanonicalSettlementFixing[] memory fixings =
             CashSettlementContextLib.collectNormalFixings(_dependencies(), context.economics, fixingSlots);
         bytes32 fixingsHash = SettlementLib.hashFixings(fixings);
-        settlementId = SettlementLib.deriveSettlementId(
-            block.chainid, address(this), positionId, SettlementMode.Normal, fixingsHash
-        );
         bytes memory encodedFixings =
             CashSettlementContextLib.encodePayoffFixings(_dependencies(), context.economics, fixingSlots);
-        CashSettlementContextLib.advanceNormalPosition(
-            _dependencies(), positionId, context.lifecycle, fixingsHash, encodedFixings
+        PositionLifecycle memory terminalLifecycle = CashSettlementContextLib.advanceNormalPosition(
+            _dependencies(), positionId, context.economics, context.lifecycle, fixingsHash, encodedFixings
         );
-        (, PositionLifecycle memory terminalLifecycle) = _positionEngine.getPosition(positionId);
-        if (terminalLifecycle.status != PositionStatus.Settled) revert SettlementOutcomeMismatch();
+        // Holder election: the accepted fixing is persisted and the position awaits election; nothing to record yet.
+        if (terminalLifecycle.status == PositionStatus.Live) return SettlementId.wrap(bytes32(0));
+        SettlementMode mode =
+            terminalLifecycle.status == PositionStatus.Lapsed ? SettlementMode.Lapsed : SettlementMode.Normal;
+        settlementId = SettlementLib.deriveSettlementId(block.chainid, address(this), positionId, mode, fixingsHash);
         CashSettlementRecordLib.reducePositionExposure(_dependencies(), positionId, context.economics);
 
         SettlementFeeReceipt[] memory feeReceipts =
@@ -121,7 +121,7 @@ contract CashSettlementCoordinator is
             _claimSettlement,
             settlementId,
             positionId,
-            SettlementMode.Normal,
+            mode,
             context,
             fixingsHash,
             terminalLifecycle,
@@ -192,6 +192,11 @@ contract CashSettlementCoordinator is
         if (SettlementId.unwrap(existing) != bytes32(0)) return existing;
         PositionContext memory context =
             CashSettlementContextLib.loadContext(_dependencies(), positionId, new FixingSlot[](0), false);
+        if (context.lifecycle.status == PositionStatus.Live || context.lifecycle.status == PositionStatus.Fixing) {
+            // Holder-election series lapse rule; the position engine enforces the policy and the election window.
+            _positionEngine.lapseUnelectedLots(positionId);
+            (, context.lifecycle) = _positionEngine.getPosition(positionId);
+        }
         if (context.lifecycle.status != PositionStatus.Lapsed || context.lifecycle.terminalTransferMinor != 0) {
             revert InvalidPositionStatus(context.lifecycle.status);
         }

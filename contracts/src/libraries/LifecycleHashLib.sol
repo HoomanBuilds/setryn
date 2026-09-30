@@ -268,8 +268,10 @@ library LifecycleHashLib {
         ) {
             revert InvalidLifecycleAction();
         }
-        bool needsTransition = action.kind == LifecycleActionKind.Amendment
-            || action.kind == LifecycleActionKind.Novation || action.kind == LifecycleActionKind.Roll;
+        // Amendment, Novation, Roll and Exercise (contiguous kinds) commit to an economic transition. An exercise commits
+        // to its fixing witness (reference and final fixings hash); the executor refuses a witness that does not match.
+        bool needsTransition =
+            action.kind >= LifecycleActionKind.Amendment && action.kind <= LifecycleActionKind.Exercise;
         if (needsTransition != (action.economicTransitionHash != bytes32(0))) revert InvalidLifecycleAction();
         bool isCompression = action.kind == LifecycleActionKind.CompressionHandoff;
         if (isCompression != (action.compressionPlanId != bytes32(0))) {

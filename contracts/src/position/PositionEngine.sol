@@ -218,7 +218,9 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
 
     function beginFixing(PositionId positionId) external {
         PositionLifecycle storage lifecycle = _requirePosition(positionId);
-        if (lifecycle.status != PositionStatus.Live) {
+        // A holder-election position returns to Live once its final fixing is accepted; it must not re-enter Fixing,
+        // or anyone could block the holder's election by toggling it away from Live.
+        if (lifecycle.status != PositionStatus.Live || lifecycle.finalFixingReference != bytes32(0)) {
             revert InvalidPositionTransition(positionId, lifecycle.status, PositionStatus.Fixing);
         }
         PositionEconomics storage economics = _economics[positionId];
@@ -321,6 +323,10 @@ contract PositionEngine is IPositionEngine, AccessControlDefaultAdminRules, Reen
 
     function applyTerminalFallback(PositionId positionId) external {
         PositionTerminalLib.applyTerminalFallback(_economics, _lifecycles, _liabilityStates, positionId);
+    }
+
+    function lapseUnelectedLots(PositionId positionId) external {
+        PositionTerminalLib.lapseUnelectedLots(_economics, _lifecycles, _liabilityStates, positionId);
     }
 
     function markDefaulted(PositionId positionId, bytes32 defaultReference) external onlyRole(DEFAULT_ENGINE_ROLE) {

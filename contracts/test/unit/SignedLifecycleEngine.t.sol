@@ -119,6 +119,44 @@ contract SignedLifecycleEngineTest is Test {
         assertEq(executor.calls(), 1);
     }
 
+    function test_SignedExerciseCommitsToFixingWitnessAndExecutes() public {
+        LifecyclePositionSnapshot memory snapshot = _snapshot();
+        source.setPosition(snapshot, LifecycleActionKind.Exercise, true);
+        LifecycleInput[] memory inputs = new LifecycleInput[](1);
+        inputs[0] = LifecycleInput({
+            positionId: snapshot.positionId,
+            expectedImmutableHash: snapshot.immutableHash,
+            expectedLifecycleHash: snapshot.lifecycleHash,
+            expectedPositionLots: snapshot.positionLots,
+            actionLots: snapshot.positionLots
+        });
+        LifecycleSuccessor[] memory successors = new LifecycleSuccessor[](0);
+        LifecycleCollateralReplacement[] memory replacements = new LifecycleCollateralReplacement[](1);
+        replacements[0] = LifecycleCollateralReplacement(FIRST, COLLATERAL, 0);
+        LifecycleConsent[] memory consents = new LifecycleConsent[](0);
+        LifecycleAction memory action = _action(inputs, successors, replacements, consents);
+        action.kind = LifecycleActionKind.Exercise;
+        action.salt = keccak256("exercise");
+
+        // Without the fixing witness commitment the action is malformed.
+        bytes memory missingSignature =
+            _sign(actorKey, LifecycleHashLib.actionDigest(action, block.chainid, address(engine)));
+        vm.expectRevert(LifecycleHashLib.InvalidLifecycleAction.selector);
+        engine.authorizeAction(action, inputs, successors, replacements, consents, new bytes[](0), missingSignature);
+
+        action.economicTransitionHash = keccak256(abi.encode(keccak256("fixing reference"), keccak256("final fixings")));
+        LifecycleActionId actionId =
+            LifecycleHashLib.deriveActionId(LifecycleHashLib.hashAction(action, block.chainid, address(engine)));
+        bytes memory actorSignature =
+            _sign(actorKey, LifecycleHashLib.actionDigest(action, block.chainid, address(engine)));
+        engine.authorizeAction(action, inputs, successors, replacements, consents, new bytes[](0), actorSignature);
+        vm.prank(action.permittedExecutor);
+        engine.executeAction(action, inputs, successors, replacements, consents);
+
+        assertEq(uint8(engine.getAction(actionId).status), uint8(LifecycleActionStatus.Executed));
+        assertEq(executor.calls(), 1);
+    }
+
     function _snapshot() internal pure returns (LifecyclePositionSnapshot memory) {
         return LifecyclePositionSnapshot({
             positionId: PositionId.wrap(bytes32(uint256(1))),

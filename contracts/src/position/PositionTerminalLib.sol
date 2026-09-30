@@ -24,6 +24,9 @@ library PositionTerminalLib {
     bytes32 internal constant SETTLEMENT_OUTCOME_TYPEHASH = keccak256(
         "SetrynPositionSettlementV1(bytes32 positionId,bytes32 fixingReference,bytes32 finalFixingsHash,int256 terminalTransferMinor)"
     );
+    bytes32 internal constant ELECTION_LAPSE_TYPEHASH = keccak256(
+        "SetrynPositionElectionLapseV1(bytes32 positionId,uint64 exerciseCutoffAt,bytes32 finalFixingReference)"
+    );
 
     function acceptFinalFixing(
         mapping(PositionId positionId => PositionEconomics economics) storage $economics,
@@ -414,7 +417,53 @@ library PositionTerminalLib {
             revert IPositionEngine.InvalidPositionTransition(positionId, lifecycle.status, terminalStatus);
         }
         if (terminalStatus == PositionStatus.Lapsed) _requireLapseOpen($economics, positionId);
+        _closeRemainingLots($economics, $liabilityStates, lifecycle, positionId, terminalStatus, transitionReference);
+    }
 
+    /// Permissionless series lapse rule for holder election: once the exercise cutoff has passed without an election,
+    /// every unelected lot lapses with zero transfer. Lots already exercised keep their accumulated transfer. At and
+    /// after final resolution the terminal fallback governs instead, so this path closes there.
+    function lapseUnelectedLots(
+        mapping(PositionId positionId => PositionEconomics economics) storage $economics,
+        mapping(
+            PositionId positionId => PositionLifecycle lifecycle
+        ) storage $lifecycles,
+        mapping(bytes32 liabilityKey => LiabilityState state) storage $liabilityStates,
+        PositionId positionId
+    ) external {
+        PositionLifecycle storage lifecycle = _requirePosition($lifecycles, positionId);
+        if (lifecycle.status != PositionStatus.Live && lifecycle.status != PositionStatus.Fixing) {
+            revert IPositionEngine.InvalidPositionTransition(positionId, lifecycle.status, PositionStatus.Lapsed);
+        }
+        _requireLapseOpen($economics, positionId);
+        PositionEconomics storage economics = $economics[positionId];
+        uint64 nowTs = uint64(block.timestamp);
+        if (nowTs >= economics.finalResolutionAt) {
+            revert IPositionEngine.FinalResolutionReached(positionId, economics.finalResolutionAt, nowTs);
+        }
+        bytes32 transitionReference = keccak256(
+            abi.encode(
+                ELECTION_LAPSE_TYPEHASH,
+                PositionId.unwrap(positionId),
+                economics.exerciseCutoffAt,
+                lifecycle.finalFixingReference
+            )
+        );
+        _closeRemainingLots(
+            $economics, $liabilityStates, lifecycle, positionId, PositionStatus.Lapsed, transitionReference
+        );
+    }
+
+    function _closeRemainingLots(
+        mapping(PositionId positionId => PositionEconomics economics) storage $economics,
+        mapping(
+            bytes32 liabilityKey => LiabilityState state
+        ) storage $liabilityStates,
+        PositionLifecycle storage lifecycle,
+        PositionId positionId,
+        PositionStatus terminalStatus,
+        bytes32 transitionReference
+    ) internal {
         uint128 remaining = Lots.unwrap(lifecycle.remainingLots);
         lifecycle.closedLots = Lots.wrap(Lots.unwrap(lifecycle.closedLots) + remaining);
         lifecycle.remainingLots = Lots.wrap(0);

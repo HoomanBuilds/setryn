@@ -24,6 +24,19 @@ interface ICashSettlementCoordinator {
         address caller
     );
 
+    /// A holder-election position's final fixing was accepted and persisted on the position engine. The position
+    /// stays Live awaiting election through `exerciseCutoffAt`; no settlement record exists until it is exercised or
+    /// its unelected lots lapse. When acceptance happens after the cutoff, the same transaction lapses the unelected
+    /// lots and emits `CashSettlementFinalized`.
+    event HolderElectionFixingAccepted(
+        PositionId indexed positionId,
+        bytes32 indexed fixingsHash,
+        bytes32 finalFixingsHash,
+        uint64 exerciseOpensAt,
+        uint64 exerciseCutoffAt,
+        address caller
+    );
+
     event SettlementClaimFulfilled(
         TerminalClaimId indexed claimId,
         PositionId indexed positionId,
@@ -50,6 +63,7 @@ interface ICashSettlementCoordinator {
     error NormalSettlementClosed(uint64 finalResolutionAt, uint256 currentTimestamp);
     error TerminalFallbackNotOpen(uint64 finalResolutionAt, uint256 currentTimestamp);
     error InvalidPositionStatus(PositionStatus status);
+    error HolderElectionPending(PositionId positionId, uint64 exerciseCutoffAt);
     error ExistingPositionOutcomeMismatch();
     error SettlementAlreadyRecorded(PositionId positionId, SettlementId settlementId);
     error FeeRequestLimitExceeded(uint256 actual, uint256 maximum);
@@ -71,6 +85,10 @@ interface ICashSettlementCoordinator {
     function fixingEngine() external view returns (IFixingEngine);
     function fundedFeeEngine() external view returns (IFundedFeeEngine);
     function collateralVault() external view returns (ICollateralVault);
+    /// Accepts the normal final fixing and settles the position. For a holder-election position whose election window
+    /// has not closed, the first call only persists the fixing, emits `HolderElectionFixingAccepted` and returns a zero
+    /// settlement ID; later calls revert `HolderElectionPending` until the holder exercises (then this records the
+    /// normal settlement) or `exerciseCutoffAt` passes (then this lapses every unelected lot and records the result).
     function finalizeNormalSettlement(
         PositionId positionId,
         FixingSlot[] calldata fixingSlots,
@@ -81,6 +99,8 @@ interface ICashSettlementCoordinator {
         FixingSlot[] calldata fixingSlots,
         FeeActionRequest[] calldata feeActions
     ) external returns (SettlementId settlementId);
+    /// Records a lapsed position. A holder-election position still Live or Fixing after `exerciseCutoffAt` and before
+    /// `finalResolutionAt` is lapsed permissionlessly first; it needs no fixing witness.
     function finalizeLapsedPosition(PositionId positionId, FeeActionRequest[] calldata feeActions)
         external
         returns (SettlementId settlementId);

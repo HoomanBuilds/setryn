@@ -267,35 +267,64 @@ library CashSettlementContextLib {
         });
     }
 
+    /// Applies every normal transition the position can take now and returns its resulting lifecycle.
+    /// Settled and Lapsed are terminal results to record. Live is returned only for a holder-election position whose
+    /// final fixing this call accepted while its election window is still open; the caller records nothing then.
     function advanceNormalPosition(
         CashSettlementDependencies memory deps,
         PositionId positionId,
+        PositionEconomics memory economics,
         PositionLifecycle memory lifecycle,
         bytes32 fixingsHash,
         bytes memory encodedFixings
-    ) external {
-        if (lifecycle.status == PositionStatus.Live) {
+    ) external returns (PositionLifecycle memory) {
+        bool accepted;
+        if (lifecycle.status == PositionStatus.Live && lifecycle.finalFixingReference == bytes32(0)) {
             deps.positionEngine.beginFixing(positionId);
             lifecycle.status = PositionStatus.Fixing;
         }
         if (lifecycle.status == PositionStatus.Fixing) {
             deps.positionEngine.acceptFinalFixing(positionId, fixingsHash, encodedFixings);
             (, lifecycle) = deps.positionEngine.getPosition(positionId);
+            accepted = true;
         }
-        if (lifecycle.status == PositionStatus.SettlementReady) {
-            if (
-                lifecycle.finalFixingReference != fixingsHash || lifecycle.finalFixingsHash != keccak256(encodedFixings)
-            ) {
-                revert ICashSettlementCoordinator.ExistingPositionOutcomeMismatch();
-            }
-            deps.positionEngine.settle(positionId);
-            return;
-        }
-        if (lifecycle.status != PositionStatus.Settled) {
-            revert ICashSettlementCoordinator.InvalidPositionStatus(lifecycle.status);
-        }
+        PositionStatus status = lifecycle.status;
+        if (
+            status != PositionStatus.Live && status != PositionStatus.SettlementReady
+                && status != PositionStatus.Settled && status != PositionStatus.Lapsed
+        ) revert ICashSettlementCoordinator.InvalidPositionStatus(status);
         if (lifecycle.finalFixingReference != fixingsHash || lifecycle.finalFixingsHash != keccak256(encodedFixings)) {
             revert ICashSettlementCoordinator.ExistingPositionOutcomeMismatch();
         }
+        if (status == PositionStatus.Live) {
+            // Only holder election returns a position to Live with an accepted final fixing (or keeps it Live after a
+            // partial exercise). Settlement waits for the holder until the inclusive cutoff, then unelected lots lapse.
+            if (accepted) {
+                emit ICashSettlementCoordinator.HolderElectionFixingAccepted(
+                    positionId,
+                    fixingsHash,
+                    lifecycle.finalFixingsHash,
+                    economics.exerciseOpensAt,
+                    economics.exerciseCutoffAt,
+                    msg.sender
+                );
+            }
+            if (block.timestamp <= economics.exerciseCutoffAt) {
+                if (!accepted) {
+                    revert ICashSettlementCoordinator.HolderElectionPending(positionId, economics.exerciseCutoffAt);
+                }
+                return lifecycle;
+            }
+            deps.positionEngine.lapseUnelectedLots(positionId);
+        } else if (status == PositionStatus.SettlementReady) {
+            deps.positionEngine.settle(positionId);
+        } else {
+            return lifecycle;
+        }
+        (, lifecycle) = deps.positionEngine.getPosition(positionId);
+        if (lifecycle.status != PositionStatus.Settled && lifecycle.status != PositionStatus.Lapsed) {
+            revert ICashSettlementCoordinator.InvalidPositionStatus(lifecycle.status);
+        }
+        return lifecycle;
     }
 }

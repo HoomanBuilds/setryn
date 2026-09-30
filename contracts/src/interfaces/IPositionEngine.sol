@@ -186,6 +186,10 @@ interface IPositionEngine is IPositionEngineTerminalState, ILifecyclePositionSou
 
     function applyTerminalFallback(PositionId positionId) external;
 
+    /// Permissionless holder-election lapse of every unelected lot after `exerciseCutoffAt` and before
+    /// `finalResolutionAt`. Resolves to `Lapsed`, or `Settled` when earlier exercised lots carry a nonzero transfer.
+    function lapseUnelectedLots(PositionId positionId) external;
+
     function markDefaulted(PositionId positionId, bytes32 defaultReference) external;
 
     function recordZeroLiabilityAlternative(

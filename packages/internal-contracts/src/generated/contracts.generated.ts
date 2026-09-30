@@ -1,6 +1,6 @@
 import type { InternalContractBinding } from "../types.ts";
 
-export const generatedBindingsHash = "sha256:82aa83d2f2b728cb73d9e037acb4b0846c510123f294e0adeaf99fe6d8097afb";
+export const generatedBindingsHash = "sha256:b231e571d0d609d9e9277df6be2e62d177ee6b4268f242ea92518fb20bf730aa";
 
 export const contractBindings = {
   "AssetRegistry": {
@@ -26630,6 +26630,19 @@ export const contractBindings = {
       },
       {
         "type": "function",
+        "name": "lapseUnelectedLots",
+        "inputs": [
+          {
+            "name": "positionId",
+            "type": "bytes32",
+            "internalType": "PositionId"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
         "name": "markDefaulted",
         "inputs": [
           {
@@ -38232,6 +38245,49 @@ export const contractBindings = {
       },
       {
         "type": "event",
+        "name": "HolderElectionFixingAccepted",
+        "inputs": [
+          {
+            "name": "positionId",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "PositionId"
+          },
+          {
+            "name": "fixingsHash",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "finalFixingsHash",
+            "type": "bytes32",
+            "indexed": false,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "exerciseOpensAt",
+            "type": "uint64",
+            "indexed": false,
+            "internalType": "uint64"
+          },
+          {
+            "name": "exerciseCutoffAt",
+            "type": "uint64",
+            "indexed": false,
+            "internalType": "uint64"
+          },
+          {
+            "name": "caller",
+            "type": "address",
+            "indexed": false,
+            "internalType": "address"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
         "name": "SettlementClaimFulfilled",
         "inputs": [
           {
@@ -38413,6 +38469,22 @@ export const contractBindings = {
             "name": "actual",
             "type": "bytes32",
             "internalType": "bytes32"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "HolderElectionPending",
+        "inputs": [
+          {
+            "name": "positionId",
+            "type": "bytes32",
+            "internalType": "PositionId"
+          },
+          {
+            "name": "exerciseCutoffAt",
+            "type": "uint64",
+            "internalType": "uint64"
           }
         ]
       },
