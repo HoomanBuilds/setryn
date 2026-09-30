@@ -4,3 +4,4 @@ export * from "./ports.ts";
 export * from "./runtime.ts";
 export * from "./store.ts";
 export * from "./types.ts";
+export * from "./adapters/index.ts";

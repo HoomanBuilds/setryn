@@ -124,10 +124,19 @@ importers:
 
   services/operator-runtime:
     dependencies:
+      '@setryn/internal-contracts':
+        specifier: workspace:*
+        version: link:../../packages/internal-contracts
       '@setryn/internal-schemas':
         specifier: workspace:*
         version: link:../../packages/internal-schemas
+      viem:
+        specifier: ^2.56.9
+        version: 2.56.9(typescript@5.9.3)(zod@4.6.5)
     devDependencies:
+      '@types/node':
+        specifier: ^20.17.24
+        version: 20.19.43
       typescript:
         specifier: ^5.8.2
         version: 5.9.3
