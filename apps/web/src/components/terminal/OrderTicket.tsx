@@ -269,10 +269,12 @@ export function OrderTicket({
   // Wall clock for the GTD picker bounds, refreshed when GTD is chosen rather than read during render.
   const [gtdClockMs, setGtdClockMs] = useState(() => platformNow());
   // Smart default: the best executable route is preselected and stays editable in the route selector.
+  // A route that is no longer offered (for example once the onchain market's routes load) is replaced the same way.
+  const routeOffered = state.routeId !== null && usableRoutes.some((candidate) => candidate.id === state.routeId);
   useEffect(() => {
-    if (!state.routeId && bestRouteId && !locked && !isAmending) onChange({ routeId: bestRouteId });
+    if (!routeOffered && bestRouteId && !locked && !isAmending) onChange({ routeId: bestRouteId });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.routeId, bestRouteId, locked, isAmending]);
+  }, [routeOffered, bestRouteId, locked, isAmending]);
   const requestedLots = Number.parseFloat(state.lotsInput) || 0;
   // Without a connected account there is no collateral to size against, so the share controls stay inert.
   const sizingKnown = wallet.connected || state.intent === "EXIT";

@@ -166,6 +166,7 @@ function executionError(error: unknown): string {
 }
 
 const SLIPPAGE_KEY = "setryn:ticket-slippage-bps";
+const ONCHAIN_ROUTE_IDS = new Set(["DIRECT_BOOK", "SOLVER_RFQ"]);
 
 function parseSlippage(value: unknown): number | undefined {
   return typeof value === "number" && (SLIPPAGE_PRESETS_BPS as readonly number[]).includes(value) ? value : undefined;
@@ -469,7 +470,8 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       collateralPerLot: Math.max(onchainEconomics.longCollateralPerLot, onchainEconomics.shortCollateralPerLot),
       feeOnConsideration: true,
       maxOrderLots: onchainEconomics.maxOrderLots,
-      routes: liveMarket.routes.map((candidate) => ({
+      // Only the public book and the private solver RFQ execute onchain; preview routes would misstate the fill.
+      routes: liveMarket.routes.filter((candidate) => ONCHAIN_ROUTE_IDS.has(candidate.id)).map((candidate) => ({
         ...candidate,
         protocolFeeBps: onchainEconomics.takerFeeBps,
         counterpartyFeeBps: 0,
