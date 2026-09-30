@@ -104,7 +104,17 @@ stop_managed_anvil() {
     fi
 
     kill "$managed_pid"
-    wait "$managed_pid" 2>/dev/null || true
+    # A previous run started this anvil, so it is not a child of this shell and `wait` cannot block on it. Poll until
+    # it exits so the port check below does not race its shutdown.
+    local attempt
+    for attempt in {1..50}; do
+        kill -0 "$managed_pid" 2>/dev/null || break
+        sleep 0.1
+    done
+    if kill -0 "$managed_pid" 2>/dev/null; then
+        printf 'Managed anvil PID %s did not exit after SIGTERM.\n' "$managed_pid" >&2
+        exit 1
+    fi
     rm -f "$pid_file"
 }
 
