@@ -117,7 +117,9 @@ function validateManifest(manifestPath) {
   if (manifest.schemaVersion !== "1.0.0") {
     throw new Error(`${manifestPath}: unsupported schema version`);
   }
-  if (JSON.stringify(manifest.compiler) !== JSON.stringify(expectedCompiler)) {
+  // Evidence records the full build (`0.8.37+commit.…`); the pinned profile names the release.
+  const recordedCompiler = { ...manifest.compiler, version: String(manifest.compiler?.version ?? "").split("+")[0] };
+  if (JSON.stringify(recordedCompiler) !== JSON.stringify(expectedCompiler)) {
     throw new Error(
       `${manifestPath}: compiler ${JSON.stringify(manifest.compiler)} drifted from the pinned profile ${JSON.stringify(expectedCompiler)}`,
     );
