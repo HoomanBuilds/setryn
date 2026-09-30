@@ -20,6 +20,7 @@ import {
 import { priceToTicks, runtimeMarketBySeries, ticksToPrice } from "@/lib/internal-gateway/runtime-markets";
 import { withDevnetMakerLock } from "@/lib/internal-gateway/devnet-maker-lock";
 import { readLocalRuntime } from "@/lib/internal-gateway/runtime-server";
+import { marketTradingVersions, readActiveFeeSchedule } from "@/lib/internal-gateway/fee-schedule";
 import { MARKETS } from "@/lib/terminal/markets";
 import { devnetOperatorTransport } from "@/lib/internal-gateway/devnet-operator-transport";
 
@@ -93,6 +94,21 @@ export async function POST(request: Request) {
       publicClient.getBlock({ blockTag: "pending" }),
     ]);
     if (rfq.status !== 2 || rfq.request.deadline <= block.timestamp) throw new Error("RFQ_NOT_COLLECTING");
+    // The quote and its maker order sign the request's series and fee schedule versions, which must still be the ones
+    // the market trades: clearing charges only under an open fee version, so a retired version could never settle.
+    const fees = await readActiveFeeSchedule(setryn, { client: publicClient, maxAgeMs: 0 });
+    const versions = marketTradingVersions(fees, rfq.request.seriesId);
+    if (
+      rfq.request.feeScheduleId.toLowerCase() !== setryn.feeScheduleId.toLowerCase() ||
+      (fees.source === "CHAIN" &&
+        (!versions.tradable ||
+          rfq.request.feeScheduleVersion !== versions.feeScheduleVersion ||
+          rfq.request.targetVersion !== versions.seriesVersion))
+    ) {
+      throw new Error("FEE_SCHEDULE_CHANGED");
+    }
+    const feeScheduleVersion = rfq.request.feeScheduleVersion;
+    const targetVersion = rfq.request.targetVersion;
     // The request's series names the market, so the quote carries that market's grid, liability, and payoff.
     const market = runtimeMarketBySeries(setryn, rfq.request.seriesId);
     const preview = market ? MARKETS.find((candidate) => candidate.id === market.marketKey) : undefined;
@@ -132,7 +148,7 @@ export async function POST(request: Request) {
         targetKind: 1,
         seriesId: market.seriesId,
         packageId: ZERO_ID,
-        targetVersion: 1,
+        targetVersion,
         side: makerSide,
         lots,
         priceTicks,
@@ -140,7 +156,7 @@ export async function POST(request: Request) {
         deadline: quoteDeadline,
         executionModeId: setryn.privateRfqExecutionModeId,
         feeScheduleId: setryn.feeScheduleId,
-        feeScheduleVersion: 1,
+        feeScheduleVersion,
         maxFeeMinor,
         recipient: maker,
         permittedExecutor: setryn.atomicClearingEngine,
@@ -204,7 +220,7 @@ export async function POST(request: Request) {
         targetKind: 1,
         seriesId: market.seriesId,
         packageId: ZERO_ID,
-        targetVersion: 1,
+        targetVersion,
         hasPackageLegCommitment: false,
         packageLegsHash: ZERO_ID,
         sidePolicy: rfq.request.sidePolicy as 1 | 2 | 3,
@@ -215,7 +231,7 @@ export async function POST(request: Request) {
         bidPriceTicks: rfq.request.sidePolicy === 2 ? priceTicks : BigInt(0),
         askPriceTicks: rfq.request.sidePolicy === 1 ? priceTicks : BigInt(0),
         feeScheduleId: setryn.feeScheduleId,
-        feeScheduleVersion: 1,
+        feeScheduleVersion,
         maxFeeMinor,
         riskDomainId: setryn.riskDomainId,
         riskDomainVersion: 1,

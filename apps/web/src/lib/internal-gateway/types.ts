@@ -1,3 +1,4 @@
+import type { ActiveFeeSchedule } from "./fee-schedule";
 import type { Intent, PackageSide, TimeInForce } from "@/lib/terminal/economics";
 import type { BookRow, PackageMarket } from "@/lib/terminal/types";
 import type { OnchainPublicOrder } from "./protocol";
@@ -185,6 +186,8 @@ export interface GatewaySnapshot {
   publicBookEconomics: OnchainMarketEconomics | null;
   /** Every catalog market registered onchain, keyed by catalog market id, once the runtime is loaded. */
   onchainMarkets: Record<string, OnchainMarket>;
+  /** The active protocol fee schedule read from chain, refreshed with the book; null until the runtime is loaded. */
+  feeSchedule: ActiveFeeSchedule | null;
   /** Settlement chain time minus browser time; deadlines and countdowns read the chain clock. */
   chainClockOffsetMs: number;
   /** The primary market's public book. */
@@ -202,8 +205,17 @@ export interface OnchainMarketEconomics {
   longCollateralPerLot: number;
   shortCollateralPerLot: number;
   maxOrderLots: number;
+  /** The fee schedule version orders on this market sign: the one its active market version names. */
+  feeScheduleVersion: number;
+  /** The series' active version: the `targetVersion` orders on this market sign. */
+  seriesVersion: number;
+  /** False while the market's fee schedule version is not the active one (mid fee change), so nothing can clear. */
+  tradable: boolean;
   makerFeeBps: number;
   takerFeeBps: number;
+  /** Flat charge per fill on top of the rate, in USD (zero under a pure rate schedule). */
+  makerFlatFeeUsd: number;
+  takerFlatFeeUsd: number;
 }
 
 /** One catalog market's onchain series and the economics its orders settle on. */
@@ -445,4 +457,23 @@ export interface InternalTradingGateway {
   refreshLifecycles(): Promise<void>;
   /** Runs one terminal lifecycle action on a position, signed by the connected wallet. */
   runLifecycleAction(positionId: string, action: LifecycleActionKey): Promise<LifecycleActionResult>;
+  /**
+   * Withdraws available protocol fees from the fee recipient account through CollateralVault.withdraw. Only that
+   * account's controller can; SIMULATE checks the call against the chain without sending, SEND signs and waits.
+   */
+  withdrawTreasuryFees(request: TreasuryWithdrawal, mode: "SIMULATE" | "SEND"): Promise<TreasuryWithdrawalResult>;
+}
+
+export interface TreasuryWithdrawal {
+  accountId: string;
+  /** USD amount of the settlement asset, at most six decimals. */
+  amount: number;
+  recipient: string;
+}
+
+export interface TreasuryWithdrawalResult {
+  mode: "SIMULATE" | "SEND";
+  amount: number;
+  recipient: string;
+  transactionHash: string | null;
 }

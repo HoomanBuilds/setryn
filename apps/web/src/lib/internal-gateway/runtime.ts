@@ -16,6 +16,12 @@ export interface SetrynRuntimeMarket {
   maxLongDebitMinorPerLot: number;
   maxShortDebitMinorPerLot: number;
   maxOrderLots: number;
+  /**
+   * The market and series versions the runtime was written with. A fee change re-versions both, so live code reads the
+   * active versions from chain (fee-schedule.ts `marketTradingVersions`) and uses these only as a fallback.
+   */
+  marketVersion?: number;
+  seriesVersion?: number;
 }
 
 export interface SetrynRuntime {
@@ -54,8 +60,18 @@ export interface SetrynRuntime {
   /** Settlement minor units per price tick per lot: consideration is lots x price ticks x tick size. */
   tickSizeMinor: number;
   maxOrderLots: number;
+  /**
+   * Fallback rates for when the chain cannot be read. Live rates come from the active FeeScheduleRegistry version through
+   * `readActiveFeeSchedule` in fee-schedule.ts; nothing prices an order from these fields while the chain answers.
+   */
   makerFeeRatePpm: number;
   takerFeeRatePpm: number;
+  /** The FeeScheduleRegistry holding every version of `feeScheduleId`. */
+  feeScheduleRegistry?: Address;
+  /** The version active when the runtime was written; a fallback only, the registry's active pointer wins. */
+  feeScheduleVersion?: number;
+  /** The address that controls the fee recipient account; read from CollateralVault when absent. */
+  treasuryController?: Address;
   executionModeSetHash: Hex;
   executionModeId: Hex;
   privateRfqExecutionModeId: Hex;
@@ -64,6 +80,7 @@ export interface SetrynRuntime {
   privateRfqEligibleMakerSetHash: Hex;
   enterActionId: Hex;
   seriesRegistry?: Address;
+  marketRegistry?: Address;
   /**
    * Terminal lifecycle contracts the runtime file does not carry, merged from the local deployment manifest. Absent when
    * the manifest is unavailable, in which case settlement actions report the missing contract instead of guessing.

@@ -1,4 +1,5 @@
 import { encodeAbiParameters, keccak256, stringToHex, type Hex } from "viem";
+import { marketTradingVersions, type ActiveFeeSchedule, type MarketTradingVersions } from "./fee-schedule";
 import type { SetrynRuntime, SetrynRuntimeMarket } from "./runtime";
 import type { OnchainMarketEconomics } from "./types";
 
@@ -38,19 +39,37 @@ export function considerationPerPriceUnit(market: SetrynRuntimeMarket): number {
   return (market.tickSizeMinor * market.priceScale) / MINOR_PER_UNIT;
 }
 
-export function marketEconomics(setryn: SetrynRuntime, market: SetrynRuntimeMarket): OnchainMarketEconomics {
+/** A market's order economics under the active fee schedule (see fee-schedule.ts). */
+export function marketEconomics(
+  market: SetrynRuntimeMarket,
+  fees: Pick<ActiveFeeSchedule, "version" | "makerFeeBps" | "takerFeeBps" | "maker" | "taker" | "markets">,
+): OnchainMarketEconomics {
+  const versions = marketTradingVersions(fees, market.seriesId);
   return {
     considerationPerPriceUnit: considerationPerPriceUnit(market),
     longCollateralPerLot: market.maxLongDebitMinorPerLot / MINOR_PER_UNIT,
     shortCollateralPerLot: market.maxShortDebitMinorPerLot / MINOR_PER_UNIT,
     maxOrderLots: market.maxOrderLots,
-    makerFeeBps: setryn.makerFeeRatePpm / 100,
-    takerFeeBps: setryn.takerFeeRatePpm / 100,
+    feeScheduleVersion: versions.feeScheduleVersion,
+    seriesVersion: versions.seriesVersion,
+    tradable: versions.tradable,
+    makerFeeBps: fees.makerFeeBps,
+    takerFeeBps: fees.takerFeeBps,
+    makerFlatFeeUsd: fees.maker.flatChargeMinor / MINOR_PER_UNIT,
+    takerFlatFeeUsd: fees.taker.flatChargeMinor / MINOR_PER_UNIT,
   };
 }
 
-/** The direct public book of one series, as the public order book derives it. */
-export function deriveSeriesBookId(setryn: SetrynRuntime, seriesId: Hex): Hex {
+/**
+ * The direct public book of one series version, as the public order book derives it. The book is keyed by the series
+ * version and the fee schedule version its orders sign, so a fee change (which re-versions every series onto a market
+ * version naming the new fee schedule) opens a fresh book per market.
+ */
+export function deriveSeriesBookId(
+  setryn: SetrynRuntime,
+  seriesId: Hex,
+  versions: Pick<MarketTradingVersions, "seriesVersion" | "feeScheduleVersion">,
+): Hex {
   return keccak256(
     encodeAbiParameters(
       [
@@ -75,12 +94,12 @@ export function deriveSeriesBookId(setryn: SetrynRuntime, seriesId: Hex): Hex {
         setryn.orderState,
         1,
         seriesId,
-        1,
+        versions.seriesVersion,
         setryn.executionModeId,
         setryn.settlementAssetId,
         1,
         setryn.feeScheduleId,
-        1,
+        versions.feeScheduleVersion,
         EMPTY_ID,
       ],
     ),

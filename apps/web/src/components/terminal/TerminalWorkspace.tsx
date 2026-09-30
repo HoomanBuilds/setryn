@@ -162,6 +162,15 @@ function executionError(error: unknown): string {
   if (error.message === "UNSUPPORTED_ONCHAIN_MARKET") {
     return "This market is not open for trading right now.";
   }
+  if (error.message === "FEE_SCHEDULE_CHANGED") {
+    return "Protocol fees changed while this order was being reviewed. The estimate now shows the active schedule; review it and submit again.";
+  }
+  if (error.message === "MARKET_FEE_SCHEDULE_PENDING") {
+    return "This market is moving to the new fee schedule. Nothing was signed; try again in a moment.";
+  }
+  if (error.message === "FEE_SCHEDULE_INACTIVE") {
+    return "No protocol fee schedule is active right now, so new orders cannot clear. Nothing was signed.";
+  }
   return "The trading runtime did not reach a final package outcome. No completion is claimed.";
 }
 
@@ -218,17 +227,19 @@ function onchainTicketMarket(market: PackageMarket, onchain: OnchainMarket, book
 /**
  * The fee cap an onchain order signs. The chain charges the fee on the fill price, which a firm quote or the book can
  * set away from the previewed route price, so the cap covers the worse of the limit and the route price moved by the
- * slippage tolerance, rounded up to the settlement unit.
+ * slippage tolerance, rounded up to the settlement unit. A resting remainder fills later as maker, so the cap uses the
+ * higher of the active schedule's maker and taker charges.
  */
 function onchainFeeCap(
   preview: { totalFees: number; requestedLots: number; limitPrice: number; effectivePrice: number },
-  route: RouteQuote,
+  onchain: OnchainMarket,
   market: PackageMarket,
   slippageBps: number,
 ): number {
   const worstPrice = Math.max(Math.abs(preview.limitPrice), Math.abs(preview.effectivePrice)) * (1 + slippageBps / 10_000);
-  const feeBps = route.protocolFeeBps + route.counterpartyFeeBps;
-  const cap = (preview.requestedLots * worstPrice * market.contractMultiplier * feeBps) / 10_000;
+  const consideration = preview.requestedLots * worstPrice * market.contractMultiplier;
+  const charge = (bps: number, flatUsd: number) => (consideration * bps) / 10_000 + flatUsd;
+  const cap = Math.max(charge(onchain.takerFeeBps, onchain.takerFlatFeeUsd), charge(onchain.makerFeeBps, onchain.makerFlatFeeUsd));
   return Math.max(preview.totalFees, Math.ceil(cap * 1_000_000) / 1_000_000);
 }
 
@@ -848,7 +859,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         orderType: ticket.orderType === "LIMIT" ? "LIMIT" : "MARKET",
         timeInForce: ticket.tif,
         expiresAt: ticket.expiresAt,
-        feeCap: onchainMarket ? onchainFeeCap(preview, route, ticketMarket, slippageBps) : preview.totalFees,
+        feeCap: onchainInfo ? onchainFeeCap(preview, onchainInfo, ticketMarket, slippageBps) : preview.totalFees,
         collateralRequired: isExit ? 0 : preview.totalCollateral,
         closePositionId: isExit ? ticket.closePositionId : null,
         replacesOrderId: replacingId,
@@ -920,7 +931,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         replacementInFlightRef.current = null;
       }
     }
-  }, [amendmentOrderId, gateway, liveMarket, onchainMarket, preview, route, selectedClosePosition, slippageBps, stage, ticket, ticketMarket]);
+  }, [amendmentOrderId, gateway, liveMarket, onchainInfo, preview, route, selectedClosePosition, slippageBps, stage, ticket, ticketMarket]);
 
   useEffect(() => {
     if (ticket.intent !== "EXIT") return;

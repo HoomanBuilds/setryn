@@ -48,6 +48,7 @@ import {
   type OnchainRfqSelection,
 } from "./protocol";
 import { loadSetrynRuntime, type SetrynRuntime, type SetrynRuntimeMarket } from "./runtime";
+import { marketTradingVersions, readActiveFeeSchedule, type ActiveFeeSchedule } from "./fee-schedule";
 import {
   considerationPerPriceUnit,
   deriveSeriesBookId,
@@ -77,6 +78,8 @@ import type {
   RfqRequest,
   SignedOrderAuthorization,
   SubmissionUpdate,
+  TreasuryWithdrawal,
+  TreasuryWithdrawalResult,
 } from "./types";
 
 const ACCOUNT_SALT = keccak256(stringToHex("SETRYN_PRIMARY_ACCOUNT_V1"));
@@ -365,6 +368,31 @@ function describeLifecycleRevert(name: string, args: readonly unknown[]): string
 const vaultAbi = [
   {
     type: "function",
+    name: "getAccount",
+    stateMutability: "view",
+    inputs: [{ name: "accountId", type: "bytes32" }],
+    outputs: [
+      { name: "controller", type: "address" },
+      { name: "pendingController", type: "address" },
+    ],
+  },
+  { type: "error", name: "NotAccountController", inputs: [{ name: "accountId", type: "bytes32" }, { name: "caller", type: "address" }] },
+  { type: "error", name: "UnknownAccount", inputs: [{ name: "accountId", type: "bytes32" }] },
+  { type: "error", name: "ZeroAmount", inputs: [] },
+  { type: "error", name: "ZeroRecipient", inputs: [] },
+  { type: "error", name: "VaultRecipient", inputs: [] },
+  {
+    type: "error",
+    name: "InsufficientAvailable",
+    inputs: [
+      { name: "accountId", type: "bytes32" },
+      { name: "collateralId", type: "bytes32" },
+      { name: "available", type: "uint128" },
+      { name: "requested", type: "uint128" },
+    ],
+  },
+  {
+    type: "function",
     name: "deriveAccountId",
     stateMutability: "view",
     inputs: [
@@ -518,6 +546,7 @@ function initialSnapshot(): GatewaySnapshot {
     publicBookMarketId: PRIMARY_MARKET_ID,
     publicBookEconomics: null,
     onchainMarkets: {},
+    feeSchedule: null,
     chainClockOffsetMs: 0,
     publicBookOrders: [],
     publicBooks: {},
@@ -756,6 +785,46 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     return { intentId: transactionHash, kind: intent.kind, amount: intent.amount, status: "COMPLETED" };
   }
 
+  async withdrawTreasuryFees(request: TreasuryWithdrawal, mode: "SIMULATE" | "SEND"): Promise<TreasuryWithdrawalResult> {
+    const { setryn, address, walletClient, publicClient } = await this.connected();
+    if (!Number.isFinite(request.amount) || request.amount <= 0) throw new Error("INVALID_COLLATERAL_AMOUNT");
+    if (request.accountId.toLowerCase() !== setryn.feeRecipientAccountId.toLowerCase()) throw new Error("TREASURY_ACCOUNT_MISMATCH");
+    if (!isAddress(request.recipient)) throw new Error("INVALID_RECIPIENT");
+    const recipient = getAddress(request.recipient);
+    const accountId = setryn.feeRecipientAccountId;
+    const amount = parseUnits(request.amount.toFixed(6), 6);
+    const [controller] = await publicClient.readContract({
+      address: setryn.collateralVault,
+      abi: vaultAbi,
+      functionName: "getAccount",
+      args: [accountId],
+    });
+    if (controller.toLowerCase() !== address.toLowerCase()) throw new Error("TREASURY_CONTROLLER_REQUIRED");
+    const call = {
+      account: address,
+      address: setryn.collateralVault,
+      abi: vaultAbi,
+      functionName: "withdraw",
+      args: [setryn.settlementAssetId, 1, accountId, amount, recipient],
+    } as const;
+    // The withdrawal is simulated against the chain first, in both modes, so a revert never costs a signature.
+    try {
+      await publicClient.simulateContract(call);
+    } catch (error) {
+      const reverted = error instanceof BaseError ? error.walk((cause) => cause instanceof ContractFunctionRevertedError) : null;
+      const errorName = reverted instanceof ContractFunctionRevertedError ? reverted.data?.errorName : undefined;
+      if (errorName === "InsufficientAvailable") throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
+      if (errorName === "NotAccountController") throw new Error("TREASURY_CONTROLLER_REQUIRED");
+      throw new Error("TREASURY_WITHDRAWAL_REVERTED");
+    }
+    if (mode === "SIMULATE") return { mode, amount: request.amount, recipient, transactionHash: null };
+    if (setryn.chainId === LOCAL_CHAIN_ID) await this.fundNativeGas(address);
+    const transactionHash = await walletClient.writeContract({ ...call, chain: this.chain(setryn) });
+    const receipt = await publicClient.waitForTransactionReceipt({ hash: transactionHash });
+    if (receipt.status !== "success") throw new Error("TREASURY_WITHDRAWAL_FAILED");
+    return { mode, amount: request.amount, recipient, transactionHash };
+  }
+
   async authorizeOrder(intent: PackageOrderIntent): Promise<SignedOrderAuthorization> {
     const { setryn, address, walletClient, publicClient } = await this.connected();
     const market = runtimeMarketByKey(setryn, intent.marketId);
@@ -824,6 +893,23 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const int128Min = -(BigInt(1) << BigInt(127));
     const int128Max = (BigInt(1) << BigInt(127)) - BigInt(1);
     if (priceTicks < int128Min || priceTicks > int128Max) throw new Error("INVALID_LIMIT_PRICE");
+    // Orders sign the version the registry has active right now. The ticket priced its fee cap from the schedule the
+    // snapshot held; if a fresh read charges more than that, the cap could be short, so the viewer re-reviews instead.
+    const priced = this.snapshot.onchainMarkets[intent.marketId] ?? null;
+    const fees = await this.refreshFeeSchedule(0);
+    if (!fees.active && fees.source === "CHAIN") throw new Error("FEE_SCHEDULE_INACTIVE");
+    // The order signs its series' active version and the fee schedule version that series' market version names.
+    const versions = marketTradingVersions(fees, market.seriesId);
+    if (!versions.tradable && fees.source === "CHAIN") throw new Error("MARKET_FEE_SCHEDULE_PENDING");
+    if (
+      priced &&
+      (fees.takerFeeBps > priced.takerFeeBps ||
+        fees.makerFeeBps > priced.makerFeeBps ||
+        fees.taker.flatChargeMinor / 1_000_000 > priced.takerFlatFeeUsd ||
+        fees.maker.flatChargeMinor / 1_000_000 > priced.makerFlatFeeUsd)
+    ) {
+      throw new Error("FEE_SCHEDULE_CHANGED");
+    }
     const feeMinor = this.toMinorUnits(intent.feeCap);
     // All-or-none is fill-or-kill on the public book. A private RFQ request instead requires an all-or-none order to keep
     // its (empty) remainder open, so the same intent signs as GTD until the RFQ deadline with the full size as minimum.
@@ -841,7 +927,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       targetKind: 1,
       seriesId: market.seriesId,
       packageId: EMPTY_ID,
-      targetVersion: 1,
+      targetVersion: versions.seriesVersion,
       side: action === "BUY" ? 1 : 2,
       lots: BigInt(intent.lots),
       priceTicks,
@@ -850,7 +936,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       executionModeId:
         intent.disclosure === "PRIVATE_RFQ" ? setryn.privateRfqExecutionModeId : setryn.executionModeId,
       feeScheduleId: setryn.feeScheduleId,
-      feeScheduleVersion: 1,
+      feeScheduleVersion: versions.feeScheduleVersion,
       maxFeeMinor: feeMinor > BigInt(0) ? feeMinor : BigInt(1),
       recipient: address,
       permittedExecutor: setryn.atomicClearingEngine,
@@ -947,7 +1033,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       transactionHash: registrationHash,
     });
 
-    const bookId = deriveSeriesBookId(setryn, market.seriesId);
+    const bookId = deriveSeriesBookId(setryn, market.seriesId, { seriesVersion: order.targetVersion, feeScheduleVersion: order.feeScheduleVersion });
     const makerSide = order.side === 1 ? 2 : 1;
     // The book prunes an expired maker order during matching instead of filling it, so the head order must still be
     // live on the chain clock. On the local devnet an expired head is refreshed once through the devnet maker.
@@ -1240,7 +1326,10 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const registrationReceipt = await publicClient.waitForTransactionReceipt({ hash: registrationHash });
     if (registrationReceipt.status !== "success") throw new Error("ORDER_REGISTRATION_FAILED");
 
-    const bookId = deriveSeriesBookId(setryn, this.orderMarket(setryn, order).seriesId);
+    const bookId = deriveSeriesBookId(setryn, this.orderMarket(setryn, order).seriesId, {
+      seriesVersion: order.targetVersion,
+      feeScheduleVersion: order.feeScheduleVersion,
+    });
     const hint = await this.levelHint(bookId, order.side, order.priceTicks);
     // The book may have moved since the ticket was priced. A resting order that would now cross is rejected, so the
     // registered order is cancelled rather than left open without a place on the book.
@@ -1406,7 +1495,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       targetKind: 1,
       seriesId: this.orderMarket(setryn, order).seriesId,
       packageId: EMPTY_ID,
-      targetVersion: 1,
+      targetVersion: order.targetVersion,
       hasPackageLegCommitment: false,
       packageLegsHash: EMPTY_ID,
       sidePolicy: order.side === 1 ? 1 : 2,
@@ -1414,8 +1503,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       allowPartialFills: order.allowPartialFills,
       minimumFillLots: order.minimumFillLots,
       remainderPolicy: order.remainderPolicy,
-      feeScheduleId: setryn.feeScheduleId,
-      feeScheduleVersion: 1,
+      feeScheduleId: order.feeScheduleId,
+      feeScheduleVersion: order.feeScheduleVersion,
       maxFeeMinor: order.maxFeeMinor,
       riskDomainId: setryn.riskDomainId,
       riskDomainVersion: 1,
@@ -1804,7 +1893,10 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const setryn = await loadSetrynRuntime();
     this.setryn = setryn;
     this.publicClient = createPublicClient({ chain: this.chain(setryn), transport: http(setryn.rpcUrl) });
-    const head = await this.publicClient.getBlock({ blockTag: "pending" });
+    const [head, fees] = await Promise.all([
+      this.publicClient.getBlock({ blockTag: "pending" }),
+      readActiveFeeSchedule(setryn, { client: this.publicClient }),
+    ]);
     this.observeChainClock(head.timestamp);
     this.publish({
       ...this.snapshot,
@@ -1814,22 +1906,52 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         chainId: setryn.chainId,
         evidence: "DEVNET",
       },
+      ...this.feeScheduleProjection(setryn, fees),
+    });
+    return setryn;
+  }
+
+  /** Every market's economics and book under one fee schedule reading. */
+  private feeScheduleProjection(setryn: SetrynRuntime, fees: ActiveFeeSchedule): Pick<GatewaySnapshot, "publicBookMarketId" | "publicBookEconomics" | "onchainMarkets" | "feeSchedule"> {
+    return {
       publicBookMarketId: setryn.markets[0].marketKey,
-      publicBookEconomics: marketEconomics(setryn, setryn.markets[0]),
+      publicBookEconomics: marketEconomics(setryn.markets[0], fees),
+      feeSchedule: fees,
       onchainMarkets: Object.fromEntries(
         setryn.markets.map((market): [string, OnchainMarket] => [
           market.marketKey,
           {
-            ...marketEconomics(setryn, market),
+            ...marketEconomics(market, fees),
             marketKey: market.marketKey,
             seriesId: market.seriesId,
-            bookId: deriveSeriesBookId(setryn, market.seriesId),
+            bookId: deriveSeriesBookId(setryn, market.seriesId, marketTradingVersions(fees, market.seriesId)),
             priceScale: market.priceScale,
           },
         ]),
       ),
-    });
-    return setryn;
+    };
+  }
+
+  /**
+   * Re-reads the active fee schedule (cached for 15 s unless `maxAgeMs` asks for fresher) and republishes every market's
+   * economics when the version or a rate moved, so estimates, fee caps and books follow a schedule change.
+   */
+  private async refreshFeeSchedule(maxAgeMs?: number): Promise<ActiveFeeSchedule> {
+    const setryn = await this.runtime();
+    const fees = await readActiveFeeSchedule(setryn, { client: this.publicClient ?? undefined, maxAgeMs });
+    const current = this.snapshot.feeSchedule;
+    const changed =
+      !current ||
+      current.version !== fees.version ||
+      current.active !== fees.active ||
+      current.source !== fees.source ||
+      current.makerFeeRatePpm !== fees.makerFeeRatePpm ||
+      current.takerFeeRatePpm !== fees.takerFeeRatePpm ||
+      current.maker.flatChargeMinor !== fees.maker.flatChargeMinor ||
+      current.taker.flatChargeMinor !== fees.taker.flatChargeMinor ||
+      JSON.stringify(current.markets) !== JSON.stringify(fees.markets);
+    if (changed) this.publish({ ...this.snapshot, ...this.feeScheduleProjection(setryn, fees) });
+    return fees;
   }
 
   /** The pending block carries the chain's current time, so one reading fixes the chain-to-browser offset. */
@@ -2092,8 +2214,13 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const setryn = this.setryn;
     const publicClient = this.publicClient;
     if (!setryn || !publicClient) return;
+    // Books are keyed by series and fee schedule version; only the active versions' book can still clear.
+    const fees = await this.refreshFeeSchedule();
     const marketsByBook = new Map(
-      setryn.markets.map((market) => [deriveSeriesBookId(setryn, market.seriesId).toLowerCase(), market]),
+      setryn.markets.map((market) => [
+        deriveSeriesBookId(setryn, market.seriesId, marketTradingVersions(fees, market.seriesId)).toLowerCase(),
+        market,
+      ]),
     );
     const [events, block] = await Promise.all([
       publicClient.getContractEvents({
@@ -2541,9 +2668,13 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     await Promise.all([this.refreshActivity(), this.refreshAccount()]);
   }
 
-  /** Series schedule and qualified fixing slots, reconstructed once per series from its qualification event. */
-  private seriesTerminal(seriesId: Hex): Promise<SeriesTerminal> {
-    const key = seriesId.toLowerCase();
+  /**
+   * Series schedule and qualified fixing slots, reconstructed once per series version from its qualification event. A
+   * fee change re-versions every series, and each position keeps the exact version it was opened on, so every read
+   * names that version: its schedule, its fixing slots and its fixings (FixingEngine keys fixings by series version).
+   */
+  private seriesTerminal(seriesId: Hex, version: number): Promise<SeriesTerminal> {
+    const key = `${seriesId.toLowerCase()}:${version}`;
     const cached = this.seriesTerminals.get(key);
     if (cached) return cached;
     const load = (async () => {
@@ -2553,12 +2684,12 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       const registry = setryn.seriesRegistry;
       if (!registry || !isAddress(registry)) throw new Error("SERIES_REGISTRY_UNAVAILABLE");
       const [series, events] = await Promise.all([
-        publicClient.readContract({ address: registry, abi: seriesRegistryAbi, functionName: "getSeries", args: [seriesId, 1] }),
+        publicClient.readContract({ address: registry, abi: seriesRegistryAbi, functionName: "getSeries", args: [seriesId, version] }),
         publicClient.getContractEvents({
           address: registry,
           abi: seriesRegistryAbi,
           eventName: "SeriesQualificationPublished",
-          args: { seriesId, version: 1 },
+          args: { seriesId, version },
           fromBlock: BigInt(0),
           toBlock: "latest",
         }),
@@ -2585,20 +2716,20 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   }
 
   /** The series fixing, slot by slot: the final result where one exists, otherwise the open proposal. */
-  private async seriesFixing(seriesId: Hex, series: SeriesTerminal): Promise<SeriesFixingRead> {
+  private async seriesFixing(seriesId: Hex, version: number, series: SeriesTerminal): Promise<SeriesFixingRead> {
     const setryn = this.setryn;
     const publicClient = this.publicClient;
     const fixingEngine = setryn?.fixingEngine;
     const empty: SeriesFixingRead = { status: "PENDING", value: null, decimals: 0, resolutionKind: 0, observedAt: null, finalizedAt: null, encoded: null };
     if (!publicClient || !fixingEngine) return empty;
     const slots = await Promise.all(series.slots.map(async (slot) => {
-      const status = await publicClient.readContract({ address: fixingEngine, abi: fixingEngineAbi, functionName: "fixingStatus", args: [seriesId, 1, slot.slot] });
+      const status = await publicClient.readContract({ address: fixingEngine, abi: fixingEngineAbi, functionName: "fixingStatus", args: [seriesId, version, slot.slot] });
       if (status === FIXING_STATUS.finalized) {
-        const result = await publicClient.readContract({ address: fixingEngine, abi: fixingEngineAbi, functionName: "getFinalizedFixing", args: [seriesId, 1, slot.slot] });
+        const result = await publicClient.readContract({ address: fixingEngine, abi: fixingEngineAbi, functionName: "getFinalizedFixing", args: [seriesId, version, slot.slot] });
         return { status, candidateIndex: result.candidateIndex, decimals: result.decimals, value: result.value, resolutionKind: result.resolutionKind, observedAt: null as bigint | null, finalizedAt: result.finalizedAt };
       }
       if (status === FIXING_STATUS.proposed || status === FIXING_STATUS.disputed) {
-        const proposal = await publicClient.readContract({ address: fixingEngine, abi: fixingEngineAbi, functionName: "getProposal", args: [seriesId, 1, slot.slot] });
+        const proposal = await publicClient.readContract({ address: fixingEngine, abi: fixingEngineAbi, functionName: "getProposal", args: [seriesId, version, slot.slot] });
         return { status, candidateIndex: proposal.candidateIndex, decimals: proposal.decimals, value: proposal.value, resolutionKind: 0, observedAt: proposal.lastObservedAt as bigint | null, finalizedAt: null as bigint | null };
       }
       return null;
@@ -2708,9 +2839,9 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       functionName: "getPosition",
       args: [fill.positionId],
     });
-    const series = await this.seriesTerminal(economics.seriesId);
-    const seriesKey = economics.seriesId.toLowerCase();
-    if (!fixingBySeries.has(seriesKey)) fixingBySeries.set(seriesKey, this.seriesFixing(economics.seriesId, series));
+    const series = await this.seriesTerminal(economics.seriesId, economics.seriesVersion);
+    const seriesKey = `${economics.seriesId.toLowerCase()}:${economics.seriesVersion}`;
+    if (!fixingBySeries.has(seriesKey)) fixingBySeries.set(seriesKey, this.seriesFixing(economics.seriesId, economics.seriesVersion, series));
     const fixing = await fixingBySeries.get(seriesKey)!;
     const long = fill.packageSide === "LONG";
     const own = (value: bigint) => minorToUsd(long ? value : -value);
@@ -2877,7 +3008,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       functionName: "getPosition",
       args: [positionId],
     });
-    return { economics, lifecycle, series: await this.seriesTerminal(economics.seriesId) };
+    return { economics, lifecycle, series: await this.seriesTerminal(economics.seriesId, economics.seriesVersion) };
   }
 
   /** Simulates, then sends, one settlement coordinator completion; every path is permissionless. */
@@ -2967,7 +3098,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       ({ lifecycle, series, economics } = await this.positionSeries(positionId));
       if (lifecycle.finalFixingReference === EMPTY_ID) throw new Error("The coordinator did not accept the final fixing onto the position.");
     }
-    const fixing = await this.seriesFixing(economics.seriesId, series);
+    const fixing = await this.seriesFixing(economics.seriesId, economics.seriesVersion, series);
     const finalFixings = fixing.encoded;
     if (!finalFixings || keccak256(finalFixings).toLowerCase() !== lifecycle.finalFixingsHash.toLowerCase()) {
       throw new Error("The published fixing does not match the final fixing committed on the position.");

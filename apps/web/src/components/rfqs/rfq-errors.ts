@@ -24,6 +24,10 @@ const COPY: Record<string, string> = {
   EXIT_REQUIRES_FOK: "An exit uses all-or-none so a partial close cannot strand a hedge.",
   CLEARING_APPROVAL_FAILED: "The clearing engine approval did not confirm. Nothing was requested.",
   RISK_RESERVATION_FAILED: "Risk admission refused the order, so no request was committed.",
+  FEE_SCHEDULE_CHANGED:
+    "Protocol fees changed while this request was being reviewed. The estimate now shows the active schedule; review it and sign again.",
+  MARKET_FEE_SCHEDULE_PENDING: "This market is moving to the new fee schedule. Nothing was signed; try again in a moment.",
+  FEE_SCHEDULE_INACTIVE: "No protocol fee schedule is active right now, so new requests cannot clear. Nothing was signed.",
   RISK_BINDING_FAILED: "The risk admission could not be bound to the order. Nothing was requested.",
   PRIVATE_RFQ_AUTHORIZATION_REQUIRED: "The authorization was not signed for private RFQ disclosure.",
   SIGNER_MISMATCH: "The active wallet does not match the order authorization.",

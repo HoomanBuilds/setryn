@@ -567,7 +567,11 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
   const wallNow = useNow();
   const { markets, previewEpochSeconds } = usePreviewBoard();
   const modeled = requestId === SAMPLE_REQUEST_ID;
-  const sample = useMemo(() => (modeled ? sampleRequest(previewEpochSeconds) : null), [modeled, previewEpochSeconds]);
+  const activeFeeVersion = snapshot.feeSchedule?.version;
+  const sample = useMemo(
+    () => (modeled ? sampleRequest(previewEpochSeconds, activeFeeVersion) : null),
+    [activeFeeVersion, modeled, previewEpochSeconds],
+  );
   const request = sample ?? snapshot.rfqRequests.find((candidate) => candidate.id === requestId) ?? null;
   const now = modeled ? previewEpochSeconds * 1000 : wallNow;
 

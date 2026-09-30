@@ -26,6 +26,12 @@ import type { SetrynRuntimeMarket } from "@/lib/internal-gateway/runtime";
 import { deriveSeriesBookId, priceToTicks } from "@/lib/internal-gateway/runtime-markets";
 import { withDevnetMakerLock } from "@/lib/internal-gateway/devnet-maker-lock";
 import { readLocalRuntime } from "@/lib/internal-gateway/runtime-server";
+import {
+  marketTradingVersions,
+  orderFeeCapMinor,
+  readActiveFeeSchedule,
+  type ActiveFeeSchedule,
+} from "@/lib/internal-gateway/fee-schedule";
 import { MARKETS } from "@/lib/terminal/markets";
 import { devnetOperatorTransport } from "@/lib/internal-gateway/devnet-operator-transport";
 
@@ -230,7 +236,12 @@ export async function POST(request: Request) {
       }
     }
 
-    const context = { setryn, maker, accountId, publicClient, walletClient, requestUrl: request.url };
+    // Quotes sign each series' active version and its market's fee schedule version; each pair has its own book.
+    const fees = await readActiveFeeSchedule(setryn, { client: publicClient });
+    if (fees.source === "CHAIN" && !fees.active) {
+      return Response.json({ error: "FEE_SCHEDULE_INACTIVE" }, { status: 422, headers: { "Cache-Control": "no-store" } });
+    }
+    const context = { setryn, maker, accountId, publicClient, walletClient, requestUrl: request.url, fees };
     const created: { marketId: string; orderHash: Hex }[] = [];
     // One maker account signs every quote, so markets are quoted in turn under the maker lock. Each market holds the
     // lock on its own, so a single-market refresh from a taker's order waits for at most one market ahead of it.
@@ -263,12 +274,15 @@ interface QuoteContext {
   publicClient: PublicClient;
   walletClient: WalletClient;
   requestUrl: string;
+  fees: ActiveFeeSchedule;
 }
 
 /** Keeps one live maker order at the top of each side of a market's book, replacing expired ones. */
 async function quoteMarket(context: QuoteContext, market: SetrynRuntimeMarket): Promise<Hex[]> {
-  const { setryn, maker, accountId, publicClient, walletClient } = context;
-  const bookId = deriveSeriesBookId(setryn, market.seriesId);
+  const { setryn, maker, accountId, publicClient, walletClient, fees } = context;
+  const versions = marketTradingVersions(fees, market.seriesId);
+  if (fees.source === "CHAIN" && !versions.tradable) throw new Error("MARKET_FEE_SCHEDULE_PENDING");
+  const bookId = deriveSeriesBookId(setryn, market.seriesId, versions);
   const block = await publicClient.getBlock({ blockTag: "pending" });
   const created: Hex[] = [];
   for (const quote of makerQuotes(market)) {
@@ -324,6 +338,10 @@ async function quoteMarket(context: QuoteContext, market: SetrynRuntimeMarket): 
     if (bestLevel !== ZERO_ID) continue;
     // Random low bits keep concurrent refreshes in one block from signing the same order twice.
     const nonce = block.timestamp * BigInt(2 ** 32) + BigInt(crypto.getRandomValues(new Uint32Array(1))[0]);
+    const lots = BigInt(Math.min(MAKER_LOTS, market.maxOrderLots));
+    const absoluteTicks = quote.priceTicks < BigInt(0) ? -quote.priceTicks : quote.priceTicks;
+    // A post-only quote only ever fills as maker, so its cap is the maker charge on its full consideration.
+    const maxFeeMinor = orderFeeCapMinor(fees, lots * absoluteTicks * BigInt(market.tickSizeMinor), "MAKER");
     const order: OnchainPublicOrder = {
       signer: maker,
       accountId,
@@ -332,18 +350,18 @@ async function quoteMarket(context: QuoteContext, market: SetrynRuntimeMarket): 
       recipient: maker,
       targetKind: 1,
       seriesId: market.seriesId,
-      targetVersion: 1,
+      targetVersion: versions.seriesVersion,
       packageId: ZERO_ID,
       side: quote.side,
-      lots: BigInt(Math.min(MAKER_LOTS, market.maxOrderLots)),
+      lots,
       priceTicks: quote.priceTicks,
       timeInForce: 1,
       remainderPolicy: 1,
       // The risk reservation admits deadlines up to five minutes out; a longer-lived quote churns the book less.
       deadline: block.timestamp + BigInt(290),
       feeScheduleId: setryn.feeScheduleId,
-      feeScheduleVersion: 1,
-      maxFeeMinor: parseUnits("100", 6),
+      feeScheduleVersion: versions.feeScheduleVersion,
+      maxFeeMinor,
       executionModeId: setryn.executionModeId,
       actionId: setryn.enterActionId,
       permittedExecutor: setryn.atomicClearingEngine,

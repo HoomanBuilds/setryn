@@ -49,8 +49,12 @@ function iso(epochSeconds: number): string {
   return new Date(epochSeconds * 1000).toISOString();
 }
 
-/** The walkthrough request as it stands at `epoch` on the market clock. */
-export function sampleRequest(epoch: number): RfqRequest {
+/**
+ * The walkthrough request as it stands at `epoch` on the market clock. `feeScheduleVersion` is the version the
+ * platform has active (from the gateway's fee schedule reading), so the modeled order names the same version a real
+ * order would sign; nothing here is signed, so it only labels the walkthrough.
+ */
+export function sampleRequest(epoch: number, feeScheduleVersion = 1): RfqRequest {
   const market = MARKETS.find((candidate) => candidate.id === DEFAULT_MARKET_ID) ?? MARKETS[0];
   const route = market.routes.find((candidate) => candidate.id === "SOLVER_RFQ") ?? market.routes[0];
   const elapsed = (((epoch - PREVIEW_EPOCH_SECONDS + OFFSET_AT_START) % WINDOW_SECONDS) + WINDOW_SECONDS) % WINDOW_SECONDS;
@@ -88,7 +92,7 @@ export function sampleRequest(epoch: number): RfqRequest {
     deadline: BigInt(start + WINDOW_SECONDS),
     executionModeId: ZERO_HASH,
     feeScheduleId: ZERO_HASH,
-    feeScheduleVersion: 1,
+    feeScheduleVersion,
     maxFeeMinor: BigInt(Math.round(preview.totalFees * 1_000_000)),
     recipient: ZERO_ADDRESS,
     permittedExecutor: ZERO_ADDRESS,

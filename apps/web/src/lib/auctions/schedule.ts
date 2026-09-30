@@ -35,6 +35,9 @@ import {
  * `advanceAuction`, `clearAuction` and settlement promptly at each deadline.
  */
 
+/** The modeled auction fee schedule's version; see buildRound for why it is not the registry's active version. */
+const MODELED_FEE_SCHEDULE_VERSION = 1;
+
 /* ------------------------------------------------------------------ */
 /* Deterministic primitives                                            */
 /* ------------------------------------------------------------------ */
@@ -436,7 +439,10 @@ function buildRound(family: AuctionFamily, round: number): StaticRound {
     riskDomainId: modeledHash(`risk-domain:${market.underlying}`),
     riskDomainVersion: 1,
     feeScheduleId: modeledHash("fee-schedule:auction-v1"),
-    feeScheduleVersion: 1,
+    // Modeled, not read from chain: the auction venue is not wired to the web gateway and this schedule id is itself a
+    // modeled hash, so there is no registry version to resolve. Real auction orders will sign the active version from
+    // lib/internal-gateway/fee-schedule.ts once SealedAuctionHouse is read.
+    feeScheduleVersion: MODELED_FEE_SCHEDULE_VERSION,
     eligibilityPolicyHash: modeledHash(`eligibility:${family.family}`),
     capacityPolicyHash: modeledHash(`capacity:${family.kind}`),
     bondPolicyHash: modeledHash(`bond:${family.kind}`),
@@ -750,7 +756,7 @@ export function auctionAt(family: AuctionFamily, round: number, epoch: number): 
             targetVersion: 1,
             packageWitnessHash: modeledHash(`package-witness:${market.id}`),
             feeScheduleId: base.definition.feeScheduleId,
-            feeScheduleVersion: 1,
+            feeScheduleVersion: base.definition.feeScheduleVersion,
             riskDomainId: base.definition.riskDomainId,
             riskDomainVersion: 1,
             priceRule: base.definition.priceRule,

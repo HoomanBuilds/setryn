@@ -48,9 +48,12 @@ const POSITIVE_INTEGER_FIELDS = [
   "maxShortDebitMinorPerLot",
   "tickSizeMinor",
   "maxOrderLots",
-  "makerFeeRatePpm",
-  "takerFeeRatePpm",
 ] as const;
+
+/** Fallback fee rates: a zero rate is a valid schedule (for example a zero-fee maker tier). */
+const FEE_RATE_FIELDS = ["makerFeeRatePpm", "takerFeeRatePpm"] as const;
+/** Optional fields a newer runtime carries; each is validated when present. */
+const OPTIONAL_ADDRESS_FIELDS = ["feeScheduleRegistry", "treasuryController", "seriesRegistry", "marketRegistry"] as const;
 
 /** Read at request time from the local deployment; excluded from output tracing so the server bundle stays scoped. */
 function runtimePath(): string {
@@ -96,6 +99,10 @@ function validateMarkets(record: Record<string, unknown>): void {
     for (const field of MARKET_INTEGER_FIELDS) {
       if (!Number.isSafeInteger(market[field]) || Number(market[field]) <= 0) throw new Error("INVALID_RUNTIME");
     }
+    for (const field of ["marketVersion", "seriesVersion"] as const) {
+      if (market[field] === undefined || market[field] === null) delete market[field];
+      else if (!Number.isSafeInteger(market[field]) || Number(market[field]) <= 0) throw new Error("INVALID_RUNTIME");
+    }
     // Package prices carry at most six decimals, so a price scale is a power of ten.
     if (!/^10{0,6}$/.test(String(market.priceScale))) throw new Error("INVALID_RUNTIME");
     const seriesKey = (market.seriesId as string).toLowerCase();
@@ -115,7 +122,8 @@ function validateMarkets(record: Record<string, unknown>): void {
 function validateRuntime(candidate: unknown): Omit<SetrynRuntime, "rpcUrl"> {
   if (!candidate || typeof candidate !== "object") throw new Error("INVALID_RUNTIME");
   const record = candidate as Record<string, unknown>;
-  if (record.schemaVersion !== 9 || record.chainId !== 31337 || typeof record.day !== "number") {
+  // Schema 10 only adds optional fields (fee schedule version, treasury controller) to schema 9.
+  if ((record.schemaVersion !== 9 && record.schemaVersion !== 10) || record.chainId !== 31337 || typeof record.day !== "number") {
     throw new Error("INVALID_RUNTIME");
   }
   for (const field of ADDRESS_FIELDS) {
@@ -130,7 +138,21 @@ function validateRuntime(candidate: unknown): Omit<SetrynRuntime, "rpcUrl"> {
   for (const field of POSITIVE_INTEGER_FIELDS) {
     if (!Number.isSafeInteger(record[field]) || Number(record[field]) <= 0) throw new Error("INVALID_RUNTIME");
   }
-  if (Number(record.takerFeeRatePpm) >= 1_000_000 || Number(record.makerFeeRatePpm) >= 1_000_000) {
+  for (const field of FEE_RATE_FIELDS) {
+    if (!Number.isSafeInteger(record[field]) || Number(record[field]) < 0 || Number(record[field]) >= 1_000_000) {
+      throw new Error("INVALID_RUNTIME");
+    }
+  }
+  for (const field of OPTIONAL_ADDRESS_FIELDS) {
+    if (record[field] === undefined || record[field] === null) {
+      delete record[field];
+      continue;
+    }
+    if (typeof record[field] !== "string" || !ADDRESS_PATTERN.test(record[field])) throw new Error("INVALID_RUNTIME");
+  }
+  if (record.feeScheduleVersion === undefined || record.feeScheduleVersion === null) {
+    delete record.feeScheduleVersion;
+  } else if (!Number.isSafeInteger(record.feeScheduleVersion) || Number(record.feeScheduleVersion) <= 0) {
     throw new Error("INVALID_RUNTIME");
   }
   validateMarkets(record);
