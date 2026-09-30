@@ -200,7 +200,7 @@ export default function RedactedHero() {
             </span>
             <span className={`label ${styles.chain}`}>
               <ArbitrumMark size={20} />
-              <span data-scramble>Launching on Arbitrum One</span>
+              <span data-scramble>On Arbitrum One</span>
             </span>
           </div>
           <div className={styles.headline}>

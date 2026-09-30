@@ -45,7 +45,7 @@ const USE_CASES = [
   },
 ];
 const STEP_SECONDS = 5.5;
-/* The hero's order, sell ETH forward to 26 Mar 2027, quoted around that maturity's preview mark (4,231.90). */
+/* The hero's order, sell ETH forward to 26 Mar 2027, quoted around that maturity's mark (4,231.90). */
 const QUOTES = ["Maker A 4,229.40", "Maker B 4,232.10", "Maker C 4,230.60"];
 const RECEIPT = `receipt  0x7c1e…b40a
 market   ETH 26MAR27 forward

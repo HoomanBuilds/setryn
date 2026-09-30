@@ -72,7 +72,7 @@ export default function Header() {
             <span>Setryn</span>
           </a>
           {/* The network, once the hero's own Arbitrum label has scrolled away */}
-          <a href="#network" className={styles.network} aria-label="Built for Arbitrum One" data-sfx="ui">
+          <a href="#network" className={styles.network} aria-label="Built on Arbitrum One" data-sfx="ui">
             <ArbitrumMark size={20} />
             <span className="label">Arbitrum One</span>
           </a>

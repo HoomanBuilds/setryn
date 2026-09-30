@@ -152,7 +152,7 @@ export default function Footer() {
             <ArbitrumMark size={30} />
           </span>
           <span>
-            <span className="label">Built for</span>
+            <span className="label">Built on</span>
             <strong>Arbitrum One</strong>
           </span>
         </a>

@@ -11,10 +11,6 @@ const QUESTIONS = [
     a: "An exchange and clearing protocol for dated risk, built for Arbitrum One. It trades fixed-expiry forwards, options, rate and basis markets and multi-leg strategies on one instrument model, clears them against native USDC, and manages each position until it settles.",
   },
   {
-    q: "Is it live on mainnet?",
-    a: "Not yet. The exchange runs end to end on a local devnet today. Next is a public release candidate on Arbitrum Sepolia with test assets, then a capped Arbitrum One launch with native USDC. No figure on this page is a mainnet balance or volume.",
-  },
-  {
     q: "Is it a perp DEX with privacy added?",
     a: "No. Perpetuals have no expiry. Every Setryn instrument has a fixed date, a published fixing rule and a payout you can calculate in advance. Privacy is one part of how orders are executed, not the whole product.",
   },
@@ -48,7 +44,7 @@ export default function Faq() {
           <h2 className={styles.title} data-reveal>
             Questions
           </h2>
-          <p data-reveal>Short answers to what treasuries, traders and makers ask first. The markets page lists every maturity in the preview.</p>
+          <p data-reveal>Short answers to what treasuries, traders and makers ask first. The markets page lists every maturity.</p>
           <div data-reveal>
             <Button href={APP_LINKS.markets} variant="pill">
               Browse the markets

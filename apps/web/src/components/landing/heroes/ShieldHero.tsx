@@ -227,7 +227,7 @@ export default function ShieldHero() {
               <ArbitrumMark size={28} />
             </span>
             <span className={styles.kickerText} data-kicker-text>
-              Launching on Arbitrum One
+              On Arbitrum One
             </span>
           </p>
           <h1 className={styles.title}>

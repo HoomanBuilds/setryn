@@ -127,7 +127,7 @@ export default function Menu({ open, onClose }: { open: boolean; onClose: () => 
         </div>
         <div className={styles.row}>
           <p className="label" data-menu-item>
-            Built for
+            Built on
           </p>
         </div>
         <div className={styles.row}>

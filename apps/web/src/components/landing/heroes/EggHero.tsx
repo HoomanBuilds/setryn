@@ -175,7 +175,7 @@ export default function EggHero() {
             </a>
             <span className={`label ${styles.chain}`}>
               <ArbitrumMark size={22} />
-              Launching on Arbitrum One
+              On Arbitrum One
             </span>
           </div>
         </div>
