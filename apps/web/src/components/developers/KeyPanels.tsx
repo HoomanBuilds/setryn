@@ -63,6 +63,7 @@ export function CreateKeyPanel({
   const [name, setName] = useState("");
   const [scopes, setScopes] = useState<Scope[]>(["read"]);
   const [signers, setSigners] = useState("");
+  const [partnerCode, setPartnerCode] = useState("");
   const [preset, setPreset] = useState<(typeof RATE_PRESETS)[number]["id"]>("standard");
   const [localError, setLocalError] = useState<string | null>(null);
 
@@ -86,13 +87,18 @@ export function CreateKeyPanel({
     if (signerList.some((value) => !/^0x[0-9a-fA-F]{40}$/.test(value))) return setLocalError("Signer restrictions must be 0x addresses.");
     setLocalError(null);
     const rate = RATE_PRESETS.find((item) => item.id === preset) ?? RATE_PRESETS[0];
-    void onIssue({ name: name.trim(), scopes, signers: signerList, rateLimit: { capacity: rate.capacity, refillPerSecond: rate.refillPerSecond } }).then(
-      (issued) => {
-        if (!issued) return;
-        setName("");
-        setSigners("");
-      },
-    );
+    void onIssue({
+      name: name.trim(),
+      scopes,
+      signers: signerList,
+      rateLimit: { capacity: rate.capacity, refillPerSecond: rate.refillPerSecond },
+      ...(partnerCode.trim() ? { partnerCode: partnerCode.trim() } : {}),
+    }).then((issued) => {
+      if (!issued) return;
+      setName("");
+      setSigners("");
+      setPartnerCode("");
+    });
   };
 
   const message = localError ?? error;
@@ -136,6 +142,18 @@ export function CreateKeyPanel({
             spellCheck={false}
           />
           <span className="text-faint">When set, trade calls accept only orders signed by these addresses.</span>
+        </label>
+        <label className="grid gap-1 text-xs">
+          <span className="text-dim">Partner deployment (optional)</span>
+          <input
+            value={partnerCode}
+            onChange={(event) => setPartnerCode(event.target.value)}
+            placeholder="partner code, e.g. acme-desk"
+            className={`${FIELD} font-mono`}
+            spellCheck={false}
+            maxLength={64}
+          />
+          <span className="text-faint">Keys issued under a partner share its per-minute API quota and stop if it is paused.</span>
         </label>
         <fieldset className="grid gap-1.5">
           <legend className="mb-1 text-xs text-dim">Rate limit</legend>
@@ -266,6 +284,11 @@ export function KeysPanel({
                             {scope}
                           </Chip>
                         ))}
+                        {key.partnerCode ? (
+                          <Chip tone="neutral" title="Shares this partner's API quota">
+                            {key.partnerCode}
+                          </Chip>
+                        ) : null}
                         {key.signers.length > 0 ? (
                           <Chip tone="neutral" title={key.signers.join("\n")}>
                             {key.signers.length} signer{key.signers.length === 1 ? "" : "s"}

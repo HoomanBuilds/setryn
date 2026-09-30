@@ -11,6 +11,7 @@ import {
   type StoredApiKey,
 } from "./store";
 import { bucketStatus } from "./rate-limit";
+import { getPartner, isPartnerCode } from "../webhooks/partners";
 
 /**
  * API keys look like `stk_test_<12 hex id>_<43 char base64url secret>`. Only the SHA-256 of the whole key is stored,
@@ -31,6 +32,7 @@ export interface IssueKeyInput {
   scopes?: unknown;
   signers?: unknown;
   rateLimit?: unknown;
+  partnerCode?: unknown;
 }
 
 function parseIssueInput(input: IssueKeyInput) {
@@ -63,6 +65,12 @@ function parseIssueInput(input: IssueKeyInput) {
 
 export async function issueKey(input: IssueKeyInput): Promise<{ key: string; record: StoredApiKey }> {
   const parsed = parseIssueInput(input);
+  let partnerCode: string | null = null;
+  if (input.partnerCode !== undefined && input.partnerCode !== null && input.partnerCode !== "") {
+    const partner = isPartnerCode(input.partnerCode) ? await getPartner(input.partnerCode) : null;
+    if (!partner) throw new PublicApiError(400, "INVALID_REQUEST", "partnerCode must name an existing partner deployment.");
+    partnerCode = partner.code;
+  }
   const store = await loadStore();
   if (store.keys.filter((key) => !key.revokedAt).length >= MAX_KEYS) {
     throw new PublicApiError(409, "INVALID_REQUEST", `At most ${MAX_KEYS} active keys are allowed. Revoke one first.`);
@@ -77,6 +85,7 @@ export async function issueKey(input: IssueKeyInput): Promise<{ key: string; rec
     scopes: parsed.scopes,
     signers: parsed.signers,
     rateLimit: parsed.rateLimit,
+    partnerCode,
     createdAt: new Date().toISOString(),
     lastUsedAt: null,
     revokedAt: null,
@@ -127,6 +136,7 @@ export interface ApiKeyView {
   scopes: ApiScope[];
   signers: string[];
   rateLimit: RateLimitPolicy & { remaining: number; resetSeconds: number };
+  partnerCode: string | null;
   createdAt: string;
   lastUsedAt: string | null;
   revokedAt: string | null;
@@ -147,6 +157,7 @@ export async function listKeys(): Promise<ApiKeyView[]> {
         scopes: record.scopes,
         signers: record.signers,
         rateLimit: { ...record.rateLimit, remaining: bucket.remaining, resetSeconds: bucket.resetSeconds },
+        partnerCode: record.partnerCode ?? null,
         createdAt: record.createdAt,
         lastUsedAt: record.lastUsedAt,
         revokedAt: record.revokedAt,

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { PublicApiError, errorResponse, toPublicApiError } from "./errors";
 import { recordUsage, verifyKey } from "./keys";
 import { takeToken } from "./rate-limit";
+import { getPartner } from "../webhooks/partners";
 import { verifySignedRequest } from "./replay";
 import { appendRequestLog, type ApiScope, type StoredApiKey } from "./store";
 
@@ -59,6 +60,7 @@ export function publicRoute<Params = Record<string, never>>(
       if (!decision.allowed) {
         throw new PublicApiError(429, "RATE_LIMITED", `Rate limit exceeded. Retry in ${decision.retryAfterSeconds}s.`);
       }
+      if (key.partnerCode) await enforcePartnerQuota(key.partnerCode, headers);
       if (!key.scopes.includes(options.scope)) {
         throw new PublicApiError(403, "INSUFFICIENT_SCOPE", `This endpoint needs the "${options.scope}" scope.`);
       }
@@ -98,6 +100,30 @@ export function publicRoute<Params = Record<string, never>>(
     }
     return response;
   };
+}
+
+/**
+ * Every key issued under a partner deployment shares that partner's apiRequestsPerMinute quota: a bucket of one
+ * minute's allowance refilled continuously. A paused or deleted partner stops its keys.
+ */
+async function enforcePartnerQuota(partnerCode: string, headers: Record<string, string>): Promise<void> {
+  const partner = await getPartner(partnerCode);
+  if (!partner || partner.status !== "active") {
+    throw new PublicApiError(403, "PARTNER_INACTIVE", `Partner deployment "${partnerCode}" is not active.`);
+  }
+  const perMinute = Math.floor(partner.quotas.apiRequestsPerMinute);
+  if (perMinute < 1) throw new PublicApiError(403, "PARTNER_INACTIVE", `Partner deployment "${partner.code}" has no API quota.`);
+  const decision = takeToken(`partner:${partner.code}`, { capacity: perMinute, refillPerSecond: perMinute / 60 });
+  headers["Setryn-Partner-Quota-Limit"] = String(perMinute);
+  headers["Setryn-Partner-Quota-Remaining"] = decision.headers["RateLimit-Remaining"];
+  if (!decision.allowed) {
+    headers["Retry-After"] = String(decision.retryAfterSeconds);
+    throw new PublicApiError(
+      429,
+      "RATE_LIMITED",
+      `Partner "${partner.code}" quota of ${perMinute} requests per minute exceeded. Retry in ${decision.retryAfterSeconds}s.`,
+    );
+  }
 }
 
 /** Parses a JSON body that was already read for signing. */

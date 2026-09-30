@@ -109,7 +109,7 @@ export function openApiDocument(serverUrl: string) {
         "",
         "**Authentication.** `Authorization: Bearer stk_...`. Keys carry scopes `read` and `trade` and may be restricted to specific signer addresses.",
         "",
-        `**Rate limits.** Per-key token bucket, default capacity ${DEFAULT_RATE_LIMIT.capacity} with ${DEFAULT_RATE_LIMIT.refillPerSecond} tokens/s refill. Every response carries RateLimit-Limit, RateLimit-Remaining, RateLimit-Reset and RateLimit-Policy; a refused request gets 429 with Retry-After.`,
+        `**Rate limits.** Per-key token bucket, default capacity ${DEFAULT_RATE_LIMIT.capacity} with ${DEFAULT_RATE_LIMIT.refillPerSecond} tokens/s refill. Every response carries RateLimit-Limit, RateLimit-Remaining, RateLimit-Reset and RateLimit-Policy; a refused request gets 429 with Retry-After. Keys issued under a partner deployment also share that partner's apiRequestsPerMinute quota (Setryn-Partner-Quota-Limit and Setryn-Partner-Quota-Remaining headers); a paused partner's keys get 403 PARTNER_INACTIVE.`,
         "",
         `**Replay protection.** Every write (POST/DELETE) needs Setryn-Timestamp (unix seconds within ±${TIMESTAMP_WINDOW_SECONDS}s), a fresh Setryn-Nonce (16-128 chars of [A-Za-z0-9_-], single use per key) and Setryn-Signature: hex HMAC-SHA256 keyed with SHA-256(apiKey) (32 raw bytes) over \`${SIGNATURE_VERSION}\\nMETHOD\\npath?query\\ntimestamp\\nnonce\\nhex(SHA-256(body))\`.`,
         "",

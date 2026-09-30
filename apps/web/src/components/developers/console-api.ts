@@ -19,6 +19,7 @@ export interface ApiKeyView {
   scopes: Scope[];
   signers: string[];
   rateLimit: { capacity: number; refillPerSecond: number; remaining: number; resetSeconds: number };
+  partnerCode: string | null;
   createdAt: string;
   lastUsedAt: string | null;
   revokedAt: string | null;
@@ -32,6 +33,8 @@ export interface IssueKeyInput {
   scopes: Scope[];
   signers: string[];
   rateLimit: { capacity: number; refillPerSecond: number };
+  /** Partner deployment whose per-minute API quota the key shares. */
+  partnerCode?: string;
 }
 
 export class ConsoleError extends Error {

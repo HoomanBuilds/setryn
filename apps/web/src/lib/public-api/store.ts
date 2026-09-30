@@ -27,6 +27,8 @@ export interface StoredApiKey {
   /** When non-empty, trade endpoints accept only orders signed by these addresses (lowercase). */
   signers: string[];
   rateLimit: RateLimitPolicy;
+  /** Partner deployment the key is issued under; its apiRequestsPerMinute quota is shared by all its keys. */
+  partnerCode?: string | null;
   createdAt: string;
   lastUsedAt: string | null;
   revokedAt: string | null;
