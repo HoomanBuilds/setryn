@@ -38,6 +38,7 @@ export const GET = publicRoute({ scope: "read" }, async () => {
         matching,
         state: matching === evidence.contracts.length && matching > 0 ? "VERIFIED" : "DEGRADED",
       },
+      onchainMarkets: setryn.markets.map((market) => market.marketKey),
       settlement: { token: setryn.settlementToken, assetId: setryn.settlementAssetId, collateralSymbol: "sUSD", decimals: 6 },
       contracts: {
         collateralVault: setryn.collateralVault,
@@ -46,6 +47,7 @@ export const GET = publicRoute({ scope: "read" }, async () => {
         portfolioRiskEngine: setryn.portfolioRiskEngine,
         atomicClearingEngine: setryn.atomicClearingEngine,
         publicOrderBook: setryn.publicOrderBook,
+        privateRfqBook: setryn.privateRfqBook,
         positionEngine: setryn.positionEngine,
         fundedFeeEngine: setryn.fundedFeeEngine,
         settlementToken: setryn.settlementToken,

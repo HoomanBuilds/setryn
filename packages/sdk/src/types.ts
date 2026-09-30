@@ -24,6 +24,8 @@ export interface Status {
   headTime: string;
   chainTime: string;
   deployment: { status: string; sourceCommit: string | null; contracts: number; matching: number; state: "VERIFIED" | "DEGRADED" };
+  /** Catalog ids of the markets that execute onchain. */
+  onchainMarkets: string[];
   settlement: { token: Address; assetId: Hex; collateralSymbol: string; decimals: number };
   contracts: Record<string, Address>;
 }
@@ -49,14 +51,22 @@ export interface Market {
   collateralPerLot: number;
   maxOrderLots: number | null;
   execution: "ONCHAIN" | "PREVIEW_ONLY";
+  /** Present for every market that executes onchain: its own series, book, price grid, lot cap and collateral. */
   onchain: {
     chainId: number;
     seriesId: Hex;
     marketId: Hex;
+    bookId: Hex;
     orderState: Address;
     publicOrderBook: Address;
+    privateRfqBook: Address;
+    /** Settlement minor units per price tick per lot. */
     tickSizeMinor: number;
+    /** Price ticks per unit of package price: priceTicks = price x priceScale. Prices must sit on this grid. */
+    priceScale: number;
     maxOrderLots: number;
+    maxLongDebitMinorPerLot: number;
+    maxShortDebitMinorPerLot: number;
     makerFeeRatePpm: number;
     takerFeeRatePpm: number;
   } | null;
@@ -75,7 +85,9 @@ export interface Book {
   marketId: string;
   source: "ONCHAIN_PUBLIC_BOOK" | "PREVIEW_DEPTH";
   executable: boolean;
+  seriesId?: Hex;
   bookId?: Hex;
+  priceScale?: number;
   headBlock?: string;
   chainTime?: string;
   bids: BookLevel[];
@@ -173,6 +185,8 @@ export interface Order {
   accountId: Hex;
   signer: Address;
   marketId: string;
+  /** DIRECT_BOOK for book orders; PRIVATE_RFQ for the taker order behind a private RFQ. */
+  route: Route;
   side: Side;
   lots: number;
   filledLots: number;
@@ -233,7 +247,14 @@ export interface TransactionRequest {
     | "CANCEL_ORDER"
     | "SYNC_BOOK"
     | "AUTHORIZE_LIFECYCLE"
-    | "EXECUTE_LIFECYCLE";
+    | "EXECUTE_LIFECYCLE"
+    | "REGISTER_RFQ"
+    | "OPEN_RFQ"
+    | "LOCK_SELECTION"
+    | "CONFIRM_CAPACITY"
+    | "AUTHORIZE_SUBMISSION"
+    | "SUBMIT_RFQ"
+    | "CANCEL_RFQ";
   description: string;
   chainId: number;
   from: Address;
@@ -258,6 +279,7 @@ export interface PrepareOrderInput {
 export interface PreparedOrder {
   orderHash: Hex;
   accountId: Hex;
+  marketId: string;
   order: SerializedPublicOrder;
   typedData: {
     domain: { name: "Setryn"; version: "1"; chainId: number; verifyingContract: Address };
@@ -283,6 +305,7 @@ export interface SubmitOrderResult {
   orderHash: Hex;
   accountId: Hex;
   signer: Address;
+  marketId: string;
   status: "RISK_RESERVED";
   riskAdmissionId: Hex;
   riskReservationTransaction: Hex | null;
@@ -291,29 +314,32 @@ export interface SubmitOrderResult {
   next: string;
 }
 
+/** The typed risk-release message that frees the collateral reserved for an order that will not fill. */
+export type RiskRelease = {
+  description: string;
+  to: Address;
+  functionName: "cancelBoundAdmission";
+  typedData: {
+    domain: { name: string; version: string; chainId: number; verifyingContract: Address };
+    types: Record<string, { name: string; type: string }[]>;
+    primaryType: "SetrynRiskAdmissionCancellationV1";
+    message: {
+      admissionId: Hex;
+      orderHash: Hex;
+      accountId: Hex;
+      signer: Address;
+      nonce: string;
+      deadline: string;
+      cancellationReference: Hex;
+    };
+  };
+};
+
 /** A prepared cancellation: transactions for the order's signer, and the risk-release message to sign and submit. */
 export interface PreparedCancel {
   order: Order;
   transactions: TransactionRequest[];
-  riskRelease: {
-    description: string;
-    to: Address;
-    functionName: "cancelBoundAdmission";
-    typedData: {
-      domain: { name: string; version: string; chainId: number; verifyingContract: Address };
-      types: Record<string, { name: string; type: string }[]>;
-      primaryType: "SetrynRiskAdmissionCancellationV1";
-      message: {
-        admissionId: Hex;
-        orderHash: Hex;
-        accountId: Hex;
-        signer: Address;
-        nonce: string;
-        deadline: string;
-        cancellationReference: Hex;
-      };
-    };
-  } | null;
+  riskRelease: RiskRelease | null;
 }
 
 /** A kind-4 (full exit) LifecycleAction with its 64-bit and wider integers as decimal strings. */
@@ -418,4 +444,217 @@ export interface SubmitExitResult {
   validUntil: string;
   transactions: TransactionRequest[];
   next: string;
+}
+
+// -- private RFQ ----------------------------------------------------------------------------------------------------
+
+export type RfqState =
+  | "INVITING"
+  | "COLLECTING"
+  | "SELECTION_LOCKED"
+  | "CAPACITY_RESERVED"
+  | "AUTHORIZED"
+  | "SUBMITTED"
+  | "CLEARING"
+  | "SETTLED"
+  | "CANCELLED"
+  | "EXPIRED"
+  | "REJECTED";
+export type RfqQuoteState = "OFFERED" | "RESERVED" | "SELECTED" | "CONSUMED" | "CANCELLED" | "EXPIRED" | "REJECTED";
+
+/** PrivateRfqRequest with its 64-bit and wider integers as decimal strings, exactly as the API returns it. */
+export interface SerializedRfqRequest {
+  taker: Address;
+  takerAccountId: Hex;
+  takerOrderHash: Hex;
+  targetKind: 1 | 2;
+  seriesId: Hex;
+  packageId: Hex;
+  targetVersion: number;
+  hasPackageLegCommitment: boolean;
+  packageLegsHash: Hex;
+  sidePolicy: 1 | 2 | 3;
+  lots: string;
+  allowPartialFills: boolean;
+  minimumFillLots: string;
+  remainderPolicy: 1 | 2;
+  feeScheduleId: Hex;
+  feeScheduleVersion: number;
+  maxFeeMinor: string;
+  riskDomainId: Hex;
+  riskDomainVersion: number;
+  privacyModeId: Hex;
+  executionModeId: Hex;
+  disclosurePolicyHash: Hex;
+  eligibleMakerSetHash: Hex;
+  deadline: string;
+  permittedExecutor: Address;
+  nonce: string;
+  salt: Hex;
+}
+
+/** RfqSelectionAuthorization with its wide integers as decimal strings. */
+export interface SerializedRfqSelection {
+  rfqId: Hex;
+  quoteId: Hex;
+  taker: Address;
+  executor: Address;
+  nonce: string;
+  deadline: string;
+  salt: Hex;
+}
+
+export interface RfqQuote {
+  quoteId: Hex;
+  rfqId: Hex;
+  solver: string;
+  maker: Address;
+  makerAccountId: Hex;
+  /** The price the requester trades at: the ask for a LONG request, the bid for a SHORT request. */
+  price: number;
+  priceTicks: string;
+  lots: number;
+  remainingLots: number;
+  maxFeeUsd: number;
+  maxFeeMinor: string;
+  maximumLiabilityUsd: number;
+  /** At or better than the requester's signed limit price. Only such a quote can be accepted. */
+  withinLimit: boolean;
+  state: RfqQuoteState;
+  statusCode: number;
+  expiresAt: string;
+  capacityExpiresAt: string;
+  offeredAt: string;
+}
+
+export interface Rfq {
+  rfqId: Hex;
+  marketId: string;
+  seriesId: Hex;
+  accountId: Hex;
+  taker: Address;
+  takerOrderHash: Hex;
+  side: Side;
+  sidePolicy: "BUY_ONLY" | "SELL_ONLY" | "TWO_WAY";
+  lots: number;
+  filledLots: number;
+  limitPrice: number | null;
+  limitPriceTicks: string | null;
+  timeInForce: TimeInForce | null;
+  maxFeeUsd: number;
+  state: RfqState;
+  statusCode: number;
+  selectedQuoteId: Hex | null;
+  /** Best price for the requester first. */
+  quotes: RfqQuote[];
+  fillIds: Hex[];
+  receiptIds: Hex[];
+  deadline: string;
+  createdAt: string;
+}
+
+/** Same fields as an order; timeInForce defaults to FOK and postOnly does not apply. */
+export type PrepareRfqInput = Omit<PrepareOrderInput, "postOnly">;
+
+export interface PreparedRfq {
+  rfqId: Hex;
+  orderHash: Hex;
+  accountId: Hex;
+  marketId: string;
+  order: SerializedPublicOrder;
+  orderTypedData: PreparedOrder["typedData"];
+  request: SerializedRfqRequest;
+  requestTypedData: {
+    domain: { name: "Setryn"; version: "1"; chainId: number; verifyingContract: Address };
+    types: { PrivateRfqRequest: { name: string; type: string }[] };
+    primaryType: "PrivateRfqRequest";
+    message: SerializedRfqRequest;
+  };
+  chainTime: string;
+  deadline: string;
+  submitWithinSeconds: number;
+  preconditions: PreparedOrder["preconditions"];
+  requiredTransactions: TransactionRequest[];
+  next: string;
+}
+
+export interface SubmitRfqInput {
+  order: SerializedPublicOrder;
+  orderSignature: Hex;
+  request: SerializedRfqRequest;
+  requestSignature: Hex;
+}
+
+export interface SubmitRfqResult {
+  rfqId: Hex;
+  orderHash: Hex;
+  accountId: Hex;
+  signer: Address;
+  marketId: string;
+  status: "RISK_RESERVED";
+  riskAdmissionId: Hex;
+  riskReservationTransaction: Hex | null;
+  validUntil: string;
+  transactions: TransactionRequest[];
+  next: string;
+}
+
+export interface SolicitQuotesResult {
+  rfqId: Hex;
+  solicited: { solver: string; quoteId: Hex }[];
+  quotes: RfqQuote[];
+}
+
+export interface PreparedRfqAcceptance {
+  rfqId: Hex;
+  quoteId: Hex;
+  quote: RfqQuote;
+  selection: SerializedRfqSelection;
+  typedData: {
+    domain: { name: "Setryn"; version: "1"; chainId: number; verifyingContract: Address };
+    types: { RfqSelectionAuthorization: { name: string; type: string }[] };
+    primaryType: "RfqSelectionAuthorization";
+    message: SerializedRfqSelection;
+  };
+  chainTime: string;
+  deadline: string;
+  submitWithinSeconds: number;
+  next: string;
+}
+
+export interface AcceptRfqQuoteResult {
+  rfqId: Hex;
+  quoteId: Hex;
+  signer: Address;
+  price: number;
+  priceTicks: string;
+  lots: number;
+  validUntil: string;
+  transactions: TransactionRequest[];
+  next: string;
+}
+
+export interface RfqSettlement {
+  rfqId: Hex;
+  marketId: string;
+  state: RfqState;
+  quoteId: Hex | null;
+  fillId: Hex | null;
+  receiptId: Hex | null;
+  positionId: Hex | null;
+  transactionHash: Hex | null;
+  filledLots: number;
+  price: number | null;
+  priceTicks: string | null;
+  feesUsd: number | null;
+  feesMinor: string | null;
+  route: "PRIVATE_RFQ";
+  guarantee: string;
+  next: string;
+}
+
+export interface PreparedRfqCancel {
+  rfq: Rfq;
+  transactions: TransactionRequest[];
+  riskRelease: RiskRelease | null;
 }

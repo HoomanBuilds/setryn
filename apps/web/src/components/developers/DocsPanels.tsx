@@ -26,8 +26,11 @@ const setryn = new SetrynClient({
   baseUrl: "http://localhost:3100",
 });
 
-const status = await setryn.status();          // chain, head, code-hash evidence
-const book = await setryn.getBook("BTC-YC-24DEC26");
+const status = await setryn.status();          // chain, head, evidence, onchainMarkets
+const { data: markets } = await setryn.listMarkets({ execution: "ONCHAIN" });
+// Every onchain market has its own series, book and price grid:
+// priceTicks = price x market.onchain.priceScale
+const book = await setryn.getBook("XAUUSD-FW-29JUN27");
 for await (const fill of setryn.paginate((page) =>
   setryn.listFills({ signer: "0xYourSigner" }, page))) {
   console.log(fill.fillId, fill.filledLots, fill.price);
@@ -51,7 +54,29 @@ const result = await placeOrder(setryn, wallet, client, {
   timeInForce: "IOC",
 });
 // prepare -> sign EIP-712 locally -> risk admission -> your wallet sends
-// bindOrderRisk, registerSignedOrder, matchSeries / placeSeriesOrder`,
+// bindOrderRisk, registerSignedOrder, matchSeries / placeSeriesOrder
+// Any market with execution "ONCHAIN" works the same way, e.g.
+// { marketId: "ETH-FC-25SEP26", limitPrice: 439.6 }`,
+  },
+  rfq: {
+    label: "Private RFQ",
+    code: `import { SetrynClient, executeRfq } from "@setryn/sdk";
+
+// Firm, capacity-backed quotes from solvers, cleared atomically onchain.
+// Your wallet signs the order, the request and the quote selection,
+// and sends every transaction; the API never holds a key.
+const market = await setryn.getMarket("EURUSD-FW-30DEC26");
+const result = await executeRfq(setryn, wallet, client, {
+  marketId: market.id,
+  side: "LONG",
+  lots: 1,
+  limitPrice: market.quote.bestAsk,   // worst price you accept
+});
+console.log(result.quote.price, result.settlement.fillId);
+// prepareRfq -> sign order + request -> submitRfq -> send BIND_RISK,
+// REGISTER_ORDER, REGISTER_RFQ, OPEN_RFQ -> solicitRfqQuotes ->
+// prepareRfqAcceptance -> sign selection -> acceptRfqQuote -> send
+// LOCK_SELECTION ... SUBMIT_RFQ -> settleRfq`,
   },
   curl: {
     label: "curl",
@@ -60,7 +85,7 @@ curl -s http://localhost:3100/api/v1/markets?limit=2 \\
   -H "Authorization: Bearer $KEY"
 
 # Writes are signed (see Authentication):
-BODY='{"signer":"0x…","marketId":"BTC-YC-24DEC26","side":"LONG","lots":1,"limitPrice":612}'
+BODY='{"signer":"0x…","marketId":"ETH-FC-25SEP26","side":"LONG","lots":1,"limitPrice":439.6}'
 TS=$(date +%s); NONCE=$(openssl rand -hex 16)
 HK=$(printf %s "$KEY" | openssl dgst -sha256 -r | cut -d' ' -f1)
 BH=$(printf %s "$BODY" | openssl dgst -sha256 -r | cut -d' ' -f1)
@@ -108,10 +133,10 @@ export function QuickstartPanel() {
 
 const ENDPOINTS: { method: "GET" | "POST" | "DELETE"; path: string; scope: string; note: string }[] = [
   { method: "GET", path: "/status", scope: "read", note: "Chain, head block, code-hash evidence" },
-  { method: "GET", path: "/markets", scope: "read", note: "Catalog; execution ONCHAIN or PREVIEW_ONLY" },
-  { method: "GET", path: "/markets/{id}", scope: "read", note: "One market with onchain identifiers" },
-  { method: "GET", path: "/markets/{id}/book", scope: "read", note: "Onchain direct book, or labelled preview depth" },
-  { method: "GET", path: "/markets/{id}/trades", scope: "read", note: "Onchain direct-book fills, newest first" },
+  { method: "GET", path: "/markets", scope: "read", note: "Catalog; every runtime market is ONCHAIN, others PREVIEW_ONLY" },
+  { method: "GET", path: "/markets/{id}", scope: "read", note: "Series, book, price grid, lot cap and collateral per lot" },
+  { method: "GET", path: "/markets/{id}/book", scope: "read", note: "The market's own onchain book, or labelled preview depth" },
+  { method: "GET", path: "/markets/{id}/trades", scope: "read", note: "The market's direct-book fills, newest first" },
   { method: "GET", path: "/accounts/{accountId}", scope: "read", note: "Posted, reserved and available collateral" },
   { method: "GET", path: "/accounts/{accountId}/positions", scope: "read", note: "Live positions" },
   { method: "GET", path: "/orders", scope: "read", note: "By accountId or signer; filter by state" },
@@ -120,6 +145,19 @@ const ENDPOINTS: { method: "GET" | "POST" | "DELETE"; path: string; scope: strin
   { method: "GET", path: "/receipts", scope: "read", note: "Execution receipts" },
   { method: "POST", path: "/orders/prepare", scope: "trade", note: "Unsigned order + EIP-712 typed data" },
   { method: "POST", path: "/orders", scope: "trade", note: "Relay a signed order; returns transactions" },
+  { method: "POST", path: "/orders/{orderHash}/cancel", scope: "trade", note: "Cancel transactions + risk-release message" },
+  { method: "POST", path: "/positions/exit/prepare", scope: "trade", note: "Full exit of an offsetting pair, typed data" },
+  { method: "POST", path: "/positions/exit", scope: "trade", note: "Relay a signed exit; returns transactions" },
+  { method: "GET", path: "/rfqs", scope: "read", note: "Private RFQs by accountId or signer" },
+  { method: "GET", path: "/rfqs/{rfqId}", scope: "read", note: "One RFQ with its quotes and fills" },
+  { method: "GET", path: "/rfqs/{rfqId}/quotes", scope: "read", note: "Quotes, best price first, with withinLimit" },
+  { method: "POST", path: "/rfqs/prepare", scope: "trade", note: "Unsigned RFQ order + request typed data" },
+  { method: "POST", path: "/rfqs", scope: "trade", note: "Relay a signed RFQ; returns transactions" },
+  { method: "POST", path: "/rfqs/{rfqId}/quotes", scope: "trade", note: "Invite solvers to quote a collecting RFQ" },
+  { method: "POST", path: "/rfqs/{rfqId}/accept/prepare", scope: "trade", note: "Unsigned quote selection typed data" },
+  { method: "POST", path: "/rfqs/{rfqId}/accept", scope: "trade", note: "Relay a signed selection; returns transactions" },
+  { method: "POST", path: "/rfqs/{rfqId}/settle", scope: "trade", note: "Executor clears the submitted RFQ atomically" },
+  { method: "POST", path: "/rfqs/{rfqId}/cancel", scope: "trade", note: "Cancel an unselected RFQ + risk release" },
 ];
 
 export function EndpointsPanel() {

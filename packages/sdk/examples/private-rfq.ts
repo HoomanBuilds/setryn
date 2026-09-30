@@ -1,20 +1,23 @@
 /**
- * Non-custodial order entry against a LOCAL DEVNET deployment (chain 31337 only).
+ * Non-custodial private RFQ against a LOCAL DEVNET deployment (chain 31337 only).
  *
  *   SETRYN_API_KEY=stk_test_...            key with the "trade" scope, issued at /developers
  *   SETRYN_DEVNET_PRIVATE_KEY=0x...        a local anvil account key; never a real key
  *   SETRYN_BASE_URL=http://localhost:3100
  *   SETRYN_RPC_URL=http://127.0.0.1:8545
- *   SETRYN_MARKET_ID=ETH-FC-25SEP26          optional; any market with execution ONCHAIN (default: the first)
- *   pnpm --filter @setryn/sdk example:order
+ *   SETRYN_MARKET_ID=EURUSD-FW-30DEC26       optional; any market with execution ONCHAIN
+ *   SETRYN_SIDE=LONG                         optional; LONG or SHORT
+ *   pnpm --filter @setryn/sdk example:rfq
  *
- * Flow: the API prepares the order, the wallet signs it locally, the API relays it to risk admission and returns the
- * transactions, and the wallet sends them. Devnet-only conveniences (minting test sUSD, seeding the devnet maker)
+ * Flow: the API prepares the taker order and the private RFQ request bound to it, the wallet signs both, the API
+ * reserves risk and returns the transactions that commit and open the RFQ, the solver quotes (on the devnet, the
+ * platform's seeded solver), the wallet signs the selection of the best quote inside its limit and sends the
+ * selection transactions, and the executor clears the fill atomically. Devnet-only conveniences (minting test sUSD)
  * are clearly marked and refuse to run on any other chain.
  */
 import { createPublicClient, createWalletClient, defineChain, http, keccak256, maxUint256, parseAbi, parseUnits, stringToHex, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { SetrynApiError, SetrynClient, placeOrder } from "../src/index.ts";
+import { SetrynApiError, SetrynClient, executeRfq } from "../src/index.ts";
 
 const apiKey = process.env.SETRYN_API_KEY;
 const privateKey = process.env.SETRYN_DEVNET_PRIVATE_KEY as Hex | undefined;
@@ -74,44 +77,28 @@ async function ensureDevnetCollateral(accountId: Hex, requiredMinor: bigint): Pr
 }
 
 try {
-  const market = process.env.SETRYN_MARKET_ID
-    ? await client.getMarket(process.env.SETRYN_MARKET_ID)
-    : (await client.listMarkets({ execution: "ONCHAIN" })).data[0];
-  if (!market || market.execution !== "ONCHAIN") throw new Error("No onchain market to trade on this deployment.");
-  let book = await client.getBook(market.id);
-  if (book.asks.length === 0) {
-    // Devnet only: the platform's devnet maker quotes both sides of this market's book.
-    await fetch(`${baseUrl}/api/internal/devnet/liquidity`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ marketId: market.id }),
-    });
-    book = await client.getBook(market.id);
-  }
-  const bestAsk = book.asks[0];
-  if (!bestAsk) throw new Error("No offers on the book.");
-  log(`${market.id}: best ask ${bestAsk.price} x ${bestAsk.lots}`);
+  const marketId = process.env.SETRYN_MARKET_ID ?? "EURUSD-FW-30DEC26";
+  const side = process.env.SETRYN_SIDE === "SHORT" ? "SHORT" : "LONG";
+  const market = await client.getMarket(marketId);
+  if (market.execution !== "ONCHAIN") throw new Error(`${marketId} does not execute onchain on this deployment.`);
+  // The limit is the worst price accepted: a quote outside it is reported with withinLimit: false and cannot be accepted.
+  const limitPrice = side === "LONG" ? market.quote.bestAsk : market.quote.bestBid;
+  log(`${market.id}: requesting firm quotes to go ${side} 1 lot, limit ${limitPrice}`);
 
-  const preview = await client.prepareOrder({ signer: account.address, marketId: market.id, side: "LONG", lots: 1, limitPrice: bestAsk.price, timeInForce: "IOC" });
+  const preview = await client.prepareRfq({ signer: account.address, marketId: market.id, side, lots: 1, limitPrice });
   if (!preview.preconditions.sufficientCollateral) await ensureDevnetCollateral(preview.accountId, BigInt(preview.preconditions.requiredCollateralMinor));
 
-  const result = await placeOrder(
+  const result = await executeRfq(
     client,
     wallet,
     publicClient,
-    { signer: account.address, marketId: market.id, side: "LONG", lots: 1, limitPrice: bestAsk.price, timeInForce: "IOC" },
-    (transaction, hash) => log(`  ${transaction.step.padEnd(22)} ${hash}`),
+    { marketId: market.id, side, lots: 1, limitPrice },
+    { onStep: (transaction, hash) => log(`  ${transaction.step.padEnd(22)} ${hash}`) },
   );
-  log(`order ${result.submitted.orderHash} risk admission ${result.submitted.riskAdmissionId}`);
-
-  const order = await client.getOrder(result.submitted.orderHash);
-  log(`state ${order.state}: ${order.filledLots}/${order.lots} filled, fills ${order.fillIds.length}`);
-  const fills = await client.listFills({ accountId: order.accountId }, { limit: 1 });
-  const receipts = await client.listReceipts({ accountId: order.accountId }, { limit: 1 });
-  const positions = await client.listPositions(order.accountId);
-  log(`latest fill ${fills.data[0]?.fillId} ${fills.data[0]?.filledLots} @ ${fills.data[0]?.price}, fees ${fills.data[0]?.feesUsd}`);
-  log(`latest receipt ${receipts.data[0]?.receiptId} (${receipts.data[0]?.guarantee})`);
-  log(`${positions.page.total} live positions`);
+  for (const quote of result.quotes) log(`quote ${quote.quoteId} ${quote.solver}: ${quote.lots} @ ${quote.price} (within limit: ${quote.withinLimit})`);
+  log(`accepted ${result.quote.quoteId} at ${result.accepted.price}`);
+  log(`settled: fill ${result.settlement.fillId} ${result.settlement.filledLots} @ ${result.settlement.price}, fees ${result.settlement.feesUsd}`);
+  log(`RFQ ${result.rfq.rfqId} is ${result.rfq.state}; position ${result.settlement.positionId}`);
 } catch (error) {
   if (error instanceof SetrynApiError) {
     console.error(`${error.status} ${error.code}: ${error.message}`);

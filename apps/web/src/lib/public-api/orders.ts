@@ -24,20 +24,24 @@ import {
   type SerializedPublicOrder,
 } from "@/lib/internal-gateway/protocol";
 import { POST as reserveRisk } from "@/app/api/internal/orders/reserve-risk/route";
+import type { SetrynRuntimeMarket } from "@/lib/internal-gateway/runtime";
 import { PublicApiError } from "./errors";
 import {
   EMPTY_ID,
-  ONCHAIN_MARKET_ID,
   PUBLIC_SERIES_POLICY,
   bookHead,
   deriveAccountId,
   deriveBookId,
   hashOrder,
   levelHint,
+  liabilityPerLotMinor,
   loadAccount,
   loadOrder,
+  marketOfSeries,
+  onchainMarket,
   orderTypedDataDomain,
   readOrderIfRegistered,
+  ticksToPrice,
   timeInForceName,
   vaultAbi,
   type ChainContext,
@@ -76,7 +80,14 @@ export type TransactionStep =
   | "CANCEL_ORDER"
   | "SYNC_BOOK"
   | "AUTHORIZE_LIFECYCLE"
-  | "EXECUTE_LIFECYCLE";
+  | "EXECUTE_LIFECYCLE"
+  | "REGISTER_RFQ"
+  | "OPEN_RFQ"
+  | "LOCK_SELECTION"
+  | "CONFIRM_CAPACITY"
+  | "AUTHORIZE_SUBMISSION"
+  | "SUBMIT_RFQ"
+  | "CANCEL_RFQ";
 
 export interface TransactionRequest {
   step: TransactionStep;
@@ -94,7 +105,7 @@ export function assertSignerAllowed(key: StoredApiKey, signer: Address): void {
   }
 }
 
-function typedDataFor(context: ChainContext, order: OnchainPublicOrder) {
+export function typedDataFor(context: ChainContext, order: OnchainPublicOrder) {
   return {
     domain: orderTypedDataDomain(context.setryn),
     types: { PublicOrder: publicOrderComponents.map((field) => ({ name: field.name, type: field.type })) },
@@ -103,7 +114,7 @@ function typedDataFor(context: ChainContext, order: OnchainPublicOrder) {
   };
 }
 
-async function lockOperatorTransactions(context: ChainContext, signer: Address, accountId: Hex): Promise<TransactionRequest[]> {
+export async function lockOperatorTransactions(context: ChainContext, signer: Address, accountId: Hex): Promise<TransactionRequest[]> {
   const { client, setryn } = context;
   const operators = [
     { operator: setryn.atomicClearingEngine, label: "atomic clearing engine" },
@@ -139,34 +150,91 @@ export interface PrepareInput {
   maxFeeUsd?: unknown;
 }
 
-export async function prepareOrder(context: ChainContext, key: StoredApiKey, input: PrepareInput) {
+const INT128_MIN = -(BigInt(1) << BigInt(127));
+const INT128_MAX = (BigInt(1) << BigInt(127)) - BigInt(1);
+
+/** A package price on the market's onchain grid: price x priceScale must be a whole number of ticks. */
+export function priceTicksFor(market: SetrynRuntimeMarket, price: unknown, name = "limitPrice"): bigint {
+  if (typeof price !== "number" || !Number.isFinite(price)) {
+    throw new PublicApiError(400, "INVALID_REQUEST", `${name} must be a finite number.`);
+  }
+  const scaled = price * market.priceScale;
+  const ticks = Math.round(scaled);
+  if (Math.abs(scaled - ticks) > 1e-6) {
+    throw new PublicApiError(
+      400,
+      "INVALID_REQUEST",
+      `${name} ${price} is off the ${market.marketKey} price grid: prices are quoted in steps of ${1 / market.priceScale}.`,
+    );
+  }
+  const priceTicks = BigInt(ticks);
+  if (priceTicks < INT128_MIN || priceTicks > INT128_MAX) throw new PublicApiError(400, "INVALID_REQUEST", `${name} is out of range.`);
+  return priceTicks;
+}
+
+/** The onchain market behind a catalog market id; a preview-only or suspended market cannot take an order. */
+export function tradableMarket(context: ChainContext, marketId: unknown): SetrynRuntimeMarket {
+  const market = typeof marketId === "string" ? findCatalogMarket(marketId) : null;
+  if (!market) throw new PublicApiError(404, "NOT_FOUND", "No market has that id.");
+  const onchain = onchainMarket(context.setryn, market.id);
+  if (!onchain) {
+    throw new PublicApiError(409, "MARKET_NOT_ONCHAIN", `${market.id} is preview-only on this deployment and cannot be traded through the API.`);
+  }
+  if (market.qualification === "SUSPENDED") throw new PublicApiError(409, "ORDER_REJECTED", "The market is suspended.");
+  return onchain;
+}
+
+export interface DraftedOrder {
+  market: SetrynRuntimeMarket;
+  order: OnchainPublicOrder;
+  orderHash: Hex;
+  accountId: Hex;
+  deadline: bigint;
+  preconditions: {
+    accountExists: boolean;
+    availableCollateralMinor: string;
+    requiredCollateralMinor: string;
+    sufficientCollateral: boolean;
+    lockOperatorsApproved: boolean;
+  };
+  requiredTransactions: TransactionRequest[];
+}
+
+/**
+ * Builds the canonical PublicOrder for one onchain market: its series, its price grid, its lot cap, its collateral per
+ * lot, and chain-time deadlines. A direct-book order carries the public execution mode; the taker order behind a private
+ * RFQ carries the private RFQ execution mode.
+ */
+export async function draftOrder(
+  context: ChainContext,
+  key: StoredApiKey,
+  input: PrepareInput,
+  route: "DIRECT_BOOK" | "PRIVATE_RFQ",
+): Promise<DraftedOrder> {
   const { setryn } = context;
   if (typeof input.signer !== "string" || !isAddress(input.signer)) throw new PublicApiError(400, "INVALID_REQUEST", "signer must be an EVM address.");
   const signer = getAddress(input.signer);
   assertSignerAllowed(key, signer);
-  const market = typeof input.marketId === "string" ? findCatalogMarket(input.marketId) : null;
-  if (!market) throw new PublicApiError(404, "NOT_FOUND", "No market has that id.");
-  if (market.id !== ONCHAIN_MARKET_ID) {
-    throw new PublicApiError(409, "MARKET_NOT_ONCHAIN", `${market.id} is preview-only on this deployment. Only ${ONCHAIN_MARKET_ID} executes onchain.`);
-  }
-  if (market.qualification === "SUSPENDED") throw new PublicApiError(409, "ORDER_REJECTED", "The market is suspended.");
+  const market = tradableMarket(context, input.marketId);
   const side = typeof input.side === "string" ? SIDES[input.side] : undefined;
   if (!side) throw new PublicApiError(400, "INVALID_REQUEST", "side must be LONG or SHORT.");
-  const maxLots = Math.min(PLATFORM_MAX_ORDER_LOTS, setryn.maxOrderLots);
+  const maxLots = Math.min(PLATFORM_MAX_ORDER_LOTS, market.maxOrderLots);
   if (!Number.isInteger(input.lots) || Number(input.lots) < 1 || Number(input.lots) > maxLots) {
-    throw new PublicApiError(400, "INVALID_REQUEST", `lots must be an integer from 1 to ${maxLots}.`);
+    throw new PublicApiError(400, "INVALID_REQUEST", `lots must be an integer from 1 to ${maxLots} on ${market.marketKey}.`);
   }
   const lots = BigInt(input.lots as number);
-  if (typeof input.limitPrice !== "number" || !Number.isFinite(input.limitPrice)) {
-    throw new PublicApiError(400, "INVALID_REQUEST", "limitPrice must be a finite number.");
-  }
-  const priceTicks = BigInt(Math.round(input.limitPrice * 10));
-  const tifName = typeof input.timeInForce === "string" ? input.timeInForce : "GTC";
+  const priceTicks = priceTicksFor(market, input.limitPrice);
+  const tifName = typeof input.timeInForce === "string" ? input.timeInForce : route === "PRIVATE_RFQ" ? "IOC" : "GTC";
   const timeInForce = TIFS[tifName];
   if (!timeInForce) throw new PublicApiError(400, "INVALID_REQUEST", "timeInForce must be GTC, GTD, IOC or FOK.");
+  // The RFQ book accepts a no-partial-fill request only when its remainder stays open, which a fill-or-kill order's
+  // cancel-remainder policy contradicts, so the request would revert at registration.
+  if (route === "PRIVATE_RFQ" && timeInForce === 4) {
+    throw new PublicApiError(400, "INVALID_REQUEST", "FOK is not available for a private RFQ. Use IOC (the default), GTC or GTD; quotes are firm for the full size.");
+  }
   const postOnly = input.postOnly === true;
-  if (postOnly && (timeInForce === 3 || timeInForce === 4)) {
-    throw new PublicApiError(400, "INVALID_REQUEST", "postOnly applies only to resting GTC or GTD orders.");
+  if (postOnly && (route === "PRIVATE_RFQ" || timeInForce === 3 || timeInForce === 4)) {
+    throw new PublicApiError(400, "INVALID_REQUEST", "postOnly applies only to resting GTC or GTD book orders.");
   }
 
   let lifetime = DEFAULT_LIFETIME_SECONDS;
@@ -188,17 +256,18 @@ export async function prepareOrder(context: ChainContext, key: StoredApiKey, inp
     }
     maxFeeMinor = parseUnits(input.maxFeeUsd.toFixed(6), 6);
   } else {
-    // Twice the taker fee on the order's full consideration (lots x price ticks x tick size).
+    // Twice the taker fee on the order's full consideration (lots x price ticks x the market's tick size).
     const absTicks = priceTicks < BigInt(0) ? -priceTicks : priceTicks;
-    const consideration = lots * absTicks * BigInt(setryn.tickSizeMinor);
+    const consideration = lots * absTicks * BigInt(market.tickSizeMinor);
     maxFeeMinor = (consideration * BigInt(setryn.takerFeeRatePpm) * BigInt(2)) / BigInt(1_000_000);
   }
   if (maxFeeMinor < BigInt(1)) maxFeeMinor = BigInt(1);
 
   const accountId = await deriveAccountId(context, signer);
   const nonce = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(crypto.getRandomValues(new Uint32Array(1))[0]);
-  const salt = keccak256(stringToHex(`${signer}:${nonce}:${market.id}:${randomUUID()}`));
-  const policyContextHash = keccak256(stringToHex(`${market.id}:DIRECT_BOOK:${side.name}:${tifName}:Package atomic`));
+  const salt = keccak256(stringToHex(`${signer}:${nonce}:${market.marketKey}:${randomUUID()}`));
+  const guarantee = route === "PRIVATE_RFQ" ? "Firm capacity, atomic onchain settlement" : "Package atomic";
+  const policyContextHash = keccak256(stringToHex(`${market.marketKey}:${route}:${side.name}:${tifName}:${guarantee}`));
   const order: OnchainPublicOrder = {
     signer,
     accountId,
@@ -206,7 +275,7 @@ export async function prepareOrder(context: ChainContext, key: StoredApiKey, inp
     policyContextHash,
     actionId: setryn.enterActionId,
     targetKind: 1,
-    seriesId: setryn.seriesId,
+    seriesId: market.seriesId,
     packageId: EMPTY_ID,
     targetVersion: 1,
     side: side.side,
@@ -214,7 +283,7 @@ export async function prepareOrder(context: ChainContext, key: StoredApiKey, inp
     priceTicks,
     timeInForce,
     deadline,
-    executionModeId: setryn.executionModeId,
+    executionModeId: route === "PRIVATE_RFQ" ? setryn.privateRfqExecutionModeId : setryn.executionModeId,
     feeScheduleId: setryn.feeScheduleId,
     feeScheduleVersion: 1,
     maxFeeMinor,
@@ -233,16 +302,13 @@ export async function prepareOrder(context: ChainContext, key: StoredApiKey, inp
     loadAccount(context, accountId),
     lockOperatorTransactions(context, signer, accountId),
   ]);
-  const liabilityPerLot = BigInt(side.side === 1 ? setryn.maxLongDebitMinorPerLot : setryn.maxShortDebitMinorPerLot);
-  const requiredCollateralMinor = lots * liabilityPerLot;
+  const requiredCollateralMinor = lots * liabilityPerLotMinor(market, side.side);
   return {
+    market,
+    order,
     orderHash,
     accountId,
-    order: serializePublicOrder(order),
-    typedData: typedDataFor(context, order),
-    chainTime: new Date(Number(context.chainTime) * 1000).toISOString(),
-    deadline: new Date(Number(deadline) * 1000).toISOString(),
-    submitWithinSeconds: Number(deadline - context.chainTime),
+    deadline,
     preconditions: {
       accountExists: account.exists,
       availableCollateralMinor: account.availableMinor,
@@ -251,8 +317,68 @@ export async function prepareOrder(context: ChainContext, key: StoredApiKey, inp
       lockOperatorsApproved: approvals.length === 0,
     },
     requiredTransactions: approvals,
+  };
+}
+
+export async function prepareOrder(context: ChainContext, key: StoredApiKey, input: PrepareInput) {
+  const drafted = await draftOrder(context, key, input, "DIRECT_BOOK");
+  return {
+    orderHash: drafted.orderHash,
+    accountId: drafted.accountId,
+    marketId: drafted.market.marketKey,
+    order: serializePublicOrder(drafted.order),
+    typedData: typedDataFor(context, drafted.order),
+    chainTime: new Date(Number(context.chainTime) * 1000).toISOString(),
+    deadline: new Date(Number(drafted.deadline) * 1000).toISOString(),
+    submitWithinSeconds: Number(drafted.deadline - context.chainTime),
+    preconditions: drafted.preconditions,
+    requiredTransactions: drafted.requiredTransactions,
     next: "Sign typedData with the signer's wallet (eth_signTypedData_v4 / viem signTypedData), then POST /api/v1/orders with { order, signature } before the deadline.",
   };
+}
+
+/** Relays a signed order to the platform's risk path; returns the reserved admission and its transaction. */
+export async function reserveOrderRisk(order: OnchainPublicOrder, signature: Hex, orderHash: Hex) {
+  const reservation = await reserveRisk(
+    new Request("http://localhost/api/internal/orders/reserve-risk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order: serializePublicOrder(order), signature, orderHash }),
+    }),
+  );
+  const reservationBody = (await reservation.json()) as { admissionId?: string; transactionHash?: string; error?: string };
+  if (!reservation.ok || typeof reservationBody.admissionId !== "string") {
+    throw new PublicApiError(
+      422,
+      "RISK_RESERVATION_FAILED",
+      `Risk admission refused the order${reservationBody.error ? `: ${reservationBody.error}` : ""}. Check collateral and limits.`,
+    );
+  }
+  return { admissionId: reservationBody.admissionId as Hex, transactionHash: (reservationBody.transactionHash ?? null) as Hex | null };
+}
+
+/** Parses a serialized PublicOrder and its signature and verifies the signature against order.signer. */
+export async function verifySignedOrder(context: ChainContext, orderInput: unknown, signatureInput: unknown, name = "signature") {
+  let order: OnchainPublicOrder;
+  try {
+    order = parsePublicOrder(orderInput);
+  } catch {
+    throw new PublicApiError(400, "INVALID_REQUEST", "order must be the serialized PublicOrder returned by the prepare call.");
+  }
+  if (typeof signatureInput !== "string" || !isHex(signatureInput, { strict: true })) {
+    throw new PublicApiError(400, "INVALID_REQUEST", `${name} must be a hex EIP-712 signature.`);
+  }
+  const signature = signatureInput as Hex;
+  const validSignature = await verifyTypedData({
+    address: order.signer,
+    domain: orderTypedDataDomain(context.setryn),
+    types: publicOrderTypedData,
+    primaryType: "PublicOrder",
+    message: order,
+    signature,
+  }).catch(() => false);
+  if (!validSignature) throw new PublicApiError(401, "INVALID_SIGNATURE", "The order signature does not recover to order.signer.");
+  return { order, signature };
 }
 
 export interface SubmitInput {
@@ -262,30 +388,14 @@ export interface SubmitInput {
 
 export async function submitSignedOrder(context: ChainContext, key: StoredApiKey, input: SubmitInput) {
   const { setryn, client } = context;
-  let order: OnchainPublicOrder;
-  try {
-    order = parsePublicOrder(input.order);
-  } catch {
-    throw new PublicApiError(400, "INVALID_REQUEST", "order must be the serialized PublicOrder returned by /orders/prepare.");
-  }
-  if (typeof input.signature !== "string" || !isHex(input.signature, { strict: true })) {
-    throw new PublicApiError(400, "INVALID_REQUEST", "signature must be a hex EIP-712 signature.");
-  }
-  const signature = input.signature as Hex;
+  const { order, signature } = await verifySignedOrder(context, input.order, input.signature);
   assertSignerAllowed(key, order.signer);
   if (order.executionModeId.toLowerCase() !== setryn.executionModeId.toLowerCase()) {
-    throw new PublicApiError(409, "ORDER_REJECTED", "Only direct public book orders are accepted by the public API.");
+    throw new PublicApiError(409, "ORDER_REJECTED", "Only direct public book orders are accepted by /orders. Private RFQ orders go through /rfqs.");
   }
+  const market = marketOfSeries(setryn, order.seriesId);
+  if (!market) throw new PublicApiError(409, "MARKET_NOT_ONCHAIN", "The order's series is not an onchain market on this deployment.");
   const tif: TimeInForceName = timeInForceName(order.timeInForce);
-  const validSignature = await verifyTypedData({
-    address: order.signer,
-    domain: orderTypedDataDomain(setryn),
-    types: publicOrderTypedData,
-    primaryType: "PublicOrder",
-    message: order,
-    signature,
-  }).catch(() => false);
-  if (!validSignature) throw new PublicApiError(401, "INVALID_SIGNATURE", "The order signature does not recover to order.signer.");
   if (order.deadline <= context.chainTime || order.deadline > context.chainTime + RISK_WINDOW_SECONDS) {
     throw new PublicApiError(409, "ORDER_REJECTED", "The order deadline is outside the live window. Prepare a fresh order.");
   }
@@ -295,7 +405,7 @@ export async function submitSignedOrder(context: ChainContext, key: StoredApiKey
   if (existing && existing.registeredAt !== BigInt(0)) throw new PublicApiError(409, "ORDER_REJECTED", "This order is already registered.");
 
   // Check marketability before any risk is reserved, so a refused order leaves nothing behind.
-  const bookId = deriveBookId(setryn);
+  const bookId = deriveBookId(setryn, market);
   const makerSide: 1 | 2 = order.side === 1 ? 2 : 1;
   const head = await bookHead(context, bookId, makerSide);
   const crosses = (priceTicks: bigint) => (order.side === 1 ? order.priceTicks >= priceTicks : order.priceTicks <= priceTicks);
@@ -316,22 +426,8 @@ export async function submitSignedOrder(context: ChainContext, key: StoredApiKey
   }
 
   // The platform's own risk path: operator-side portfolio risk admission for the signed order.
-  const reservation = await reserveRisk(
-    new Request("http://localhost/api/internal/orders/reserve-risk", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ order: serializePublicOrder(order), signature, orderHash }),
-    }),
-  );
-  const reservationBody = (await reservation.json()) as { admissionId?: string; transactionHash?: string; error?: string };
-  if (!reservation.ok || typeof reservationBody.admissionId !== "string") {
-    throw new PublicApiError(
-      422,
-      "RISK_RESERVATION_FAILED",
-      `Risk admission refused the order${reservationBody.error ? `: ${reservationBody.error}` : ""}. Check collateral and limits.`,
-    );
-  }
-  const admissionId = reservationBody.admissionId as Hex;
+  const reservation = await reserveOrderRisk(order, signature, orderHash);
+  const admissionId = reservation.admissionId;
   const transactions: TransactionRequest[] = await lockOperatorTransactions(context, order.signer, order.accountId);
   const tx = (step: TransactionStep, description: string, to: Address, data: Hex): TransactionRequest => ({
     step,
@@ -397,13 +493,13 @@ export async function submitSignedOrder(context: ChainContext, key: StoredApiKey
         takerFeeFunding: zeroFeeFunding,
         makerFeeFunding: zeroFeeFunding,
       },
-      payoffTerms: setryn.payoffTerms,
+      payoffTerms: market.payoffTerms,
       channelKind: 1,
     } as const;
     transactions.push(
       tx(
         "MATCH",
-        `Match against the best ${makerSide === 2 ? "offer" : "bid"} (${fillLots} lots at ${Number(head.bookOrder.priceTicks) / 10}). Built from the book at submission; if the book moves first the match reverts and nothing fills.`,
+        `Match against the best ${makerSide === 2 ? "offer" : "bid"} on ${market.marketKey} (${fillLots} lots at ${ticksToPrice(market, head.bookOrder.priceTicks)}). Built from the book at submission; if the book moves first the match reverts and nothing fills.`,
         setryn.publicOrderBook,
         encodeFunctionData({ abi: publicOrderBookAbi, functionName: "matchSeries", args: [bookId, [proposal]] }),
       ),
@@ -413,9 +509,10 @@ export async function submitSignedOrder(context: ChainContext, key: StoredApiKey
     orderHash,
     accountId: order.accountId,
     signer: order.signer,
+    marketId: market.marketKey,
     status: "RISK_RESERVED" as const,
     riskAdmissionId: admissionId,
-    riskReservationTransaction: reservationBody.transactionHash ?? null,
+    riskReservationTransaction: reservation.transactionHash,
     validUntil: new Date(Number(order.deadline) * 1000).toISOString(),
     transactions,
     next: "Send each transaction from the signer in order and wait for each receipt. Then poll GET /api/v1/orders/{orderHash}.",
@@ -432,7 +529,7 @@ export type { SerializedPublicOrder };
 export async function prepareCancel(context: ChainContext, key: StoredApiKey, orderHash: Hex) {
   const { client, setryn } = context;
   const order = await loadOrder(context, orderHash);
-  if (!order) throw new PublicApiError(404, "NOT_FOUND", "No registered order on the active series has that hash.");
+  if (!order) throw new PublicApiError(404, "NOT_FOUND", "No registered order on an onchain market has that hash.");
   assertSignerAllowed(key, order.signer);
   if (order.state !== "WORKING" && order.state !== "PARTIALLY_FILLED") {
     throw new PublicApiError(409, "ORDER_NOT_WORKING", `The order is ${order.state} and cannot be cancelled.`);
@@ -463,38 +560,45 @@ export async function prepareCancel(context: ChainContext, key: StoredApiKey, or
       value: "0",
     },
   ];
-  const nonce = BigInt(`0x${randomUUID().replaceAll("-", "")}`);
   const riskRelease =
-    admissionId === EMPTY_ID
-      ? null
-      : {
-          description: "Sign this message, then call cancelBoundAdmission(message, signature) on the risk binding registry to release the reserved collateral.",
-          to: setryn.riskAdmissionBindingRegistry,
-          functionName: "cancelBoundAdmission",
-          typedData: {
-            domain: { name: "Setryn", version: "1", chainId: setryn.chainId, verifyingContract: setryn.riskAdmissionBindingRegistry },
-            types: {
-              SetrynRiskAdmissionCancellationV1: [
-                { name: "admissionId", type: "bytes32" },
-                { name: "orderHash", type: "bytes32" },
-                { name: "accountId", type: "bytes32" },
-                { name: "signer", type: "address" },
-                { name: "nonce", type: "uint256" },
-                { name: "deadline", type: "uint64" },
-                { name: "cancellationReference", type: "bytes32" },
-              ],
-            },
-            primaryType: "SetrynRiskAdmissionCancellationV1" as const,
-            message: {
-              admissionId,
-              orderHash,
-              accountId: order.accountId,
-              signer: order.signer,
-              nonce: nonce.toString(),
-              deadline: (context.chainTime + DEFAULT_LIFETIME_SECONDS).toString(),
-              cancellationReference: keccak256(stringToHex(`${orderHash}:${nonce}`)),
-            },
-          },
-        };
+    admissionId === EMPTY_ID ? null : riskReleaseFor(context, { admissionId, orderHash, accountId: order.accountId, signer: order.signer });
   return { order, transactions, riskRelease };
+}
+
+/**
+ * The typed risk-release message a signer signs and submits to `cancelBoundAdmission` on the risk binding registry, so
+ * the collateral reserved for an order that will not fill is freed.
+ */
+export function riskReleaseFor(context: ChainContext, input: { admissionId: Hex; orderHash: Hex; accountId: Hex; signer: Address }) {
+  const { setryn } = context;
+  const nonce = BigInt(`0x${randomUUID().replaceAll("-", "")}`);
+  return {
+    description: "Sign this message, then call cancelBoundAdmission(message, signature) on the risk binding registry to release the reserved collateral.",
+    to: setryn.riskAdmissionBindingRegistry,
+    functionName: "cancelBoundAdmission",
+    typedData: {
+      domain: { name: "Setryn", version: "1", chainId: setryn.chainId, verifyingContract: setryn.riskAdmissionBindingRegistry },
+      types: {
+        SetrynRiskAdmissionCancellationV1: [
+          { name: "admissionId", type: "bytes32" },
+          { name: "orderHash", type: "bytes32" },
+          { name: "accountId", type: "bytes32" },
+          { name: "signer", type: "address" },
+          { name: "nonce", type: "uint256" },
+          { name: "deadline", type: "uint64" },
+          { name: "cancellationReference", type: "bytes32" },
+        ],
+      },
+      primaryType: "SetrynRiskAdmissionCancellationV1" as const,
+      message: {
+        admissionId: input.admissionId,
+        orderHash: input.orderHash,
+        accountId: input.accountId,
+        signer: input.signer,
+        nonce: nonce.toString(),
+        deadline: (context.chainTime + DEFAULT_LIFETIME_SECONDS).toString(),
+        cancellationReference: keccak256(stringToHex(`${input.orderHash}:${nonce}`)),
+      },
+    },
+  };
 }

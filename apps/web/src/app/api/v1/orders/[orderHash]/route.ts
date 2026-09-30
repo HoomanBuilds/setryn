@@ -10,6 +10,6 @@ export const GET = publicRoute<{ orderHash: string }>({ scope: "read" }, async (
   const orderHash = parseBytes32(params.orderHash, "orderHash");
   const context = await chainContext();
   const order = await loadOrder(context, orderHash);
-  if (!order) throw new PublicApiError(404, "NOT_FOUND", "No registered order on the active series has that hash.");
+  if (!order) throw new PublicApiError(404, "NOT_FOUND", "No registered order on an onchain market has that hash.");
   return { data: order };
 });

@@ -1,7 +1,15 @@
 import type { Account, Chain, Hex, PublicClient, Transport, WalletClient } from "viem";
 import type { SetrynClient } from "./client.ts";
 import { SetrynOrderError } from "./errors.ts";
-import type { PrepareOrderInput, PreparedCancel, PreparedOrder, SerializedPublicOrder, SubmitOrderResult, TransactionRequest } from "./types.ts";
+import type {
+  PrepareOrderInput,
+  PreparedCancel,
+  PreparedOrder,
+  RiskRelease,
+  SerializedPublicOrder,
+  SubmitOrderResult,
+  TransactionRequest,
+} from "./types.ts";
 
 /** EIP-712 type of a Setryn public order (primary type `PublicOrder`, domain `Setryn` v1 on OrderState). */
 export const publicOrderTypes = {
@@ -58,7 +66,15 @@ export async function signPreparedOrder(
   wallet: WalletClient<Transport, Chain | undefined, Account | undefined>,
   prepared: PreparedOrder,
 ): Promise<Hex> {
-  const { typedData, order } = prepared;
+  return signPublicOrder(wallet, prepared.typedData, prepared.order);
+}
+
+/** Signs a PublicOrder's typed data (from /orders/prepare or /rfqs/prepare) after checking its fixed layout. */
+export async function signPublicOrder(
+  wallet: WalletClient<Transport, Chain | undefined, Account | undefined>,
+  typedData: PreparedOrder["typedData"],
+  order: SerializedPublicOrder,
+): Promise<Hex> {
   const expected = publicOrderTypes.PublicOrder.map((field) => `${field.name}:${field.type}`).join(",");
   const received = typedData.types.PublicOrder.map((field) => `${field.name}:${field.type}`).join(",");
   if (expected !== received || typedData.primaryType !== "PublicOrder" || typedData.domain.name !== "Setryn" || typedData.domain.version !== "1") {
@@ -173,28 +189,35 @@ export async function cancelOrder(
 ): Promise<{ prepared: PreparedCancel; transactionHashes: Hex[] }> {
   const prepared = await client.prepareCancel(orderHash);
   const transactionHashes = await sendOrderTransactions(wallet, publicClient, prepared.transactions);
-  if (prepared.riskRelease) {
-    const { typedData, to } = prepared.riskRelease;
-    const account = wallet.account ?? typedData.message.signer;
-    const message = { ...typedData.message, nonce: BigInt(typedData.message.nonce), deadline: BigInt(typedData.message.deadline) };
-    const signature = await wallet.signTypedData({
-      account,
-      domain: typedData.domain,
-      types: typedData.types,
-      primaryType: typedData.primaryType,
-      message,
-    });
-    const hash = await wallet.writeContract({
-      account,
-      chain: wallet.chain ?? null,
-      address: to,
-      abi: riskReleaseAbi,
-      functionName: "cancelBoundAdmission",
-      args: [message, signature],
-    });
-    const receipt = await publicClient.waitForTransactionReceipt({ hash });
-    if (receipt.status !== "success") throw new SetrynOrderError("RELEASE_RISK", `Risk release reverted in ${hash}.`);
-    transactionHashes.push(hash);
-  }
+  if (prepared.riskRelease) transactionHashes.push(await sendRiskRelease(wallet, publicClient, prepared.riskRelease));
   return { prepared, transactionHashes };
+}
+
+/** Signs a prepared risk release and submits it to `cancelBoundAdmission` from the signer's wallet, freeing the reserved collateral. */
+export async function sendRiskRelease(
+  wallet: WalletClient<Transport, Chain | undefined, Account | undefined>,
+  publicClient: PublicClient,
+  riskRelease: RiskRelease,
+): Promise<Hex> {
+  const { typedData, to } = riskRelease;
+  const account = wallet.account ?? typedData.message.signer;
+  const message = { ...typedData.message, nonce: BigInt(typedData.message.nonce), deadline: BigInt(typedData.message.deadline) };
+  const signature = await wallet.signTypedData({
+    account,
+    domain: typedData.domain,
+    types: typedData.types,
+    primaryType: typedData.primaryType,
+    message,
+  });
+  const hash = await wallet.writeContract({
+    account,
+    chain: wallet.chain ?? null,
+    address: to,
+    abi: riskReleaseAbi,
+    functionName: "cancelBoundAdmission",
+    args: [message, signature],
+  });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== "success") throw new SetrynOrderError("RELEASE_RISK", `Risk release reverted in ${hash}.`);
+  return hash;
 }

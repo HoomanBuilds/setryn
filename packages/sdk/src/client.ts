@@ -2,6 +2,7 @@ import type { Hex } from "viem";
 import { SetrynApiError } from "./errors.ts";
 import { signRequest } from "./signing.ts";
 import type {
+  AcceptRfqQuoteResult,
   Account,
   AccountFilter,
   Book,
@@ -17,9 +18,21 @@ import type {
   Position,
   PrepareOrderInput,
   PreparedOrder,
+  PreparedRfq,
+  PreparedRfqAcceptance,
+  PreparedRfqCancel,
+  PrepareRfqInput,
   Receipt,
+  Rfq,
+  RfqQuote,
+  RfqSettlement,
+  RfqState,
   SerializedPublicOrder,
+  SerializedRfqSelection,
+  SolicitQuotesResult,
   Status,
+  SubmitRfqInput,
+  SubmitRfqResult,
   SubmitExitInput,
   SubmitExitResult,
   SubmitOrderResult,
@@ -153,7 +166,7 @@ export class SetrynClient {
     return (await this.request<{ data: Market }>("GET", `/markets/${encodeURIComponent(marketId)}`)).data;
   }
 
-  /** Live onchain book for the onchain market; labelled preview depth (`executable: false`) for the others. */
+  /** Live onchain book of an onchain market (its own series book); labelled preview depth (`executable: false`) otherwise. */
   async getBook(marketId: string): Promise<Book> {
     return (await this.request<{ data: Book }>("GET", `/markets/${encodeURIComponent(marketId)}/book`)).data;
   }
@@ -222,5 +235,57 @@ export class SetrynClient {
   async submitExit(input: SubmitExitInput): Promise<SubmitExitResult> {
     return (await this.request<{ data: SubmitExitResult }>("POST", "/positions/exit", { body: input })).data;
   }
-}
 
+  // -- private RFQ ------------------------------------------------------------------------------------------------
+
+  listRfqs(filter: AccountFilter & { state?: RfqState }, params: PageParams = {}): Promise<Page<Rfq>> {
+    return this.request<Page<Rfq>>("GET", "/rfqs", { query: { ...filter, ...params } });
+  }
+
+  async getRfq(rfqId: Hex): Promise<Rfq> {
+    return (await this.request<{ data: Rfq }>("GET", `/rfqs/${rfqId}`)).data;
+  }
+
+  /** Quotes on an RFQ, best price for the requester first. */
+  listRfqQuotes(rfqId: Hex, params: PageParams = {}): Promise<Page<RfqQuote>> {
+    return this.request<Page<RfqQuote>>("GET", `/rfqs/${rfqId}/quotes`, { query: { ...params } });
+  }
+
+  /**
+   * Builds an unsigned private RFQ: the taker order (private RFQ execution mode) and the request bound to it. Sign both
+   * typed data with the signer's wallet. Needs `trade`.
+   */
+  async prepareRfq(input: PrepareRfqInput): Promise<PreparedRfq> {
+    return (await this.request<{ data: PreparedRfq }>("POST", "/rfqs/prepare", { body: input })).data;
+  }
+
+  /** Relays the signed RFQ order and request to risk admission. Returns the transactions the requester must send. Needs `trade`. */
+  async submitRfq(input: SubmitRfqInput): Promise<SubmitRfqResult> {
+    return (await this.request<{ data: SubmitRfqResult }>("POST", "/rfqs", { body: input })).data;
+  }
+
+  /** Invites the eligible solvers to quote an RFQ that is collecting, and returns its quotes. Needs `trade`. */
+  async solicitRfqQuotes(rfqId: Hex): Promise<SolicitQuotesResult> {
+    return (await this.request<{ data: SolicitQuotesResult }>("POST", `/rfqs/${rfqId}/quotes`, { body: {} })).data;
+  }
+
+  /** Builds the unsigned selection of one quote. Sign `typedData` with the requester's wallet. Needs `trade`. */
+  async prepareRfqAcceptance(rfqId: Hex, quoteId: Hex): Promise<PreparedRfqAcceptance> {
+    return (await this.request<{ data: PreparedRfqAcceptance }>("POST", `/rfqs/${rfqId}/accept/prepare`, { body: { quoteId } })).data;
+  }
+
+  /** Verifies a signed selection and returns the transactions the requester must send. Needs `trade`. */
+  async acceptRfqQuote(rfqId: Hex, input: { selection: SerializedRfqSelection; signature: Hex }): Promise<AcceptRfqQuoteResult> {
+    return (await this.request<{ data: AcceptRfqQuoteResult }>("POST", `/rfqs/${rfqId}/accept`, { body: input })).data;
+  }
+
+  /** Hands a submitted RFQ to its permitted executor for atomic clearing and returns the fill. Needs `trade`. */
+  async settleRfq(rfqId: Hex): Promise<RfqSettlement> {
+    return (await this.request<{ data: RfqSettlement }>("POST", `/rfqs/${rfqId}/settle`, { body: {} })).data;
+  }
+
+  /** Prepares the cancellation of an unselected or expired RFQ for its requester to execute. Needs `trade`. */
+  async prepareRfqCancel(rfqId: Hex): Promise<PreparedRfqCancel> {
+    return (await this.request<{ data: PreparedRfqCancel }>("POST", `/rfqs/${rfqId}/cancel`, { body: {} })).data;
+  }
+}

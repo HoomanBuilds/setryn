@@ -1,7 +1,7 @@
 {
   "name": "@setryn/sdk",
   "version": "0.1.0",
-  "description": "TypeScript client for the Setryn public API: market data, account projections, and non-custodial EIP-712 order entry.",
+  "description": "TypeScript client for the Setryn public API: market data, account projections, and non-custodial EIP-712 order entry and private RFQ.",
   "license": "UNLICENSED",
   "type": "module",
   "sideEffects": false,
@@ -22,7 +22,8 @@
     "build": "tsc -p tsconfig.build.json && node scripts/rewrite-dts-extensions.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "example:read": "node --experimental-strip-types --no-warnings examples/read-markets.ts",
-    "example:order": "node --experimental-strip-types --no-warnings examples/place-devnet-order.ts"
+    "example:order": "node --experimental-strip-types --no-warnings examples/place-devnet-order.ts",
+    "example:rfq": "node --experimental-strip-types --no-warnings examples/private-rfq.ts"
   },
   "dependencies": {
     "viem": "^2.56.9"

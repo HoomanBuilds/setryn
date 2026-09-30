@@ -2,13 +2,15 @@ import { MARKETS } from "@/lib/terminal/markets";
 import { seedPreviewTrades } from "@/lib/terminal/preview-trades";
 import type { PackageMarket } from "@/lib/terminal/types";
 import type { SetrynRuntime } from "@/lib/internal-gateway/runtime";
-import { ONCHAIN_MARKET_ID, CONTRACT_MULTIPLIER } from "./chain";
+import { considerationPerPriceUnit, runtimeMarketByKey } from "@/lib/internal-gateway/runtime-markets";
+import { deriveBookId } from "./chain";
 
 /**
- * Market catalog projection. The catalog is the platform's own market list. Exactly one market is enabled for onchain
- * execution on this deployment; every other market publishes the catalog's preview snapshot, labelled as such, and
- * cannot be traded through the API. Preview figures are the catalog's base snapshot (the same values the platform's
- * preview feed starts from), never a second independent feed.
+ * Market catalog projection. The catalog is the platform's own market list. Every catalog market the deployment's
+ * runtime lists in `markets` executes onchain on its own series, tick grid, payoff bounds and collateral; any other
+ * catalog market publishes the catalog's preview snapshot, labelled as such, and cannot be traded through the API.
+ * Preview figures are the catalog's base snapshot (the same values the platform's preview feed starts from), never a
+ * second independent feed.
  */
 
 export type ExecutionVenue = "ONCHAIN" | "PREVIEW_ONLY";
@@ -34,15 +36,22 @@ export interface ApiMarket {
   collateralPerLot: number;
   maxOrderLots: number | null;
   execution: ExecutionVenue;
-  /** Present for the onchain market: the identifiers orders must carry. */
+  /** Present for onchain markets: the identifiers orders must carry and the grid prices are quoted on. */
   onchain: {
     chainId: number;
     seriesId: string;
     marketId: string;
+    bookId: string;
     orderState: string;
     publicOrderBook: string;
+    privateRfqBook: string;
+    /** Settlement minor units per price tick per lot. */
     tickSizeMinor: number;
+    /** Price ticks per unit of package price: priceTicks = price x priceScale. */
+    priceScale: number;
     maxOrderLots: number;
+    maxLongDebitMinorPerLot: number;
+    maxShortDebitMinorPerLot: number;
     makerFeeRatePpm: number;
     takerFeeRatePpm: number;
   } | null;
@@ -56,12 +65,12 @@ export interface ApiMarket {
   legs: { id: string; side: "BUY" | "SELL"; ratio: number }[];
 }
 
-/** Largest order the platform accepts on the onchain market, before the deployment's own cap. */
+/** Largest order the platform accepts on an onchain market, before the market's own cap. */
 export const PLATFORM_MAX_ORDER_LOTS = 10;
 
 export function projectMarket(market: PackageMarket, setryn: SetrynRuntime | null): ApiMarket {
-  const onchain = market.id === ONCHAIN_MARKET_ID && setryn !== null;
-  const maxLots = onchain ? Math.min(PLATFORM_MAX_ORDER_LOTS, setryn.maxOrderLots) : market.maxOrderLots ?? null;
+  const onchain = setryn ? runtimeMarketByKey(setryn, market.id) : null;
+  const maxLots = onchain ? Math.min(PLATFORM_MAX_ORDER_LOTS, onchain.maxOrderLots) : market.maxOrderLots ?? null;
   return {
     id: market.id,
     name: market.name,
@@ -79,23 +88,31 @@ export function projectMarket(market: PackageMarket, setryn: SetrynRuntime | nul
     fixingSource: market.fixingSource,
     qualification: market.qualification,
     qualificationNote: market.qualificationNote,
-    contractMultiplier: onchain ? CONTRACT_MULTIPLIER : market.contractMultiplier,
-    collateralPerLot: market.collateralPerLot,
+    contractMultiplier: onchain ? considerationPerPriceUnit(onchain) : market.contractMultiplier,
+    collateralPerLot: onchain
+      ? Math.max(onchain.maxLongDebitMinorPerLot, onchain.maxShortDebitMinorPerLot) / 1_000_000
+      : market.collateralPerLot,
     maxOrderLots: maxLots,
     execution: onchain ? "ONCHAIN" : "PREVIEW_ONLY",
-    onchain: onchain
-      ? {
-          chainId: setryn.chainId,
-          seriesId: setryn.seriesId,
-          marketId: setryn.marketId,
-          orderState: setryn.orderState,
-          publicOrderBook: setryn.publicOrderBook,
-          tickSizeMinor: setryn.tickSizeMinor,
-          maxOrderLots: setryn.maxOrderLots,
-          makerFeeRatePpm: setryn.makerFeeRatePpm,
-          takerFeeRatePpm: setryn.takerFeeRatePpm,
-        }
-      : null,
+    onchain:
+      onchain && setryn
+        ? {
+            chainId: setryn.chainId,
+            seriesId: onchain.seriesId,
+            marketId: onchain.marketId,
+            bookId: deriveBookId(setryn, onchain),
+            orderState: setryn.orderState,
+            publicOrderBook: setryn.publicOrderBook,
+            privateRfqBook: setryn.privateRfqBook,
+            tickSizeMinor: onchain.tickSizeMinor,
+            priceScale: onchain.priceScale,
+            maxOrderLots: onchain.maxOrderLots,
+            maxLongDebitMinorPerLot: onchain.maxLongDebitMinorPerLot,
+            maxShortDebitMinorPerLot: onchain.maxShortDebitMinorPerLot,
+            makerFeeRatePpm: setryn.makerFeeRatePpm,
+            takerFeeRatePpm: setryn.takerFeeRatePpm,
+          }
+        : null,
     quote: {
       source: "PREVIEW_SNAPSHOT",
       netPrice: market.netPrice,

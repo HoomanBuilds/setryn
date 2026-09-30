@@ -1,7 +1,6 @@
 import {
   BaseError,
   createPublicClient,
-  encodeAbiParameters,
   formatUnits,
   getAddress,
   http,
@@ -22,7 +21,13 @@ import {
   riskEngineAbi,
   type OnchainPublicOrder,
 } from "@/lib/internal-gateway/protocol";
-import type { SetrynRuntime } from "@/lib/internal-gateway/runtime";
+import type { SetrynRuntime, SetrynRuntimeMarket } from "@/lib/internal-gateway/runtime";
+import {
+  deriveSeriesBookId,
+  runtimeMarketByKey,
+  runtimeMarketBySeries,
+  ticksToPrice as marketTicksToPrice,
+} from "@/lib/internal-gateway/runtime-markets";
 import { readLocalRuntime } from "@/lib/internal-gateway/runtime-server";
 
 /**
@@ -30,21 +35,18 @@ import { readLocalRuntime } from "@/lib/internal-gateway/runtime-server";
  * receipts, the public book and the trade tape with the same reads and the same rules as the platform's gateway
  * (`lib/internal-gateway/onchain.ts`), as pure server helpers that do not depend on a browser wallet. Contract enums
  * are canonicalized through explicit tables; a value outside a table fails the projection instead of being guessed.
+ *
+ * Every catalog market listed in the runtime's `markets` array executes onchain on its own series, tick grid and
+ * payoff bounds. Chain records name a series; the catalog market id is always resolved from that series through the
+ * runtime, and a record on a series the runtime does not list is left out of every projection.
  */
 
-export const ONCHAIN_MARKET_ID = "BTC-YC-24DEC26";
-export const CONTRACT_MULTIPLIER = 2.5;
 export const ACCOUNT_SALT = keccak256(stringToHex("SETRYN_PRIMARY_ACCOUNT_V1"));
 export const EMPTY_ID = `0x${"0".repeat(64)}` as Hex;
 export const PUBLIC_SERIES_POLICY = keccak256(stringToHex("SETRYN_POLICY_PUBLIC_SERIES_V1"));
 /** Seconds a maker order must remain live past the latest block so it cannot expire before the match lands. */
 export const MAKER_DEADLINE_MARGIN_SECONDS = BigInt(15);
 const CONSIDERATION_ENTRY = 1;
-const BOOK_ID_TYPEHASH = keccak256(
-  stringToHex(
-    "SetrynDirectBookV1(uint256 chainId,address book,address orderState,uint8 targetKind,bytes32 targetId,uint32 targetVersion,bytes32 executionModeId,bytes32 settlementAssetId,uint32 settlementAssetVersion,bytes32 feeScheduleId,uint32 feeScheduleVersion,bytes32 packageLegsHash)",
-  ),
-);
 
 export const positionLifecycleAbi = parseAbi([
   "function positionStatus(bytes32 positionId) view returns (uint8)",
@@ -90,7 +92,8 @@ export function orderStateName(status: number, expired: boolean): OrderStateName
   return state;
 }
 
-export const ticksToPrice = (ticks: bigint) => Number(ticks) / 10;
+/** Onchain price ticks to the package price of the market that trades on that grid. */
+export const ticksToPrice = (market: SetrynRuntimeMarket, ticks: bigint) => marketTicksToPrice(market, ticks);
 export const minorToUsd = (minor: bigint) => Number(formatUnits(minor, 6));
 const iso = (seconds: bigint) => new Date(Number(seconds) * 1000).toISOString();
 
@@ -104,7 +107,7 @@ export interface ChainContext {
 
 const CLIENTS_KEY = Symbol.for("setryn.public-api.clients");
 const CACHE_KEY = Symbol.for("setryn.public-api.block-cache");
-const PROJECTION_VERSION = 2;
+const PROJECTION_VERSION = 3;
 
 function clientFor(rpcUrl: string): PublicClient {
   const holder = globalThis as unknown as Record<symbol, Map<string, PublicClient> | undefined>;
@@ -144,41 +147,24 @@ function cachedByBlock<T>(name: string, context: ChainContext, loader: () => Pro
   return value;
 }
 
-export function deriveBookId(setryn: SetrynRuntime): Hex {
-  return keccak256(
-    encodeAbiParameters(
-      [
-        { name: "typeHash", type: "bytes32" },
-        { name: "chainId", type: "uint256" },
-        { name: "book", type: "address" },
-        { name: "orderState", type: "address" },
-        { name: "targetKind", type: "uint8" },
-        { name: "targetId", type: "bytes32" },
-        { name: "targetVersion", type: "uint32" },
-        { name: "executionModeId", type: "bytes32" },
-        { name: "settlementAssetId", type: "bytes32" },
-        { name: "settlementAssetVersion", type: "uint32" },
-        { name: "feeScheduleId", type: "bytes32" },
-        { name: "feeScheduleVersion", type: "uint32" },
-        { name: "packageLegsHash", type: "bytes32" },
-      ],
-      [
-        BOOK_ID_TYPEHASH,
-        BigInt(setryn.chainId),
-        setryn.publicOrderBook,
-        setryn.orderState,
-        1,
-        setryn.seriesId,
-        1,
-        setryn.executionModeId,
-        setryn.settlementAssetId,
-        1,
-        setryn.feeScheduleId,
-        1,
-        EMPTY_ID,
-      ],
-    ),
-  );
+/** The direct public book of one onchain market's series. */
+export function deriveBookId(setryn: SetrynRuntime, market: SetrynRuntimeMarket): Hex {
+  return deriveSeriesBookId(setryn, market.seriesId);
+}
+
+/** The onchain market of a catalog market id, or null when that catalog market is preview-only on this deployment. */
+export function onchainMarket(setryn: SetrynRuntime, catalogMarketId: string): SetrynRuntimeMarket | null {
+  return runtimeMarketByKey(setryn, catalogMarketId);
+}
+
+/** The onchain market a series trades as, or null for a series the runtime does not list. */
+export function marketOfSeries(setryn: SetrynRuntime, seriesId: string): SetrynRuntimeMarket | null {
+  return runtimeMarketBySeries(setryn, seriesId);
+}
+
+/** Collateral the contracts reserve per lot on one side of a market, in settlement minor units. */
+export function liabilityPerLotMinor(market: SetrynRuntimeMarket, side: number): bigint {
+  return BigInt(side === 1 ? market.maxLongDebitMinorPerLot : market.maxShortDebitMinorPerLot);
 }
 
 export function deriveAccountId(context: ChainContext, signer: Address): Promise<Hex> {
@@ -344,15 +330,15 @@ function loadChainActivity(context: ChainContext): Promise<ChainActivity> {
   });
 }
 
-/** Consideration the account received minus what it paid on one fill, in USD, read from the clearing ledger. */
-function netConsiderationUsd(events: readonly LedgerFlow[], fillId: string, accountId: string): number {
+/** Consideration the account received minus what it paid on one fill, in settlement minor units, from the clearing ledger. */
+function netConsiderationMinor(events: readonly LedgerFlow[], fillId: string, accountId: string): bigint {
   let net = BigInt(0);
   for (const { args } of events) {
     if (args.fillId?.toLowerCase() !== fillId.toLowerCase() || args.kind !== CONSIDERATION_ENTRY || args.amount == null) continue;
     if (args.receiverAccountId?.toLowerCase() === accountId.toLowerCase()) net += args.amount;
     if (args.payerAccountId?.toLowerCase() === accountId.toLowerCase()) net -= args.amount;
   }
-  return Number(formatUnits(net, 6));
+  return net;
 }
 
 export interface ApiPosition {
@@ -429,7 +415,8 @@ export function loadAccountActivity(context: ChainContext, accountId: Hex): Prom
     const account = accountId.toLowerCase();
     const own = [];
     for (const fill of activity.fills) {
-      if (fill.seriesId.toLowerCase() !== setryn.seriesId.toLowerCase()) continue;
+      const market = marketOfSeries(setryn, fill.seriesId);
+      if (!market) continue;
       const isTaker = fill.taker.order.accountId.toLowerCase() === account;
       const isMaker = fill.maker.order.accountId.toLowerCase() === account;
       if (!isTaker && !isMaker) continue;
@@ -452,9 +439,10 @@ export function loadAccountActivity(context: ChainContext, accountId: Hex): Prom
         );
       const requestedLots = isTaker ? Number(ownRecord.order.lots) : filledLots;
       const tif = timeInForceName(ownRecord.order.timeInForce);
-      const perLot = side === "LONG" ? setryn.maxLongDebitMinorPerLot : setryn.maxShortDebitMinorPerLot;
+      const perLot = side === "LONG" ? market.maxLongDebitMinorPerLot : market.maxShortDebitMinorPerLot;
       own.push({
         fill,
+        market,
         role: isTaker ? ("TAKER" as const) : ("MAKER" as const),
         orderHash: isTaker ? fill.takerOrderHash : fill.makerOrderHash,
         side,
@@ -492,12 +480,13 @@ export function loadAccountActivity(context: ChainContext, accountId: Hex): Prom
       const entry = closedEntry?.entry;
       const opened = !closedEntry && (fill.positionLive || closedBy.has(positionKey));
       const route = channelName(fill.channelKind);
-      const price = ticksToPrice(fill.executionPriceTicks);
+      const price = ticksToPrice(record.market, fill.executionPriceTicks);
+      const marketId = record.market.marketKey;
       fills.push({
         fillId: fill.fillId,
         orderHash: record.orderHash,
         role: record.role,
-        marketId: ONCHAIN_MARKET_ID,
+        marketId,
         side: record.side,
         route,
         requestedLots: record.requestedLots,
@@ -519,8 +508,8 @@ export function loadAccountActivity(context: ChainContext, accountId: Hex): Prom
         fillId: fill.fillId,
         orderHash: record.orderHash,
         transactionHash: fill.transactionHash,
-        marketId: ONCHAIN_MARKET_ID,
-        packageCode: ONCHAIN_MARKET_ID,
+        marketId,
+        packageCode: marketId,
         side: record.side,
         route,
         routeLabel: route === "PRIVATE_RFQ" ? "Private firm RFQ" : "Direct package book",
@@ -531,7 +520,10 @@ export function loadAccountActivity(context: ChainContext, accountId: Hex): Prom
         price,
         feesUsd: minorToUsd(record.feeMinor),
         realizedPnlUsd: entry
-          ? netConsiderationUsd(activity.ledgerEvents, entry.fill.fillId, accountId) + netConsiderationUsd(activity.ledgerEvents, fill.fillId, accountId)
+          ? minorToUsd(
+              netConsiderationMinor(activity.ledgerEvents, entry.fill.fillId, accountId) +
+                netConsiderationMinor(activity.ledgerEvents, fill.fillId, accountId),
+            )
           : null,
         collateralReleasedUsd: entry ? entry.collateralUsd + record.collateralUsd : null,
         guarantee: "Atomic onchain settlement",
@@ -541,7 +533,7 @@ export function loadAccountActivity(context: ChainContext, accountId: Hex): Prom
       if (fill.positionLive) {
         positions.push({
           positionId: fill.positionId,
-          marketId: ONCHAIN_MARKET_ID,
+          marketId,
           side: record.side,
           lots: record.filledLots,
           entryPrice: price,
@@ -570,6 +562,8 @@ export interface ApiOrder {
   accountId: Hex;
   signer: Address;
   marketId: string;
+  /** DIRECT_BOOK for public book orders; PRIVATE_RFQ for the taker order behind a private RFQ. */
+  route: ChannelName;
   side: SideName;
   lots: number;
   filledLots: number;
@@ -589,7 +583,12 @@ export interface ApiOrder {
   createdAt: string;
 }
 
-async function projectOrder(context: ChainContext, orderHash: Hex, record: OrderRecord): Promise<ApiOrder> {
+async function projectOrder(
+  context: ChainContext,
+  orderHash: Hex,
+  record: OrderRecord,
+  market: SetrynRuntimeMarket,
+): Promise<ApiOrder> {
   const { client, setryn } = context;
   const admissionId = await client.readContract({
     address: setryn.riskAdmissionBindingRegistry,
@@ -609,12 +608,13 @@ async function projectOrder(context: ChainContext, orderHash: Hex, record: Order
     orderHash,
     accountId: record.order.accountId,
     signer: getAddress(record.order.signer),
-    marketId: ONCHAIN_MARKET_ID,
+    marketId: market.marketKey,
+    route: record.order.executionModeId.toLowerCase() === setryn.privateRfqExecutionModeId.toLowerCase() ? "PRIVATE_RFQ" : "DIRECT_BOOK",
     side: sideName(record.order.side),
     lots,
     filledLots,
     remainingLots: lots - filledLots,
-    limitPrice: ticksToPrice(record.order.priceTicks),
+    limitPrice: ticksToPrice(market, record.order.priceTicks),
     priceTicks: record.order.priceTicks.toString(),
     timeInForce: timeInForceName(record.order.timeInForce),
     postOnly: record.order.postOnly,
@@ -630,13 +630,13 @@ async function projectOrder(context: ChainContext, orderHash: Hex, record: Order
   };
 }
 
-/** Registered orders of one account (or one signer) on the active series, newest first. */
 /** Expiry depends on the chain clock, which moves between blocks, so it is applied after the per-block cache. */
 function withLiveState(order: ApiOrder, chainTime: bigint): ApiOrder {
   const expired = BigInt(Math.floor(Date.parse(order.deadline) / 1000)) <= chainTime;
   return { ...order, state: orderStateName(order.statusCode, expired) };
 }
 
+/** Registered orders of one account (or one signer) on every onchain market, newest first. */
 export async function loadOrders(context: ChainContext, filter: { accountId: Hex } | { signer: Address }): Promise<ApiOrder[]> {
   const cacheName = "accountId" in filter ? `orders:account:${filter.accountId.toLowerCase()}` : `orders:signer:${filter.signer.toLowerCase()}`;
   const orders = await cachedByBlock(cacheName, context, async () => {
@@ -660,8 +660,9 @@ export async function loadOrders(context: ChainContext, filter: { accountId: Hex
     const orders: ApiOrder[] = [];
     for (const orderHash of hashes) {
       const record = await readOrder(context, orderHash);
-      if (record.order.seriesId.toLowerCase() !== setryn.seriesId.toLowerCase()) continue;
-      orders.push(await projectOrder(context, orderHash, record));
+      const market = marketOfSeries(setryn, record.order.seriesId);
+      if (!market) continue;
+      orders.push(await projectOrder(context, orderHash, record, market));
     }
     return orders.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   });
@@ -670,8 +671,10 @@ export async function loadOrders(context: ChainContext, filter: { accountId: Hex
 
 export async function loadOrder(context: ChainContext, orderHash: Hex): Promise<ApiOrder | null> {
   const record = await readOrderIfRegistered(context, orderHash);
-  if (!record || record.registeredAt === BigInt(0) || record.order.seriesId.toLowerCase() !== context.setryn.seriesId.toLowerCase()) return null;
-  return projectOrder(context, orderHash, record);
+  if (!record || record.registeredAt === BigInt(0)) return null;
+  const market = marketOfSeries(context.setryn, record.order.seriesId);
+  if (!market) return null;
+  return projectOrder(context, orderHash, record, market);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -711,11 +714,14 @@ function aggregate(rows: BookOrderRow[]): BookLevel[] {
   return [...levels.values()];
 }
 
-/** Live resting orders of the direct book, as the platform shows them: resting, open and not past deadline. */
-export async function loadPublicBook(context: ChainContext): Promise<OnchainBook> {
-  const { bookId, rows } = await cachedByBlock("book", context, async () => {
+/**
+ * Live resting orders of one market's direct book, as the platform shows them: resting, open and not past deadline.
+ * Each onchain market rests on its own series book.
+ */
+export async function loadPublicBook(context: ChainContext, market: SetrynRuntimeMarket): Promise<OnchainBook> {
+  const { bookId, rows } = await cachedByBlock(`book:${market.seriesId.toLowerCase()}`, context, async () => {
     const { client, setryn } = context;
-    const bookId = deriveBookId(setryn);
+    const bookId = deriveBookId(setryn, market);
     const events = await client.getContractEvents({
       address: setryn.publicOrderBook,
       abi: publicOrderBookAbi,
@@ -738,7 +744,7 @@ export async function loadPublicBook(context: ChainContext): Promise<OnchainBook
             deadlineSeconds: record.order.deadline,
             orderHash,
             side: sideName(bookOrder.side) === "LONG" ? ("BID" as const) : ("ASK" as const),
-            price: ticksToPrice(bookOrder.priceTicks),
+            price: ticksToPrice(market, bookOrder.priceTicks),
             priceTicks: bookOrder.priceTicks.toString(),
             lots: Number(bookOrder.remainingLots),
             deadline: iso(record.order.deadline),
@@ -771,17 +777,17 @@ export interface ApiTrade {
 }
 
 /**
- * Public tape of the onchain market, newest first. Only direct-book fills are printed: private RFQ fills settle onchain
+ * Public tape of one onchain market, newest first. Only direct-book fills are printed: private RFQ fills settle onchain
  * but their disclosure policy keeps them off the public tape.
  */
-export async function loadTrades(context: ChainContext): Promise<ApiTrade[]> {
+export async function loadTrades(context: ChainContext, market: SetrynRuntimeMarket): Promise<ApiTrade[]> {
   const activity = await loadChainActivity(context);
   return activity.fills
-    .filter((fill) => fill.seriesId.toLowerCase() === context.setryn.seriesId.toLowerCase() && channelName(fill.channelKind) === "DIRECT_BOOK")
+    .filter((fill) => fill.seriesId.toLowerCase() === market.seriesId.toLowerCase() && channelName(fill.channelKind) === "DIRECT_BOOK")
     .map((fill) => ({
       tradeId: fill.fillId,
-      marketId: ONCHAIN_MARKET_ID,
-      price: ticksToPrice(fill.executionPriceTicks),
+      marketId: market.marketKey,
+      price: ticksToPrice(market, fill.executionPriceTicks),
       priceTicks: fill.executionPriceTicks.toString(),
       lots: Number(fill.fillLots),
       aggressorSide: sideName(fill.taker.order.side) === "LONG" ? ("BUY" as const) : ("SELL" as const),

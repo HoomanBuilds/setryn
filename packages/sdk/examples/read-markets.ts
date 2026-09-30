@@ -1,5 +1,5 @@
 /**
- * Reads the deployment status, the market catalog, the onchain book and the trade tape.
+ * Reads the deployment status, the market catalog, and the onchain book and trade tape of every onchain market.
  *
  *   SETRYN_API_KEY=stk_test_... SETRYN_BASE_URL=http://localhost:3100 pnpm --filter @setryn/sdk example:read
  */
@@ -21,18 +21,18 @@ try {
   for await (const market of client.paginate((page) => client.listMarkets(page), 5)) {
     count += 1;
     const quote = `${market.quote.bestBid} / ${market.quote.bestAsk}`;
-    console.log(`${market.execution.padEnd(12)} ${market.id.padEnd(22)} ${market.qualification.padEnd(11)} preview ${quote}`);
+    const grid = market.onchain ? `grid 1/${market.onchain.priceScale} x${market.contractMultiplier}` : "";
+    console.log(`${market.execution.padEnd(12)} ${market.id.padEnd(22)} ${market.qualification.padEnd(11)} preview ${quote} ${grid}`);
   }
   console.log(`${count} markets`);
 
-  const onchain = (await client.listMarkets({ execution: "ONCHAIN" })).data[0];
-  if (onchain) {
+  // Every onchain market rests on its own series book with its own price grid.
+  for await (const onchain of client.paginate((page) => client.listMarkets({ ...page, execution: "ONCHAIN" }), 50)) {
     const book = await client.getBook(onchain.id);
-    console.log(`\n${onchain.id} ${book.source}: ${book.bids.length} bid levels, ${book.asks.length} ask levels`);
-    for (const level of book.asks.slice(0, 3).reverse()) console.log(`  ask ${level.price.toFixed(1)} x ${level.lots}`);
-    for (const level of book.bids.slice(0, 3)) console.log(`  bid ${level.price.toFixed(1)} x ${level.lots}`);
-    const trades = await client.listTrades(onchain.id, { limit: 5 });
-    console.log(`last ${trades.data.length} of ${trades.page.total} onchain trades`);
+    const trades = await client.listTrades(onchain.id, { limit: 3 });
+    const decimals = Math.round(Math.log10(onchain.onchain?.priceScale ?? 10));
+    const top = `${book.bids[0]?.price.toFixed(decimals) ?? "-"} / ${book.asks[0]?.price.toFixed(decimals) ?? "-"}`;
+    console.log(`\n${onchain.id} ${book.source}: ${book.bids.length} bid / ${book.asks.length} ask levels, top ${top}, ${trades.page.total} trades`);
     for (const trade of trades.data) console.log(`  ${trade.time} ${trade.aggressorSide} ${trade.lots} @ ${trade.price}`);
   }
 

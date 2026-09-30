@@ -1,11 +1,29 @@
 # @setryn/sdk
 
-TypeScript client for the Setryn public API (v1). It covers market data, account projections, and non-custodial order
-entry. ESM only, and viem is its only dependency.
+TypeScript client for the Setryn public API (v1). It covers market data, account projections, non-custodial order
+entry, position exits, and private firm RFQ. ESM only, and viem is its only dependency.
 
 Every response comes from the same contract state and events as the Setryn platform. The API never holds a private
-key and never sends a transaction for you. Orders are prepared by the API, signed in your wallet, relayed to the
-platform's risk admission, and then the transactions the API returns are sent from your wallet.
+key and never sends a transaction for you. Orders and RFQs are prepared by the API, signed in your wallet, relayed to
+the platform's risk admission, and then the transactions the API returns are sent from your wallet.
+
+## Markets
+
+Every market the deployment registers onchain reports `execution: "ONCHAIN"` with its own `onchain` block: `seriesId`,
+`marketId`, `bookId`, `tickSizeMinor`, `priceScale`, `maxOrderLots`, `maxLongDebitMinorPerLot` /
+`maxShortDebitMinorPerLot`, and the fee rates. On the local devnet that is all 16 catalog markets (BTC yield curves,
+ETH funding carries, ARB basis, EURUSD and XAUUSD forwards). Any other catalog market is `PREVIEW_ONLY`: it serves
+labelled preview data and cannot be traded.
+
+- **Price grid.** Onchain prices are integer ticks: `priceTicks = price x onchain.priceScale` (for example a scale of 10
+  quotes in steps of 0.1, a scale of 100 in steps of 0.01). A `limitPrice` off the grid is refused with
+  `INVALID_REQUEST`.
+- **Size and collateral.** `lots` runs from 1 to `maxOrderLots`. Risk admission reserves `lots x maxLongDebitMinorPerLot`
+  (LONG) or `lots x maxShortDebitMinorPerLot` (SHORT); `collateralPerLot` is the larger of the two in USD.
+- **Consideration.** `contractMultiplier` is the settlement value of one price unit per lot
+  (`tickSizeMinor x priceScale / 1e6`).
+- **Books and tapes.** `getBook(id)` and `listTrades(id)` read that market's own series book and fills. Orders, fills,
+  positions and receipts carry the catalog `marketId` resolved from the series they trade on.
 
 ## Install
 
@@ -34,8 +52,8 @@ const status = await setryn.status();
 console.log(status.chainId, status.headBlock, status.deployment.state);
 
 const { data: markets } = await setryn.listMarkets({ execution: "ONCHAIN" });
-const book = await setryn.getBook(markets[0].id); // source: ONCHAIN_PUBLIC_BOOK
-const preview = await setryn.getBook("ETH-FC-25SEP26"); // source: PREVIEW_DEPTH, executable: false
+const book = await setryn.getBook("XAUUSD-FW-29JUN27"); // source: ONCHAIN_PUBLIC_BOOK, that market's own series book
+console.log(book.priceScale, book.asks[0]?.price, book.asks[0]?.priceTicks);
 
 // Pagination: one page at a time, or every item.
 const page = await setryn.listFills({ signer: "0x…" }, { limit: 20 });
@@ -63,8 +81,18 @@ try {
 | `listReceipts(filter, params)` | `GET /receipts` | read |
 | `prepareOrder(input)` | `POST /orders/prepare` | trade |
 | `submitOrder({ order, signature })` | `POST /orders` | trade |
+| `prepareCancel(hash)` | `POST /orders/{hash}/cancel` | trade |
 | `prepareExit({ signer, positionIds })` | `POST /positions/exit/prepare` | trade |
 | `submitExit(signedExit)` | `POST /positions/exit` | trade |
+| `listRfqs(filter, params)` / `getRfq(rfqId)` | `GET /rfqs`, `GET /rfqs/{rfqId}` | read |
+| `listRfqQuotes(rfqId, params)` | `GET /rfqs/{rfqId}/quotes` | read |
+| `prepareRfq(input)` | `POST /rfqs/prepare` | trade |
+| `submitRfq({ order, orderSignature, request, requestSignature })` | `POST /rfqs` | trade |
+| `solicitRfqQuotes(rfqId)` | `POST /rfqs/{rfqId}/quotes` | trade |
+| `prepareRfqAcceptance(rfqId, quoteId)` | `POST /rfqs/{rfqId}/accept/prepare` | trade |
+| `acceptRfqQuote(rfqId, { selection, signature })` | `POST /rfqs/{rfqId}/accept` | trade |
+| `settleRfq(rfqId)` | `POST /rfqs/{rfqId}/settle` | trade |
+| `prepareRfqCancel(rfqId)` | `POST /rfqs/{rfqId}/cancel` | trade |
 | `openApi()` | `GET /openapi.json` | none |
 
 `filter` is `{ accountId }` or `{ signer }`. A signer resolves to its primary collateral account.
@@ -80,10 +108,10 @@ const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
 
 const result = await placeOrder(setryn, wallet, publicClient, {
   signer: account.address,
-  marketId: "BTC-YC-24DEC26",
+  marketId: "ETH-FC-25SEP26", // any market with execution "ONCHAIN"
   side: "LONG",
   lots: 1,
-  limitPrice: 613,
+  limitPrice: 439.6, // on the market's grid (priceScale 10 here)
   timeInForce: "IOC", // IOC/FOK match now; GTC/GTD rest on the book
 });
 console.log(result.submitted.orderHash, result.transactionHashes);
@@ -123,6 +151,49 @@ console.log(result.submitted.actionId, result.transactionHashes); // AUTHORIZE_L
    action id, verifies both signatures, simulates authorization, and returns `AUTHORIZE_LIFECYCLE` and
    `EXECUTE_LIFECYCLE`, which `sendOrderTransactions` sends in order.
 
+## Private RFQ (your wallet signs and sends)
+
+A private RFQ asks eligible solvers for firm, capacity-backed quotes and clears the selected one atomically onchain
+through the private execution channel. RFQ fills settle like any other fill (route `PRIVATE_RFQ` on fills and
+receipts) but stay off the public tape.
+
+```ts
+import { executeRfq } from "@setryn/sdk";
+
+const market = await setryn.getMarket("EURUSD-FW-30DEC26");
+const result = await executeRfq(setryn, wallet, publicClient, {
+  marketId: market.id,
+  side: "LONG",
+  lots: 1,
+  limitPrice: market.quote.bestAsk, // the worst price you accept
+});
+console.log(result.quote.price, result.settlement.fillId, result.rfq.state); // SETTLED
+```
+
+`executeRfq` runs these steps, and you can also call each one yourself:
+
+1. `client.prepareRfq(input)` builds the taker `PublicOrder` on the market's series with the private RFQ execution
+   mode, and the `PrivateRfqRequest` bound to it (`rfqId` is its hash). `timeInForce` defaults to `IOC`; `FOK` is
+   refused because the RFQ book only accepts a no-partial-fill request whose remainder stays open.
+2. `signPublicOrder(wallet, prepared.orderTypedData, prepared.order)` and `signPreparedRfqRequest(wallet, prepared)`
+   check the layouts, chain and signer, then sign locally.
+3. `client.submitRfq({ order, orderSignature, request, requestSignature })` verifies both signatures, checks that the
+   request is exactly the one derived from the order, runs risk admission, and returns `BIND_RISK`, `REGISTER_ORDER`,
+   `REGISTER_RFQ` and `OPEN_RFQ` (plus any missing lock operator approvals).
+4. `client.solicitRfqQuotes(rfqId)` invites solvers to quote the collecting RFQ. On the local devnet the seeded solver
+   (`Setryn Devnet MM`) quotes through the platform's devnet solver route, exactly as the terminal does. Each quote
+   reports `price`, `state` and `withinLimit` (at or inside your signed limit).
+5. `client.prepareRfqAcceptance(rfqId, quoteId)` returns the `RfqSelectionAuthorization` typed data for a `RESERVED`
+   quote inside your limit; `signPreparedRfqAcceptance(wallet, prepared)` signs it.
+6. `client.acceptRfqQuote(rfqId, { selection, signature })` verifies and simulates the selection and returns
+   `LOCK_SELECTION`, `CONFIRM_CAPACITY`, `AUTHORIZE_SUBMISSION` and `SUBMIT_RFQ`.
+7. `client.settleRfq(rfqId)` hands the submitted RFQ to its permitted executor, which clears it through
+   `clearSeriesWithHandoff` and returns the fill, position, price and fees.
+
+Pass `{ selectQuote }` to choose a quote yourself. An RFQ you do not accept can be cancelled (or expired after its
+deadline) with `cancelRfq(client, wallet, publicClient, rfqId)`, which also releases the taker order's reserved
+collateral.
+
 The public layer cannot bypass qualification, collateral, risk admission, execution, or settlement. Preview-only
 markets are refused with `MARKET_NOT_ONCHAIN`, a resting order that would cross is refused with `WOULD_CROSS`, and
 insufficient collateral fails risk admission with `RISK_RESERVATION_FAILED`.
@@ -156,7 +227,10 @@ pnpm --filter @setryn/sdk example:read     # status, catalog, onchain book and t
 
 # Local devnet only (refuses any chain but 31337): mints test sUSD if needed, seeds the devnet maker, places an IOC.
 export SETRYN_DEVNET_PRIVATE_KEY=0x...      # a local anvil account key, never a real key
-pnpm --filter @setryn/sdk example:order
+SETRYN_MARKET_ID=XAUUSD-FW-29JUN27 pnpm --filter @setryn/sdk example:order
+
+# Local devnet only: a full private RFQ (request, solver quote, selection, atomic settlement).
+SETRYN_MARKET_ID=EURUSD-FW-30DEC26 SETRYN_SIDE=LONG pnpm --filter @setryn/sdk example:rfq
 ```
 
 ## Versioning
@@ -167,9 +241,11 @@ is at `/api/v1/openapi.json`, and its operation ids match the method names above
 
 ## Current limits
 
-- One market (`BTC-YC-24DEC26`) executes onchain on this deployment. The other markets serve labelled preview data.
-- Only direct public-book orders and full exits of an offsetting pair go through the API. Private RFQ and other
-  lifecycle actions (partial exits, rolls, package compression) are platform-only in v1. Exit counterparty consent is
+- Markets execute onchain only when the deployment registers them; on the local devnet that is every catalog market.
+- Direct public-book orders, private RFQs on a single series, and full exits of an offsetting pair go through the API.
+  Package RFQs and other lifecycle actions (partial exits, rolls, package compression) are platform-only in v1.
+- Solver quoting (`solicitRfqQuotes`) and RFQ handoff execution (`settleRfq`) are served by the devnet solver and
+  operator on the local devnet only; elsewhere they return `SOLVER_UNAVAILABLE`. Exit counterparty consent is likewise
   available only from the devnet maker on the local devnet.
 - Delegated signers are not supported onchain. The order signer must own the collateral account. A key can be
   restricted to specific signer addresses.
