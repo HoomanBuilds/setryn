@@ -181,7 +181,8 @@ rm -f \
     "$log_file" \
     "$deployment_directory/manifest.json" \
     "$deployment_directory/runtime.json" \
-    "$deployment_directory/runtime.tmp.json"
+    "$deployment_directory/runtime.tmp.json" \
+    "$deployment_directory/devnet-markets.json"
 
 devnet_epoch="$(date -u -d "$devnet_epoch_iso" +%s)" || {
     printf 'SETRYN_DEVNET_EPOCH must be an ISO-8601 UTC timestamp.\n' >&2
@@ -359,6 +360,9 @@ export SETRYN_POSITION_ENGINE="${bootstrap_addresses[24]}"
 export SETRYN_LIFECYCLE_POLICY_VALIDATOR="${bootstrap_addresses[25]}"
 export SETRYN_SIGNED_LIFECYCLE_ENGINE="${bootstrap_addresses[26]}"
 export SETRYN_RUNTIME_OUTPUT="$deployment_directory/runtime.tmp.json"
+# Every market in the terminal catalog is registered as its own onchain market and series, projected from the catalog.
+export SETRYN_DEVNET_MARKETS="$deployment_directory/devnet-markets.json"
+node --no-warnings "$repository_root/scripts/generate-devnet-markets.mjs" --output "$SETRYN_DEVNET_MARKETS"
 
 forge script "$repository_root/contracts/script/BootstrapSetrynDevnet.s.sol:BootstrapSetrynDevnet" \
     --root "$repository_root/contracts" \
@@ -373,6 +377,36 @@ if [[ ! -s "$deployment_directory/runtime.tmp.json" ]]; then
     printf 'Devnet bootstrap completed without producing runtime evidence.\n' >&2
     exit 1
 fi
+SETRYN_RUNTIME="$deployment_directory/runtime.tmp.json" node -e '
+    const runtime = require(process.env.SETRYN_RUNTIME);
+    const catalog = require(process.env.SETRYN_DEVNET_MARKETS);
+    const hash = /^0x[0-9a-fA-F]{64}$/;
+    const fail = (reason) => { process.stderr.write(`Invalid devnet runtime: ${reason}\n`); process.exit(1); };
+    if (runtime.schemaVersion !== 9 || runtime.chainId !== 31337) fail("schema version or chain");
+    if (!Array.isArray(runtime.markets) || runtime.markets.length !== catalog.markets.length) fail("market count");
+    const seen = new Set();
+    runtime.markets.forEach((market, index) => {
+        const spec = catalog.markets[index];
+        if (market.marketKey !== spec.marketKey) fail(`market ${index} is ${market.marketKey}, expected ${spec.marketKey}`);
+        for (const field of ["marketId", "instrumentId", "seriesId", "benchmarkId"]) {
+            if (!hash.test(market[field] ?? "")) fail(`${spec.marketKey}.${field}`);
+        }
+        if (seen.has(market.seriesId.toLowerCase()) || seen.has(market.marketId.toLowerCase())) fail(`${spec.marketKey} ids repeat`);
+        seen.add(market.seriesId.toLowerCase());
+        seen.add(market.marketId.toLowerCase());
+        if (!/^0x(?:[0-9a-fA-F]{2})+$/.test(market.payoffTerms ?? "")) fail(`${spec.marketKey}.payoffTerms`);
+        if (market.tickSizeMinor !== spec.tickSizeMinor || market.priceScale !== spec.priceScale || market.maxOrderLots !== spec.maxOrderLots) {
+            fail(`${spec.marketKey} economics differ from the catalog`);
+        }
+        if (market.maxLongDebitMinorPerLot !== spec.bandMinor || market.maxShortDebitMinorPerLot !== spec.bandMinor) {
+            fail(`${spec.marketKey} debit bounds differ from the payoff band`);
+        }
+    });
+    const primary = runtime.markets[0];
+    for (const field of ["marketId", "seriesId", "payoffTerms", "tickSizeMinor", "maxOrderLots", "maxLongDebitMinorPerLot", "maxShortDebitMinorPerLot", "instrumentId", "benchmarkId"]) {
+        if (runtime[field] !== primary[field]) fail(`top-level ${field} does not name the primary market`);
+    }
+'
 mv "$deployment_directory/runtime.tmp.json" "$deployment_directory/runtime.json"
 
 trap - ERR INT TERM

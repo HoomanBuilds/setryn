@@ -102,14 +102,14 @@ contract BootstrapSetrynDevnet is Script {
     bytes32 private constant PAYOFF_INTERFACE = keccak256("SETRYN_SERIES_PAYOFF_INTERFACE_V1");
     bytes32 private constant PAYOFF_CAPABILITY = keccak256("SETRYN_EXACT_LOTS_PAYOFF_V1");
     bytes32 private constant TERMS_SCHEMA = keccak256("SETRYN_CANONICAL_CAPPED_FORWARD_TERMS_V1");
-    uint128 private constant MARKET_TICK_SIZE_MINOR = 100_000;
-    uint128 private constant MARKET_MAX_ORDER_LOTS = 10;
+    uint8 private constant FIXING_DECIMALS = 8;
     uint32 private constant MAKER_FEE_RATE_PPM = 500;
     uint32 private constant TAKER_FEE_RATE_PPM = 1_000;
 
     error PublicNetworkBootstrapDisabled(uint256 chainId);
     error InvalidDependency(string name);
     error UnexpectedVersion(string name, uint32 version);
+    error InvalidMarketCatalog(string reason);
 
     struct Contracts {
         IAssetRegistry assets;
@@ -161,7 +161,41 @@ contract BootstrapSetrynDevnet is Script {
         bytes payoffTerms;
         uint128 maxLongDebitMinorPerLot;
         uint128 maxShortDebitMinorPerLot;
+        uint128 tickSizeMinor;
+        uint128 maxOrderLots;
         uint32 day;
+        SeriesRecord[] series;
+    }
+
+    /// One underlying the catalog's markets fix on: a base asset and the benchmark its series settle against.
+    struct FamilySpec {
+        string symbol;
+        string feedKey;
+        uint8 assetClass;
+    }
+
+    /// One catalog market as `scripts/generate-devnet-markets.mjs` projects it from the terminal catalog.
+    struct MarketSpec {
+        string marketKey;
+        uint256 family;
+        uint64 priceScale;
+        uint128 tickSizeMinor;
+        int256 strike;
+        uint128 bandMinor;
+        uint128 maxOrderLots;
+    }
+
+    struct SeriesRecord {
+        string marketKey;
+        MarketId marketId;
+        SeriesId seriesId;
+        BenchmarkId benchmarkId;
+        bytes payoffTerms;
+        uint128 maxLongDebitMinorPerLot;
+        uint128 maxShortDebitMinorPerLot;
+        uint128 tickSizeMinor;
+        uint64 priceScale;
+        uint128 maxOrderLots;
     }
 
     struct Schedule {
@@ -189,23 +223,40 @@ contract BootstrapSetrynDevnet is Script {
         runtime.day = uint32(block.timestamp / 1 days);
         Schedule memory schedule = _schedule(runtime.day);
 
+        (FamilySpec[] memory families, MarketSpec[] memory specs) =
+            _readCatalog(vm.readFile(vm.envString("SETRYN_DEVNET_MARKETS")));
+
         vm.startBroadcast(operator);
         runtime.settlementToken = new DevnetSettlementToken();
         runtime.marketAdapter = new DevnetMarketAdapter(c.risks, c.adapters, observationAge);
-        _registerAssets(c, runtime);
+        _registerSettlementAsset(c, runtime);
         _registerAdapters(c, runtime);
         (runtime.calendarId, runtime.sessionId) = _registerCalendarAndSession(c, runtime.day, schedule);
         _registerSettlementBinding(c, runtime);
-        runtime.benchmarkId = _registerBenchmark(c, runtime);
+        (AssetId[] memory familyAssets, BenchmarkId[] memory familyBenchmarks) = _registerFamilies(c, runtime, families);
+        runtime.baseAssetId = familyAssets[0];
+        runtime.benchmarkId = familyBenchmarks[0];
         runtime.feeRecipientAccountId = c.collateralVault.createAccount(keccak256("SETRYN_PROTOCOL_FEES_DEVNET_V1"));
         (FeeRule[] memory feeRules, FeeRecipientSet memory feeRecipients) = _feeWitness(runtime.feeRecipientAccountId);
         runtime.feeScheduleId = _registerFeeSchedule(c, runtime, feeRules, feeRecipients);
         c.fundedFeeEngine.installScheduleWitness(runtime.feeScheduleId, VERSION, feeRules, feeRecipients);
         runtime.riskDomainId = _registerRiskDomain(c, runtime);
         runtime.instrumentId = _registerInstrument(c, runtime);
-        runtime.marketId = _registerMarket(c, runtime);
-        (runtime.seriesId, runtime.payoffTerms, runtime.maxLongDebitMinorPerLot, runtime.maxShortDebitMinorPerLot) =
-            _registerSeries(c, runtime, schedule);
+        runtime.series = new SeriesRecord[](specs.length);
+        for (uint256 i; i < specs.length; ++i) {
+            runtime.series[i] = _registerMarketSeries(
+                c, runtime, schedule, specs[i], familyAssets[specs[i].family], familyBenchmarks[specs[i].family]
+            );
+        }
+        // The catalog's first market is the primary one the single-series runtime fields keep naming.
+        SeriesRecord memory primary = runtime.series[0];
+        runtime.marketId = primary.marketId;
+        runtime.seriesId = primary.seriesId;
+        runtime.payoffTerms = primary.payoffTerms;
+        runtime.maxLongDebitMinorPerLot = primary.maxLongDebitMinorPerLot;
+        runtime.maxShortDebitMinorPerLot = primary.maxShortDebitMinorPerLot;
+        runtime.tickSizeMinor = primary.tickSizeMinor;
+        runtime.maxOrderLots = primary.maxOrderLots;
         c.executionPolicy.setExecutionMode(EXECUTION_MODE_SET, EXECUTION_MODE_PUBLIC_BOOK, true);
         c.executionPolicy.setExecutionMode(EXECUTION_MODE_SET, EXECUTION_MODE_PRIVATE_RFQ, true);
         c.executionPolicy.setPolicyTag(PRIVACY_MODE_POLICY, PRIVACY_MODE_BLIND, true);
@@ -217,17 +268,49 @@ contract BootstrapSetrynDevnet is Script {
         _writeRuntime(c, runtime, operator, vm.envString("SETRYN_RUNTIME_OUTPUT"));
     }
 
-    function _registerAssets(Contracts memory c, Runtime memory runtime) private {
-        runtime.baseAssetId = c.assets
-            .registerAsset(
-                AssetDefinition({
-                    namespaceId: NAMESPACE,
-                    referenceId: keccak256("SETRYN_ASSET_BTC"),
-                    symbol: bytes32("BTC"),
-                    assetClass: AssetClass.Crypto,
-                    decimals: 8
-                })
-            );
+    function _readCatalog(string memory json)
+        private
+        pure
+        returns (FamilySpec[] memory families, MarketSpec[] memory specs)
+    {
+        if (vm.parseJsonUint(json, ".schemaVersion") != 1) revert InvalidMarketCatalog("schema version");
+        if (vm.parseJsonUint(json, ".fixingDecimals") != FIXING_DECIMALS) {
+            revert InvalidMarketCatalog("fixing decimals");
+        }
+        families = new FamilySpec[](vm.parseJsonUint(json, ".familyCount"));
+        specs = new MarketSpec[](vm.parseJsonUint(json, ".marketCount"));
+        if (families.length == 0 || specs.length == 0) revert InvalidMarketCatalog("empty catalog");
+        for (uint256 i; i < families.length; ++i) {
+            string memory path = string.concat(".families[", vm.toString(i), "]");
+            families[i] = FamilySpec({
+                symbol: vm.parseJsonString(json, string.concat(path, ".symbol")),
+                feedKey: vm.parseJsonString(json, string.concat(path, ".feedKey")),
+                assetClass: uint8(vm.parseJsonUint(json, string.concat(path, ".assetClass")))
+            });
+            if (bytes(families[i].symbol).length == 0 || bytes(families[i].symbol).length > 32) {
+                revert InvalidMarketCatalog("family symbol");
+            }
+        }
+        for (uint256 i; i < specs.length; ++i) {
+            string memory path = string.concat(".markets[", vm.toString(i), "]");
+            specs[i] = MarketSpec({
+                marketKey: vm.parseJsonString(json, string.concat(path, ".marketKey")),
+                family: vm.parseJsonUint(json, string.concat(path, ".family")),
+                priceScale: uint64(vm.parseJsonUint(json, string.concat(path, ".priceScale"))),
+                tickSizeMinor: uint128(vm.parseJsonUint(json, string.concat(path, ".tickSizeMinor"))),
+                strike: int256(vm.parseJsonUint(json, string.concat(path, ".strike"))),
+                bandMinor: uint128(vm.parseJsonUint(json, string.concat(path, ".bandMinor"))),
+                maxOrderLots: uint128(vm.parseJsonUint(json, string.concat(path, ".maxOrderLots")))
+            });
+            MarketSpec memory spec = specs[i];
+            if (
+                spec.family >= families.length || spec.priceScale == 0 || spec.tickSizeMinor == 0 || spec.strike <= 0
+                    || spec.bandMinor == 0 || spec.maxOrderLots == 0
+            ) revert InvalidMarketCatalog(spec.marketKey);
+        }
+    }
+
+    function _registerSettlementAsset(Contracts memory c, Runtime memory runtime) private {
         runtime.settlementAssetId = c.assets
             .registerAsset(
                 AssetDefinition({
@@ -238,6 +321,28 @@ contract BootstrapSetrynDevnet is Script {
                     decimals: 6
                 })
             );
+    }
+
+    /// Registers one base asset and one settlement fixing benchmark per underlying family.
+    function _registerFamilies(Contracts memory c, Runtime memory runtime, FamilySpec[] memory families)
+        private
+        returns (AssetId[] memory assets, BenchmarkId[] memory benchmarks)
+    {
+        assets = new AssetId[](families.length);
+        benchmarks = new BenchmarkId[](families.length);
+        for (uint256 i; i < families.length; ++i) {
+            assets[i] = c.assets
+                .registerAsset(
+                    AssetDefinition({
+                        namespaceId: NAMESPACE,
+                        referenceId: keccak256(abi.encodePacked("SETRYN_ASSET_", families[i].symbol)),
+                        symbol: bytes32(bytes(families[i].symbol)),
+                        assetClass: AssetClass(families[i].assetClass),
+                        decimals: FIXING_DECIMALS
+                    })
+                );
+            benchmarks[i] = _registerBenchmark(c, runtime, assets[i], families[i]);
+        }
     }
 
     function _registerAdapters(Contracts memory c, Runtime memory runtime) private {
@@ -345,12 +450,18 @@ contract BootstrapSetrynDevnet is Script {
         c.settlementAssets.activateBinding(runtime.settlementAssetId, version);
     }
 
-    function _registerBenchmark(Contracts memory c, Runtime memory runtime) private returns (BenchmarkId id) {
+    function _registerBenchmark(
+        Contracts memory c,
+        Runtime memory runtime,
+        AssetId baseAssetId,
+        FamilySpec memory family
+    ) private returns (BenchmarkId id) {
+        string memory pair = string.concat(family.symbol, "_USD");
         BenchmarkDefinition memory definition = BenchmarkDefinition({
             namespaceId: NAMESPACE,
-            referenceId: keccak256("SETRYN_BENCHMARK_BTC_USD"),
+            referenceId: keccak256(abi.encodePacked("SETRYN_BENCHMARK_", pair)),
             kindId: BenchmarkDefinitionLib.BENCHMARK_KIND_SETTLEMENT_FIXING,
-            baseAssetId: runtime.baseAssetId,
+            baseAssetId: baseAssetId,
             quoteAssetId: runtime.settlementAssetId,
             adapterId: runtime.benchmarkAdapterId,
             adapterVersion: VERSION,
@@ -358,18 +469,18 @@ contract BootstrapSetrynDevnet is Script {
             calendarVersion: VERSION,
             sessionId: runtime.sessionId,
             sessionVersion: VERSION,
-            feedKey: keccak256("Crypto.BTC/USD"),
+            feedKey: keccak256(bytes(family.feedKey)),
             requiredInterfaceHash: BENCHMARK_INTERFACE,
             requiredCapabilityHash: BENCHMARK_CAPABILITY,
-            outputDecimals: 8,
+            outputDecimals: FIXING_DECIMALS,
             maxStalenessSeconds: 120,
             maxFutureSkewSeconds: 5,
             maxConfidenceBps: 100,
-            observationRuleHash: keccak256("SETRYN_BTC_USD_OBSERVATION_RULE_V1"),
-            fallbackPolicyHash: keccak256("SETRYN_BTC_USD_FALLBACK_POLICY_V1"),
-            disruptionPolicyHash: keccak256("SETRYN_BTC_USD_DISRUPTION_POLICY_V1"),
+            observationRuleHash: keccak256(abi.encodePacked("SETRYN_", pair, "_OBSERVATION_RULE_V1")),
+            fallbackPolicyHash: keccak256(abi.encodePacked("SETRYN_", pair, "_FALLBACK_POLICY_V1")),
+            disruptionPolicyHash: keccak256(abi.encodePacked("SETRYN_", pair, "_DISRUPTION_POLICY_V1")),
             dataRightsHash: keccak256("SETRYN_DEVNET_DATA_RIGHTS_V1"),
-            evidenceHash: keccak256("SETRYN_BTC_USD_BENCHMARK_EVIDENCE_V1")
+            evidenceHash: keccak256(abi.encodePacked("SETRYN_", pair, "_BENCHMARK_EVIDENCE_V1"))
         });
         uint32 version;
         (id, version) = c.benchmarks.registerBenchmark(definition);
@@ -496,15 +607,40 @@ contract BootstrapSetrynDevnet is Script {
         c.instruments.activateInstrument(id, version);
     }
 
-    function _registerMarket(Contracts memory c, Runtime memory runtime) private returns (MarketId id) {
+    /// Registers the catalog market's onchain market on its own tick grid and the one series that trades on it.
+    function _registerMarketSeries(
+        Contracts memory c,
+        Runtime memory runtime,
+        Schedule memory schedule,
+        MarketSpec memory spec,
+        AssetId baseAssetId,
+        BenchmarkId benchmarkId
+    ) private returns (SeriesRecord memory record) {
+        record.marketKey = spec.marketKey;
+        record.benchmarkId = benchmarkId;
+        record.tickSizeMinor = spec.tickSizeMinor;
+        record.priceScale = spec.priceScale;
+        record.maxOrderLots = spec.maxOrderLots;
+        record.marketId = _registerMarket(c, runtime, spec, baseAssetId, benchmarkId);
+        (record.seriesId, record.payoffTerms, record.maxLongDebitMinorPerLot, record.maxShortDebitMinorPerLot) =
+            _registerSeries(c, runtime, schedule, spec, record.marketId, benchmarkId);
+    }
+
+    function _registerMarket(
+        Contracts memory c,
+        Runtime memory runtime,
+        MarketSpec memory spec,
+        AssetId baseAssetId,
+        BenchmarkId benchmarkId
+    ) private returns (MarketId id) {
         MarketDefinition memory definition = MarketDefinition({
             namespaceId: NAMESPACE,
-            marketKey: keccak256("SETRYN_MARKET_BTC_USD_CAPPED_FORWARD_V1"),
-            baseAssetId: runtime.baseAssetId,
+            marketKey: keccak256(abi.encodePacked("SETRYN_MARKET_", spec.marketKey, "_CAPPED_FORWARD_V1")),
+            baseAssetId: baseAssetId,
             quoteAssetId: runtime.settlementAssetId,
             settlementAssetId: runtime.settlementAssetId,
             settlementAssetVersion: VERSION,
-            markBenchmarkId: runtime.benchmarkId,
+            markBenchmarkId: benchmarkId,
             markBenchmarkVersion: VERSION,
             tradingCalendarId: runtime.calendarId,
             tradingCalendarVersion: VERSION,
@@ -515,14 +651,14 @@ contract BootstrapSetrynDevnet is Script {
             feeScheduleId: runtime.feeScheduleId,
             feeScheduleVersion: VERSION,
             quoteUnitId: MarketDefinitionLib.QUOTE_UNIT_SETTLEMENT_MINOR_PER_LOT,
-            tickSizeMinor: TickSizeMinor.wrap(MARKET_TICK_SIZE_MINOR),
+            tickSizeMinor: TickSizeMinor.wrap(spec.tickSizeMinor),
             lotStep: Lots.wrap(1),
             minOrderLots: Lots.wrap(1),
-            maxOrderLots: Lots.wrap(MARKET_MAX_ORDER_LOTS),
+            maxOrderLots: Lots.wrap(spec.maxOrderLots),
             minPriceTicks: PriceTicks.wrap(-1_000_000_000),
             maxPriceTicks: PriceTicks.wrap(1_000_000_000),
             executionModeSetHash: EXECUTION_MODE_SET,
-            qualificationEvidenceHash: keccak256("SETRYN_BTC_USD_MARKET_EVIDENCE_V1")
+            qualificationEvidenceHash: keccak256(abi.encodePacked("SETRYN_", spec.marketKey, "_MARKET_EVIDENCE_V1"))
         });
         uint32 version;
         (id, version) = c.markets.registerMarket(definition);
@@ -530,7 +666,14 @@ contract BootstrapSetrynDevnet is Script {
         c.markets.activateMarket(id, version);
     }
 
-    function _registerSeries(Contracts memory c, Runtime memory runtime, Schedule memory schedule)
+    function _registerSeries(
+        Contracts memory c,
+        Runtime memory runtime,
+        Schedule memory schedule,
+        MarketSpec memory spec,
+        MarketId marketId,
+        BenchmarkId benchmarkId
+    )
         private
         returns (
             SeriesId id,
@@ -542,22 +685,25 @@ contract BootstrapSetrynDevnet is Script {
         PayoffFixingRequirement[] memory requirements = new PayoffFixingRequirement[](1);
         requirements[0] = PayoffFixingRequirement({
             slot: 0,
-            benchmarkId: runtime.benchmarkId,
+            benchmarkId: benchmarkId,
             benchmarkVersion: VERSION,
             windowKindId: SessionDefinitionLib.WINDOW_KIND_FIXING,
-            decimals: 8
+            decimals: FIXING_DECIMALS
         });
+        // A capped forward on the family benchmark struck at this maturity's forward reference. It pays the band in
+        // settlement minor units per lot at a ten percent move either way and is capped there, so the band is also
+        // each side's maximum terminal debit.
         StrategyCompileInput memory input = StrategyCompileInput({
             kind: PayoffKind.CappedForward,
             inputMode: StrategyInputMode.Outright,
-            valueDecimals: 8,
-            primaryInput: 100_000e8,
+            valueDecimals: FIXING_DECIMALS,
+            primaryInput: spec.strike,
             secondaryInput: 0,
             premiumMinorPerLot: 0,
-            multiplierNumerator: 1e6,
-            multiplierDenominator: 1e8,
-            minimumTransferMinorPerLot: -1_000e6,
-            maximumTransferMinorPerLot: 1_000e6,
+            multiplierNumerator: uint256(spec.bandMinor) * 10,
+            multiplierDenominator: uint256(spec.strike),
+            minimumTransferMinorPerLot: -int256(uint256(spec.bandMinor)),
+            maximumTransferMinorPerLot: int256(uint256(spec.bandMinor)),
             disruptionTransferMinorPerLot: 0,
             fixingRequirements: requirements,
             previewFixings: new CanonicalFixing[](0),
@@ -569,8 +715,9 @@ contract BootstrapSetrynDevnet is Script {
         payoffTerms = compiled.canonicalTerms;
         maxLongDebitMinorPerLot = compiled.maxLongDebitMinorPerLot;
         maxShortDebitMinorPerLot = compiled.maxShortDebitMinorPerLot;
-        SeriesDefinition memory definition = _seriesDefinition(runtime, schedule, compiled);
-        SeriesQualificationData memory qualification = _qualification(runtime, definition, compiled.canonicalTerms);
+        SeriesDefinition memory definition = _seriesDefinition(runtime, schedule, compiled, marketId, spec.marketKey);
+        SeriesQualificationData memory qualification =
+            _qualification(runtime.day, benchmarkId, definition, compiled.canonicalTerms);
         definition.payoffTermsHash = c.series.hashPayoffTerms(TERMS_SCHEMA, qualification.payoffTerms);
         definition.fixingSlotsHash = c.series.hashFixingSlots(definition, qualification.fixingSlots, 4);
         definition.dateAdjustmentEvidenceHash = c.series.hashDateProofs(definition, qualification.dateProofs);
@@ -581,15 +728,17 @@ contract BootstrapSetrynDevnet is Script {
         c.series.activateSeries(id, version, qualification);
     }
 
-    function _seriesDefinition(Runtime memory runtime, Schedule memory schedule, StrategyCompileResult memory compiled)
-        private
-        pure
-        returns (SeriesDefinition memory)
-    {
+    function _seriesDefinition(
+        Runtime memory runtime,
+        Schedule memory schedule,
+        StrategyCompileResult memory compiled,
+        MarketId marketId,
+        string memory marketKey
+    ) private pure returns (SeriesDefinition memory) {
         return SeriesDefinition({
             namespaceId: NAMESPACE,
-            seriesKey: keccak256("SETRYN_SERIES_BTC_USD_GENESIS_V1"),
-            marketId: runtime.marketId,
+            seriesKey: keccak256(abi.encodePacked("SETRYN_SERIES_", marketKey, "_GENESIS_V1")),
+            marketId: marketId,
             marketVersion: VERSION,
             instrumentId: runtime.instrumentId,
             instrumentVersion: VERSION,
@@ -613,21 +762,22 @@ contract BootstrapSetrynDevnet is Script {
             dateAdjustmentEvidenceHash: bytes32(uint256(1)),
             maxLongDebitMinorPerLot: compiled.maxLongDebitMinorPerLot,
             maxShortDebitMinorPerLot: compiled.maxShortDebitMinorPerLot,
-            qualificationEvidenceHash: keccak256("SETRYN_BTC_USD_SERIES_EVIDENCE_V1")
+            qualificationEvidenceHash: keccak256(abi.encodePacked("SETRYN_", marketKey, "_SERIES_EVIDENCE_V1"))
         });
     }
 
-    function _qualification(Runtime memory runtime, SeriesDefinition memory definition, bytes memory payoffTerms)
-        private
-        pure
-        returns (SeriesQualificationData memory qualification)
-    {
+    function _qualification(
+        uint32 day,
+        BenchmarkId benchmarkId,
+        SeriesDefinition memory definition,
+        bytes memory payoffTerms
+    ) private pure returns (SeriesQualificationData memory qualification) {
         qualification.payoffTerms = payoffTerms;
         qualification.fixingSlots = new FixingSlot[](1);
         qualification.fixingSlots[0].slot = 0;
         qualification.fixingSlots[0].candidates = new FixingCandidate[](1);
         qualification.fixingSlots[0].candidates[0] = FixingCandidate({
-            benchmarkId: runtime.benchmarkId,
+            benchmarkId: benchmarkId,
             benchmarkVersion: VERSION,
             requiredWindowKindId: SessionDefinitionLib.WINDOW_KIND_FIXING,
             selectionRuleId: SeriesDefinitionLib.FIXING_SELECTION_OFFICIAL,
@@ -638,16 +788,16 @@ contract BootstrapSetrynDevnet is Script {
             maxPublicationLagSeconds: 30 minutes,
             minimumObservations: 1,
             maximumObservations: 1,
-            selectionParametersHash: keccak256("SETRYN_BTC_USD_FIXING_SELECTION_V1")
+            selectionParametersHash: keccak256(abi.encode("SETRYN_SERIES_FIXING_SELECTION_V1", benchmarkId))
         });
 
         qualification.dateProofs = new SeriesDateProof[](11);
-        CalendarDay memory calendarDay = _calendarDay(runtime.day);
+        CalendarDay memory calendarDay = _calendarDay(day);
         for (uint8 rawKind = 1; rawKind <= 11; ++rawKind) {
             uint256 index = uint256(rawKind) - 1;
             qualification.dateProofs[index].kind = SeriesDateKind(rawKind);
             qualification.dateProofs[index].conventionId = SeriesDefinitionLib.DATE_ADJUSTMENT_UNADJUSTED;
-            qualification.dateProofs[index].scheduledDay = runtime.day;
+            qualification.dateProofs[index].scheduledDay = day;
             qualification.dateProofs[index].calendarDays = new CalendarDayProof[](1);
             qualification.dateProofs[index].calendarDays[0].calendarDay = calendarDay;
             qualification.dateProofs[index].calendarDays[0].merkleProof = new bytes32[](0);
@@ -768,7 +918,7 @@ contract BootstrapSetrynDevnet is Script {
 
     function _writeRuntime(Contracts memory c, Runtime memory runtime, address operator, string memory output) private {
         string memory objectKey = "setryn-runtime";
-        vm.serializeUint(objectKey, "schemaVersion", 8);
+        vm.serializeUint(objectKey, "schemaVersion", 9);
         vm.serializeUint(objectKey, "chainId", block.chainid);
         vm.serializeUint(objectKey, "day", runtime.day);
         vm.serializeAddress(objectKey, "operator", operator);
@@ -814,8 +964,8 @@ contract BootstrapSetrynDevnet is Script {
         vm.serializeUint(objectKey, "maxLongDebitMinorPerLot", runtime.maxLongDebitMinorPerLot);
         vm.serializeUint(objectKey, "maxShortDebitMinorPerLot", runtime.maxShortDebitMinorPerLot);
         // Market economics the terminal previews against: consideration is lots x price ticks x tick size.
-        vm.serializeUint(objectKey, "tickSizeMinor", MARKET_TICK_SIZE_MINOR);
-        vm.serializeUint(objectKey, "maxOrderLots", MARKET_MAX_ORDER_LOTS);
+        vm.serializeUint(objectKey, "tickSizeMinor", runtime.tickSizeMinor);
+        vm.serializeUint(objectKey, "maxOrderLots", runtime.maxOrderLots);
         vm.serializeUint(objectKey, "makerFeeRatePpm", MAKER_FEE_RATE_PPM);
         vm.serializeUint(objectKey, "takerFeeRatePpm", TAKER_FEE_RATE_PPM);
         vm.serializeBytes32(objectKey, "riskDomainId", RiskDomainId.unwrap(runtime.riskDomainId));
@@ -831,11 +981,32 @@ contract BootstrapSetrynDevnet is Script {
             objectKey, "privateRfqEligibleMakerSetHash", keccak256(bytes.concat(keccak256(abi.encode(operator))))
         );
         vm.serializeBytes(objectKey, "payoffTerms", runtime.payoffTerms);
+        vm.serializeString(objectKey, "markets", _serializeSeries(runtime));
         string memory json = vm.serializeBytes32(
             objectKey,
             "enterActionId",
             OrderActionId.unwrap(OrderActionId.wrap(keccak256("SETRYN_ORDER_ACTION_ENTER_V1")))
         );
         vm.writeJson(json, output);
+    }
+
+    /// Every onchain market in catalog order, each with the identifiers and economics an order on it must carry.
+    function _serializeSeries(Runtime memory runtime) private returns (string[] memory entries) {
+        entries = new string[](runtime.series.length);
+        for (uint256 i; i < runtime.series.length; ++i) {
+            SeriesRecord memory record = runtime.series[i];
+            string memory objectKey = string.concat("setryn-runtime-market-", vm.toString(i));
+            vm.serializeString(objectKey, "marketKey", record.marketKey);
+            vm.serializeBytes32(objectKey, "marketId", MarketId.unwrap(record.marketId));
+            vm.serializeBytes32(objectKey, "instrumentId", InstrumentId.unwrap(runtime.instrumentId));
+            vm.serializeBytes32(objectKey, "seriesId", SeriesId.unwrap(record.seriesId));
+            vm.serializeBytes32(objectKey, "benchmarkId", BenchmarkId.unwrap(record.benchmarkId));
+            vm.serializeBytes(objectKey, "payoffTerms", record.payoffTerms);
+            vm.serializeUint(objectKey, "tickSizeMinor", record.tickSizeMinor);
+            vm.serializeUint(objectKey, "priceScale", record.priceScale);
+            vm.serializeUint(objectKey, "maxLongDebitMinorPerLot", record.maxLongDebitMinorPerLot);
+            vm.serializeUint(objectKey, "maxShortDebitMinorPerLot", record.maxShortDebitMinorPerLot);
+            entries[i] = vm.serializeUint(objectKey, "maxOrderLots", record.maxOrderLots);
+        }
     }
 }
