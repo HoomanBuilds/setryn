@@ -183,12 +183,12 @@ const UNDERLYINGS = ["ALL", ...Array.from(new Set(MARKETS.map((market) => market
 function PackagePicker({
   markets,
   selectedId,
-  onchainMarketId,
+  onchainMarketIds,
   onSelect,
 }: {
   markets: PackageMarket[];
   selectedId: string;
-  onchainMarketId: string | null;
+  onchainMarketIds: ReadonlySet<string>;
   onSelect: (marketId: string) => void;
 }) {
   const [query, setQuery] = useState("");
@@ -233,7 +233,7 @@ function PackagePicker({
         {visible.map((market) => {
           const selected = market.id === selectedId;
           const route = market.routes.find((candidate) => candidate.id === "SOLVER_RFQ") ?? null;
-          const onchain = market.id === onchainMarketId;
+          const onchain = onchainMarketIds.has(market.id);
           return (
             <button
               key={market.id}
@@ -505,8 +505,8 @@ function BuilderContent() {
 
   const liveMarket = markets.find((market) => market.id === draft.marketId) ?? markets[0];
   const order = deriveOrder(draft, liveMarket, snapshot.positions, nowMs);
-  const onchainMarketId = snapshot.publicBookMarketId;
-  const checks = preflight(draft, order, snapshot, onchainMarketId);
+  const onchainMarketIds = new Set(Object.keys(snapshot.onchainMarkets));
+  const checks = preflight(draft, order, snapshot);
   const blockers = blockingChecks(checks);
   const walletBlocked = blockers.some((check) => check.id === "wallet");
   const otherBlockers = blockers.filter((check) => check.id !== "wallet");
@@ -556,7 +556,7 @@ function BuilderContent() {
       setPhase("AUTHORIZING");
       const current = gateway.getSnapshot();
       const signingOrder = deriveOrder(draft, liveMarket, current.positions, platformNow());
-      const signingBlock = blockingChecks(preflight(draft, signingOrder, current, current.publicBookMarketId))[0];
+      const signingBlock = blockingChecks(preflight(draft, signingOrder, current))[0];
       const route = signingOrder.route;
       if (signingBlock || !route) {
         setError({
@@ -711,7 +711,7 @@ function BuilderContent() {
                 <PackagePicker
                   markets={markets}
                   selectedId={draft.marketId}
-                  onchainMarketId={onchainMarketId}
+                  onchainMarketIds={onchainMarketIds}
                   onSelect={(marketId) => patch({ marketId })}
                 />
                 <PackageSummary market={market} />
@@ -769,7 +769,7 @@ function BuilderContent() {
                 )}
                 <Field
                   label="Size"
-                  hint={market.id === onchainMarketId ? `Runtime authorizes 1 to ${DEVNET_MAX_LOTS} lots` : `${formatUsd(market.notionalPerLot, 0)} per lot`}
+                  hint={onchainMarketIds.has(market.id) ? `Runtime authorizes 1 to ${snapshot.onchainMarkets[market.id]?.maxOrderLots ?? DEVNET_MAX_LOTS} lots` : `${formatUsd(market.notionalPerLot, 0)} per lot`}
                 >
                   <div className="flex gap-2">
                     <Stepper

@@ -16,6 +16,7 @@ import {
   publicOrderTypedData,
   type SerializedPublicOrder,
 } from "@/lib/internal-gateway/protocol";
+import { runtimeMarketBySeries } from "@/lib/internal-gateway/runtime-markets";
 import { readLocalRuntime } from "@/lib/internal-gateway/runtime-server";
 
 export const runtime = "nodejs";
@@ -140,8 +141,10 @@ export async function POST(request: Request) {
     }
 
     const setryn = await readLocalRuntime();
+    // The order's series names its market; every liability bound below is that series' own.
+    const market = runtimeMarketBySeries(setryn, order.seriesId);
     if (
-      order.seriesId.toLowerCase() !== setryn.seriesId.toLowerCase() ||
+      !market ||
       order.packageId !== ZERO_ID ||
       order.feeScheduleId.toLowerCase() !== setryn.feeScheduleId.toLowerCase() ||
       ![setryn.executionModeId.toLowerCase(), setryn.privateRfqExecutionModeId.toLowerCase()].includes(
@@ -196,7 +199,7 @@ export async function POST(request: Request) {
 
     const openInterest = order.lots;
     const liabilityPerLot = BigInt(
-      order.side === 1 ? setryn.maxLongDebitMinorPerLot : setryn.maxShortDebitMinorPerLot,
+      order.side === 1 ? market.maxLongDebitMinorPerLot : market.maxShortDebitMinorPerLot,
     );
     const terminalLiability = order.lots * liabilityPerLot;
     const positionId = keccak256(

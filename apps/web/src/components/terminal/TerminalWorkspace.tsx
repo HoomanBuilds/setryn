@@ -29,8 +29,8 @@ import {
 import { parseHandoff, type HandoffContext } from "@/lib/terminal/handoff";
 import { tradeHref } from "@/lib/terminal/markets";
 import { usePersistentState } from "@/lib/terminal/use-persistent-state";
-import type { BookRow, ConsoleTabId, PackageMarket } from "@/lib/terminal/types";
-import type { OrderExecutionProgress } from "@/lib/internal-gateway/types";
+import type { BookRow, ConsoleTabId, PackageMarket, RouteQuote } from "@/lib/terminal/types";
+import type { OnchainMarket, OrderExecutionProgress } from "@/lib/internal-gateway/types";
 import { platformNow } from "@/lib/terminal/clock";
 import { useConfirmationPrefs, useDisclosurePrefs } from "@/lib/settings/preferences";
 
@@ -166,7 +166,71 @@ function executionError(error: unknown): string {
 }
 
 const SLIPPAGE_KEY = "setryn:ticket-slippage-bps";
-const ONCHAIN_ROUTE_IDS = new Set(["DIRECT_BOOK", "SOLVER_RFQ"]);
+
+/**
+ * The ticket's view of an onchain market: chain economics, and only the routes that execute onchain. The direct route
+ * is priced from the public book the chain holds, so a market order's protection price tracks what can fill.
+ */
+function onchainTicketMarket(market: PackageMarket, onchain: OnchainMarket, book: BookRow[]): PackageMarket {
+  const asks = book.filter((row) => row.side === "ASK" && row.executable).map((row) => row.price);
+  const bids = book.filter((row) => row.side === "BID" && row.executable).map((row) => row.price);
+  const previewDirect = market.routes.find((candidate) => candidate.id === "DIRECT_BOOK") ?? null;
+  const direct: RouteQuote | null =
+    asks.length > 0 || bids.length > 0
+      ? {
+          id: "DIRECT_BOOK",
+          label: "Direct package book",
+          source: "DIRECT",
+          counterpartyFeeLabel: "Maker fee",
+          guarantee: "PACKAGE_ATOMIC",
+          etaLabel: "2 blocks, about 4s",
+          requiresPrivate: false,
+          intermediateExposureRate: 0,
+          note: "Resting onchain package liquidity. All legs print in one match, so no leg can fill alone.",
+          ...previewDirect,
+          protocolFeeBps: onchain.takerFeeBps,
+          counterpartyFeeBps: 0,
+          collateralMultiple: 1,
+          enterPrice: asks.length > 0 ? Math.min(...asks) : (previewDirect?.enterPrice ?? market.bestAsk),
+          exitPrice: bids.length > 0 ? Math.max(...bids) : (previewDirect?.exitPrice ?? market.bestBid),
+          availableLots: book.filter((row) => row.executable).reduce((sum, row) => sum + row.lots, 0),
+        }
+      : previewDirect;
+  const solver = market.routes.find((candidate) => candidate.id === "SOLVER_RFQ") ?? null;
+  return {
+    ...market,
+    contractMultiplier: onchain.considerationPerPriceUnit,
+    collateralPerLot: Math.max(onchain.longCollateralPerLot, onchain.shortCollateralPerLot),
+    feeOnConsideration: true,
+    maxOrderLots: onchain.maxOrderLots,
+    // Only the public book and the private solver RFQ execute onchain; preview routes would misstate the fill.
+    routes: [direct, solver]
+      .filter((candidate): candidate is RouteQuote => candidate !== null)
+      .map((candidate) => ({
+        ...candidate,
+        protocolFeeBps: onchain.takerFeeBps,
+        counterpartyFeeBps: 0,
+        collateralMultiple: 1,
+      })),
+  };
+}
+
+/**
+ * The fee cap an onchain order signs. The chain charges the fee on the fill price, which a firm quote or the book can
+ * set away from the previewed route price, so the cap covers the worse of the limit and the route price moved by the
+ * slippage tolerance, rounded up to the settlement unit.
+ */
+function onchainFeeCap(
+  preview: { totalFees: number; requestedLots: number; limitPrice: number; effectivePrice: number },
+  route: RouteQuote,
+  market: PackageMarket,
+  slippageBps: number,
+): number {
+  const worstPrice = Math.max(Math.abs(preview.limitPrice), Math.abs(preview.effectivePrice)) * (1 + slippageBps / 10_000);
+  const feeBps = route.protocolFeeBps + route.counterpartyFeeBps;
+  const cap = (preview.requestedLots * worstPrice * market.contractMultiplier * feeBps) / 10_000;
+  return Math.max(preview.totalFees, Math.ceil(cap * 1_000_000) / 1_000_000);
+}
 
 function parseSlippage(value: unknown): number | undefined {
   return typeof value === "number" && (SLIPPAGE_PRESETS_BPS as readonly number[]).includes(value) ? value : undefined;
@@ -243,18 +307,32 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   const { liveMarket, previewEpochSeconds } = usePreviewMarket(market.id);
   const { markets } = usePreviewBoard();
 
+  /* Every market registered onchain settles on its own deployed series, so the ticket prices collateral, fees, and
+     order size from the chain, and the direct route executes against the public book read from the chain. Charts
+     and the other preview surfaces keep the shared preview feed. */
+  const onchainInfo = gatewaySnapshot.onchainMarkets[liveMarket.id] ?? null;
+  const onchainMarket = onchainInfo !== null;
+  const onchainBook = useMemo<BookRow[]>(
+    () => (onchainInfo ? (gatewaySnapshot.publicBooks[liveMarket.id] ?? []) : []),
+    [gatewaySnapshot.publicBooks, liveMarket.id, onchainInfo],
+  );
+  const ticketMarket = useMemo<PackageMarket>(
+    () => (onchainInfo ? onchainTicketMarket(liveMarket, onchainInfo, onchainBook) : liveMarket),
+    [liveMarket, onchainBook, onchainInfo],
+  );
+
   /* A market order carries a protection price derived from the live route and the slippage tolerance, so it
      tracks the feed every tick. A limit order keeps the price the trader entered. */
   const ticket = useMemo<TicketState>(() => {
     if (rawTicket.orderType !== "MARKETABLE_LIMIT") return rawTicket;
     const action = executableAction(rawTicket.intent, rawTicket.side);
-    const liveRoute = liveMarket.routes.find((candidate) => candidate.id === rawTicket.routeId) ?? null;
+    const liveRoute = ticketMarket.routes.find((candidate) => candidate.id === rawTicket.routeId) ?? null;
     const reference = liveRoute ? routePrice(liveRoute, action) : bestReferencePrice(liveMarket, action);
     return {
       ...rawTicket,
       limitInput: protectedPrice(reference, action, slippageBps, liveMarket).toFixed(liveMarket.priceDecimals),
     };
-  }, [liveMarket, rawTicket, slippageBps]);
+  }, [liveMarket, rawTicket, slippageBps, ticketMarket]);
 
   /* A route change repoints the ticket during the same render, so a limit price
      from the previous market is never painted under the new one. View
@@ -417,9 +495,9 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       return;
     }
     const intent = request.authorization.intent;
-    const routeId = liveMarket.routes.some((candidate) => candidate.id === intent.routeId)
+    const routeId = ticketMarket.routes.some((candidate) => candidate.id === intent.routeId)
       ? intent.routeId
-      : liveMarket.routes.some((candidate) => candidate.id === "SOLVER_RFQ")
+      : ticketMarket.routes.some((candidate) => candidate.id === "SOLVER_RFQ")
         ? "SOLVER_RFQ"
         : null;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reconciles local workflow state with the gateway snapshot, an external store
@@ -452,33 +530,11 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   }, [
     appliedRfqKey,
     gatewaySnapshot.rfqRequests,
-    liveMarket.routes,
+    ticketMarket.routes,
     market.id,
     market.priceDecimals,
     rfqParam,
   ]);
-
-  /* The onchain-activated market settles on its deployed series, so the ticket prices collateral, fees, and order
-     size from the chain rather than from the preview definition; charts and books keep the shared preview feed. */
-  const onchainMarket = gatewaySnapshot.publicBookMarketId === liveMarket.id;
-  const onchainEconomics = onchainMarket ? gatewaySnapshot.publicBookEconomics : null;
-  const ticketMarket = useMemo<PackageMarket>(() => {
-    if (!onchainEconomics) return liveMarket;
-    return {
-      ...liveMarket,
-      contractMultiplier: onchainEconomics.considerationPerPriceUnit,
-      collateralPerLot: Math.max(onchainEconomics.longCollateralPerLot, onchainEconomics.shortCollateralPerLot),
-      feeOnConsideration: true,
-      maxOrderLots: onchainEconomics.maxOrderLots,
-      // Only the public book and the private solver RFQ execute onchain; preview routes would misstate the fill.
-      routes: liveMarket.routes.filter((candidate) => ONCHAIN_ROUTE_IDS.has(candidate.id)).map((candidate) => ({
-        ...candidate,
-        protocolFeeBps: onchainEconomics.takerFeeBps,
-        counterpartyFeeBps: 0,
-        collateralMultiple: 1,
-      })),
-    };
-  }, [liveMarket, onchainEconomics]);
 
   const route = useMemo(
     () => ticketMarket.routes.find((candidate) => candidate.id === ticket.routeId) ?? null,
@@ -534,7 +590,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   const directBookOrders = useMemo<BookRow[]>(
     () =>
       onchainMarket
-        ? gatewaySnapshot.publicBookOrders
+        ? onchainBook
         : liveMarket.book
             .filter((row) => row.source === "DIRECT")
             .map((row) => ({
@@ -542,7 +598,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
               firmness: "INDICATIVE" as const,
               origin: "Preview book; this market is not activated onchain",
             })),
-    [gatewaySnapshot.publicBookOrders, liveMarket.book, onchainMarket],
+    [liveMarket.book, onchainBook, onchainMarket],
   );
 
   const selectedClosePosition = useMemo(
@@ -636,7 +692,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
           };
           if (patch.routeId !== undefined) {
             const candidate =
-              liveMarket.routes.find((route) => route.id === patch.routeId) ?? null;
+              ticketMarket.routes.find((route) => route.id === patch.routeId) ?? null;
             if (!candidate?.requiresPrivate) {
               safePatch = { ...safePatch, routeId: patch.routeId };
             }
@@ -691,7 +747,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
           next.closePositionId !== current.closePositionId;
         if (reprice) {
           const nextRoute =
-            liveMarket.routes.find((candidate) => candidate.id === next.routeId) ?? null;
+            ticketMarket.routes.find((candidate) => candidate.id === next.routeId) ?? null;
           const action = executableAction(next.intent, next.side);
           next.limitInput = (
             nextRoute ? routePrice(nextRoute, action) : bestReferencePrice(liveMarket, action)
@@ -700,7 +756,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         return next;
       });
     },
-    [amendmentOrderId, gatewaySnapshot.positions, liveMarket],
+    [amendmentOrderId, gatewaySnapshot.positions, liveMarket, ticketMarket.routes],
   );
 
   const selectBookRow = useCallback(
@@ -792,12 +848,13 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         orderType: ticket.orderType === "LIMIT" ? "LIMIT" : "MARKET",
         timeInForce: ticket.tif,
         expiresAt: ticket.expiresAt,
-        feeCap: preview.totalFees,
+        feeCap: onchainMarket ? onchainFeeCap(preview, route, ticketMarket, slippageBps) : preview.totalFees,
         collateralRequired: isExit ? 0 : preview.totalCollateral,
         closePositionId: isExit ? ticket.closePositionId : null,
         replacesOrderId: replacingId,
         recipient: signer ?? "",
-        disclosure: ticket.privateRfq ? "PRIVATE_RFQ" : "PUBLIC",
+        // Only a private route is requested privately; a public-book order carries the public execution mode.
+        disclosure: route.requiresPrivate && ticket.privateRfq ? "PRIVATE_RFQ" : "PUBLIC",
         settlementGuarantee: preview.settlementGuarantee,
         postOnly: ticket.postOnly === true,
       });
@@ -863,7 +920,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         replacementInFlightRef.current = null;
       }
     }
-  }, [amendmentOrderId, gateway, liveMarket, preview, route, selectedClosePosition, stage, ticket, ticketMarket.contractMultiplier]);
+  }, [amendmentOrderId, gateway, liveMarket, onchainMarket, preview, route, selectedClosePosition, slippageBps, stage, ticket, ticketMarket]);
 
   useEffect(() => {
     if (ticket.intent !== "EXIT") return;
@@ -876,7 +933,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       if (current.side === selectedClosePosition.side) return current;
       const action = executableAction("EXIT", selectedClosePosition.side);
       const currentRoute =
-        liveMarket.routes.find((candidate) => candidate.id === current.routeId) ?? null;
+        ticketMarket.routes.find((candidate) => candidate.id === current.routeId) ?? null;
       return {
         ...current,
         side: selectedClosePosition.side,
@@ -888,7 +945,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     setStage({ kind: "IDLE" });
     setExecution({ status: "IDLE", updates: [] });
     setRfqError(null);
-  }, [liveMarket, selectedClosePosition, ticket.closePositionId, ticket.intent, ticket.side]);
+  }, [liveMarket, selectedClosePosition, ticket.closePositionId, ticket.intent, ticket.side, ticketMarket.routes]);
 
   const onReset = useCallback(() => {
     setStage({ kind: "IDLE" });
@@ -915,7 +972,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       )
         return;
       if (target.timeInForce !== "GTC" && target.timeInForce !== "GTD") return;
-      const targetRoute = liveMarket.routes.find((candidate) => candidate.id === target.routeId) ?? null;
+      const targetRoute = ticketMarket.routes.find((candidate) => candidate.id === target.routeId) ?? null;
       const initialRouteId = targetRoute && !targetRoute.requiresPrivate ? targetRoute.id : null;
       const amendmentLots =
         typeof target.remainingLots === "number" && Number.isFinite(target.remainingLots)
@@ -941,7 +998,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       setConsoleTab("orders");
       setMobileTab("order");
     },
-    [gatewaySnapshot.restingOrders, liveMarket],
+    [gatewaySnapshot.restingOrders, liveMarket, ticketMarket.routes],
   );
 
   const cancelRestingOrderById = useCallback(
@@ -1088,12 +1145,12 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   /* A viewer who defaults to private RFQ starts untouched tickets on the solver route when the market offers one. */
   useEffect(() => {
     if (disclosure.route !== "PRIVATE_RFQ" || ticketTouchedRef.current || handoff.present) return;
-    if (!liveMarket.routes.some((candidate) => candidate.id === "SOLVER_RFQ")) return;
+    if (!ticketMarket.routes.some((candidate) => candidate.id === "SOLVER_RFQ")) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- applies a stored viewer preference once it is readable after hydration
     setTicket((current) =>
       current.privateRfq ? current : { ...current, privateRfq: true, routeId: "SOLVER_RFQ", postOnly: false },
     );
-  }, [disclosure.route, handoff.present, liveMarket.routes]);
+  }, [disclosure.route, handoff.present, ticketMarket.routes]);
 
   const show = (tab: MobileTab) => (mobileTab === tab ? "flex" : "hidden");
   const activePrice = Number.parseFloat(ticket.limitInput);

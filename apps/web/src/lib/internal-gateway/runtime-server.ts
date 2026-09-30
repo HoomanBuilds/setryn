@@ -30,6 +30,8 @@ const HASH_FIELDS = [
   "riskDomainId",
   "marketId",
   "seriesId",
+  "instrumentId",
+  "benchmarkId",
   "feeScheduleId",
   "feeRecipientAccountId",
   "executionModeSetHash",
@@ -65,10 +67,55 @@ function localRpcUrl(): string {
   return rpcUrl;
 }
 
+const MARKET_HASH_FIELDS = ["marketId", "instrumentId", "seriesId", "benchmarkId"] as const;
+const MARKET_INTEGER_FIELDS = [
+  "tickSizeMinor",
+  "priceScale",
+  "maxLongDebitMinorPerLot",
+  "maxShortDebitMinorPerLot",
+  "maxOrderLots",
+] as const;
+const MARKET_KEY_PATTERN = /^[A-Z0-9]+-[A-Z0-9]+-[0-9]{2}[A-Z]{3}[0-9]{2}$/;
+const PAYOFF_TERMS_PATTERN = /^0x(?:[0-9a-fA-F]{2})+$/;
+
+function validateMarkets(record: Record<string, unknown>): void {
+  const markets = record.markets;
+  if (!Array.isArray(markets) || markets.length === 0) throw new Error("INVALID_RUNTIME");
+  const keys = new Set<string>();
+  const ids = new Set<string>();
+  for (const candidate of markets as unknown[]) {
+    if (!candidate || typeof candidate !== "object") throw new Error("INVALID_RUNTIME");
+    const market = candidate as Record<string, unknown>;
+    if (typeof market.marketKey !== "string" || !MARKET_KEY_PATTERN.test(market.marketKey)) throw new Error("INVALID_RUNTIME");
+    for (const field of MARKET_HASH_FIELDS) {
+      if (typeof market[field] !== "string" || !HASH_PATTERN.test(market[field])) throw new Error("INVALID_RUNTIME");
+    }
+    if (typeof market.payoffTerms !== "string" || !PAYOFF_TERMS_PATTERN.test(market.payoffTerms)) {
+      throw new Error("INVALID_RUNTIME");
+    }
+    for (const field of MARKET_INTEGER_FIELDS) {
+      if (!Number.isSafeInteger(market[field]) || Number(market[field]) <= 0) throw new Error("INVALID_RUNTIME");
+    }
+    // Package prices carry at most six decimals, so a price scale is a power of ten.
+    if (!/^10{0,6}$/.test(String(market.priceScale))) throw new Error("INVALID_RUNTIME");
+    const seriesKey = (market.seriesId as string).toLowerCase();
+    const marketIdKey = (market.marketId as string).toLowerCase();
+    if (keys.has(market.marketKey) || ids.has(seriesKey) || ids.has(marketIdKey)) throw new Error("INVALID_RUNTIME");
+    keys.add(market.marketKey);
+    ids.add(seriesKey);
+    ids.add(marketIdKey);
+  }
+  // The single-series fields name the primary market, so both views of it must agree.
+  const primary = markets[0] as Record<string, unknown>;
+  for (const field of ["marketId", "seriesId", "payoffTerms", "tickSizeMinor", "maxOrderLots", "maxLongDebitMinorPerLot", "maxShortDebitMinorPerLot"]) {
+    if (primary[field] !== record[field]) throw new Error("INVALID_RUNTIME");
+  }
+}
+
 function validateRuntime(candidate: unknown): Omit<SetrynRuntime, "rpcUrl"> {
   if (!candidate || typeof candidate !== "object") throw new Error("INVALID_RUNTIME");
   const record = candidate as Record<string, unknown>;
-  if (record.schemaVersion !== 8 || record.chainId !== 31337 || typeof record.day !== "number") {
+  if (record.schemaVersion !== 9 || record.chainId !== 31337 || typeof record.day !== "number") {
     throw new Error("INVALID_RUNTIME");
   }
   for (const field of ADDRESS_FIELDS) {
@@ -86,6 +133,7 @@ function validateRuntime(candidate: unknown): Omit<SetrynRuntime, "rpcUrl"> {
   if (Number(record.takerFeeRatePpm) >= 1_000_000 || Number(record.makerFeeRatePpm) >= 1_000_000) {
     throw new Error("INVALID_RUNTIME");
   }
+  validateMarkets(record);
   return record as unknown as Omit<SetrynRuntime, "rpcUrl">;
 }
 

@@ -6,7 +6,8 @@ import { OperatorExecutionError } from "./errors.ts";
 
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const hashPattern = /^0x[0-9a-fA-F]{64}$/;
-const runtimeSchemaVersion = 8;
+/** Schema 9 adds a `markets` array; its single-series fields still name the primary market this runtime operates. */
+const runtimeSchemaVersions: readonly unknown[] = [8, 9];
 
 /** Addresses the operator ports call; every one is checked against the deployment manifest. */
 export interface OperatorDeploymentAddresses {
@@ -108,7 +109,7 @@ const manifestCrossChecks: Readonly<Record<string, keyof OperatorDeploymentAddre
 };
 
 /**
- * Reads the devnet-style runtime file (schema version 8) and the deployment manifest for one chain. The manifest
+ * Reads the devnet-style runtime file (schema version 8 or 9) and the deployment manifest for one chain. The manifest
  * supplies the fixing and settlement contracts the runtime file does not carry, and both must name the same chain.
  */
 export async function loadOperatorDeployment(options: {
@@ -118,8 +119,8 @@ export async function loadOperatorDeployment(options: {
 }): Promise<OperatorDeployment> {
   const runtime = await readJson(options.runtimePath, "runtime");
   const manifest = await readJson(options.manifestPath, "manifest");
-  if (runtime.schemaVersion !== runtimeSchemaVersion) {
-    throw invalid(`runtime ${options.runtimePath} must be schema version ${runtimeSchemaVersion}`);
+  if (!runtimeSchemaVersions.includes(runtime.schemaVersion)) {
+    throw invalid(`runtime ${options.runtimePath} must be schema version ${runtimeSchemaVersions.join(" or ")}`);
   }
   if (runtime.chainId !== options.expectedChainId) {
     throw invalid(`runtime ${options.runtimePath} is for chain ${String(runtime.chainId)}, expected ${options.expectedChainId}`);

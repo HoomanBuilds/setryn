@@ -68,12 +68,18 @@ export interface GatewaySnapshot {
   receipts: ExecutionReceipt[];
   executions: GatewayExecution[];
   restingOrders: RestingPackageOrder[];
+  /** The primary onchain market. Every market in `onchainMarkets` trades onchain; this one names the first. */
   publicBookMarketId: string | null;
-  /** Economics of the onchain series behind the public book market, once the runtime is loaded. */
+  /** Economics of the primary market's series, once the runtime is loaded. */
   publicBookEconomics: OnchainMarketEconomics | null;
+  /** Every catalog market registered onchain, keyed by catalog market id, once the runtime is loaded. */
+  onchainMarkets: Record<string, OnchainMarket>;
   /** Settlement chain time minus browser time; deadlines and countdowns read the chain clock. */
   chainClockOffsetMs: number;
+  /** The primary market's public book. */
   publicBookOrders: BookRow[];
+  /** Resting public book orders of every onchain market, keyed by catalog market id. */
+  publicBooks: Record<string, BookRow[]>;
   rfqRequests: RfqRequest[];
 }
 
@@ -85,6 +91,15 @@ export interface OnchainMarketEconomics {
   maxOrderLots: number;
   makerFeeBps: number;
   takerFeeBps: number;
+}
+
+/** One catalog market's onchain series and the economics its orders settle on. */
+export interface OnchainMarket extends OnchainMarketEconomics {
+  marketKey: string;
+  seriesId: string;
+  bookId: string;
+  /** Price ticks per unit of package price. */
+  priceScale: number;
 }
 
 export interface CollateralIntent {

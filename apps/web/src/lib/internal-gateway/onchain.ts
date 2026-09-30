@@ -39,13 +39,24 @@ import {
   type OnchainPrivateRfqRequest,
   type OnchainRfqSelection,
 } from "./protocol";
-import { loadSetrynRuntime, type SetrynRuntime } from "./runtime";
+import { loadSetrynRuntime, type SetrynRuntime, type SetrynRuntimeMarket } from "./runtime";
+import {
+  considerationPerPriceUnit,
+  deriveSeriesBookId,
+  marketEconomics,
+  priceToTicks,
+  runtimeMarketByKey,
+  runtimeMarketBySeries,
+  ticksToPrice,
+} from "./runtime-markets";
+import type { BookRow } from "@/lib/terminal/types";
 import type {
   CollateralIntent,
   CollateralIntentResult,
   ExecutionReceipt,
   GatewaySnapshot,
   InternalTradingGateway,
+  OnchainMarket,
   LocalMakerQuoteInput,
   PackageExecutionResult,
   PackageOrderIntent,
@@ -58,7 +69,6 @@ import type {
 const ACCOUNT_SALT = keccak256(stringToHex("SETRYN_PRIMARY_ACCOUNT_V1"));
 const EMPTY_ID = `0x${"0".repeat(64)}` as Hex;
 const PRIMARY_MARKET_ID = "BTC-YC-24DEC26";
-const PRIMARY_CONTRACT_MULTIPLIER = 2.5;
 const CONSIDERATION_ENTRY = 1;
 
 interface LedgerFlow {
@@ -79,11 +89,16 @@ const LOCAL_CHAIN_ID = 31337;
 /** Seconds a maker order must remain live past the latest block so it cannot expire before the match lands. */
 const MAKER_DEADLINE_MARGIN_SECONDS = BigInt(15);
 const PUBLIC_SERIES_POLICY = keccak256(stringToHex("SETRYN_POLICY_PUBLIC_SERIES_V1"));
-const BOOK_ID_TYPEHASH = keccak256(
-  stringToHex(
-    "SetrynDirectBookV1(uint256 chainId,address book,address orderState,uint8 targetKind,bytes32 targetId,uint32 targetVersion,bytes32 executionModeId,bytes32 settlementAssetId,uint32 settlementAssetVersion,bytes32 feeScheduleId,uint32 feeScheduleVersion,bytes32 packageLegsHash)",
-  ),
-);
+
+/** Formats a fill price on the market's own decimal grid. */
+function formatTicksPrice(market: SetrynRuntimeMarket, price: number): string {
+  return price.toFixed(Math.round(Math.log10(market.priceScale)));
+}
+
+/** Collateral a filled position locks: the series' terminal debit bound on the position's side. */
+function positionCollateral(market: SetrynRuntimeMarket, side: "LONG" | "SHORT", lots: number): number {
+  return (lots * (side === "LONG" ? market.maxLongDebitMinorPerLot : market.maxShortDebitMinorPerLot)) / 1_000_000;
+}
 
 const lifecycleInputStruct = "struct LifecycleInput { bytes32 positionId; bytes32 expectedImmutableHash; bytes32 expectedLifecycleHash; uint128 expectedPositionLots; uint128 actionLots; }";
 const lifecycleSuccessorStruct = "struct LifecycleSuccessor { bytes32 successorKey; bytes32 seriesId; uint32 seriesVersion; bytes32 longAccountId; bytes32 shortAccountId; bytes32 riskDomainId; uint32 riskDomainVersion; bytes32 collateralId; uint128 lots; int128 entryPriceTicks; bytes32 economicsHash; bytes32 packageProvenanceHash; uint128 longTerminalLiabilityBaseUnits; uint128 shortTerminalLiabilityBaseUnits; }";
@@ -308,8 +323,10 @@ function initialSnapshot(): GatewaySnapshot {
     restingOrders: [],
     publicBookMarketId: PRIMARY_MARKET_ID,
     publicBookEconomics: null,
+    onchainMarkets: {},
     chainClockOffsetMs: 0,
     publicBookOrders: [],
+    publicBooks: {},
     rfqRequests: [],
   };
 }
@@ -335,6 +352,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   private orderFills = new Map<string, { fillIds: string[]; receiptIds: string[]; closedPositionId: string | null }>();
   private pollingTimer: number | null = null;
   private polling = false;
+  /** Book orders already seen filled, cancelled, or expired. None of them can rest again, so they are not re-read. */
+  private readonly retiredBookOrders = new Set<string>();
 
   getSnapshot = (): GatewaySnapshot => this.snapshot;
 
@@ -412,7 +431,9 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       ...this.snapshot,
       wallet: { status: "CONNECTED", address, chainId: setryn.chainId },
     });
-    await fetch("/api/internal/devnet/liquidity", { method: "POST" });
+    // Seeding every market's book takes a while on a fresh devnet, so it runs behind the account reads and the book
+    // is re-read once it lands. An order that finds its book empty asks for that market's quotes itself.
+    void this.requestDevnetLiquidity().then(() => this.refreshPublicBook()).catch(() => undefined);
     await this.refreshAccount();
     await Promise.all([this.refreshOrders(), this.refreshPublicBook(), this.refreshActivity(), this.refreshRfqs()]);
   }
@@ -509,12 +530,13 @@ export class OnchainTradingGateway implements InternalTradingGateway {
 
   async authorizeOrder(intent: PackageOrderIntent): Promise<SignedOrderAuthorization> {
     const { setryn, address, walletClient, publicClient } = await this.connected();
-    if (intent.marketId !== PRIMARY_MARKET_ID) throw new Error("MARKET_NOT_ONCHAIN_ENABLED");
+    const market = runtimeMarketByKey(setryn, intent.marketId);
+    if (!market) throw new Error("MARKET_NOT_ONCHAIN_ENABLED");
     if (intent.recipient.toLowerCase() !== address.toLowerCase()) throw new Error("RECIPIENT_MISMATCH");
-    if (intent.marketId !== PRIMARY_MARKET_ID || intent.packageCode !== PRIMARY_MARKET_ID) {
-      throw new Error("UNSUPPORTED_ONCHAIN_MARKET");
+    if (intent.packageCode !== intent.marketId) throw new Error("UNSUPPORTED_ONCHAIN_MARKET");
+    if (!Number.isInteger(intent.lots) || intent.lots < 1 || intent.lots > market.maxOrderLots) {
+      throw new Error("INVALID_LOTS");
     }
-    if (!Number.isInteger(intent.lots) || intent.lots < 1 || intent.lots > 10) throw new Error("INVALID_LOTS");
     if (intent.side === "EXIT") {
       const closing = this.snapshot.positions.find((position) => position.id === intent.closePositionId);
       if (!closing) throw new Error("CLOSE_POSITION_NOT_FOUND");
@@ -570,7 +592,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         `${intent.marketId}:${intent.routeId}:${intent.packageSide}:${intent.timeInForce}:${intent.settlementGuarantee}`,
       ),
     );
-    const priceTicks = BigInt(Math.round(intent.limitPrice * 10));
+    const priceTicks = priceToTicks(market, intent.limitPrice);
     const int128Min = -(BigInt(1) << BigInt(127));
     const int128Max = (BigInt(1) << BigInt(127)) - BigInt(1);
     if (priceTicks < int128Min || priceTicks > int128Max) throw new Error("INVALID_LIMIT_PRICE");
@@ -584,7 +606,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       policyContextHash,
       actionId: setryn.enterActionId,
       targetKind: 1,
-      seriesId: setryn.seriesId,
+      seriesId: market.seriesId,
       packageId: EMPTY_ID,
       targetVersion: 1,
       side: action === "BUY" ? 1 : 2,
@@ -673,6 +695,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     if (!order || !authorization.riskAdmissionId) throw new Error("INVALID_ONCHAIN_AUTHORIZATION");
     if (authorization.signer.toLowerCase() !== address.toLowerCase()) throw new Error("SIGNER_MISMATCH");
 
+    const market = this.orderMarket(setryn, order);
     onUpdate({ step: "AUTHORIZED", label: "Order authorized", detail: "Signature and risk admission are bound." });
     const registrationHash = await walletClient.writeContract({
       account: address,
@@ -691,7 +714,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       transactionHash: registrationHash,
     });
 
-    const bookId = this.deriveBookId(setryn);
+    const bookId = deriveSeriesBookId(setryn, market.seriesId);
     const makerSide = order.side === 1 ? 2 : 1;
     // The book prunes an expired maker order during matching instead of filling it, so the head order must still be
     // live on the chain clock. On the local devnet an expired head is refreshed once through the devnet maker.
@@ -731,7 +754,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     };
     let head = await readHead();
     if ((!head || !head.live) && setryn.chainId === LOCAL_CHAIN_ID) {
-      await fetch("/api/internal/devnet/liquidity", { method: "POST" }).catch(() => undefined);
+      await this.requestDevnetLiquidity(market.marketKey);
       head = await readHead();
     }
     if (!head) {
@@ -805,7 +828,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         takerFeeFunding: zeroFeeFunding,
         makerFeeFunding: zeroFeeFunding,
       },
-      payoffTerms: setryn.payoffTerms,
+      payoffTerms: market.payoffTerms,
       channelKind: 1,
     } as const;
     const matchHash = await walletClient.writeContract({
@@ -871,7 +894,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     } else if (remainingLots > 0 && order.timeInForce === 3) {
       await this.releaseRiskReservation(authorization);
     }
-    const executionPrice = Number(makerBookOrder.priceTicks) / 10;
+    const executionPrice = ticksToPrice(market, makerBookOrder.priceTicks);
     const packageSide = authorization.intent.packageSide;
     const createdPositionSide: "LONG" | "SHORT" = order.side === 1 ? "LONG" : "SHORT";
     let lifecycleHash: Hex | null = null;
@@ -894,10 +917,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       side: createdPositionSide,
       lots: filledLots,
       entryPrice: executionPrice,
-      collateral:
-        filledLots *
-        Number(createdPositionSide === "LONG" ? setryn.maxLongDebitMinorPerLot : setryn.maxShortDebitMinorPerLot) /
-        1_000_000,
+      collateral: positionCollateral(market, createdPositionSide, filledLots),
       state: "ACTIVE" as const,
       createdAt: new Date().toISOString(),
     };
@@ -950,7 +970,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       { step: "AUTHORIZED", label: "Order authorized", detail: "Signature and risk admission are bound." },
       { step: "SUBMITTED", label: "Order registered", detail: "Signed order registered onchain.", transactionHash: registrationHash },
       { step: "INCLUDED", label: "Match included", detail: "Best public liquidity cleared atomically.", transactionHash: matchHash },
-      { step: "FILLED", label: "Package filled", detail: `${formatLotCount(filledLots)} filled at ${executionPrice.toFixed(1)}.`, transactionHash: matchHash },
+      { step: "FILLED", label: "Package filled", detail: `${formatLotCount(filledLots)} filled at ${formatTicksPrice(market, executionPrice)}.`, transactionHash: matchHash },
       authorization.intent.side === "EXIT"
         ? { step: "POSITION_CLOSED", label: "Position closed", detail: "Original and close-fill positions were fully unwound onchain.", transactionHash: lifecycleHash ?? matchHash }
         : { step: "POSITION_CREATED", label: "Position created", detail: `Position ${positionId} is active.`, transactionHash: matchHash },
@@ -987,7 +1007,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const registrationReceipt = await publicClient.waitForTransactionReceipt({ hash: registrationHash });
     if (registrationReceipt.status !== "success") throw new Error("ORDER_REGISTRATION_FAILED");
 
-    const bookId = this.deriveBookId(setryn);
+    const bookId = deriveSeriesBookId(setryn, this.orderMarket(setryn, order).seriesId);
     const hint = await this.levelHint(bookId, order.side, order.priceTicks);
     // The book may have moved since the ticket was priced. A resting order that would now cross is rejected, so the
     // registered order is cancelled rather than left open without a place on the book.
@@ -1151,7 +1171,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       takerAccountId: order.accountId,
       takerOrderHash: authorization.orderHash as Hex,
       targetKind: 1,
-      seriesId: setryn.seriesId,
+      seriesId: this.orderMarket(setryn, order).seriesId,
       packageId: EMPTY_ID,
       targetVersion: 1,
       hasPackageLegCommitment: false,
@@ -1246,11 +1266,16 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const { setryn, address, walletClient, publicClient } = await this.connected();
     const current = this.snapshot.rfqRequests.find((request) => request.id === requestId);
     if (!current || current.state !== "OPEN") throw new Error("RFQ_NOT_OPEN");
-    if (!current.quotes.some((quote) => quote.id === quoteId)) throw new Error("RFQ_QUOTE_NOT_FOUND");
+    const selectedQuote = current.quotes.find((quote) => quote.id === quoteId);
+    if (!selectedQuote) throw new Error("RFQ_QUOTE_NOT_FOUND");
     const block = await publicClient.getBlock({ blockTag: "pending" });
-    const deadline = block.timestamp + BigInt(90) < BigInt(Math.floor(Date.parse(current.expiresAt) / 1000))
-      ? block.timestamp + BigInt(90)
-      : BigInt(Math.floor(Date.parse(current.expiresAt) / 1000));
+    // The selection may not outlive the request or the quote it selects, so its deadline is the earliest of the three.
+    const deadline = [
+      block.timestamp + BigInt(90),
+      BigInt(Math.floor(Date.parse(current.expiresAt) / 1000)),
+      BigInt(Math.floor(Date.parse(selectedQuote.expiresAt) / 1000)),
+    ].reduce((earliest, candidate) => (candidate < earliest ? candidate : earliest));
+    if (deadline <= block.timestamp) throw new Error("RFQ_QUOTE_EXPIRED");
     const nonce = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(crypto.getRandomValues(new Uint32Array(1))[0]);
     const selection: OnchainRfqSelection = {
       rfqId: requestId as Hex,
@@ -1360,8 +1385,9 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const setryn = await this.runtime();
     const packageSide = authorization.intent.packageSide;
     const createdPositionSide: "LONG" | "SHORT" = authorization.onchainOrder.side === 1 ? "LONG" : "SHORT";
+    const market = this.orderMarket(setryn, authorization.onchainOrder);
     const filledLots = Number(body.fillLots);
-    const executionPrice = Number(body.executionPriceTicks) / 10;
+    const executionPrice = ticksToPrice(market, BigInt(body.executionPriceTicks));
     let lifecycleHash: Hex | null = null;
     if (authorization.intent.side === "EXIT") {
       if (!authorization.intent.closePositionId) throw new Error("CLOSE_POSITION_REQUIRED");
@@ -1382,10 +1408,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       side: createdPositionSide,
       lots: filledLots,
       entryPrice: executionPrice,
-      collateral:
-        filledLots *
-        Number(createdPositionSide === "LONG" ? setryn.maxLongDebitMinorPerLot : setryn.maxShortDebitMinorPerLot) /
-        1_000_000,
+      collateral: positionCollateral(market, createdPositionSide, filledLots),
       state: "ACTIVE" as const,
       createdAt: new Date().toISOString(),
     };
@@ -1429,7 +1452,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       { step: "AUTHORIZED", label: "RFQ authorized", detail: "Selected quote and capacity were locked onchain." },
       { step: "SUBMITTED", label: "Private handoff submitted", detail: "The RFQ entered private channel clearing." },
       { step: "INCLUDED", label: "Handoff included", detail: "The RFQ handoff cleared atomically.", transactionHash: body.transactionHash },
-      { step: "FILLED", label: "Package filled", detail: `${formatLotCount(filledLots)} filled at ${executionPrice.toFixed(1)}.`, transactionHash: body.transactionHash },
+      { step: "FILLED", label: "Package filled", detail: `${formatLotCount(filledLots)} filled at ${formatTicksPrice(market, executionPrice)}.`, transactionHash: body.transactionHash },
       authorization.intent.side === "EXIT"
         ? { step: "POSITION_CLOSED", label: "Position closed", detail: "Original and close-fill positions were fully unwound onchain.", transactionHash: lifecycleHash ?? body.transactionHash }
         : { step: "POSITION_CREATED", label: "Position created", detail: `Position ${body.positionId} is active.`, transactionHash: body.transactionHash },
@@ -1558,15 +1581,20 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         chainId: setryn.chainId,
         evidence: "DEVNET",
       },
-      publicBookEconomics: {
-        // Package prices carry one decimal onchain, so one price unit is ten ticks.
-        considerationPerPriceUnit: (setryn.tickSizeMinor * 10) / 1_000_000,
-        longCollateralPerLot: setryn.maxLongDebitMinorPerLot / 1_000_000,
-        shortCollateralPerLot: setryn.maxShortDebitMinorPerLot / 1_000_000,
-        maxOrderLots: setryn.maxOrderLots,
-        makerFeeBps: setryn.makerFeeRatePpm / 100,
-        takerFeeBps: setryn.takerFeeRatePpm / 100,
-      },
+      publicBookMarketId: setryn.markets[0].marketKey,
+      publicBookEconomics: marketEconomics(setryn, setryn.markets[0]),
+      onchainMarkets: Object.fromEntries(
+        setryn.markets.map((market): [string, OnchainMarket] => [
+          market.marketKey,
+          {
+            ...marketEconomics(setryn, market),
+            marketKey: market.marketKey,
+            seriesId: market.seriesId,
+            bookId: deriveSeriesBookId(setryn, market.seriesId),
+            priceScale: market.priceScale,
+          },
+        ]),
+      ),
     });
     return setryn;
   }
@@ -1584,6 +1612,22 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   private runtime(): Promise<SetrynRuntime> {
     this.runtimePromise ??= this.initialize();
     return this.runtimePromise;
+  }
+
+  /** The onchain market an order trades, from the series it names. */
+  private orderMarket(setryn: SetrynRuntime, order: Pick<OnchainPublicOrder, "seriesId">): SetrynRuntimeMarket {
+    const market = runtimeMarketBySeries(setryn, order.seriesId);
+    if (!market) throw new Error("UNSUPPORTED_ONCHAIN_MARKET");
+    return market;
+  }
+
+  /** Asks the local devnet maker to refresh resting quotes, on one market or on every market. */
+  private async requestDevnetLiquidity(marketKey?: string): Promise<void> {
+    await fetch("/api/internal/devnet/liquidity", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(marketKey ? { marketId: marketKey } : {}),
+    }).catch(() => undefined);
   }
 
   private chain(setryn: SetrynRuntime) {
@@ -1679,7 +1723,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         functionName: "getOrder",
         args: [orderHash],
       });
-      if (record.order.seriesId.toLowerCase() !== this.setryn.seriesId.toLowerCase()) continue;
+      const market = runtimeMarketBySeries(this.setryn, record.order.seriesId);
+      if (!market) continue;
       const admissionId = await this.publicClient.readContract({
         address: this.setryn.riskAdmissionBindingRegistry,
         abi: riskBindingAbi,
@@ -1706,15 +1751,15 @@ export class OnchainTradingGateway implements InternalTradingGateway {
             : "GTC";
       const lots = Number(record.order.lots);
       const filledLots = Number(record.filledLots);
-      const limitPrice = Number(record.order.priceTicks) / 10;
+      const limitPrice = ticksToPrice(market, record.order.priceTicks);
       const collateralRequired = admission
         ? Number(formatUnits(admission.terminalLiabilityBaseUnits, 6))
         : 0;
       const feeCap = Number(formatUnits(record.order.maxFeeMinor, 6));
       const intent: PackageOrderIntent = {
         accountId: record.order.accountId,
-        marketId: PRIMARY_MARKET_ID,
-        packageCode: PRIMARY_MARKET_ID,
+        marketId: market.marketKey,
+        packageCode: market.marketKey,
         routeId: "DIRECT_BOOK",
         routeLabel: "Direct package book",
         side: "ENTER",
@@ -1723,7 +1768,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         fillLots: lots,
         limitPrice,
         executionPrice: limitPrice,
-        contractMultiplier: PRIMARY_CONTRACT_MULTIPLIER,
+        contractMultiplier: considerationPerPriceUnit(market),
         orderType: "LIMIT",
         timeInForce,
         expiresAt: new Date(Number(record.order.deadline) * 1000).toISOString(),
@@ -1750,8 +1795,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         id: orderHash,
         orderHash,
         accountId: record.order.accountId,
-        marketId: PRIMARY_MARKET_ID,
-        packageCode: PRIMARY_MARKET_ID,
+        marketId: market.marketKey,
+        packageCode: market.marketKey,
         routeId: intent.routeId,
         routeLabel: intent.routeLabel,
         side: "ENTER",
@@ -1774,7 +1819,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         state,
         orderType: "LIMIT",
         postOnly: record.order.postOnly,
-        contractMultiplier: PRIMARY_CONTRACT_MULTIPLIER,
+        contractMultiplier: intent.contractMultiplier,
         settlementGuarantee: intent.settlementGuarantee,
         disclosure: "PUBLIC",
         recipient: record.order.recipient,
@@ -1808,58 +1853,81 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     });
   }
 
+  /** Reads every onchain market's resting public book in one pass over the book's rest events. */
   private async refreshPublicBook(): Promise<void> {
-    if (!this.setryn || !this.publicClient) return;
-    const bookId = this.deriveBookId(this.setryn);
+    const setryn = this.setryn;
+    const publicClient = this.publicClient;
+    if (!setryn || !publicClient) return;
+    const marketsByBook = new Map(
+      setryn.markets.map((market) => [deriveSeriesBookId(setryn, market.seriesId).toLowerCase(), market]),
+    );
     const [events, block] = await Promise.all([
-      this.publicClient.getContractEvents({
-        address: this.setryn.publicOrderBook,
+      publicClient.getContractEvents({
+        address: setryn.publicOrderBook,
         abi: publicOrderBookAbi,
         eventName: "DirectOrderRested",
-        args: { bookId },
         fromBlock: BigInt(0),
         toBlock: "latest",
       }),
-      this.publicClient.getBlock({ blockTag: "pending" }),
+      publicClient.getBlock({ blockTag: "pending" }),
     ]);
     this.observeChainClock(block.timestamp);
-    const latestHashes = [...new Set(events.map((event) => event.args.orderHash).filter((value) => value != null))];
-    const rows = [] as GatewaySnapshot["publicBookOrders"];
-    for (const orderHash of latestHashes) {
-      const [bookOrder, orderRecord] = await Promise.all([
-        this.publicClient.readContract({
-          address: this.setryn.publicOrderBook,
-          abi: publicOrderBookAbi,
-          functionName: "getBookOrder",
-          args: [orderHash],
-        }),
-        this.publicClient.readContract({
-          address: this.setryn.orderState,
-          abi: orderStateAbi,
-          functionName: "getOrder",
-          args: [orderHash],
-        }),
-      ]);
-      if (
-        bookOrder.status !== 1 ||
-        (orderRecord.status !== 1 && orderRecord.status !== 2) ||
-        orderRecord.order.deadline <= block.timestamp
-      ) continue;
-      rows.push({
-        id: `onchain-${orderHash}`,
-        side: bookOrder.side === 1 ? "BID" : "ASK",
-        source: "DIRECT",
-        price: Number(bookOrder.priceTicks) / 10,
-        lots: Number(bookOrder.remainingLots),
-        firmness: "FIRM",
-        executable: true,
-        origin: "Setryn public book",
-      });
+    const candidates = new Map<string, SetrynRuntimeMarket>();
+    for (const event of events) {
+      const orderHash = event.args.orderHash;
+      const market = event.args.bookId ? marketsByBook.get(event.args.bookId.toLowerCase()) : undefined;
+      if (!orderHash || !market || this.retiredBookOrders.has(orderHash.toLowerCase())) continue;
+      candidates.set(orderHash, market);
     }
-    rows.sort((left, right) => left.side === right.side
-      ? left.side === "BID" ? right.price - left.price : left.price - right.price
-      : left.side === "ASK" ? -1 : 1);
-    this.publish({ ...this.snapshot, publicBookMarketId: PRIMARY_MARKET_ID, publicBookOrders: rows });
+    const books: Record<string, BookRow[]> = Object.fromEntries(setryn.markets.map((market) => [market.marketKey, []]));
+    await Promise.all(
+      [...candidates].map(async ([orderHash, market]) => {
+        const [bookOrder, orderRecord] = await Promise.all([
+          publicClient.readContract({
+            address: setryn.publicOrderBook,
+            abi: publicOrderBookAbi,
+            functionName: "getBookOrder",
+            args: [orderHash as Hex],
+          }),
+          publicClient.readContract({
+            address: setryn.orderState,
+            abi: orderStateAbi,
+            functionName: "getOrder",
+            args: [orderHash as Hex],
+          }),
+        ]);
+        if (
+          bookOrder.status !== 1 ||
+          (orderRecord.status !== 1 && orderRecord.status !== 2) ||
+          orderRecord.order.deadline <= block.timestamp
+        ) {
+          this.retiredBookOrders.add(orderHash.toLowerCase());
+          return;
+        }
+        books[market.marketKey].push({
+          id: `onchain-${orderHash}`,
+          side: bookOrder.side === 1 ? "BID" : "ASK",
+          source: "DIRECT",
+          price: ticksToPrice(market, bookOrder.priceTicks),
+          lots: Number(bookOrder.remainingLots),
+          firmness: "FIRM",
+          executable: true,
+          origin: "Setryn public book",
+        });
+      }),
+    );
+    for (const rows of Object.values(books)) {
+      rows.sort((left, right) => left.side === right.side
+        ? left.side === "BID" ? right.price - left.price : left.price - right.price
+        : left.side === "ASK" ? -1 : 1);
+    }
+    const primary = setryn.markets[0].marketKey;
+    this.publish({
+      ...this.snapshot,
+      publicBookMarketId: primary,
+      publicBookOrders: books[primary] ?? [],
+      publicBooks: books,
+    });
   }
 
   /** Realized PnL of a full exit: the account's net consideration over the fill that opened the position and the close fill. */
@@ -1964,7 +2032,9 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       const filledLots = Number(fill.fillLots);
       const requestedLots = isTaker ? Number(ownRecord.order.lots) : filledLots;
       const packageSide: "LONG" | "SHORT" = ownRecord.order.side === 1 ? "LONG" : "SHORT";
-      const price = Number(fill.executionPriceTicks) / 10;
+      const market = runtimeMarketBySeries(this.setryn, positionEvent.args.seriesId ?? fill.targetId);
+      if (!market) continue;
+      const price = ticksToPrice(market, fill.executionPriceTicks);
       const ownFeeKind = isTaker ? 3 : 2;
       // Fees are charged by the funded fee engine in the fill's transaction, or on the clearing ledger when funded
       // from a direct fee lock.
@@ -1980,14 +2050,11 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       const createdAt = new Date(Number(fill.clearedAt) * 1000).toISOString();
       const position = {
         id: positionId,
-        marketId: PRIMARY_MARKET_ID,
+        marketId: market.marketKey,
         side: packageSide,
         lots: filledLots,
         entryPrice: price,
-        collateral:
-          filledLots *
-          Number(packageSide === "LONG" ? this.setryn.maxLongDebitMinorPerLot : this.setryn.maxShortDebitMinorPerLot) /
-          1_000_000,
+        collateral: positionCollateral(market, packageSide, filledLots),
         state: "ACTIVE" as const,
         createdAt,
       };
@@ -1998,6 +2065,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         fillId,
         positionId,
         positionLive,
+        market,
         ownOrderHash,
         requestedLots,
         filledLots,
@@ -2030,7 +2098,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const executions = [] as GatewaySnapshot["executions"];
     const orderFills = new Map<string, { fillIds: string[]; receiptIds: string[]; closedPositionId: string | null }>();
     for (const record of fills) {
-      const { fillId, positionId, positionLive, filledLots, price, position, transactionHash } = record;
+      const { fillId, positionId, positionLive, market, filledLots, price, position, transactionHash } = record;
       const closedEntry = closes.get(positionId.toLowerCase());
       const openedAndClosed = closedBy.has(positionId.toLowerCase());
       const entry = closedEntry?.entry;
@@ -2039,8 +2107,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         orderHash: record.ownOrderHash,
         fillId,
         transactionHash,
-        marketId: PRIMARY_MARKET_ID,
-        packageCode: PRIMARY_MARKET_ID,
+        marketId: market.marketKey,
+        packageCode: market.marketKey,
         packageSide: record.packageSide,
         routeLabel: record.channelKind === 2 ? "Private firm RFQ" : "Direct package book",
         lots: filledLots,
@@ -2066,7 +2134,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         { step: "AUTHORIZED", label: "Order authorized", detail: "Signature and risk admission were bound." },
         { step: "SUBMITTED", label: "Order registered", detail: "Signed order registered onchain." },
         { step: "INCLUDED", label: "Match included", detail: `${receipt.routeLabel} cleared atomically.`, transactionHash },
-        { step: "FILLED", label: "Package filled", detail: `${formatLotCount(filledLots)} filled at ${price.toFixed(1)}.`, transactionHash },
+        { step: "FILLED", label: "Package filled", detail: `${formatLotCount(filledLots)} filled at ${formatTicksPrice(market, price)}.`, transactionHash },
         positionUpdate,
         { step: "RECEIPT_READY", label: "Receipt ready", detail: `Fill ${fillId} is verifiable onchain.`, transactionHash },
       ];
@@ -2126,6 +2194,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         args: [rfqId],
       });
       if (rfq.request.taker.toLowerCase() !== this.walletAddress.toLowerCase()) continue;
+      const market = runtimeMarketBySeries(this.setryn, rfq.request.seriesId);
+      if (!market) continue;
       const orderRecord = await this.publicClient.readContract({
         address: this.setryn.orderState,
         abi: orderStateAbi,
@@ -2171,7 +2241,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         quotes.push({
           id: quoteId,
           solverLabel: "Setryn Devnet MM",
-          packagePrice: Number(priceTicks) / 10,
+          packagePrice: ticksToPrice(market, priceTicks),
           feeCap: Number(formatUnits(quoteRecord.quote.maxFeeMinor, 6)),
           capacityLots: Number(quoteRecord.quote.lots - quoteRecord.cumulativeFilledLots),
           expiresAt: new Date(Number(quoteRecord.quote.deadline) * 1000).toISOString(),
@@ -2198,11 +2268,11 @@ export class OnchainTradingGateway implements InternalTradingGateway {
             ? "FOK"
             : "GTC";
       const lots = Number(orderRecord.order.lots);
-      const limitPrice = Number(orderRecord.order.priceTicks) / 10;
+      const limitPrice = ticksToPrice(market, orderRecord.order.priceTicks);
       const intent: PackageOrderIntent = {
         accountId: orderRecord.order.accountId,
-        marketId: PRIMARY_MARKET_ID,
-        packageCode: PRIMARY_MARKET_ID,
+        marketId: market.marketKey,
+        packageCode: market.marketKey,
         routeId: "private-rfq",
         routeLabel: "Private firm RFQ",
         side: "ENTER",
@@ -2211,7 +2281,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         fillLots: lots,
         limitPrice,
         executionPrice: limitPrice,
-        contractMultiplier: PRIMARY_CONTRACT_MULTIPLIER,
+        contractMultiplier: considerationPerPriceUnit(market),
         orderType: "LIMIT",
         timeInForce,
         expiresAt: new Date(Number(orderRecord.order.deadline) * 1000).toISOString(),
@@ -2268,43 +2338,6 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   private toMinorUnits(value: number): bigint {
     if (!Number.isFinite(value) || value < 0) throw new Error("INVALID_MINOR_UNIT_AMOUNT");
     return parseUnits(value.toFixed(6), 6);
-  }
-
-  private deriveBookId(setryn: SetrynRuntime): Hex {
-    return keccak256(
-      encodeAbiParameters(
-        [
-          { name: "typeHash", type: "bytes32" },
-          { name: "chainId", type: "uint256" },
-          { name: "book", type: "address" },
-          { name: "orderState", type: "address" },
-          { name: "targetKind", type: "uint8" },
-          { name: "targetId", type: "bytes32" },
-          { name: "targetVersion", type: "uint32" },
-          { name: "executionModeId", type: "bytes32" },
-          { name: "settlementAssetId", type: "bytes32" },
-          { name: "settlementAssetVersion", type: "uint32" },
-          { name: "feeScheduleId", type: "bytes32" },
-          { name: "feeScheduleVersion", type: "uint32" },
-          { name: "packageLegsHash", type: "bytes32" },
-        ],
-        [
-          BOOK_ID_TYPEHASH,
-          BigInt(setryn.chainId),
-          setryn.publicOrderBook,
-          setryn.orderState,
-          1,
-          setryn.seriesId,
-          1,
-          setryn.executionModeId,
-          setryn.settlementAssetId,
-          1,
-          setryn.feeScheduleId,
-          1,
-          EMPTY_ID,
-        ],
-      ),
-    );
   }
 
   private async levelHint(bookId: Hex, side: 1 | 2, priceTicks: bigint) {
@@ -2584,7 +2617,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     this.pollingTimer = window.setInterval(() => {
       if (this.polling || this.snapshot.wallet.status !== "CONNECTED") return;
       this.polling = true;
-      void fetch("/api/internal/devnet/liquidity", { method: "POST" })
+      void this.requestDevnetLiquidity()
         .then(() => Promise.all([
           this.refreshAccount(),
           this.refreshOrders(),

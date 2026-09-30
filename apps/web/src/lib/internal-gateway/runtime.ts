@@ -1,5 +1,23 @@
 import type { Address, Hex } from "viem";
 
+/** One catalog market registered onchain: its own market, series, tick grid, and payoff bounds. */
+export interface SetrynRuntimeMarket {
+  /** The terminal catalog id, for example "ETH-FC-25SEP26". */
+  marketKey: string;
+  marketId: Hex;
+  instrumentId: Hex;
+  seriesId: Hex;
+  benchmarkId: Hex;
+  payoffTerms: Hex;
+  /** Settlement minor units per price tick per lot. */
+  tickSizeMinor: number;
+  /** Price ticks per unit of package price: onchain ticks are price x priceScale. */
+  priceScale: number;
+  maxLongDebitMinorPerLot: number;
+  maxShortDebitMinorPerLot: number;
+  maxOrderLots: number;
+}
+
 export interface SetrynRuntime {
   schemaVersion: number;
   chainId: number;
@@ -26,6 +44,8 @@ export interface SetrynRuntime {
   riskDomainId: Hex;
   marketId: Hex;
   seriesId: Hex;
+  instrumentId: Hex;
+  benchmarkId: Hex;
   feeScheduleId: Hex;
   feeRecipientAccountId: Hex;
   payoffTerms: Hex;
@@ -43,6 +63,8 @@ export interface SetrynRuntime {
   privateRfqDisclosurePolicyHash: Hex;
   privateRfqEligibleMakerSetHash: Hex;
   enterActionId: Hex;
+  /** Every onchain market in catalog order. The single-series fields above name the first, primary one. */
+  markets: SetrynRuntimeMarket[];
 }
 
 export async function loadSetrynRuntime(): Promise<SetrynRuntime> {

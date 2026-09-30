@@ -17,7 +17,10 @@ import {
   type OnchainMakerQuote,
   type OnchainPublicOrder,
 } from "@/lib/internal-gateway/protocol";
+import { priceToTicks, runtimeMarketBySeries, ticksToPrice } from "@/lib/internal-gateway/runtime-markets";
+import { withDevnetMakerLock } from "@/lib/internal-gateway/devnet-maker-lock";
 import { readLocalRuntime } from "@/lib/internal-gateway/runtime-server";
+import { MARKETS } from "@/lib/terminal/markets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,11 +58,13 @@ export async function POST(request: Request) {
       return Response.json({ error: "Invalid RFQ identifier" }, { status: 400 });
     }
     const rfqId = body.rfqId as Hex;
-    const requestedPrice = body.packagePrice === undefined ? 612 : Number(body.packagePrice);
+    const requestedPrice = body.packagePrice === undefined ? null : Number(body.packagePrice);
     const requestedLots = body.capacityLots === undefined ? null : Number(body.capacityLots);
     const requestedFeeCap = body.feeCap === undefined ? null : Number(body.feeCap);
     const ttlSeconds = body.ttlSeconds === undefined ? 120 : Number(body.ttlSeconds);
-    if (!Number.isFinite(requestedPrice) || requestedPrice <= 0) throw new Error("INVALID_PACKAGE_PRICE");
+    if (requestedPrice !== null && (!Number.isFinite(requestedPrice) || requestedPrice <= 0)) {
+      throw new Error("INVALID_PACKAGE_PRICE");
+    }
     if (requestedLots !== null && (!Number.isInteger(requestedLots) || requestedLots <= 0)) {
       throw new Error("INVALID_CAPACITY");
     }
@@ -67,9 +72,6 @@ export async function POST(request: Request) {
       throw new Error("INVALID_FEE_CAP");
     }
     if (!Number.isInteger(ttlSeconds) || ttlSeconds < 5 || ttlSeconds > 120) throw new Error("INVALID_TTL");
-    const bootstrap = await fetch(new URL("/api/internal/devnet/liquidity", request.url), { method: "POST" });
-    if (!bootstrap.ok) throw new Error("DEVNET_MAKER_UNAVAILABLE");
-
     const setryn = await readLocalRuntime();
     const maker = getAddress(setryn.operator);
     const publicClient = createPublicClient({ transport: http(setryn.rpcUrl) });
@@ -90,170 +92,185 @@ export async function POST(request: Request) {
       publicClient.getBlock({ blockTag: "pending" }),
     ]);
     if (rfq.status !== 2 || rfq.request.deadline <= block.timestamp) throw new Error("RFQ_NOT_COLLECTING");
-
-    const makerSide: 1 | 2 = rfq.request.sidePolicy === 1 ? 2 : 1;
-    const priceTicks = BigInt(Math.round(requestedPrice * 10));
-    const lots = requestedLots === null ? rfq.request.lots : BigInt(requestedLots);
-    const maxFeeMinor = requestedFeeCap === null
-      ? rfq.request.maxFeeMinor
-      : BigInt(Math.round(requestedFeeCap * 1_000_000));
-    if (lots > rfq.request.lots || maxFeeMinor > rfq.request.maxFeeMinor) throw new Error("QUOTE_ABOVE_REQUEST_LIMIT");
-    if (lots < rfq.request.lots && (!rfq.request.allowPartialFills || rfq.request.remainderPolicy !== 2)) {
-      throw new Error("PARTIAL_QUOTE_NOT_ALLOWED");
-    }
-    const quoteDeadline = rfq.request.deadline < block.timestamp + BigInt(ttlSeconds)
-      ? rfq.request.deadline
-      : block.timestamp + BigInt(ttlSeconds);
-    const capacityExpiry = quoteDeadline + BigInt(60);
-    const orderNonce = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(crypto.getRandomValues(new Uint32Array(1))[0]);
-    const makerOrder: OnchainPublicOrder = {
-      signer: maker,
-      accountId: makerAccountId,
-      policyId: PUBLIC_SERIES_POLICY,
-      policyContextHash: MAKER_POLICY_CONTEXT,
-      actionId: setryn.enterActionId,
-      targetKind: 1,
-      seriesId: setryn.seriesId,
-      packageId: ZERO_ID,
-      targetVersion: 1,
-      side: makerSide,
-      lots,
-      priceTicks,
-      timeInForce: 4,
-      deadline: quoteDeadline,
-      executionModeId: setryn.privateRfqExecutionModeId,
-      feeScheduleId: setryn.feeScheduleId,
-      feeScheduleVersion: 1,
-      maxFeeMinor,
-      recipient: maker,
-      permittedExecutor: setryn.atomicClearingEngine,
-      nonce: orderNonce,
-      salt: keccak256(stringToHex(`${rfqId}:${orderNonce}:maker-order`)),
-      allowPartialFills: false,
-      minimumFillLots: lots,
-      remainderPolicy: 2 as const,
-      postOnly: false,
-      reduceOnly: false,
-    };
-    const makerOrderSignature = await walletClient.signTypedData({
-      account: maker,
-      domain: { name: "Setryn", version: "1", chainId: setryn.chainId, verifyingContract: setryn.orderState },
-      types: publicOrderTypedData,
-      primaryType: "PublicOrder",
-      message: makerOrder,
-    });
-    const makerOrderHash = await publicClient.readContract({
-      address: setryn.orderState,
-      abi: orderStateAbi,
-      functionName: "hashOrder",
-      args: [makerOrder],
-    });
-    const reservation = await fetch(new URL("/api/internal/orders/reserve-risk", request.url), {
+    // The request's series names the market, so the quote carries that market's grid, liability, and payoff.
+    const market = runtimeMarketBySeries(setryn, rfq.request.seriesId);
+    const preview = market ? MARKETS.find((candidate) => candidate.id === market.marketKey) : undefined;
+    if (!market || !preview) throw new Error("MARKET_NOT_ONCHAIN_ENABLED");
+    // The maker account is funded and approved by the liquidity bootstrap before it quotes.
+    const bootstrap = await fetch(new URL("/api/internal/devnet/liquidity", request.url), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ order: serializePublicOrder(makerOrder), signature: makerOrderSignature, orderHash: makerOrderHash }),
+      body: JSON.stringify({ marketId: market.marketKey }),
     });
-    const reservationBody = (await reservation.json()) as { admissionId?: Hex };
-    if (!reservation.ok || !reservationBody.admissionId) throw new Error("MAKER_RISK_RESERVATION_FAILED");
-    const bindingHash = await walletClient.writeContract({
-      account: maker,
-      chain: null,
-      address: setryn.riskAdmissionBindingRegistry,
-      abi: riskBindingAbi,
-      functionName: "bindOrderRisk",
-      args: [makerOrder, reservationBody.admissionId],
-    });
-    await publicClient.waitForTransactionReceipt({ hash: bindingHash });
-    const registrationHash = await walletClient.writeContract({
-      account: maker,
-      chain: null,
-      address: setryn.orderState,
-      abi: orderStateAbi,
-      functionName: "registerSignedOrder",
-      args: [makerOrder, makerOrderSignature],
-    });
-    await publicClient.waitForTransactionReceipt({ hash: registrationHash });
+    if (!bootstrap.ok) throw new Error("DEVNET_MAKER_UNAVAILABLE");
 
-    const liabilityPerLot = BigInt(
-      makerSide === 1 ? setryn.maxLongDebitMinorPerLot : setryn.maxShortDebitMinorPerLot,
-    );
-    const quoteNonce = orderNonce + BigInt(1);
-    const quote: OnchainMakerQuote = {
-      rfqId,
-      maker,
-      makerAccountId,
-      takerAccountId: rfq.request.takerAccountId,
-      makerOrderHash,
-      targetKind: 1,
-      seriesId: setryn.seriesId,
-      packageId: ZERO_ID,
-      targetVersion: 1,
-      hasPackageLegCommitment: false,
-      packageLegsHash: ZERO_ID,
-      sidePolicy: rfq.request.sidePolicy as 1 | 2 | 3,
-      lots,
-      allowPartialFills: rfq.request.allowPartialFills,
-      minimumFillLots: rfq.request.minimumFillLots,
-      remainderPolicy: rfq.request.remainderPolicy as 1 | 2,
-      bidPriceTicks: rfq.request.sidePolicy === 2 ? priceTicks : BigInt(0),
-      askPriceTicks: rfq.request.sidePolicy === 1 ? priceTicks : BigInt(0),
-      feeScheduleId: setryn.feeScheduleId,
-      feeScheduleVersion: 1,
-      maxFeeMinor,
-      riskDomainId: setryn.riskDomainId,
-      riskDomainVersion: 1,
-      collateralAssetId: setryn.settlementAssetId,
-      collateralBindingVersion: 1,
-      maximumLiability: lots * liabilityPerLot,
-      privacyModeId: setryn.privateRfqPrivacyModeId,
-      executionModeId: setryn.privateRfqExecutionModeId,
-      disclosurePolicyHash: setryn.privateRfqDisclosurePolicyHash,
-      eligibleMakerSetHash: setryn.privateRfqEligibleMakerSetHash,
-      deadline: quoteDeadline,
-      capacityExpiry,
-      permittedExecutor: setryn.atomicClearingEngine,
-      nonce: quoteNonce,
-      salt: keccak256(stringToHex(`${rfqId}:${quoteNonce}:maker-quote`)),
-    };
-    const quoteSignature = await walletClient.signTypedData({
-      account: maker,
-      domain: { name: "Setryn", version: "1", chainId: setryn.chainId, verifyingContract: setryn.privateRfqBook },
-      types: makerQuoteTypedData,
-      primaryType: "MakerQuote",
-      message: quote,
-    });
-    const quoteId = await publicClient.readContract({
-      address: setryn.privateRfqBook,
-      abi: privateRfqBookAbi,
-      functionName: "hashQuote",
-      args: [quote],
-    });
-    const submitHash = await walletClient.writeContract({
-      account: maker,
-      chain: null,
-      address: setryn.privateRfqBook,
-      abi: privateRfqBookAbi,
-      functionName: "submitQuote",
-      args: [quote, [], quoteSignature],
-    });
-    await publicClient.waitForTransactionReceipt({ hash: submitHash });
-    const reserveHash = await walletClient.writeContract({
-      account: maker,
-      chain: null,
-      address: setryn.privateRfqBook,
-      abi: privateRfqBookAbi,
-      functionName: "reserveQuoteCapacity",
-      args: [quoteId],
-    });
-    await publicClient.waitForTransactionReceipt({ hash: reserveHash });
+    // The maker's reservation and binding must not interleave with another maker reservation.
+    return await withDevnetMakerLock(async () => {
+      const makerSide: 1 | 2 = rfq.request.sidePolicy === 1 ? 2 : 1;
+      // Without an explicit price the seeded solver quotes the preview feed's top of book on the side it takes.
+      const priceTicks = priceToTicks(market, requestedPrice ?? (makerSide === 2 ? preview.bestAsk : preview.bestBid));
+      const lots = requestedLots === null ? rfq.request.lots : BigInt(requestedLots);
+      const maxFeeMinor = requestedFeeCap === null
+        ? rfq.request.maxFeeMinor
+        : BigInt(Math.round(requestedFeeCap * 1_000_000));
+      if (lots > rfq.request.lots || maxFeeMinor > rfq.request.maxFeeMinor) throw new Error("QUOTE_ABOVE_REQUEST_LIMIT");
+      if (lots < rfq.request.lots && (!rfq.request.allowPartialFills || rfq.request.remainderPolicy !== 2)) {
+        throw new Error("PARTIAL_QUOTE_NOT_ALLOWED");
+      }
+      const quoteDeadline = rfq.request.deadline < block.timestamp + BigInt(ttlSeconds)
+        ? rfq.request.deadline
+        : block.timestamp + BigInt(ttlSeconds);
+      const capacityExpiry = quoteDeadline + BigInt(60);
+      const orderNonce = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(crypto.getRandomValues(new Uint32Array(1))[0]);
+      const makerOrder: OnchainPublicOrder = {
+        signer: maker,
+        accountId: makerAccountId,
+        policyId: PUBLIC_SERIES_POLICY,
+        policyContextHash: MAKER_POLICY_CONTEXT,
+        actionId: setryn.enterActionId,
+        targetKind: 1,
+        seriesId: market.seriesId,
+        packageId: ZERO_ID,
+        targetVersion: 1,
+        side: makerSide,
+        lots,
+        priceTicks,
+        timeInForce: 4,
+        deadline: quoteDeadline,
+        executionModeId: setryn.privateRfqExecutionModeId,
+        feeScheduleId: setryn.feeScheduleId,
+        feeScheduleVersion: 1,
+        maxFeeMinor,
+        recipient: maker,
+        permittedExecutor: setryn.atomicClearingEngine,
+        nonce: orderNonce,
+        salt: keccak256(stringToHex(`${rfqId}:${orderNonce}:maker-order`)),
+        allowPartialFills: false,
+        minimumFillLots: lots,
+        remainderPolicy: 2 as const,
+        postOnly: false,
+        reduceOnly: false,
+      };
+      const makerOrderSignature = await walletClient.signTypedData({
+        account: maker,
+        domain: { name: "Setryn", version: "1", chainId: setryn.chainId, verifyingContract: setryn.orderState },
+        types: publicOrderTypedData,
+        primaryType: "PublicOrder",
+        message: makerOrder,
+      });
+      const makerOrderHash = await publicClient.readContract({
+        address: setryn.orderState,
+        abi: orderStateAbi,
+        functionName: "hashOrder",
+        args: [makerOrder],
+      });
+      const reservation = await fetch(new URL("/api/internal/orders/reserve-risk", request.url), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order: serializePublicOrder(makerOrder), signature: makerOrderSignature, orderHash: makerOrderHash }),
+      });
+      const reservationBody = (await reservation.json()) as { admissionId?: Hex };
+      if (!reservation.ok || !reservationBody.admissionId) throw new Error("MAKER_RISK_RESERVATION_FAILED");
+      const bindingHash = await walletClient.writeContract({
+        account: maker,
+        chain: null,
+        address: setryn.riskAdmissionBindingRegistry,
+        abi: riskBindingAbi,
+        functionName: "bindOrderRisk",
+        args: [makerOrder, reservationBody.admissionId],
+      });
+      await publicClient.waitForTransactionReceipt({ hash: bindingHash });
+      const registrationHash = await walletClient.writeContract({
+        account: maker,
+        chain: null,
+        address: setryn.orderState,
+        abi: orderStateAbi,
+        functionName: "registerSignedOrder",
+        args: [makerOrder, makerOrderSignature],
+      });
+      await publicClient.waitForTransactionReceipt({ hash: registrationHash });
 
-    return Response.json({
-      quoteId,
-      packagePrice: Number(priceTicks) / 10,
-      feeCap: Number(maxFeeMinor) / 1_000_000,
-      capacityLots: Number(lots),
-      expiresAt: new Date(Number(quoteDeadline) * 1000).toISOString(),
-    }, { headers: { "Cache-Control": "no-store" } });
+      const liabilityPerLot = BigInt(
+        makerSide === 1 ? market.maxLongDebitMinorPerLot : market.maxShortDebitMinorPerLot,
+      );
+      const quoteNonce = orderNonce + BigInt(1);
+      const quote: OnchainMakerQuote = {
+        rfqId,
+        maker,
+        makerAccountId,
+        takerAccountId: rfq.request.takerAccountId,
+        makerOrderHash,
+        targetKind: 1,
+        seriesId: market.seriesId,
+        packageId: ZERO_ID,
+        targetVersion: 1,
+        hasPackageLegCommitment: false,
+        packageLegsHash: ZERO_ID,
+        sidePolicy: rfq.request.sidePolicy as 1 | 2 | 3,
+        lots,
+        allowPartialFills: rfq.request.allowPartialFills,
+        minimumFillLots: rfq.request.minimumFillLots,
+        remainderPolicy: rfq.request.remainderPolicy as 1 | 2,
+        bidPriceTicks: rfq.request.sidePolicy === 2 ? priceTicks : BigInt(0),
+        askPriceTicks: rfq.request.sidePolicy === 1 ? priceTicks : BigInt(0),
+        feeScheduleId: setryn.feeScheduleId,
+        feeScheduleVersion: 1,
+        maxFeeMinor,
+        riskDomainId: setryn.riskDomainId,
+        riskDomainVersion: 1,
+        collateralAssetId: setryn.settlementAssetId,
+        collateralBindingVersion: 1,
+        maximumLiability: lots * liabilityPerLot,
+        privacyModeId: setryn.privateRfqPrivacyModeId,
+        executionModeId: setryn.privateRfqExecutionModeId,
+        disclosurePolicyHash: setryn.privateRfqDisclosurePolicyHash,
+        eligibleMakerSetHash: setryn.privateRfqEligibleMakerSetHash,
+        deadline: quoteDeadline,
+        capacityExpiry,
+        permittedExecutor: setryn.atomicClearingEngine,
+        nonce: quoteNonce,
+        salt: keccak256(stringToHex(`${rfqId}:${quoteNonce}:maker-quote`)),
+      };
+      const quoteSignature = await walletClient.signTypedData({
+        account: maker,
+        domain: { name: "Setryn", version: "1", chainId: setryn.chainId, verifyingContract: setryn.privateRfqBook },
+        types: makerQuoteTypedData,
+        primaryType: "MakerQuote",
+        message: quote,
+      });
+      const quoteId = await publicClient.readContract({
+        address: setryn.privateRfqBook,
+        abi: privateRfqBookAbi,
+        functionName: "hashQuote",
+        args: [quote],
+      });
+      const submitHash = await walletClient.writeContract({
+        account: maker,
+        chain: null,
+        address: setryn.privateRfqBook,
+        abi: privateRfqBookAbi,
+        functionName: "submitQuote",
+        args: [quote, [], quoteSignature],
+      });
+      await publicClient.waitForTransactionReceipt({ hash: submitHash });
+      const reserveHash = await walletClient.writeContract({
+        account: maker,
+        chain: null,
+        address: setryn.privateRfqBook,
+        abi: privateRfqBookAbi,
+        functionName: "reserveQuoteCapacity",
+        args: [quoteId],
+      });
+      await publicClient.waitForTransactionReceipt({ hash: reserveHash });
+
+      return Response.json({
+        quoteId,
+        packagePrice: ticksToPrice(market, priceTicks),
+        feeCap: Number(maxFeeMinor) / 1_000_000,
+        capacityLots: Number(lots),
+        expiresAt: new Date(Number(quoteDeadline) * 1000).toISOString(),
+      }, { headers: { "Cache-Control": "no-store" } });
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "RFQ_QUOTE_FAILED";
     return Response.json({ error: message }, { status: 422 });

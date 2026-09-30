@@ -155,13 +155,17 @@ export function preflight(
   draft: BuilderDraft,
   order: DerivedOrder,
   snapshot: GatewaySnapshot,
-  onchainMarketId: string | null,
 ): PreflightCheck[] {
   const { market, route, preview } = order;
   const checks: PreflightCheck[] = [];
   const wallet = snapshot.wallet.status;
-  const onchain = onchainMarketId !== null && market.id === onchainMarketId;
-  const onchainMarket = MARKETS.find((candidate) => candidate.id === onchainMarketId) ?? null;
+  const onchain = snapshot.onchainMarkets[market.id] !== undefined;
+  // A market outside the runtime can switch to the primary onchain market, once the runtime lists it.
+  const onchainMarket =
+    MARKETS.find(
+      (candidate) =>
+        candidate.id === snapshot.publicBookMarketId && snapshot.onchainMarkets[candidate.id] !== undefined,
+    ) ?? null;
 
   checks.push(
     wallet === "CONNECTED"
@@ -185,7 +189,7 @@ export function preflight(
           label: "Preview market",
           state: "block",
           detail: onchainMarket
-            ? `${market.code} is quoted from the preview feed but not activated in this environment. Only ${onchainMarket.code} accepts requests.`
+            ? `${market.code} is quoted from the preview feed but not activated in this environment. ${onchainMarket.code} accepts requests.`
             : `${market.code} is quoted from the preview feed but not activated in this environment.`,
           fix: onchainMarket ? { kind: "MARKET", marketId: onchainMarket.id, label: `Switch to ${onchainMarket.code}` } : undefined,
         },
@@ -215,16 +219,17 @@ export function preflight(
         },
   );
 
+  const maxLots = snapshot.onchainMarkets[market.id]?.maxOrderLots ?? DEVNET_MAX_LOTS;
   const wholeLots = Number.isInteger(draft.lots) && draft.lots >= 1;
   if (!wholeLots) {
     checks.push({ id: "size", label: "Size", state: "block", detail: "Enter a whole number of lots." });
-  } else if (onchain && draft.lots > DEVNET_MAX_LOTS) {
+  } else if (onchain && draft.lots > maxLots) {
     checks.push({
       id: "size",
       label: "Size above runtime limit",
       state: "block",
-      detail: `The local runtime authorizes 1 to ${DEVNET_MAX_LOTS} whole lots per order.`,
-      fix: { kind: "LOTS", lots: DEVNET_MAX_LOTS, label: `Set ${DEVNET_MAX_LOTS} lots` },
+      detail: `The local runtime authorizes 1 to ${maxLots} whole lots per order.`,
+      fix: { kind: "LOTS", lots: maxLots, label: `Set ${maxLots} lots` },
     });
   } else {
     checks.push({

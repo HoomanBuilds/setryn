@@ -16,6 +16,7 @@ import {
   riskBindingAbi,
   riskEngineAbi,
 } from "@/lib/internal-gateway/protocol";
+import { runtimeMarketBySeries } from "@/lib/internal-gateway/runtime-markets";
 import { readLocalRuntime } from "@/lib/internal-gateway/runtime-server";
 
 export const runtime = "nodejs";
@@ -154,6 +155,9 @@ export async function POST(request: Request) {
       ? quote.quote.askPriceTicks
       : quote.quote.bidPriceTicks;
     if (executionPriceTicks === BigInt(0)) throw new Error("RFQ_PRICE_UNAVAILABLE");
+    // The request's series names its market; the fill clears on that series' payoff terms and liability bounds.
+    const market = runtimeMarketBySeries(setryn, rfq.request.seriesId);
+    if (!market) throw new Error("MARKET_NOT_ONCHAIN_ENABLED");
 
     const [takerAdmissionId, makerAdmissionId, capacityLock, positionEngineId, fillId] = await Promise.all([
       publicClient.readContract({
@@ -188,7 +192,7 @@ export async function POST(request: Request) {
           quote.quote.makerOrderHash,
           rfq.request.lots,
           executionPriceTicks,
-          setryn.payoffTerms,
+          market.payoffTerms,
         ],
       }),
     ]);
@@ -214,7 +218,7 @@ export async function POST(request: Request) {
     const longAccountId = takerIsLong ? rfq.request.takerAccountId : quote.quote.makerAccountId;
     const shortAccountId = takerIsLong ? quote.quote.makerAccountId : rfq.request.takerAccountId;
     const reservationAmount = rfq.request.lots * BigInt(
-      makerSide === 1 ? setryn.maxLongDebitMinorPerLot : setryn.maxShortDebitMinorPerLot,
+      makerSide === 1 ? market.maxLongDebitMinorPerLot : market.maxShortDebitMinorPerLot,
     );
     const capacityFunding = {
       lockId: capacity.lockId,
@@ -239,7 +243,7 @@ export async function POST(request: Request) {
       entryPriceTicks: executionPriceTicks,
       longFunding: makerSide === 1 ? capacityFunding : emptyPositionFunding,
       shortFunding: makerSide === 2 ? capacityFunding : emptyPositionFunding,
-      payoffTerms: setryn.payoffTerms,
+      payoffTerms: market.payoffTerms,
     } as const;
     const positionId = await publicClient.readContract({
       address: setryn.positionEngine,
@@ -283,7 +287,7 @@ export async function POST(request: Request) {
         takerFeeFunding: zeroFeeFunding,
         makerFeeFunding: zeroFeeFunding,
       },
-      payoffTerms: setryn.payoffTerms,
+      payoffTerms: market.payoffTerms,
       channelKind: 2,
     } as const;
     const claim = {
