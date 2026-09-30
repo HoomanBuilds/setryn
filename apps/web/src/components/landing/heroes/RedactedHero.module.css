@@ -102,7 +102,6 @@
 .window {
   position: absolute;
   inset: 0;
-  cursor: ew-resize;
   user-select: none;
   -webkit-user-select: none;
   clip-path: inset(var(--card-top) var(--gutter) 0 var(--gutter) round 22px 22px 0 0);
@@ -176,32 +175,6 @@
 
 .tagShielded {
   background: var(--mint);
-}
-
-/* hatom's square button, as the divider's handle */
-.handle {
-  position: absolute;
-  top: -29px;
-  left: -29px;
-  z-index: 2;
-  display: grid;
-  place-items: center;
-  width: 58px;
-  height: 58px;
-  border: 1px solid #000;
-  background: var(--paper);
-  font-family: var(--font-mono), monospace;
-  font-size: 18px;
-  cursor: ew-resize;
-  touch-action: none;
-  user-select: none;
-  -webkit-user-select: none;
-  transition: background-color 0.2s;
-}
-
-.handle:hover,
-.handle:focus-visible {
-  background: var(--lime);
 }
 
 @media (max-width: 760px) {

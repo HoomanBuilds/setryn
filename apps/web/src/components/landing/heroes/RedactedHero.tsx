@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useRef } from "react";
 import { useExperience } from "@/components/landing/Experience";
 import Button from "@/components/landing/ui/Button";
 import { ArbitrumMark } from "@/components/landing/ui/Chain";
@@ -24,10 +24,9 @@ const f = (value: number) => value.toFixed(1);
 export default function RedactedHero() {
   const { stage } = useExperience();
   const root = useRef<HTMLElement>(null);
-  // drag: where the reader left the divider (0 to 1). auto: the scroll's push to the far edge.
-  // anchor: how far the push had got when the reader last moved it; the push carries on from there.
-  // touched: the reader has moved it, so the intro leaves it alone.
-  const divider = useRef({ drag: 0, auto: 0, anchor: 0, touched: false });
+  // drag: where the divider rests (0 to 1), set by the intro glide. auto: the scroll's push to the far edge.
+  // anchor: where the push starts from.
+  const divider = useRef({ drag: 0, auto: 0, anchor: 0 });
 
   useGSAP(
     () => {
@@ -35,7 +34,6 @@ export default function RedactedHero() {
       const scene = q<HTMLElement>(`.${styles.stage}`)[0];
       const shielded = q<HTMLElement>(`.${styles.shielded}`)[0];
       const line = q<SVGLineElement>(`.${styles.split} line`)[0];
-      const handle = q<HTMLElement>(`.${styles.handle}`)[0];
       const frame = q<HTMLElement>(`.${styles.frame}`)[0];
       const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
       const state = divider.current;
@@ -43,8 +41,7 @@ export default function RedactedHero() {
 
       const draw = () => {
         const { clientWidth: w, clientHeight: h } = scene;
-        // The scroll pushes the divider off the left edge, leaving only the shielded side. It pushes
-        // from wherever the reader last left it, so a drag is never overruled by the scroll.
+        // The scroll pushes the divider off the left edge, leaving only the shielded side.
         if (state.auto <= 0) state.anchor = 0;
         const push = state.anchor >= 0.999 ? 0 : gsap.utils.clamp(0, 1, (state.auto - state.anchor) / (1 - state.anchor));
         const position = state.drag + (-LEAN - state.drag) * push;
@@ -54,12 +51,6 @@ export default function RedactedHero() {
         line.setAttribute("x1", f(top));
         line.setAttribute("x2", f(bottom));
         line.setAttribute("y2", String(h));
-        // The handle rides the divider, halfway down the visible card.
-        const frameTop = frame.offsetTop;
-        const y = frameTop + (h - frameTop) / 2;
-        handle.style.transform = `translate(${f(top + ((bottom - top) * y) / h)}px, ${f(y)}px)`;
-        const value = String(Math.round(gsap.utils.clamp(0, 1, position) * 100));
-        if (handle.getAttribute("aria-valuenow") !== value) handle.setAttribute("aria-valuenow", value);
       };
       gsap.ticker.add(draw);
 
@@ -125,57 +116,13 @@ export default function RedactedHero() {
         }, 0.3)
         .to(q("[data-hero-fade]"), { opacity: 1, y: 0, filter: "blur(0px)", duration: 1, stagger: 0.1 }, 1)
         .to(q(`.${styles.window}`), { yPercent: 0, opacity: 1, duration: 1.6, ease: "expo.out" }, 1.1)
-        // The divider glides to the middle, unless the reader has already taken hold of it.
+        // The divider glides to the middle on its own.
         .add(() => {
-          if (!divider.current.touched) gsap.to(divider.current, { drag: 0.5, duration: 1.6, ease: "expo.inOut" });
+          gsap.to(divider.current, { drag: 0.5, duration: 1.6, ease: "expo.inOut" });
         }, 1.6);
     },
     { dependencies: [stage === "intro"], scope: root },
   );
-
-  // Dragging and keyboard for the divider. A drag starts on the handle, or (with a mouse or pen)
-  // anywhere on the card, and follows the pointer across the whole window until it is released.
-  const place = (drag: number) => {
-    const state = divider.current;
-    // The intro's own glide gives way to the reader, and the scroll pushes on from here.
-    gsap.killTweensOf(state, "drag");
-    state.touched = true;
-    state.drag = gsap.utils.clamp(0.04, 0.96, drag);
-    state.anchor = state.auto;
-  };
-  const onPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
-    if (event.button !== 0) return;
-    const onHandle = event.currentTarget.getAttribute("role") === "slider";
-    if (!onHandle && event.pointerType === "touch") return;
-    // No text selection, no native image drag, no jump to bring the handle into view.
-    event.preventDefault();
-    const scene = event.currentTarget.closest<HTMLElement>(`.${styles.stage}`)!;
-    scene.querySelector<HTMLElement>(`.${styles.handle}`)!.focus({ preventScroll: true });
-    const id = event.pointerId;
-    const follow = (clientX: number) => {
-      const box = scene.getBoundingClientRect();
-      place((clientX - box.left) / box.width);
-    };
-    const move = (e: PointerEvent) => e.pointerId === id && follow(e.clientX);
-    const end = (e: PointerEvent) => {
-      if (e.pointerId !== id) return;
-      delete scene.dataset.dragging;
-      removeEventListener("pointermove", move);
-      removeEventListener("pointerup", end);
-      removeEventListener("pointercancel", end);
-    };
-    follow(event.clientX);
-    scene.dataset.dragging = "";
-    addEventListener("pointermove", move);
-    addEventListener("pointerup", end);
-    addEventListener("pointercancel", end);
-  };
-  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    const step = { ArrowLeft: -0.05, ArrowRight: 0.05 }[event.key];
-    if (!step) return;
-    event.preventDefault();
-    place(divider.current.drag + step);
-  };
 
   return (
     <section ref={root} id="settle" className={styles.hero} data-theme="paper" data-phase="0">
@@ -211,7 +158,7 @@ export default function RedactedHero() {
         </div>
 
         {/* zk.email's hero card: the painting as a public chain shows it, and as Setryn leaves it */}
-        <div className={styles.window} onPointerDown={onPointerDown} data-cursor="Drag">
+        <div className={styles.window}>
           {/* eslint-disable @next/next/no-img-element */}
           <img className={styles.painting} src="/aztec/news-bg.webp" alt="" draggable={false} />
           <div className={styles.shielded}>
@@ -229,21 +176,6 @@ export default function RedactedHero() {
         <div className={styles.frame} aria-hidden="true">
           <span className={`label ${styles.tag}`}>Public order book</span>
           <span className={`label ${styles.tag} ${styles.tagShielded}`}>Private RFQ</span>
-        </div>
-
-        <div
-          className={styles.handle}
-          role="slider"
-          tabIndex={0}
-          aria-label="Compare a public order book with a private RFQ"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={50}
-          onPointerDown={onPointerDown}
-          onKeyDown={onKeyDown}
-          data-cursor="Drag"
-        >
-          <span aria-hidden="true">‹ ›</span>
         </div>
       </div>
     </section>
