@@ -226,6 +226,21 @@ Explorer verification on Arbitrum Sepolia needs the deployed bytecode to equal t
 - Partner quotas: keys issued under a partner deployment share its `apiRequestsPerMinute` bucket, and a paused partner's keys are refused.
 - Position exits (paired lifecycle close) and private RFQ are in the public API and SDK.
 
+## Before you deploy
+
+The owner runs every deployment. Nothing has been deployed to Arbitrum Sepolia or Arbitrum One.
+
+- The Arbitrum One unsigned intent, bundle and gas report in `deployments/arbitrum-one/qualification/` predate the
+  fee-engine change (zero-fee side) and the treasury controller. Regenerate them first, reading Arbitrum One only:
+  1. `cd contracts && forge build`
+  2. `node scripts/build-arbitrum-one-unsigned-intent.mjs --rpc-url <arbitrum-one-archive-rpc> --block-number 509990000`
+  3. `node scripts/generate-arbitrum-one-unsigned-bundle.mjs --rpc-url <arbitrum-one-archive-rpc> --block-number 509990000 --from 0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef --intent deployments/arbitrum-one/qualification/arbitrum-one-unsigned-deployment-intent.json --sequential-fork true --output deployments/arbitrum-one/qualification/arbitrum-one-unsigned-bundle.json`
+  4. `node scripts/render-arbitrum-one-gas-report.mjs`, then `node scripts/validate-deployment-manifests.mjs`
+- `DeploySetryn` requires `SETRYN_TREASURY_CONTROLLER` (the Treasury Safe that controls the protocol fee account). It
+  refuses zero, the deployer and every operational key.
+- Fee changes after launch are governance actions: `contracts/script/UpdateFeeSchedule.s.sol` prints the unsigned
+  calldata on public chains, and markets and series must be re-versioned onto the new fee version.
+
 ## Phase sequence
 
 1. Phase 4 contract modularization, pinned-fork qualification, gas evidence, and the complete unsigned deployment intent - done.
