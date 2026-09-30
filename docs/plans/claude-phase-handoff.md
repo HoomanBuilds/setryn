@@ -183,18 +183,26 @@ Explorer verification on Arbitrum Sepolia needs the deployed bytecode to equal t
 - Feed coherence: chart history is pinned through each market's 48-hour samples, so sparklines, the chart, the book, and the tape share one path.
 - Fixes: stale market-order protection prices, forward payoff sizing in hedges, and stale anvil PID records in the local reset.
 
+### Delivered since the 2026-09-29 audit
+
+- Global shell: command search (Ctrl or Cmd K), notification center, and the system strip with available collateral, account health, oracle and sequencer health, private execution health, and pending actions.
+- Every route in the spec route map: `/app`, `/exposures`, `/protect/new`, `/strategies/new`, `/rfqs/new`, `/rfqs/[id]`, `/auctions`, `/positions/[id]`, `/settlements`, `/receipts/[id]`, `/alerts`, `/solver`, `/ops`, and `/settings`.
+- Deployment from standalone artifacts: `DeploySetryn` links and creates each full-build artifact through `ArtifactDeployer`, libraries go through the deterministic CREATE2 deployer, and the Arbitrum One unsigned intent, bundle, and gas report are regenerated from it.
+- Public book: the eligibility gate now admits IOC and FOK takers (the book and OrderState already enforce their fill semantics), so fill-or-kill exits fill on the public book. Resting orders are still restricted to GTC and GTD with a kept-open remainder by the book itself.
+- Devnet coherence: the local chain starts on the preview scenario clock (2026-09-22 09:00 UTC), devnet trading opens with the 08:00 session, and deadlines, countdowns, and expiry checks read chain time from the pending block.
+- Onchain terminal: the ticket prices collateral, fees, contract multiplier, and maximum order size from the deployed series; exits are reconstructed from lifecycle events; realized PnL and fees come from the clearing and fee ledgers; orders link to their fills and receipts.
+- Organization control enforces proposer, journal writer, and journal exporter roles.
+- Static analysis triage: [setryn-static-analysis-triage-2026-09-30.md](../research/setryn-static-analysis-triage-2026-09-30.md). No High or Medium Slither finding is exploitable.
+
 ### Phase 5 first-party platform: remaining
 
-1. Global shell from the interface spec: command search, notification center, and the persistent system strip with collateral, portfolio health, oracle and sequencer health, private execution health, and pending actions.
-2. Missing routes from the spec route map: `/app` home, `/exposures`, `/protect/new`, `/strategies/new`, `/rfqs/new`, `/rfqs/[id]`, `/auctions`, `/positions/[id]`, `/settlements`, `/receipts/[id]`, `/alerts`, `/solver`, `/ops`, and `/settings`. Every route uses the production schemas and labels observed, executable, estimated, and modeled values.
-3. Concrete operator execution ports for the operator runtime: keeper (fixing, expiry, settlement, and recovery work), maker quote cycles, solver intents, and oracle relay. Each targets the local chain and Arbitrum Sepolia only, through the strict environment write policy.
-4. Deploy from standalone artifacts (linked `deployCode`) so deployed bytecode equals the explorer-verified artifacts.
-5. Phase 3 gate checks: mobile viewport, keyboard, accessibility, wallet rejection, RPC failure, transaction replacement, and the complete fresh-wallet journey.
+1. Concrete operator execution ports for the operator runtime: keeper (fixing, expiry, settlement, and recovery work), maker quote cycles, solver intents, and oracle relay. Each targets the local chain and Arbitrum Sepolia only, through the strict environment write policy.
+2. Phase 3 gate checks: mobile viewport, keyboard, accessibility, wallet rejection, RPC failure, transaction replacement, and the complete fresh-wallet journey.
 
 ### Phase 6 and 7 preparation (no mainnet writes)
 
 - Sepolia release-candidate kit: faucet flow, status page, scripted judge journey, public receipts, and explorer-verification inputs.
-- Static analysis, incident runbooks, and pause-path rehearsals.
+- Incident runbooks and pause-path rehearsals. Re-run the static analysis triage after contract changes.
 
 ### Phase 8: public integration platform (after the first-party platform is complete)
 
