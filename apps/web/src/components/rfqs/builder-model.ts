@@ -29,13 +29,6 @@ export const SOLVER_ROUTE_ID = "SOLVER_RFQ";
 /** The local runtime authorizes whole lots from one to ten per order. */
 export const DEVNET_MAX_LOTS = 10;
 
-/**
- * The gateway signs fill-or-kill orders with a one-lot minimum fill, and OrderState only registers a
- * fill-or-kill order whose minimum fill equals its size, so an all-or-none request above one lot cannot
- * register in this build. Remove this bound once the authorization sets the canonical minimum.
- */
-export const FOK_REGISTRATION_MAX_LOTS = 1;
-
 /** The authorization deadline the gateway signs for GTC and FOK orders. */
 export const AUTHORIZATION_LIFETIME_SECONDS = 240;
 
@@ -237,19 +230,6 @@ export function preflight(
       label: "Size within limits",
       state: "pass",
       detail: `${draft.lots} lots, ${Math.round(preview.notional).toLocaleString("en-US")} USDC notional.`,
-    });
-  }
-
-  if (order.tif === "FOK" && draft.lots > FOK_REGISTRATION_MAX_LOTS) {
-    checks.push({
-      id: "fill",
-      label: "All-or-none cannot register",
-      state: "block",
-      detail:
-        draft.intent === "EXIT"
-          ? `An exit signs a fill-or-kill order, and this build registers fill-or-kill orders only up to ${FOK_REGISTRATION_MAX_LOTS} lot. Close through the terminal's direct unwind instead.`
-          : `This build registers fill-or-kill orders only up to ${FOK_REGISTRATION_MAX_LOTS} lot. Allow partial fills; execution still takes one quote for the full size.`,
-      fix: draft.intent === "EXIT" ? undefined : { kind: "PARTIAL" },
     });
   }
 
