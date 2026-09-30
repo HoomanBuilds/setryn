@@ -151,7 +151,7 @@
     "compiler": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "version", "evmVersion", "optimizer", "bytecodeHashMode"],
+      "required": ["name", "version", "evmVersion", "optimizer", "viaIR", "bytecodeHashMode"],
       "properties": {
         "name": {"const": "solc"},
         "version": {"type": "string", "minLength": 1},
@@ -165,6 +165,7 @@
             "runs": {"type": "integer", "minimum": 0}
           }
         },
+        "viaIR": {"type": "boolean"},
         "bytecodeHashMode": {"type": "string", "minLength": 1}
       }
     },

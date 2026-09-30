@@ -270,6 +270,7 @@ function compilerMetadata(artifact) {
       enabled: metadata.settings.optimizer.enabled,
       runs: metadata.settings.optimizer.runs,
     },
+    viaIR: metadata.settings.viaIR === true,
     bytecodeHashMode: metadata.settings.metadata?.bytecodeHash ?? "none",
   };
 }

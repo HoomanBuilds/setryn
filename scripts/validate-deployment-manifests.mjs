@@ -95,10 +95,32 @@ function validateConstructor(contract, manifestPath) {
   }
 }
 
+/** The pinned deployment profile: explorer verification must recompile with exactly these settings. */
+function pinnedCompiler() {
+  const toml = readFileSync(resolve(repositoryRoot, "contracts/foundry.toml"), "utf8");
+  const profile = toml.slice(toml.indexOf("[profile.default]"), toml.indexOf("\n[", toml.indexOf("[profile.default]") + 1));
+  const value = (key) => profile.match(new RegExp(`^${key}\\s*=\\s*"?([^"\\n]+)"?`, "m"))?.[1]?.trim();
+  return {
+    name: "solc",
+    version: value("solc_version"),
+    evmVersion: value("evm_version"),
+    optimizer: { enabled: value("optimizer") === "true", runs: Number(value("optimizer_runs")) },
+    viaIR: value("via_ir") === "true",
+    bytecodeHashMode: value("bytecode_hash") ?? "ipfs",
+  };
+}
+
+const expectedCompiler = pinnedCompiler();
+
 function validateManifest(manifestPath) {
   const manifest = readJson(manifestPath);
   if (manifest.schemaVersion !== "1.0.0") {
     throw new Error(`${manifestPath}: unsupported schema version`);
+  }
+  if (JSON.stringify(manifest.compiler) !== JSON.stringify(expectedCompiler)) {
+    throw new Error(
+      `${manifestPath}: compiler ${JSON.stringify(manifest.compiler)} drifted from the pinned profile ${JSON.stringify(expectedCompiler)}`,
+    );
   }
   const allowedChainIds = {
     local: [1337, 31337],
