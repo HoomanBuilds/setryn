@@ -200,6 +200,7 @@ export type Capability =
   | "publish-policy"
   | "propose-actions"
   | "decide-approvals"
+  | "record-journals"
   | "export-journals"
   | "terminal-resolution";
 
@@ -213,9 +214,10 @@ export const CAPABILITIES: { id: Capability; label: string; detail: string; role
   { id: "register-accounts", label: "Register subaccounts", detail: "Any active member except viewers.", roles: ["admin", "trader", "approver", "accountant"] },
   { id: "suspend-accounts", label: "Suspend or close subaccounts", detail: "Closed accounts cannot transition again.", roles: ["admin"] },
   { id: "publish-policy", label: "Publish policy versions", detail: "Each version supersedes the last; history is kept.", roles: ["admin"] },
-  { id: "propose-actions", label: "Propose new-risk actions", detail: "Any active member; service v1 does not exclude viewers.", roles: ["admin", "trader", "approver", "accountant", "viewer"] },
+  { id: "propose-actions", label: "Propose new-risk actions", detail: "Members who may trade: admins and traders.", roles: ["admin", "trader"] },
   { id: "decide-approvals", label: "Approve or reject proposals", detail: "Holder of the policy approver role, or admin.", roles: ["admin", "approver"] },
-  { id: "export-journals", label: "Record and export journals", detail: "Service v1 applies no role check to journals.", roles: "ANY" },
+  { id: "record-journals", label: "Record execution journals", detail: "Admins, accountants, and traders for completed executions.", roles: ["admin", "accountant", "trader"] },
+  { id: "export-journals", label: "Export journals", detail: "Admins and accountants.", roles: ["admin", "accountant"] },
   { id: "terminal-resolution", label: "Complete terminal resolution", detail: "Settle, resolve, and release collateral without approval.", roles: "ANY" },
 ];
 
