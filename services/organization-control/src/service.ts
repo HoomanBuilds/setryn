@@ -223,6 +223,8 @@ export class InternalOrganizationControlService {
   }
 
   proposeAction(request: PolicyActionRequest, expiresAt: string): ApprovalProposal {
+    // Only members who may trade can put new risk up for approval; viewers, approvers and accountants cannot.
+    this.#requireRole(request.organizationId, request.actor, PROPOSER_ROLES, "propose actions");
     const decision = this.evaluateAction(request);
     if (!decision.allowed) throw new Error(decision.reason ?? "action is denied by policy");
     if (request.riskClass === "terminal-resolution") throw new Error("terminal-resolution completes without approval");
@@ -315,8 +317,9 @@ export class InternalOrganizationControlService {
     return next;
   }
 
-  recordExecutionJournal(input: CompletedPackageExecution): AccountingJournal {
+  recordExecutionJournal(input: CompletedPackageExecution, recordedBy: ActorId): AccountingJournal {
     this.#requireOrganization(input.organizationId);
+    this.#requireRole(input.organizationId, recordedBy, JOURNAL_WRITER_ROLES, "record journals");
     const account = this.#store.getAccount(input.accountId);
     if (!account || account.organizationId !== input.organizationId) {
       throw new Error(`strategy account ${input.accountId} is not registered to this organization`);
@@ -330,9 +333,10 @@ export class InternalOrganizationControlService {
     return journal;
   }
 
-  exportJournal(journalId: string): JournalExport {
+  exportJournal(journalId: string, exportedBy: ActorId): JournalExport {
     const journal = this.#store.getJournal(journalId);
     if (!journal) throw new Error(`unknown journal ${journalId}`);
+    this.#requireRole(journal.organizationId, exportedBy, JOURNAL_EXPORTER_ROLES, "export journals");
     return exportAccountingJournal(journal);
   }
 
@@ -362,6 +366,18 @@ export class InternalOrganizationControlService {
     return organization;
   }
 
+  #requireRole(
+    organizationId: OrganizationId,
+    actor: ActorId,
+    roles: readonly OrganizationRole[],
+    action: string,
+  ): void {
+    const member = this.#store.getMember(organizationId, actor);
+    if (!member || member.status !== "active" || !roles.includes(member.role)) {
+      throw new Error(`member ${actor} cannot ${action}`);
+    }
+  }
+
   #requireActiveAdmin(organizationId: OrganizationId, actor: ActorId): void {
     const member = this.#store.getMember(organizationId, actor);
     if (!member || member.status !== "active" || member.role !== "admin") {
@@ -381,6 +397,10 @@ export class InternalOrganizationControlService {
     return policy;
   }
 }
+
+const PROPOSER_ROLES: readonly OrganizationRole[] = ["admin", "trader"];
+const JOURNAL_WRITER_ROLES: readonly OrganizationRole[] = ["admin", "accountant", "trader"];
+const JOURNAL_EXPORTER_ROLES: readonly OrganizationRole[] = ["admin", "accountant"];
 
 function cloneConstraints(constraints: PolicyConstraints): PolicyConstraints {
   return JSON.parse(JSON.stringify(constraints)) as PolicyConstraints;
