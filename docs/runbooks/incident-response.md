@@ -37,16 +37,20 @@ for immediate pauses and a timelocked Protocol Safe for activation and resumptio
 
 | Principal | Holds |
 | --- | --- |
-| `governanceOperator` | Every registry qualifier and status-manager role: `ADAPTER_*`, `SERIES_*`, `MARKET_*`, `INSTRUMENT_*`, `BENCHMARK_*`, `RISK_DOMAIN_*`, `FEE_SCHEDULE_*`, `PACKAGE_*`, `CALENDAR_*`, `SESSION_*`, and `QUALIFIER_ROLE` / `STATUS_MANAGER_ROLE` on `AssetRegistry` and `SettlementAssetRegistry`. Also `POLICY_ADMIN_ROLE`, `MATCH_EXECUTOR_ROLE`, `RISK_CONSUMER_ROLE`, `AUCTION_SCHEDULER_ROLE`, `ROUTE_CONSUMER_ROLE` |
-| `guardian` | `AUCTION_GUARDIAN_ROLE` (`SealedAuctionHouse.cancelAuction`), `LIFECYCLE_GUARDIAN_ROLE` (`SignedLifecycleEngine.cancelAction`), `COMPRESSION_GUARDIAN_ROLE` (`CompressionCoordinator.cancelCompression`) |
+| `governanceOperator` | Every registry qualifier role: `ADAPTER_*`, `SERIES_*`, `MARKET_*`, `INSTRUMENT_*`, `BENCHMARK_*`, `RISK_DOMAIN_*`, `FEE_SCHEDULE_*`, `PACKAGE_*`, `CALENDAR_*`, `SESSION_*`, and `QUALIFIER_ROLE` on `AssetRegistry` and `SettlementAssetRegistry` (status-manager roles sit with `RegistryStatusController`, below). Also `POLICY_ADMIN_ROLE`, `MATCH_EXECUTOR_ROLE`, `RISK_CONSUMER_ROLE`, `AUCTION_SCHEDULER_ROLE`, `ROUTE_CONSUMER_ROLE` |
+| `RegistryStatusController` | Every registry status-manager role and `POLICY_ACTIVATOR_ROLE`; forwards pause selectors for the guardian and activate/deprecate selectors for the governance timelock |
+| `guardian` | Pause through `RegistryStatusController.pause`, `AUCTION_GUARDIAN_ROLE` (`SealedAuctionHouse.cancelAuction`), `LIFECYCLE_GUARDIAN_ROLE` (`SignedLifecycleEngine.cancelAction`), `COMPRESSION_GUARDIAN_ROLE` (`CompressionCoordinator.cancelCompression`) |
 | `governanceAdmin` | Pending `DEFAULT_ADMIN_ROLE` on every access-controlled contract, accepted after the `AccessControlDefaultAdminRules` delay |
 | `excessRecovery` | `CollateralVault.EXCESS_RECOVERY_ROLE` (moves only token balance above total liability) |
 | Protocol contracts | `PositionEngine` holds the vault locker, settler, reservation-creator and reservation-resolver roles. `CashSettlementCoordinator` holds `PositionEngine.FIXING_ENGINE_ROLE`, the vault reservation-resolver role and `FundedFeeEngine.FEE_ACTION_CONSUMER_ROLE` |
 
-Known gap: no status policy controller exists yet. Each registry's status-manager role covers
-pause, activate, and deprecate together, and it sits with `governanceOperator`. The guardian cannot
-pause a registry today. Until the controller ships, `governanceOperator` executes every registry
-pause below, and resumption must still go through the reviewed, timelocked governance process.
+Registry status roles: every combined status-manager role (the 13 registries, including the
+privacy policy registry) is held by `RegistryStatusController`, not by `governanceOperator`. The
+guardian calls `RegistryStatusController.pause(registry, data)`, which forwards only the registry's
+pause selector. The governance timelock calls `govern(registry, data)` for activate (also resume)
+and deprecate. Neither principal can reach the other's selectors, and role administration is not
+forwarded. On the local devnet only, the operator keeps the status roles directly and is the
+controller's governance principal.
 
 ## Detection signals
 
@@ -255,7 +259,7 @@ Response by key:
 
 | Compromised key | Action |
 | --- | --- |
-| `governanceOperator` | Pause first, using the same key if it is still exclusively yours, the guardian path once the controller exists, or the admin. Then have `DEFAULT_ADMIN_ROLE` call `revokeRole(role, operator)` for every registry role in the table above, and grant a fresh principal. Review every `activate*` and `register*` since the compromise. Anything activated maliciously gets `pause*` or `deprecate*` |
+| `governanceOperator` | Pause first, using the same key if it is still exclusively yours, the guardian through `RegistryStatusController.pause`, or the admin. Then have `DEFAULT_ADMIN_ROLE` call `revokeRole(role, operator)` for every registry role in the table above, and grant a fresh principal. Review every `activate*` and `register*` since the compromise. Anything activated maliciously gets `pause*` or `deprecate*` |
 | `guardian` | Admin revokes `AUCTION_GUARDIAN_ROLE`, `LIFECYCLE_GUARDIAN_ROLE`, and `COMPRESSION_GUARDIAN_ROLE`. The guardian can only cancel pending auctions, lifecycle actions, and compressions, so review those cancellations |
 | `excessRecovery` | Admin revokes `EXCESS_RECOVERY_ROLE`. Exposure is capped at `excessOf(token)` |
 | `governanceAdmin` pending or accepted | While the transfer is pending, the current admin calls `cancelDefaultAdminTransfer()`. After acceptance, only a new admin transfer (`beginDefaultAdminTransfer`, then `acceptDefaultAdminTransfer` after the delay) rotates it. The delay is the response window |
@@ -285,6 +289,6 @@ roles. With all of that in place:
 - an open pre-trade lock is released through `releaseExpiredLock`;
 - both traders withdraw their full balances while the binding stays paused.
 
-No pause surface deadlocks an existing position or its collateral. The two known gaps are the
-missing status policy controller and the missing onchain quarantine for fixing inputs. Both are
-noted in the runbooks above.
+No pause surface deadlocks an existing position or its collateral. The remaining known gap is the
+missing onchain quarantine for fixing inputs, noted in the oracle runbook above. The guardian pause
+path is rehearsed in `contracts/test/unit/RegistryStatusController.t.sol`.
