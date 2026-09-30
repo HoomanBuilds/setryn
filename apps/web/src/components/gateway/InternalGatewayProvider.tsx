@@ -19,5 +19,5 @@ export function useInternalGateway(): InternalTradingGateway {
 
 export function useGatewaySnapshot(): GatewaySnapshot {
   const gateway = useInternalGateway();
-  return useSyncExternalStore(gateway.subscribe, gateway.getSnapshot, gateway.getSnapshot);
+  return useSyncExternalStore(gateway.subscribe, gateway.getSnapshot, gateway.getServerSnapshot);
 }

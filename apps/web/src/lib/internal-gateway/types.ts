@@ -286,6 +286,8 @@ export interface OrderExecutionProgress {
 
 export interface InternalTradingGateway {
   getSnapshot(): GatewaySnapshot;
+  /** The snapshot the server renders, used for hydration. */
+  getServerSnapshot(): GatewaySnapshot;
   subscribe(listener: () => void): () => void;
   connectWallet(): Promise<void>;
   submitCollateralIntent(intent: CollateralIntent): Promise<CollateralIntentResult>;

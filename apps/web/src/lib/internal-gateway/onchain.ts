@@ -321,6 +321,8 @@ function errorCode(error: unknown): number | null {
 
 export class OnchainTradingGateway implements InternalTradingGateway {
   private snapshot = initialSnapshot();
+  /** What the server renders; hydration uses it too, so live data arrives in the render after hydration. */
+  private readonly serverSnapshot = this.snapshot;
   private readonly listeners = new Set<() => void>();
   private runtimePromise: Promise<SetrynRuntime> | null = null;
   private setryn: SetrynRuntime | null = null;
@@ -336,10 +338,32 @@ export class OnchainTradingGateway implements InternalTradingGateway {
 
   getSnapshot = (): GatewaySnapshot => this.snapshot;
 
+  getServerSnapshot = (): GatewaySnapshot => this.serverSnapshot;
+
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
+    this.startPublicReads();
     return () => this.listeners.delete(listener);
   };
+
+  private publicReadsStarted = false;
+
+  /**
+   * Reads the deployment, series economics, and public book before any wallet connects, as an exchange shows its book
+   * to logged-out visitors. It is read-only and keeps polling the book until a wallet connection takes over.
+   */
+  private startPublicReads(): void {
+    if (this.publicReadsStarted || typeof window === "undefined") return;
+    this.publicReadsStarted = true;
+    const read = () => {
+      if (this.snapshot.wallet.status === "CONNECTED") return;
+      void this.runtime()
+        .then(() => this.refreshPublicBook())
+        .catch(() => undefined);
+    };
+    read();
+    window.setInterval(read, 5_000);
+  }
 
   async connectWallet(): Promise<void> {
     const setryn = await this.runtime();
