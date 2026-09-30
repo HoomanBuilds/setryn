@@ -194,10 +194,17 @@ Explorer verification on Arbitrum Sepolia needs the deployed bytecode to equal t
 - Organization control enforces proposer, journal writer, and journal exporter roles.
 - Static analysis triage: [setryn-static-analysis-triage-2026-09-30.md](../research/setryn-static-analysis-triage-2026-09-30.md). No High or Medium Slither finding is exploitable.
 
+- Operator execution ports (`services/operator-runtime/src/adapters`): maker quote cycles, solver quote and handoff execution, oracle relay, and keeper expiry, fixing, settlement, and recovery work. Writes pass the strict environment policy and a live chain-ID guard; Arbitrum One is refused. `src/bin/local-smoke.ts` runs every port against the local devnet.
+- Phase 3 gate passed on 2026-09-30: every route is axe-clean for WCAG 2.1 AA at 390 px and 1440 px with no horizontal overflow; keyboard focus is visible on every stop with skip links to content and the order ticket; a rejected connect returns to disconnected; a rejected signature and an RPC outage each explain that nothing was submitted and the same ticket then completes; a working order is replaced at a new limit; and a never-used wallet deposits, opens, and closes a position end to end.
+- System status page (`/status`) checks every deployed contract's runtime code hash against its deployment evidence, and `scripts/generate-verification-inputs.mjs` writes explorer verification commands for all 111 deployments.
+
+### Known protocol follow-up
+
+- The devnet benchmark registers interface hash `SETRYN_FIXING_OBSERVATION_INTERFACE_V1`, but `FixingEngine` accepts only `SetrynFixingObservationAdapterV1.validateObservationBatch`, and `DevnetMarketAdapter` reports an evidence origin the engine rejects. Devnet series therefore resolve through the permissionless terminal fallback; the oracle relay port refuses before sending.
+
 ### Phase 5 first-party platform: remaining
 
-1. Concrete operator execution ports for the operator runtime: keeper (fixing, expiry, settlement, and recovery work), maker quote cycles, solver intents, and oracle relay. Each targets the local chain and Arbitrum Sepolia only, through the strict environment write policy.
-2. Phase 3 gate checks: mobile viewport, keyboard, accessibility, wallet rejection, RPC failure, transaction replacement, and the complete fresh-wallet journey.
+1. Arbitrum Sepolia release candidate: funded operator and deployer keys, deployment, explorer verification, faucet guidance, and the scripted judge journey. This needs keys and test funds from the operator.
 
 ### Phase 6 and 7 preparation (no mainnet writes)
 
