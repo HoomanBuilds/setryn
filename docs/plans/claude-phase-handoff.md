@@ -200,7 +200,10 @@ Explorer verification on Arbitrum Sepolia needs the deployed bytecode to equal t
 
 ### Devnet fixing path
 
-- The devnet benchmark is registered under the fixing engine's observation-batch interface and reports the external signed evidence origin, so the oracle relay port submits evidence, the keeper finalizes it after the correction cutoff, and the devnet series (holder election) lapses unelected lots at final resolution through the permissionless terminal path.
+- The devnet benchmark is registered under the fixing engine's observation-batch interface and reports the external signed evidence origin, so the oracle relay port submits evidence and the keeper finalizes it after the correction cutoff.
+- Every catalog market (16) is an onchain devnet series with its own book, tick grid, collateral and lot limit (runtime schema 9). The maker, solver, keeper, oracle relay, webhooks, public API and SDK all run across every market.
+- Holder election works end to end. Normal settlement persists the final fixing and returns a holder-election position to Live awaiting election. The holder exercises in the 22:00 to 22:45 window through the signed lifecycle engine (an exercise now commits its fixing witness in the transition hash), then Settle records the transfer and Claim pays it. After the cutoff anyone lapses unelected lots with zero transfer through `finalizeLapsedPosition`; at final resolution the terminal fallback still applies. Verified in the browser on the devnet: exercise, settle, claim of 260.18 USDC, and a permissionless lapse releasing both reservations. `contracts/test/integration/HolderElectionSettlement.t.sol` covers the contract paths.
+- Registry status roles are held by `RegistryStatusController`: the guardian can only pause and the governance timelock activates, resumes and deprecates. `contracts/test/integration/PausePathRehearsal.t.sol` proves no pause or role revocation deadlocks resolution or withdrawal. Incident runbooks: [incident-response.md](../runbooks/incident-response.md).
 
 ### Phase 5 first-party platform: remaining
 
@@ -221,7 +224,7 @@ Explorer verification on Arbitrum Sepolia needs the deployed bytecode to equal t
 - Framing headers: `/embed/*` may be framed by any origin (partner origins are checked by the attribution beacon); every other route sends `X-Frame-Options: DENY` and `frame-ancestors 'none'`.
 - Order cancellation through the API and SDK: the server prepares the cancel and book-sync transactions and the risk-release typed data, and the signer executes them.
 - Partner quotas: keys issued under a partner deployment share its `apiRequestsPerMinute` bucket, and a paused partner's keys are refused.
-- Remaining: private RFQ and lifecycle actions in the public API.
+- Position exits (paired lifecycle close) and private RFQ are in the public API and SDK.
 
 ## Phase sequence
 
