@@ -211,13 +211,14 @@ Explorer verification on Arbitrum Sepolia needs the deployed bytecode to equal t
 - Sepolia release-candidate kit: faucet flow, status page, scripted judge journey, public receipts, and explorer-verification inputs.
 - Incident runbooks and pause-path rehearsals. Re-run the static analysis triage after contract changes.
 
-### Phase 8: public integration platform (after the first-party platform is complete)
+### Phase 8: public integration platform (built on the local devnet)
 
-- Versioned public API with authentication, rate limits, and replay protection, derived from the same indexed state as the platform.
-- External TypeScript SDK and integration examples.
-- Webhooks with signed deliveries and retries.
-- Embedded market-data and trading widgets.
-- `/developers` and `/partners` consoles with API keys, quotas, usage, attribution, and documentation.
+- Versioned public API under `/api/v1` with API keys (hashed, scoped, revocable), per-key token-bucket rate limits, and HMAC replay protection on writes. It reads the same contract events as the platform and relays client-signed orders without custody. OpenAPI 3.1 at `/api/v1/openapi.json`.
+- `@setryn/sdk` TypeScript client with request signing and EIP-712 order helpers, and runnable examples.
+- `@setryn/webhooks`: chain-derived events with reorg-safe cursors, HMAC-signed deliveries, backoff retries, and secret rotation.
+- Embeddable ticker, market, and quote widgets (`/embed/*`, `embed.js`) on the shared preview feed, with partner attribution.
+- `/developers` and `/partners` consoles. Key and partner management is limited to the local devnet until an operator auth system exists.
+- Remaining: framing headers for embeds, enforcing per-deployment API quotas, and private RFQ and lifecycle actions in the public API.
 
 ## Phase sequence
 
