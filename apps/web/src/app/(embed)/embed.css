@@ -1,0 +1,34 @@
+/*
+ * Widget-only rules layered over the platform tokens. The iframe document is transparent so the widget card sits on
+ * the partner page, and the light theme redefines the same tokens (AA contrast against its panels) on the widget root.
+ */
+.embed-body {
+  background: transparent;
+  overflow: hidden;
+}
+
+[data-embed-theme="light"] {
+  color-scheme: light;
+  --color-app: #f6f5f2;
+  --color-panel: #ffffff;
+  --color-raised: #f0eee9;
+  --color-inset: #f4f3ef;
+  --color-line: rgba(22, 22, 26, 0.1);
+  --color-line-soft: rgba(22, 22, 26, 0.06);
+  --color-line-strong: rgba(22, 22, 26, 0.22);
+  --color-ink: #16161a;
+  --color-dim: #45423d;
+  --color-faint: #5a5650;
+  --color-off: #5a5650;
+  --color-brand: #3d5700;
+  --color-brand-soft: rgba(61, 87, 0, 0.08);
+  --color-brand-edge: rgba(61, 87, 0, 0.35);
+  --color-up: #08704e;
+  --color-down: #b01f3b;
+  --color-up-soft: rgba(8, 112, 78, 0.1);
+  --color-down-soft: rgba(176, 31, 59, 0.09);
+}
+
+[data-embed-theme="dark"] {
+  color-scheme: dark;
+}

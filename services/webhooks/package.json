@@ -1,0 +1,26 @@
+{
+  "name": "@setryn/webhooks",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./signature": "./src/signature.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "worker": "node --experimental-strip-types src/bin/webhooks-worker.ts",
+    "receiver": "node --experimental-strip-types src/bin/test-receiver.ts",
+    "cli": "node --experimental-strip-types src/bin/webhooks-cli.ts"
+  },
+  "dependencies": {
+    "@setryn/indexer": "workspace:*",
+    "@setryn/internal-contracts": "workspace:*",
+    "@setryn/internal-schemas": "workspace:*",
+    "viem": "^2.56.9"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.24",
+    "typescript": "^5.8.2"
+  }
+}
