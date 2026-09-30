@@ -67,8 +67,19 @@ const RISK_WINDOW_SECONDS = BigInt(300);
 const SIDES: Record<string, { side: 1 | 2; name: SideName }> = { LONG: { side: 1, name: "LONG" }, SHORT: { side: 2, name: "SHORT" } };
 const TIFS: Record<string, 1 | 2 | 3 | 4> = { GTC: 1, GTD: 2, IOC: 3, FOK: 4 };
 
+export type TransactionStep =
+  | "APPROVE_LOCK_OPERATOR"
+  | "BIND_RISK"
+  | "REGISTER_ORDER"
+  | "PLACE_ON_BOOK"
+  | "MATCH"
+  | "CANCEL_ORDER"
+  | "SYNC_BOOK"
+  | "AUTHORIZE_LIFECYCLE"
+  | "EXECUTE_LIFECYCLE";
+
 export interface TransactionRequest {
-  step: string;
+  step: TransactionStep;
   description: string;
   chainId: number;
   from: Address;
@@ -77,7 +88,7 @@ export interface TransactionRequest {
   value: "0";
 }
 
-function assertSignerAllowed(key: StoredApiKey, signer: Address): void {
+export function assertSignerAllowed(key: StoredApiKey, signer: Address): void {
   if (key.signers.length > 0 && !key.signers.includes(signer.toLowerCase())) {
     throw new PublicApiError(403, "SIGNER_NOT_ALLOWED", "This API key is restricted to other signer addresses.");
   }
@@ -322,7 +333,7 @@ export async function submitSignedOrder(context: ChainContext, key: StoredApiKey
   }
   const admissionId = reservationBody.admissionId as Hex;
   const transactions: TransactionRequest[] = await lockOperatorTransactions(context, order.signer, order.accountId);
-  const tx = (step: string, description: string, to: Address, data: Hex): TransactionRequest => ({
+  const tx = (step: TransactionStep, description: string, to: Address, data: Hex): TransactionRequest => ({
     step,
     description,
     chainId: setryn.chainId,

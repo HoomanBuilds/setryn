@@ -224,7 +224,16 @@ export interface SerializedPublicOrder {
 }
 
 export interface TransactionRequest {
-  step: "APPROVE_LOCK_OPERATOR" | "BIND_RISK" | "REGISTER_ORDER" | "PLACE_ON_BOOK" | "MATCH";
+  step:
+    | "APPROVE_LOCK_OPERATOR"
+    | "BIND_RISK"
+    | "REGISTER_ORDER"
+    | "PLACE_ON_BOOK"
+    | "MATCH"
+    | "CANCEL_ORDER"
+    | "SYNC_BOOK"
+    | "AUTHORIZE_LIFECYCLE"
+    | "EXECUTE_LIFECYCLE";
   description: string;
   chainId: number;
   from: Address;
@@ -305,4 +314,108 @@ export interface PreparedCancel {
       };
     };
   } | null;
+}
+
+/** A kind-4 (full exit) LifecycleAction with its 64-bit and wider integers as decimal strings. */
+export interface SerializedLifecycleAction {
+  kind: number;
+  actor: Address;
+  actorAccountId: Hex;
+  policyContextHash: Hex;
+  inputsHash: Hex;
+  successorsHash: Hex;
+  collateralReplacementsHash: Hex;
+  participantSetHash: Hex;
+  consentsHash: Hex;
+  riskDomainId: Hex;
+  riskDomainVersion: number;
+  feeScheduleId: Hex;
+  feeScheduleVersion: number;
+  economicTransitionHash: Hex;
+  compressionPlanId: Hex;
+  breaksPackageProvenance: boolean;
+  packageBreakPermissionHash: Hex;
+  actorMaximumLiabilityIncreaseBaseUnits: string;
+  actorMaximumCollateralIncreaseBaseUnits: string;
+  inputCount: number;
+  successorCount: number;
+  participantCount: number;
+  deadline: string;
+  nonce: string;
+  permittedExecutor: Address;
+  salt: Hex;
+}
+
+export interface SerializedLifecycleInput {
+  positionId: Hex;
+  expectedImmutableHash: Hex;
+  expectedLifecycleHash: Hex;
+  expectedPositionLots: string;
+  actionLots: string;
+}
+
+export interface SerializedCollateralReplacement {
+  accountId: Hex;
+  collateralId: Hex;
+  terminalLiabilityBaseUnits: string;
+}
+
+export interface SerializedLifecycleConsent {
+  actionId: Hex;
+  accountId: Hex;
+  signer: Address;
+  nonce: string;
+  deadline: string;
+  maximumLiabilityIncreaseBaseUnits: string;
+  maximumCollateralIncreaseBaseUnits: string;
+  allowsPackageBreak: boolean;
+  salt: Hex;
+}
+
+export interface PrepareExitInput {
+  signer: Address;
+  /** The open position and the opposite position that closes it (from an opposite-side order), in any order. */
+  positionIds: [Hex, Hex];
+}
+
+/** A prepared full exit: the action to sign, with the counterparty's consent already attached. */
+export interface PreparedExit {
+  actionId: Hex;
+  accountId: Hex;
+  counterpartyAccountId: Hex;
+  positions: { positionId: Hex; side: Side; lots: number }[];
+  action: SerializedLifecycleAction;
+  inputs: SerializedLifecycleInput[];
+  replacements: SerializedCollateralReplacement[];
+  consent: SerializedLifecycleConsent;
+  consentSignature: Hex;
+  typedData: {
+    domain: { name: "Setryn"; version: "1"; chainId: number; verifyingContract: Address };
+    types: { SetrynLifecycleActionV1: { name: string; type: string }[] };
+    primaryType: "SetrynLifecycleActionV1";
+    message: SerializedLifecycleAction & { chainId: string; engine: Address };
+  };
+  chainTime: string;
+  deadline: string;
+  submitWithinSeconds: number;
+  next: string;
+}
+
+export interface SubmitExitInput {
+  action: SerializedLifecycleAction;
+  inputs: SerializedLifecycleInput[];
+  replacements: SerializedCollateralReplacement[];
+  consent: SerializedLifecycleConsent;
+  consentSignature: Hex;
+  actorSignature: Hex;
+}
+
+export interface SubmitExitResult {
+  actionId: Hex;
+  accountId: Hex;
+  signer: Address;
+  positionIds: Hex[];
+  validUntil: string;
+  transactions: TransactionRequest[];
+  next: string;
 }

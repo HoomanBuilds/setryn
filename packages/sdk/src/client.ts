@@ -11,6 +11,8 @@ import type {
   OrderState,
   Page,
   PreparedCancel,
+  PreparedExit,
+  PrepareExitInput,
   PageParams,
   Position,
   PrepareOrderInput,
@@ -18,6 +20,8 @@ import type {
   Receipt,
   SerializedPublicOrder,
   Status,
+  SubmitExitInput,
+  SubmitExitResult,
   SubmitOrderResult,
   Trade,
 } from "./types.ts";
@@ -202,6 +206,21 @@ export class SetrynClient {
   /** Prepares the cancellation of a working order for its signer to execute. Needs `trade`. */
   async prepareCancel(orderHash: Hex): Promise<PreparedCancel> {
     return (await this.request<{ data: PreparedCancel }>("POST", `/orders/${orderHash}/cancel`, { body: {} })).data;
+  }
+
+  // -- positions --------------------------------------------------------------------------------------------------
+
+  /**
+   * Builds the full lifecycle exit of an open position and the opposite position that closes it, with the
+   * counterparty's consent attached. Sign `typedData` with the signer's wallet. Needs `trade`.
+   */
+  async prepareExit(input: PrepareExitInput): Promise<PreparedExit> {
+    return (await this.request<{ data: PreparedExit }>("POST", "/positions/exit/prepare", { body: input })).data;
+  }
+
+  /** Verifies a signed exit and returns the authorize and execute transactions the signer must send. Needs `trade`. */
+  async submitExit(input: SubmitExitInput): Promise<SubmitExitResult> {
+    return (await this.request<{ data: SubmitExitResult }>("POST", "/positions/exit", { body: input })).data;
   }
 }
 

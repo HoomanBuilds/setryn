@@ -63,6 +63,8 @@ try {
 | `listReceipts(filter, params)` | `GET /receipts` | read |
 | `prepareOrder(input)` | `POST /orders/prepare` | trade |
 | `submitOrder({ order, signature })` | `POST /orders` | trade |
+| `prepareExit({ signer, positionIds })` | `POST /positions/exit/prepare` | trade |
+| `submitExit(signedExit)` | `POST /positions/exit` | trade |
 | `openApi()` | `GET /openapi.json` | none |
 
 `filter` is `{ accountId }` or `{ signer }`. A signer resolves to its primary collateral account.
@@ -98,6 +100,28 @@ console.log(result.submitted.orderHash, result.transactionHashes);
    platform's portfolio risk admission and returns `transactions`: `BIND_RISK`, `REGISTER_ORDER`, and then either
    `PLACE_ON_BOOK` (resting) or `MATCH` (IOC/FOK).
 4. `sendOrderTransactions(wallet, publicClient, transactions)` sends them in order and waits for each receipt.
+
+## Exit a position (your wallet signs and sends)
+
+A position closes the same way it does in the Setryn terminal: open the opposite position with an opposite-side
+order (for example an IOC through `placeOrder`), then run a full lifecycle exit of the pair. Both positions close
+and their collateral locks are released.
+
+```ts
+import { exitPosition } from "@setryn/sdk";
+
+const result = await exitPosition(setryn, wallet, publicClient, { positionIds: [openPositionId, closePositionId] });
+console.log(result.submitted.actionId, result.transactionHashes); // AUTHORIZE_LIFECYCLE, EXECUTE_LIFECYCLE
+```
+
+1. `client.prepareExit({ signer, positionIds })` checks that the two positions are between the signer's account and
+   one counterparty, on opposite sides, with equal lots and no package provenance. It returns the kind-4
+   `LifecycleAction`, its `inputs` and `replacements`, the counterparty's `consent` and `consentSignature` (the devnet
+   maker on the local devnet), and the `SetrynLifecycleActionV1` `typedData`. Refusals use `EXIT_NOT_ELIGIBLE`.
+2. `signPreparedExit(wallet, prepared)` checks the layout, chain and actor, then signs locally.
+3. `client.submitExit({ action, inputs, replacements, consent, consentSignature, actorSignature })` re-derives the
+   action id, verifies both signatures, simulates authorization, and returns `AUTHORIZE_LIFECYCLE` and
+   `EXECUTE_LIFECYCLE`, which `sendOrderTransactions` sends in order.
 
 The public layer cannot bypass qualification, collateral, risk admission, execution, or settlement. Preview-only
 markets are refused with `MARKET_NOT_ONCHAIN`, a resting order that would cross is refused with `WOULD_CROSS`, and
@@ -144,7 +168,8 @@ is at `/api/v1/openapi.json`, and its operation ids match the method names above
 ## Current limits
 
 - One market (`BTC-YC-24DEC26`) executes onchain on this deployment. The other markets serve labelled preview data.
-- Only direct public-book orders go through the API. Private RFQ, cancellation of bound risk, and lifecycle actions
-  (exits, rolls) are platform-only in v1.
+- Only direct public-book orders and full exits of an offsetting pair go through the API. Private RFQ and other
+  lifecycle actions (partial exits, rolls, package compression) are platform-only in v1. Exit counterparty consent is
+  available only from the devnet maker on the local devnet.
 - Delegated signers are not supported onchain. The order signer must own the collateral account. A key can be
   restricted to specific signer addresses.

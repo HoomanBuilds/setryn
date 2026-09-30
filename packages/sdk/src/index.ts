@@ -10,4 +10,5 @@ export {
   toSignableOrder,
   type PlaceOrderResult,
 } from "./orders.ts";
+export { exitPosition, lifecycleActionTypes, signPreparedExit, toSignableLifecycleAction, type ExitPositionResult } from "./lifecycle.ts";
 export type * from "./types.ts";
