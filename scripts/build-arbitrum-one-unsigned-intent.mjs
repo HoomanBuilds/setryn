@@ -34,6 +34,9 @@ const PLANNING_PRINCIPALS = {
   excessRecovery: "0xa4b1000000000000000000000000000000000004",
   privacyKeyPublisher: "0xa4b1000000000000000000000000000000000005",
   lifecycleWitnessStager: "0xa4b1000000000000000000000000000000000006",
+  // Planning placeholder for the Treasury Safe that controls the protocol fee recipient account (DeploySetryn validates
+  // it but sends no transaction for it).
+  treasuryController: "0xa4b1000000000000000000000000000000000007",
 };
 const PLANNING_PARAMS = {
   defaultAdminDelay: 172800,

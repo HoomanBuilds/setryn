@@ -24,8 +24,11 @@ abstract contract ArtifactDeployer is Script {
     error LibraryDeploymentFailed(string artifact, address expected);
 
     /// @notice Creates `contractName` from its standalone artifact with ABI-encoded constructor arguments.
+    /// @dev Virtual so an in-process test harness can create the same graph from the compiler's linked artifacts
+    /// instead of this script's CREATE2-linked out/ artifacts; deployments never override it.
     function _create(string memory contractName, bytes memory constructorArguments)
         internal
+        virtual
         returns (address payable deployed)
     {
         _deployArtifactLibraries();

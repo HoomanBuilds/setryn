@@ -281,7 +281,8 @@ contract ArbitrumOneControlRehearsalForkTest is Test, DeploySetryn {
             deploymentId: REHEARSAL_DEPLOYMENT_ID,
             sequencerFeed: ISequencerUptimeFeed(sequencerFeed),
             statusGovernance: governanceAdmin,
-            retainOperatorStatusRoles: false
+            retainOperatorStatusRoles: false,
+            treasuryController: makeAddr("treasury-safe")
         });
 
         vm.startPrank(bootstrap);

@@ -155,6 +155,7 @@ contract DeploySetryn is ArtifactDeployer {
     error InvalidStatusGovernance(address statusGovernance);
     error LocalOnlyStatusShortcut(uint256 chainId);
     error RegistryStatusRoleMisassigned(address registry, bytes32 role, address holder);
+    error InvalidTreasuryController(address treasuryController);
 
     struct Deployment {
         AssetRegistry assetRegistry;
@@ -251,6 +252,10 @@ contract DeploySetryn is ArtifactDeployer {
         /// Local devnet only: the governance operator also keeps every direct registry status role, so the current
         /// devnet bootstrap keeps activating registries directly until it routes through the controller.
         bool retainOperatorStatusRoles;
+        /// Controller of the protocol fee recipient vault account: the Treasury Safe on every public environment, a
+        /// dedicated local account on a devnet. The fee schedule qualification step creates or hands over that account
+        /// to this address; the deployment itself sends no transaction for it, so it only pins and separates it here.
+        address treasuryController;
     }
 
     function run() external returns (Deployment memory deployment) {
@@ -285,6 +290,8 @@ contract DeploySetryn is ArtifactDeployer {
         uint64 maximumRfqCapacityTail = _envUint64("SETRYN_MAXIMUM_RFQ_CAPACITY_TAIL", 1 days);
         uint64 sequencerRecoveryGrace = _envUint64("SETRYN_SEQUENCER_RECOVERY_GRACE", 1 hours);
         bytes32 deploymentId = vm.envBytes32("SETRYN_DEPLOYMENT_ID");
+        // Required everywhere, with no default: a public deployment names its Treasury Safe explicitly.
+        address treasuryController = vm.envAddress("SETRYN_TREASURY_CONTROLLER");
 
         ISequencerUptimeFeed sequencerFeed;
         bool localEnvironment = keccak256(bytes(environment)) == LOCAL_ENVIRONMENT;
@@ -315,7 +322,8 @@ contract DeploySetryn is ArtifactDeployer {
             deploymentId: deploymentId,
             sequencerFeed: sequencerFeed,
             statusGovernance: localEnvironment ? governanceOperator : governanceAdmin,
-            retainOperatorStatusRoles: localEnvironment
+            retainOperatorStatusRoles: localEnvironment,
+            treasuryController: treasuryController
         });
 
         vm.startBroadcast(deployer);
@@ -324,6 +332,7 @@ contract DeploySetryn is ArtifactDeployer {
         vm.stopBroadcast();
 
         _logDeployment(deployment);
+        console2.log("TREASURY_CONTROLLER", config.treasuryController);
         console2.log("POST_WIRING_EVIDENCE_HASH");
         console2.logBytes32(postWiringEvidence);
     }
@@ -346,6 +355,7 @@ contract DeploySetryn is ArtifactDeployer {
             config.lifecycleWitnessStager
         );
         _requireStatusControlTopology(config);
+        _requireTreasuryController(config);
 
         ISequencerUptimeFeed resolvedFeed;
         if (address(config.sequencerFeed) == address(0)) {
@@ -1504,6 +1514,17 @@ contract DeploySetryn is ArtifactDeployer {
                 !d.routeEngine.hasRole(d.routeEngine.ROUTE_CONSUMER_ROLE(), bootstrap)
             )
         );
+    }
+
+    /// The treasury controller holds protocol revenue, so it may never be the zero address, the bootstrap key, or one of
+    /// the operational hot principals. It may be the governance timelock, which can act as a treasury.
+    function _requireTreasuryController(DeploymentConfig memory config) private pure {
+        address treasury = config.treasuryController;
+        if (
+            treasury == address(0) || treasury == config.bootstrapAdmin || treasury == config.governanceOperator
+                || treasury == config.guardian || treasury == config.excessRecovery
+                || treasury == config.privacyKeyPublisher || treasury == config.lifecycleWitnessStager
+        ) revert InvalidTreasuryController(treasury);
     }
 
     function _requireSeparatedPrincipal(address bootstrap, address governanceAdmin, address operational) private pure {

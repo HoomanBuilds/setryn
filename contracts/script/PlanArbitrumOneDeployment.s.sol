@@ -48,7 +48,8 @@ contract PlanArbitrumOneDeployment is DeploySetryn {
             deploymentId: keccak256("SetrynArbitrumOneUnsignedPlanningV1"),
             sequencerFeed: ISequencerUptimeFeed(PLANNING_SEQUENCER_UPTIME_FEED),
             statusGovernance: 0xA4b1000000000000000000000000000000000001,
-            retainOperatorStatusRoles: false
+            retainOperatorStatusRoles: false,
+            treasuryController: 0xA4B1000000000000000000000000000000000007
         });
 
         vm.startBroadcast(PLANNING_SENDER);

@@ -483,7 +483,8 @@ contract ArbitrumOneCompleteJourneyForkTest is Test, DeploySetryn {
             deploymentId: keccak256("SetrynCompleteJourneyV1"),
             sequencerFeed: ISequencerUptimeFeed(sequencerFeed),
             statusGovernance: governanceAdmin,
-            retainOperatorStatusRoles: false
+            retainOperatorStatusRoles: false,
+            treasuryController: makeAddr("treasury-safe")
         });
         vm.startPrank(bootstrap);
         (d,) = _deployAndWire(config);
