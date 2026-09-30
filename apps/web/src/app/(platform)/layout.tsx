@@ -5,6 +5,7 @@ import { GlobalHeader } from "@/components/terminal/GlobalHeader";
 import { StatusStrip } from "@/components/terminal/StatusStrip";
 import { InternalGatewayProvider } from "@/components/gateway/InternalGatewayProvider";
 import { PreviewMarketProvider } from "@/components/terminal/PreviewMarketProvider";
+import { SkipLinks } from "@/components/shell/SkipLinks";
 import "./globals.css";
 
 const plexSans = IBM_Plex_Sans({
@@ -43,6 +44,7 @@ export default function PlatformLayout({ children }: Readonly<{ children: ReactN
   return (
     <html lang="en" className={`${plexSans.variable} ${plexMono.variable} ${newsreader.variable}`}>
       <body>
+        <SkipLinks />
         <InternalGatewayProvider>
           <PreviewMarketProvider>
             <div className="flex h-dvh w-full flex-col overflow-hidden bg-app">

@@ -36,7 +36,7 @@ export function PortfolioShell({ children }: { children: ReactNode }) {
   };
 
   return (
-    <section className="scroll-thin flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-app">
+    <main className="scroll-thin flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-app">
       <div className="flex flex-col gap-1 pb-1 lg:p-1">
         <header
           className={`${motion.enter} flex flex-col gap-3 px-3 pt-4 pb-3 lg:flex-row lg:items-end lg:px-3 lg:pt-3 lg:pb-2`}
@@ -110,6 +110,6 @@ export function PortfolioShell({ children }: { children: ReactNode }) {
           {children}
         </div>
       </div>
-    </section>
+    </main>
   );
 }

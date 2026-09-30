@@ -399,3 +399,33 @@
     animation: none;
   }
 }
+
+/* Skip links stay off-screen until keyboard focus reaches them. */
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 100;
+  transform: translateY(-160%);
+  border: 1px solid var(--color-brand-edge);
+  border-radius: 6px;
+  background: var(--color-raised);
+  padding: 6px 10px;
+  color: var(--color-ink);
+  font-size: 12px;
+  transition: transform 120ms ease-out;
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
+  outline: 1px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+.skip-link-ticket:focus-visible {
+  left: 150px;
+}
+
+body:not(:has(#order-ticket)) .skip-link-ticket {
+  display: none;
+}

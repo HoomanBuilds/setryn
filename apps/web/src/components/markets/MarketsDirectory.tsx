@@ -172,7 +172,7 @@ export function MarketsDirectory() {
       : `${observation.min}s to ${observation.max}s`;
 
   return (
-    <section
+    <main
       className="scroll-thin flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-app"
       style={{ "--sticky-top": `${toolbarHeight}px` } as CSSProperties}
     >
@@ -383,7 +383,7 @@ export function MarketsDirectory() {
           ) : null}
         </div>
       </div>
-    </section>
+    </main>
   );
 }
 

@@ -279,7 +279,7 @@ export function OrderTicket({
   const midPrice = (market.bestBid + market.bestAsk) / 2;
 
   return (
-    <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-panel" aria-label="Order ticket">
+    <section id="order-ticket" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-panel" aria-label="Order ticket">
       <div className="flex h-10 shrink-0 items-stretch border-b border-line px-1">
         {ORDER_TYPES.map((option) => (
           <button
