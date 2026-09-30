@@ -106,7 +106,8 @@ contract DevnetMarketAdapter is IPortfolioRiskAdapterV1, IFixingObservationAdapt
     {
         validation = ObservationBatchValidation({
             observationsHash: context.observationsHash,
-            evidenceOriginId: EvidenceOriginId.wrap(keccak256("SETRYN_DEVNET_OBSERVATION_ORIGIN_V1")),
+            // Devnet observations stand in for a signed external feed, one of the origins the fixing engine accepts.
+            evidenceOriginId: EvidenceOriginId.wrap(keccak256("SetrynEvidenceOriginV1:EXTERNAL_SIGNED")),
             feedKey: context.feedKey,
             capabilityHash: context.requiredCapabilityHash,
             completenessHash: keccak256(abi.encode(context.selectionParametersHash, evidence)),

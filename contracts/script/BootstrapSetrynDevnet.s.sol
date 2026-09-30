@@ -93,7 +93,9 @@ contract BootstrapSetrynDevnet is Script {
     bytes32 private constant DISCLOSURE_POLICY = keccak256("SETRYN_POLICY_DISCLOSURE");
     bytes32 private constant PRIVACY_MODE_BLIND = keccak256("SETRYN_PRIVACY_MODE_BLIND_V1");
     bytes32 private constant DISCLOSURE_BLIND_QUALIFIED = keccak256("SETRYN_DISCLOSURE_BLIND_QUALIFIED_V1");
-    bytes32 private constant BENCHMARK_INTERFACE = keccak256("SETRYN_FIXING_OBSERVATION_INTERFACE_V1");
+    // The fixing engine admits only adapters registered under its observation-batch interface.
+    bytes32 private constant BENCHMARK_INTERFACE =
+        keccak256("SetrynFixingObservationAdapterV1.validateObservationBatch");
     bytes32 private constant BENCHMARK_CAPABILITY = keccak256("SETRYN_DEVNET_FIXING_CAPABILITY_V1");
     bytes32 private constant RISK_INTERFACE = keccak256("SETRYN_PORTFOLIO_RISK_INTERFACE_V1");
     bytes32 private constant RISK_CAPABILITY = keccak256("SETRYN_DEVNET_PORTFOLIO_RISK_V1");

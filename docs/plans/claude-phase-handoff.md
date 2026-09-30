@@ -198,9 +198,9 @@ Explorer verification on Arbitrum Sepolia needs the deployed bytecode to equal t
 - Phase 3 gate passed on 2026-09-30: every route is axe-clean for WCAG 2.1 AA at 390 px and 1440 px with no horizontal overflow; keyboard focus is visible on every stop with skip links to content and the order ticket; a rejected connect returns to disconnected; a rejected signature and an RPC outage each explain that nothing was submitted and the same ticket then completes; a working order is replaced at a new limit; and a never-used wallet deposits, opens, and closes a position end to end.
 - System status page (`/status`) checks every deployed contract's runtime code hash against its deployment evidence, and `scripts/generate-verification-inputs.mjs` writes explorer verification commands for all 111 deployments.
 
-### Known protocol follow-up
+### Devnet fixing path
 
-- The devnet benchmark registers interface hash `SETRYN_FIXING_OBSERVATION_INTERFACE_V1`, but `FixingEngine` accepts only `SetrynFixingObservationAdapterV1.validateObservationBatch`, and `DevnetMarketAdapter` reports an evidence origin the engine rejects. Devnet series therefore resolve through the permissionless terminal fallback; the oracle relay port refuses before sending.
+- The devnet benchmark is registered under the fixing engine's observation-batch interface and reports the external signed evidence origin, so the oracle relay port submits evidence, the keeper finalizes it after the correction cutoff, and the devnet series (holder election) lapses unelected lots at final resolution through the permissionless terminal path.
 
 ### Phase 5 first-party platform: remaining
 

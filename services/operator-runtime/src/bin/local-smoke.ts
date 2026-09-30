@@ -155,10 +155,14 @@ summary.oracleRelay = {
 };
 report(summary.oracleRelay);
 
-section("fixing resolution and terminal settlement after final resolution");
-await advanceTo(dayStart + 23n * 3600n + 5n * 60n);
+section("fixing finalization after the correction cutoff and normal settlement");
+// Finalization is only open between the 22:00 correction cutoff and 23:00 final resolution. The devnet series uses
+// holder election, so a finalized fixing reopens the position for exercise and unelected lots lapse at final
+// resolution through the permissionless terminal path.
+await advanceTo(dayStart + 22n * 3600n + 10n * 60n);
 const resolved = await keeper("resolve-fixing", {}, "terminal-resolution");
 const settled = await keeper("settle-positions", {}, "terminal-resolution");
+await advanceTo(dayStart + 23n * 3600n + 5n * 60n);
 const recovered = await keeper("recover", { positionIds: [positionId] }, "terminal-resolution");
 summary.terminal = { positionId, resolveFixing: resolved.completion?.details, settle: settled.completion?.details, recover: recovered.completion?.details };
 report(summary.terminal);
