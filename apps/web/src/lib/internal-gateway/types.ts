@@ -56,6 +56,117 @@ export interface ExecutionReceipt {
   createdAt: string;
 }
 
+/**
+ * Where a held position stands in its onchain terminal lifecycle, read from the position engine, the fixing engine and
+ * the settlement coordinator. It is never inferred from the preview clock alone.
+ */
+export type PositionLifecyclePhase =
+  /** Live and tradable, before the fixing window. */
+  | "LIVE"
+  /** Inside or past the fixing window with no final fixing accepted onto the position yet. */
+  | "AWAITING_FIXING"
+  /** The final fixing is on the position and the holder may elect before the exercise cutoff. */
+  | "FIXED_AWAITING_ELECTION"
+  /** The holder exercised; the settlement record is not written yet. */
+  | "EXERCISED"
+  /** A settlement record is written with a nonzero transfer, or the exercise paid out. */
+  | "SETTLED"
+  /** Unelected lots lapsed with no transfer. */
+  | "LAPSED"
+  /** A terminal claim is open for the receiving account. */
+  | "CLAIM_AVAILABLE"
+  /** Closed by unwind or replaced by a lifecycle successor. */
+  | "CLOSED";
+
+export type LifecycleActionKey = "EXERCISE" | "SETTLE" | "CLAIM" | "FINALIZE";
+
+export interface LifecycleActionState {
+  available: boolean;
+  /** Why the action is unavailable, precise enough to act on; null when available. */
+  reason: string | null;
+}
+
+export interface OnchainLifecycleSchedule {
+  lastTradingAt: string;
+  fixingWindowOpen: string;
+  fixingWindowClose: string;
+  exerciseOpensAt: string;
+  exerciseCutoffAt: string;
+  correctionCutoffAt: string;
+  finalResolutionAt: string;
+  settlementDeadline: string;
+}
+
+export interface OnchainFixingState {
+  status: "PENDING" | "PROPOSED" | "DISPUTED" | "FINALIZED";
+  /** Benchmark value in its own units, from the finalized result or else the open proposal. */
+  value: number | null;
+  resolution: "PRIMARY_FINAL" | "FALLBACK_FINAL" | "TERMINAL_DISRUPTION" | null;
+  /** True when the position itself carries a final fixing reference, which holder election requires. */
+  acceptedOnPosition: boolean;
+  observedAt: string | null;
+  finalizedAt: string | null;
+}
+
+export interface OnchainSettlementRecord {
+  id: string;
+  mode: "NORMAL" | "TERMINAL_DISRUPTION" | "LAPSED";
+  /** Signed transfer to this account: positive receives, negative pays. */
+  transferUsd: number;
+  finalizedAt: string;
+  transactionHash: string | null;
+  /** This account's own terminal reservation released back to it. */
+  releasedUsd: number;
+  claim: {
+    id: string;
+    status: "ACTIVE" | "FULFILLED";
+    amountUsd: number;
+    /** True when this account is the claim's receiver. */
+    receivable: boolean;
+    transactionHash: string | null;
+  } | null;
+}
+
+export interface OnchainPositionLifecycle {
+  positionId: string;
+  marketId: string;
+  side: "LONG" | "SHORT";
+  /** Position engine status name, for example "Live" or "Fixing". */
+  status: string;
+  /** Position engine exercise state name, for example "ElectionOpen". */
+  exerciseState: string;
+  exercisePolicy: "HOLDER_ELECTION" | "AUTOMATIC" | "AUTOMATIC_UNLESS_ABANDONED" | "UNKNOWN";
+  phase: PositionLifecyclePhase;
+  lots: number;
+  remainingLots: number;
+  exercisedLots: number;
+  closedLots: number;
+  entryPrice: number;
+  /** The account holds the lifecycle election (the long side). */
+  holdsElection: boolean;
+  schedule: OnchainLifecycleSchedule;
+  fixing: OnchainFixingState;
+  /** Transfer to this account's side at the fixing for the remaining lots, from the payoff module. */
+  projectedPayoffUsd: number | null;
+  /** Projected payoff plus the consideration the opening fill exchanged. */
+  projectedPnlUsd: number | null;
+  /** Transfer already fixed on the position for this account (exercised lots or terminal outcome). */
+  terminalTransferUsd: number;
+  settlement: OnchainSettlementRecord | null;
+  /** Collateral the position still reserves on this account's side. */
+  collateralReservedUsd: number;
+  exerciseTransactionHash: string | null;
+  /** Chain time of the read, in unix seconds. */
+  observedAtSeconds: number;
+}
+
+export interface LifecycleActionResult {
+  action: LifecycleActionKey;
+  positionId: string;
+  transactionHash: string;
+  detail: string;
+}
+
 export interface GatewaySnapshot {
   environment: RuntimeEnvironment;
   wallet: {
@@ -81,6 +192,8 @@ export interface GatewaySnapshot {
   /** Resting public book orders of every onchain market, keyed by catalog market id. */
   publicBooks: Record<string, BookRow[]>;
   rfqRequests: RfqRequest[];
+  /** Onchain terminal lifecycle of every position the account holds or held, keyed by lowercase position id. */
+  lifecycles: Record<string, OnchainPositionLifecycle>;
 }
 
 export interface OnchainMarketEconomics {
@@ -328,4 +441,8 @@ export interface InternalTradingGateway {
   submitLocalMakerQuote(requestId: string, input: LocalMakerQuoteInput): Promise<RfqRequest>;
   withdrawLocalMakerQuote(requestId: string): Promise<RfqRequest>;
   getReceipt(receiptId: string): ExecutionReceipt | null;
+  /** Re-reads the onchain terminal lifecycle of the account's positions. */
+  refreshLifecycles(): Promise<void>;
+  /** Runs one terminal lifecycle action on a position, signed by the connected wallet. */
+  runLifecycleAction(positionId: string, action: LifecycleActionKey): Promise<LifecycleActionResult>;
 }

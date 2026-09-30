@@ -13,6 +13,8 @@ import {
   formatUtcDate,
   formatUtcSession,
 } from "@/lib/settlements/calendar";
+import { TerminalLifecycle } from "@/components/lifecycle/TerminalLifecycle";
+import type { OnchainPositionLifecycle } from "@/lib/internal-gateway/types";
 import type { PositionDossier } from "@/lib/positions/dossier";
 import {
   closeHandoffHref,
@@ -408,10 +410,12 @@ function SettleTab({
   dossier,
   market,
   metrics,
+  lifecycle,
 }: {
   dossier: PositionDossier;
   market: PackageMarket;
   metrics: PositionMetrics;
+  lifecycle: OnchainPositionLifecycle | null;
 }) {
   const base = MARKETS.find((candidate) => candidate.id === market.id) ?? market;
   const span = Math.max(market.tickSize * 20, Math.abs(base.netPrice) * 0.06);
@@ -427,38 +431,44 @@ function SettleTab({
 
   return (
     <div className="flex flex-col gap-3 p-3 lg:p-4">
-      <div className="rounded-md border border-line bg-inset px-3 py-2.5">
-        <p className="text-[13px] text-ink">No election on this series</p>
-        <p className="mt-1 text-xs leading-relaxed text-faint">
-          {`Cash-settled dated package. The ${formatLots(dossier.lots)} lots settle automatically against ${market.fixingSource}. Exercise, election and lapse do not apply, so there is no window to act in.`}
-        </p>
-      </div>
+      {lifecycle ? (
+        <TerminalLifecycle view={lifecycle} />
+      ) : (
+        <>
+        <div className="rounded-md border border-line bg-inset px-3 py-2.5">
+          <p className="text-[13px] text-ink">No election on this series</p>
+          <p className="mt-1 text-xs leading-relaxed text-faint">
+            {`Cash-settled dated package. The ${formatLots(dossier.lots)} lots settle automatically against ${market.fixingSource}. Exercise, election and lapse do not apply, so there is no window to act in.`}
+          </p>
+        </div>
 
-      <div className="divide-y divide-line-soft">
-        <TrustRow
-          label="Settlement class"
-          value={market.settlementClass === "CASH_USDC_NDF" ? "Cash USDC, NDF" : "Cash USDC"}
-          provenance="OBSERVED"
-          source="Series terms"
-        />
-        <TrustRow label="Fixing session" value={formatUtcSession(schedule.fixingMs)} provenance="MODELED" source="Scheduled from series terms" />
-        <TrustRow
-          label="Observation window"
-          value={`${FIXING_WINDOW_MINUTES} min to the print`}
-          provenance="MODELED"
-          source="Series terms schedule"
-        />
-        <TrustRow
-          label="Business-day rule"
-          note={schedule.adjustment ? `${formatUtcDate(schedule.adjustment.scheduled)}: ${schedule.adjustment.reason}` : ADJUSTMENT_RULE}
-          value={schedule.adjustment ? `moves to ${formatUtcDate(schedule.adjustment.adjusted)}` : "No adjustment"}
-          tone={schedule.adjustment ? "text-brand" : "text-ink"}
-          provenance="MODELED"
-          source="LDN business calendar v1"
-        />
-        <TrustRow label="Completion path" value="Permissionless" note="after the fixing is committed" />
-        <TrustRow label="Guarantee" value={guarantee.label} note={dossier.reference?.recoveryClass} />
-      </div>
+        <div className="divide-y divide-line-soft">
+          <TrustRow
+            label="Settlement class"
+            value={market.settlementClass === "CASH_USDC_NDF" ? "Cash USDC, NDF" : "Cash USDC"}
+            provenance="OBSERVED"
+            source="Series terms"
+          />
+          <TrustRow label="Fixing session" value={formatUtcSession(schedule.fixingMs)} provenance="MODELED" source="Scheduled from series terms" />
+          <TrustRow
+            label="Observation window"
+            value={`${FIXING_WINDOW_MINUTES} min to the print`}
+            provenance="MODELED"
+            source="Series terms schedule"
+          />
+          <TrustRow
+            label="Business-day rule"
+            note={schedule.adjustment ? `${formatUtcDate(schedule.adjustment.scheduled)}: ${schedule.adjustment.reason}` : ADJUSTMENT_RULE}
+            value={schedule.adjustment ? `moves to ${formatUtcDate(schedule.adjustment.adjusted)}` : "No adjustment"}
+            tone={schedule.adjustment ? "text-brand" : "text-ink"}
+            provenance="MODELED"
+            source="LDN business calendar v1"
+          />
+          <TrustRow label="Completion path" value="Permissionless" note="after the fixing is committed" />
+          <TrustRow label="Guarantee" value={guarantee.label} note={dossier.reference?.recoveryClass} />
+        </div>
+        </>
+      )}
 
       <div className="rounded-md border border-line px-3 py-3">
         <SubHead right={<ProvenanceChip provenance="MODELED" source="Hypothetical fixing level" compact />}>Payout at fixing</SubHead>
@@ -510,13 +520,25 @@ function SettleTab({
 /* Closed                                                              */
 /* ------------------------------------------------------------------ */
 
-function ClosedSummary({ dossier, market }: { dossier: PositionDossier; market: PackageMarket }) {
+function ClosedSummary({
+  dossier,
+  market,
+  lifecycle,
+}: {
+  dossier: PositionDossier;
+  market: PackageMarket;
+  lifecycle: OnchainPositionLifecycle | null;
+}) {
+  const terminal = lifecycle !== null && lifecycle.phase !== "CLOSED";
   return (
     <div className="flex flex-col gap-3 p-3 lg:p-4">
-      <p className="text-[13px] text-ink">This position is closed</p>
+      <p className="text-[13px] text-ink">{terminal ? "This position reached its terminal outcome" : "This position is closed"}</p>
       <p className="text-xs leading-relaxed text-faint">
-        It reached a terminal state before its fixing, so no close, roll or settlement action remains. Its fills and receipts stay addressable here.
+        {terminal
+          ? "Its fixing, election and settlement are recorded onchain below. Any open claim or released collateral can still be taken from here."
+          : "It reached a terminal state before its fixing, so no close, roll or settlement action remains. Its fills and receipts stay addressable here."}
       </p>
+      {terminal ? <TerminalLifecycle view={lifecycle} /> : null}
       <div className="divide-y divide-line-soft">
         <TrustRow label="Lots at opening" value={`${formatLots(dossier.openedLots)} lots`} provenance="OBSERVED" />
         <TrustRow label="Entry" value={price(dossier.entryPrice, market)} provenance="OBSERVED" />
@@ -541,6 +563,7 @@ export function ManagePanel({
   market,
   markets,
   metrics,
+  lifecycle = null,
   action,
   onAction,
   className = "",
@@ -550,6 +573,7 @@ export function ManagePanel({
   market: PackageMarket;
   markets: readonly PackageMarket[];
   metrics: PositionMetrics;
+  lifecycle?: OnchainPositionLifecycle | null;
   action: ManageAction;
   onAction: (action: ManageAction) => void;
   className?: string;
@@ -562,7 +586,7 @@ export function ManagePanel({
         <div className="flex h-10 shrink-0 items-center border-b border-line px-3">
           <h2 className="text-[13px] font-medium text-ink">Position closed</h2>
         </div>
-        <ClosedSummary dossier={dossier} market={market} />
+        <ClosedSummary dossier={dossier} market={market} lifecycle={lifecycle} />
       </Panel>
     );
   }
@@ -576,7 +600,7 @@ export function ManagePanel({
           items={[
             { id: "close", label: "Close" },
             { id: "roll", label: "Roll", badge: targets.length > 0 ? undefined : "none" },
-            { id: "settle", label: "Settlement" },
+            { id: "settle", label: lifecycle ? "Settlement and election" : "Settlement" },
           ]}
         />
         <span className="ml-auto flex items-center">
@@ -590,7 +614,7 @@ export function ManagePanel({
       <TabBody idBase="manage" key={action}>
         {action === "close" ? <CloseTab dossier={dossier} market={market} /> : null}
         {action === "roll" ? <RollTab dossier={dossier} market={market} markets={markets} /> : null}
-        {action === "settle" ? <SettleTab dossier={dossier} market={market} metrics={metrics} /> : null}
+        {action === "settle" ? <SettleTab dossier={dossier} market={market} metrics={metrics} lifecycle={lifecycle} /> : null}
       </TabBody>
     </Panel>
   );

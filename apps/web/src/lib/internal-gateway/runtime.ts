@@ -63,6 +63,14 @@ export interface SetrynRuntime {
   privateRfqDisclosurePolicyHash: Hex;
   privateRfqEligibleMakerSetHash: Hex;
   enterActionId: Hex;
+  seriesRegistry?: Address;
+  /**
+   * Terminal lifecycle contracts the runtime file does not carry, merged from the local deployment manifest. Absent when
+   * the manifest is unavailable, in which case settlement actions report the missing contract instead of guessing.
+   */
+  fixingEngine?: Address;
+  cashSettlementCoordinator?: Address;
+  positionLifecycleExecutor?: Address;
   /** Every onchain market in catalog order. The single-series fields above name the first, primary one. */
   markets: SetrynRuntimeMarket[];
 }

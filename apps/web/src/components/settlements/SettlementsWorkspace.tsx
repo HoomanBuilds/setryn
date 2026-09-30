@@ -22,7 +22,42 @@ import {
   ReconciliationTable,
   UpcomingTable,
 } from "./SettlementTables";
+import { TerminalLifecycle } from "@/components/lifecycle/TerminalLifecycle";
+import type { OnchainPositionLifecycle, PositionLifecyclePhase } from "@/lib/internal-gateway/types";
 import { ProvenanceChip } from "./trust";
+
+/** Positions that need the holder first, then those waiting on the schedule, then completed ones. */
+const PHASE_ORDER: Record<PositionLifecyclePhase, number> = {
+  CLAIM_AVAILABLE: 0,
+  FIXED_AWAITING_ELECTION: 1,
+  EXERCISED: 2,
+  AWAITING_FIXING: 3,
+  LIVE: 4,
+  SETTLED: 5,
+  LAPSED: 6,
+  CLOSED: 7,
+};
+
+function HeldLifecycles({ lifecycles }: { lifecycles: OnchainPositionLifecycle[] }) {
+  if (lifecycles.length === 0) return null;
+  return (
+    <Panel label="Held position lifecycles" delay={60}>
+      <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 border-b border-line px-3 py-2 lg:px-4">
+        <h2 className="text-[13px] font-medium text-ink">Election and settlement</h2>
+        <span className="text-[11px] text-faint">
+          Onchain terminal state of each held position. Finalize is permissionless after final resolution.
+        </span>
+      </div>
+      <div className="grid gap-px bg-line md:grid-cols-2 2xl:grid-cols-3">
+        {lifecycles.map((view) => (
+          <div key={view.positionId} className="bg-panel p-3 lg:p-4">
+            <TerminalLifecycle view={view} compact showLink />
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
+}
 
 type SettlementTab = "upcoming" | "observations" | "payouts" | "reconciliation" | "exceptions";
 
@@ -135,6 +170,15 @@ export function SettlementsWorkspace() {
   const [observationScope, setObservationScope] = useState<"HELD" | "ALL">("HELD");
   const [exceptionScope, setExceptionScope] = useState<"ACTION" | "ALL">("ACTION");
 
+  const heldLifecycles = useMemo(
+    () =>
+      snapshot.wallet.status === "CONNECTED"
+        ? Object.values(snapshot.lifecycles)
+            .filter((view) => view.phase !== "CLOSED")
+            .sort((left, right) => PHASE_ORDER[left.phase] - PHASE_ORDER[right.phase] || left.positionId.localeCompare(right.positionId))
+        : [],
+    [snapshot.lifecycles, snapshot.wallet.status],
+  );
   const upcoming = center.boundaries.filter((row) => row.state !== "PASSED");
   const upcomingHeld = upcoming.filter((row) => row.held.length > 0);
   const upcomingRows = upcomingScope === "HELD" ? upcomingHeld : upcoming;
@@ -283,6 +327,8 @@ export function SettlementsWorkspace() {
             />
           </div>
         </Panel>
+
+        <HeldLifecycles lifecycles={heldLifecycles} />
 
         <div className="grid gap-1 xl:grid-cols-[minmax(0,1fr)_320px]">
           <BoundaryCalendar center={center} selectedId={selectedId} onSelect={setSelectedId} />

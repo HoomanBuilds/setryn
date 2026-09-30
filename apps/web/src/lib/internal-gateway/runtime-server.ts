@@ -137,9 +137,42 @@ function validateRuntime(candidate: unknown): Omit<SetrynRuntime, "rpcUrl"> {
   return record as unknown as Omit<SetrynRuntime, "rpcUrl">;
 }
 
+const TERMINAL_CONTRACTS = {
+  FixingEngine: "fixingEngine",
+  CashSettlementCoordinator: "cashSettlementCoordinator",
+  PositionLifecycleExecutor: "positionLifecycleExecutor",
+} as const;
+
+/**
+ * The fixing, settlement and lifecycle-executor addresses live only in the deployment manifest. Each is taken only when
+ * the manifest names exactly one deployment of it, and a missing or unreadable manifest leaves them out.
+ */
+async function readTerminalContracts(): Promise<Partial<Pick<SetrynRuntime, (typeof TERMINAL_CONTRACTS)[keyof typeof TERMINAL_CONTRACTS]>>> {
+  try {
+    const manifest = JSON.parse(await readFile(resolve(/*turbopackIgnore: true*/ runtimePath(), "..", "manifest.json"), "utf8")) as {
+      chainId?: unknown;
+      contracts?: unknown;
+      phase2?: { deployments?: unknown };
+    };
+    if (manifest.chainId !== 31337) return {};
+    const entries = [
+      ...(Array.isArray(manifest.contracts) ? manifest.contracts : []),
+      ...(Array.isArray(manifest.phase2?.deployments) ? manifest.phase2.deployments : []),
+    ] as { name?: unknown; address?: unknown }[];
+    const found: Partial<Record<string, `0x${string}`>> = {};
+    for (const [name, field] of Object.entries(TERMINAL_CONTRACTS)) {
+      const matches = entries.filter((entry) => entry.name === name && typeof entry.address === "string" && ADDRESS_PATTERN.test(entry.address));
+      if (matches.length === 1) found[field] = matches[0].address as `0x${string}`;
+    }
+    return found;
+  } catch {
+    return {};
+  }
+}
+
 export async function readLocalRuntime(): Promise<SetrynRuntime> {
   const candidate = JSON.parse(await readFile(runtimePath(), "utf8")) as unknown;
-  return { ...validateRuntime(candidate), rpcUrl: localRpcUrl() };
+  return { ...validateRuntime(candidate), ...(await readTerminalContracts()), rpcUrl: localRpcUrl() };
 }
 
 /** Deployment evidence written next to the runtime by the local reset (`generate-deployment-evidence.mjs`). */

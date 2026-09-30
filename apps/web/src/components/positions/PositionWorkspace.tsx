@@ -10,6 +10,7 @@ import { marketFor, positionMetrics } from "@/lib/positions/economics";
 import { lifeProgress, positionTimeline } from "@/lib/positions/timeline";
 import { settlementStage } from "@/lib/settlements/center";
 import { STAGE_COPY } from "@/lib/settlements/stages";
+import type { OnchainPositionLifecycle } from "@/lib/internal-gateway/types";
 import type { PackageMarket } from "@/lib/terminal/types";
 import { LifecyclePanel } from "./LifecyclePanel";
 import { MANAGE_ACTIONS, ManagePanel, type ManageAction } from "./ManagePanel";
@@ -26,21 +27,25 @@ function PositionView({
   market,
   markets,
   nowMs,
+  lifecycle,
 }: {
   dossier: PositionDossier;
   market: PackageMarket;
   markets: readonly PackageMarket[];
   nowMs: number;
+  lifecycle: OnchainPositionLifecycle | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const requested = searchParams.get("action");
-  const action: ManageAction = isAction(requested) ? requested : "close";
+  // Past the last trade the terminal lifecycle is what the holder acts on, so it opens by default.
+  const terminalFirst = lifecycle !== null && lifecycle.phase !== "LIVE" && lifecycle.phase !== "CLOSED";
+  const action: ManageAction = isAction(requested) ? requested : terminalFirst ? "settle" : "close";
 
   const onAction = (next: ManageAction) => {
     const params = new URLSearchParams(searchParams.toString());
-    if (next === "close") params.delete("action");
+    if (next === (terminalFirst ? "settle" : "close")) params.delete("action");
     else params.set("action", next);
     const query = params.toString();
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
@@ -69,6 +74,7 @@ function PositionView({
               market={market}
               markets={markets}
               metrics={metrics}
+              lifecycle={lifecycle}
               action={action}
               onAction={onAction}
               className="order-1 lg:order-none"
@@ -103,7 +109,14 @@ export function PositionWorkspace({ positionId }: { positionId: string }) {
 
   const market = marketFor(resolution.dossier.marketId, markets);
   if (!market) return <PositionGate kind="missing" positionId={positionId} />;
+  const lifecycle = resolution.dossier.origin === "ACCOUNT" ? snapshot.lifecycles[positionId.toLowerCase()] ?? null : null;
   return (
-    <PositionView dossier={resolution.dossier} market={market} markets={markets} nowMs={previewEpochSeconds * 1000} />
+    <PositionView
+      dossier={resolution.dossier}
+      market={market}
+      markets={markets}
+      nowMs={previewEpochSeconds * 1000}
+      lifecycle={lifecycle}
+    />
   );
 }

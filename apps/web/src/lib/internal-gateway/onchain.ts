@@ -9,6 +9,7 @@ import {
   formatUnits,
   getAddress,
   http,
+  isAddress,
   keccak256,
   maxUint256,
   parseUnits,
@@ -24,7 +25,14 @@ import { platformNow, setChainClockOffset } from "@/lib/terminal/clock";
 import { formatLotCount } from "@/lib/terminal/format";
 import {
   accountFeesPaidMinor,
+  cashSettlementAbi,
+  fixingEngineAbi,
   orderStateAbi,
+  payoffModuleAbi,
+  positionTerminalAbi,
+  seriesRegistryAbi,
+  settlementErrorsAbi,
+  terminalClaimAbi,
   atomicClearingAbi,
   fundedFeeLedgerAbi,
   privateRfqBookAbi,
@@ -56,7 +64,12 @@ import type {
   ExecutionReceipt,
   GatewaySnapshot,
   InternalTradingGateway,
+  LifecycleActionKey,
+  LifecycleActionResult,
   OnchainMarket,
+  OnchainPositionLifecycle,
+  OnchainSettlementRecord,
+  PositionLifecyclePhase,
   LocalMakerQuoteInput,
   PackageExecutionResult,
   PackageOrderIntent,
@@ -167,6 +180,187 @@ const lifecycleActionTypes = {
     { name: "engine", type: "address" },
   ],
 } as const;
+
+/* Terminal lifecycle: position engine enums, exercise policies and the canonical payoff fixing encoding. */
+const POSITION_STATUS_NAMES = [
+  "Unspecified",
+  "Live",
+  "Fixing",
+  "SettlementReady",
+  "Settled",
+  "ClosedByUnwind",
+  "Replaced",
+  "Lapsed",
+  "CancelledByDisruption",
+  "Defaulted",
+  "TerminalClaim",
+  "Abandoned",
+] as const;
+const EXERCISE_STATE_NAMES = [
+  "Unspecified",
+  "AwaitingFixing",
+  "ElectionOpen",
+  "PartiallyExercised",
+  "FullyExercised",
+  "Abandoned",
+  "Lapsed",
+] as const;
+const STATUS = { live: 1, fixing: 2, settlementReady: 3, settled: 4, lapsed: 7, defaulted: 9, terminalClaim: 10 } as const;
+/** Statuses that still carry open exposure and a live terminal reservation. */
+const OPEN_POSITION_STATUSES: readonly number[] = [STATUS.live, STATUS.fixing, STATUS.settlementReady];
+const FIXING_STATUS = { proposed: 1, disputed: 2, finalized: 3 } as const;
+const EXERCISE_POLICIES: Record<string, OnchainPositionLifecycle["exercisePolicy"]> = {
+  [keccak256(stringToHex("SetrynExercisePolicyV1:HolderElection"))]: "HOLDER_ELECTION",
+  [keccak256(stringToHex("SetrynExercisePolicyV1:Automatic"))]: "AUTOMATIC",
+  [keccak256(stringToHex("SetrynExercisePolicyV1:AutomaticUnlessAbandoned"))]: "AUTOMATIC_UNLESS_ABANDONED",
+};
+const EXERCISE_ACTION_KIND = 10;
+const canonicalFixingsParameter = [
+  {
+    type: "tuple[]",
+    components: [
+      { name: "slot", type: "uint8" },
+      { name: "benchmarkId", type: "bytes32" },
+      { name: "benchmarkVersion", type: "uint32" },
+      { name: "decimals", type: "uint8" },
+      { name: "value", type: "int256" },
+    ],
+  },
+] as const;
+const settlementCallAbi = [...cashSettlementAbi, ...settlementErrorsAbi] as const;
+const lifecycleCallAbi = [...signedLifecycleAbi, ...settlementErrorsAbi] as const;
+
+interface FixingCandidateArg {
+  benchmarkId: Hex;
+  benchmarkVersion: number;
+  requiredWindowKindId: Hex;
+  selectionRuleId: Hex;
+  targetAt: bigint;
+  windowStartsAt: bigint;
+  windowEndsAt: bigint;
+  unavailableAfter: bigint;
+  maxPublicationLagSeconds: number;
+  minimumObservations: number;
+  maximumObservations: number;
+  selectionParametersHash: Hex;
+}
+
+interface FixingSlotArg {
+  slot: number;
+  candidates: readonly FixingCandidateArg[];
+}
+
+/** One series' terminal schedule and the fixing slots it was qualified with, which settlement calls must repeat. */
+interface SeriesTerminal {
+  lastTradingAt: bigint;
+  fixingWindowOpen: bigint;
+  fixingWindowClose: bigint;
+  exerciseOpensAt: bigint;
+  exerciseCutoffAt: bigint;
+  correctionCutoffAt: bigint;
+  finalResolutionAt: bigint;
+  settlementDeadline: bigint;
+  exercisePolicyId: Hex;
+  slots: readonly FixingSlotArg[];
+}
+
+interface SeriesFixingRead {
+  /** Overall status: pending until every slot has a proposal, finalized once every slot is final. */
+  status: OnchainPositionLifecycle["fixing"]["status"];
+  value: bigint | null;
+  decimals: number;
+  resolutionKind: number;
+  observedAt: bigint | null;
+  finalizedAt: bigint | null;
+  /** abi.encode(CanonicalFixing[]) of the slot values, as the position engine hashes them; null until every slot has one. */
+  encoded: Hex | null;
+}
+
+/** The terminal read of one account position, with the evidence the activity reconstruction needs for receipts. */
+interface TerminalRead {
+  view: OnchainPositionLifecycle;
+  settlementTransactionHash: Hex | null;
+  claimTransactionHash: Hex | null;
+  exerciseTransactionHash: Hex | null;
+  exerciseAt: bigint | null;
+}
+
+function utcLabel(seconds: bigint | number): string {
+  const date = new Date(Number(seconds) * 1000);
+  const day = date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", timeZone: "UTC" });
+  return `${day} ${date.toISOString().slice(11, 16)} UTC`;
+}
+
+function isoAt(seconds: bigint): string {
+  return new Date(Number(seconds) * 1000).toISOString();
+}
+
+function minorToUsd(value: bigint): number {
+  return Number(formatUnits(value, 6));
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/** The contract error a simulated or mined call reverted with, decoded against the settlement error set. */
+function revertOf(error: unknown): { name: string; args: readonly unknown[] } | null {
+  if (!(error instanceof BaseError)) return null;
+  const reverted = error.walk((cause) => cause instanceof ContractFunctionRevertedError);
+  if (!(reverted instanceof ContractFunctionRevertedError)) return null;
+  const name = reverted.data?.errorName ?? reverted.reason ?? null;
+  return name ? { name, args: (reverted.data?.args ?? []) as readonly unknown[] } : null;
+}
+
+/** A contract revert on a terminal lifecycle call, stated so the viewer knows what has to happen first. */
+function describeLifecycleRevert(name: string, args: readonly unknown[]): string {
+  const at = (value: unknown) => (typeof value === "bigint" || typeof value === "number" ? utcLabel(value) : "the scheduled time");
+  switch (name) {
+    case "InvalidPositionStatus": {
+      const status = POSITION_STATUS_NAMES[Number(args[0])] ?? String(args[0]);
+      return `The position is ${status}, which this settlement path does not accept.`;
+    }
+    case "HolderElectionPending":
+      return `The final fixing is on the position and it awaits the holder's election until ${at(args[1])}. Settle after the holder exercises, or Finalize the lapse after the cutoff.`;
+    case "NormalSettlementClosed":
+      return `Normal settlement closed at final resolution (${at(args[0])}). Use Finalize to complete the position.`;
+    case "TerminalFallbackNotOpen":
+      return `Finalize opens at final resolution, ${at(args[0])}.`;
+    case "FixingNotFinalized":
+      return `Fixing slot ${String(args[0])} has no proposed or final fixing yet.`;
+    case "CorrectionWindowOpen":
+    case "CorrectionWindowNotClosed":
+      return "The fixing is still inside its correction window; settlement opens once corrections close.";
+    case "ExerciseWindowClosed":
+      return `Election is open ${at(args[1])} to ${at(args[2])}; chain time is ${at(args[3])}.`;
+    case "InvalidExerciseConvention":
+      return "The series election window is closed or no lots remain to elect.";
+    case "ExerciseWitnessMismatch":
+      return "The exercise witness does not match the final fixing on the position.";
+    case "LifecycleOwnerMismatch":
+      return "Only the position's lifecycle owner, the long holder, can elect.";
+    case "MissingConsent":
+      return "Only the long holder can elect on this position.";
+    case "FinalResolutionReached":
+      return `Final resolution has passed (${at(args[1])}); use Finalize.`;
+    case "FinalResolutionNotReached":
+      return `Final resolution is at ${at(args[1])}.`;
+    case "FixingWindowNotOpen":
+      return `The window opens at ${at(args[1])}.`;
+    case "InvalidPositionTransition": {
+      const status = POSITION_STATUS_NAMES[Number(args[1])] ?? String(args[1]);
+      return `The position is ${status}; that transition is not available.`;
+    }
+    case "UnknownClaim":
+      return "No terminal claim is recorded for this settlement.";
+    case "SettlementOutcomeMismatch":
+      return "The position's terminal state does not match the settlement outcome the coordinator derives.";
+    case "LifecycleDeadlinePassed":
+      return "The signed action expired before it was included. Try again.";
+    default:
+      return `The contract rejected the call: ${name}.`;
+  }
+}
 
 const vaultAbi = [
   {
@@ -328,12 +522,44 @@ function initialSnapshot(): GatewaySnapshot {
     publicBookOrders: [],
     publicBooks: {},
     rfqRequests: [],
+    lifecycles: {},
   };
 }
 
 function errorCode(error: unknown): number | null {
   if (!error || typeof error !== "object" || !("code" in error)) return null;
   return typeof error.code === "number" ? error.code : null;
+}
+
+/** Where a position stands in its terminal lifecycle, from its onchain status, settlement record and chain time. */
+function lifecyclePhase(
+  view: OnchainPositionLifecycle,
+  status: number,
+  now: bigint,
+  series: Pick<SeriesTerminal, "fixingWindowOpen">,
+): PositionLifecyclePhase {
+  const settlement = view.settlement;
+  if (settlement) {
+    if (settlement.claim?.status === "ACTIVE" && settlement.claim.receivable) return "CLAIM_AVAILABLE";
+    if (settlement.mode === "LAPSED" || (settlement.transferUsd === 0 && view.exercisedLots === 0)) return "LAPSED";
+    return "SETTLED";
+  }
+  if (status === STATUS.live) {
+    if (view.fixing.acceptedOnPosition) return "FIXED_AWAITING_ELECTION";
+    return now < series.fixingWindowOpen ? "LIVE" : "AWAITING_FIXING";
+  }
+  if (status === STATUS.fixing || status === STATUS.defaulted) return "AWAITING_FIXING";
+  if (status === STATUS.settlementReady) return "EXERCISED";
+  if (status === STATUS.settled) return view.exercisedLots > 0 ? "EXERCISED" : "LAPSED";
+  if (status === STATUS.lapsed) return "LAPSED";
+  if (status === STATUS.terminalClaim) return "SETTLED";
+  return "CLOSED";
+}
+
+/** Collateral a completed settlement returned to the account: its released reservation plus any transfer it received. */
+export function settlementReleasable(view: OnchainPositionLifecycle): number {
+  if (!view.settlement) return 0;
+  return round2(view.settlement.releasedUsd + Math.max(0, view.settlement.transferUsd));
 }
 
 export class OnchainTradingGateway implements InternalTradingGateway {
@@ -354,6 +580,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   private polling = false;
   /** Book orders already seen filled, cancelled, or expired. None of them can rest again, so they are not re-read. */
   private readonly retiredBookOrders = new Set<string>();
+  /** Series terminal schedules and fixing slots; both are fixed at qualification, so each is read once. */
+  private readonly seriesTerminals = new Map<string, Promise<SeriesTerminal>>();
 
   getSnapshot = (): GatewaySnapshot => this.snapshot;
 
@@ -597,8 +825,13 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const int128Max = (BigInt(1) << BigInt(127)) - BigInt(1);
     if (priceTicks < int128Min || priceTicks > int128Max) throw new Error("INVALID_LIMIT_PRICE");
     const feeMinor = this.toMinorUnits(intent.feeCap);
-    const timeInForce =
-      intent.timeInForce === "GTC" ? 1 : intent.timeInForce === "GTD" ? 2 : intent.timeInForce === "IOC" ? 3 : 4;
+    // All-or-none is fill-or-kill on the public book. A private RFQ request instead requires an all-or-none order to keep
+    // its (empty) remainder open, so the same intent signs as GTD until the RFQ deadline with the full size as minimum.
+    const allOrNone = intent.timeInForce === "FOK";
+    const rfqAllOrNone = allOrNone && intent.disclosure === "PRIVATE_RFQ";
+    const timeInForce = rfqAllOrNone
+      ? 2
+      : intent.timeInForce === "GTC" ? 1 : intent.timeInForce === "GTD" ? 2 : intent.timeInForce === "IOC" ? 3 : 4;
     const order: OnchainPublicOrder = {
       signer: address,
       accountId,
@@ -623,9 +856,9 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       permittedExecutor: setryn.atomicClearingEngine,
       nonce,
       salt,
-      allowPartialFills: intent.timeInForce !== "FOK",
-      minimumFillLots: BigInt(1),
-      remainderPolicy: intent.timeInForce === "IOC" || intent.timeInForce === "FOK" ? 2 : 1,
+      allowPartialFills: !allOrNone,
+      minimumFillLots: allOrNone ? BigInt(intent.lots) : BigInt(1),
+      remainderPolicy: rfqAllOrNone ? 1 : intent.timeInForce === "IOC" || intent.timeInForce === "FOK" ? 2 : 1,
       postOnly: intent.postOnly === true,
       reduceOnly: false,
     };
@@ -1742,8 +1975,9 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       const now = BigInt(Math.floor(platformNow() / 1000));
       const state = this.restingState(record.status, record.order.deadline <= now);
       const packageSide = record.order.side === 1 ? "LONG" : "SHORT";
+      // An all-or-none RFQ order signs as GTD with no partial fills; it reads back as the FOK the user chose.
       const timeInForce = record.order.timeInForce === 2
-        ? "GTD"
+        ? record.order.allowPartialFills === false && record.order.executionModeId === this.setryn?.privateRfqExecutionModeId ? "FOK" : "GTD"
         : record.order.timeInForce === 3
           ? "IOC"
           : record.order.timeInForce === 4
@@ -2009,7 +2243,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         functionName: "positionStatus",
         args: [positionId],
       });
-      const positionLive = positionStatus === 1;
+      // Fixing and settlement-ready positions still hold their exposure and terminal reservation, so they stay open.
+      const positionLive = OPEN_POSITION_STATUSES.includes(positionStatus);
       const [makerRecord, takerRecord] = await Promise.all([
         this.publicClient.readContract({
           address: this.setryn.orderState,
@@ -2065,6 +2300,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         fillId,
         positionId,
         positionLive,
+        positionStatus,
         market,
         ownOrderHash,
         requestedLots,
@@ -2093,6 +2329,13 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       closedBy.set(entry.positionId.toLowerCase(), { exit, transactionHash: closing.transactionHash });
       closes.set(exit.positionId.toLowerCase(), { entry, transactionHash: closing.transactionHash });
     }
+    // Positions that were not unwound by an exit reach their end through the terminal lifecycle: fixing, holder
+    // election, settlement, lapse or a terminal claim. Their onchain state is read once per refresh.
+    const terminal = await this.readLifecycles(
+      accountId,
+      fills.filter((record) => !closedBy.has(record.positionId.toLowerCase()) && !closes.has(record.positionId.toLowerCase())),
+      ledgerEvents,
+    ).catch(() => new Map<string, TerminalRead>());
     const positions = [] as GatewaySnapshot["positions"];
     const receipts = [] as GatewaySnapshot["receipts"];
     const executions = [] as GatewaySnapshot["executions"];
@@ -2100,7 +2343,11 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     for (const record of fills) {
       const { fillId, positionId, positionLive, market, filledLots, price, position, transactionHash } = record;
       const closedEntry = closes.get(positionId.toLowerCase());
-      const openedAndClosed = closedBy.has(positionId.toLowerCase());
+      const terminalRead = terminal.get(positionId.toLowerCase());
+      const terminalOutcome = terminalRead && (terminalRead.view.settlement || terminalRead.exerciseTransactionHash)
+        ? terminalRead
+        : null;
+      const openedAndClosed = closedBy.has(positionId.toLowerCase()) || terminalOutcome !== null;
       const entry = closedEntry?.entry;
       const receipt: ExecutionReceipt = {
         id: fillId,
@@ -2163,6 +2410,11 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         },
         createdAt: record.createdAt,
       });
+      if (terminalOutcome) {
+        const outcome = this.terminalExecution(terminalOutcome, record, market, netConsiderationUsd(ledgerEvents, fillId, accountId));
+        receipts.push(outcome.result.receipt);
+        executions.push(outcome);
+      }
     }
     this.orderFills = orderFills;
     this.publish({
@@ -2170,8 +2422,669 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       positions,
       receipts,
       executions,
+      lifecycles: Object.fromEntries([...terminal].map(([key, read]) => [key, read.view])),
       restingOrders: this.linkOrderFills(this.snapshot.restingOrders),
     });
+  }
+
+  /**
+   * The receipt and execution of a position's terminal outcome: holder exercise, normal settlement, the terminal
+   * fallback, or a lapse. Realized PnL is the consideration the opening fill exchanged plus the terminal transfer.
+   */
+  private terminalExecution(
+    read: TerminalRead,
+    opening: { fillId: Hex; ownOrderHash: Hex; packageSide: "LONG" | "SHORT"; price: number },
+    market: SetrynRuntimeMarket,
+    entryConsiderationUsd: number,
+  ): GatewaySnapshot["executions"][number] {
+    const { view } = read;
+    const settlement = view.settlement;
+    const lots = view.lots;
+    const transferUsd = view.terminalTransferUsd;
+    const realizedPnlUsd = round2(entryConsiderationUsd + transferUsd);
+    const exercised = view.exercisedLots > 0;
+    const perPoint = lots * considerationPerPriceUnit(market);
+    // The close-fill price that would have exchanged the same terminal transfer, on the market's own grid.
+    const longTransferUsd = opening.packageSide === "LONG" ? transferUsd : -transferUsd;
+    const impliedPrice = perPoint > 0
+      ? Number((longTransferUsd / perPoint).toFixed(Math.round(Math.log10(market.priceScale))))
+      : opening.price;
+    const paidUsd = Math.max(0, -transferUsd);
+    const collateralReleasedUsd = settlement
+      ? round2(settlement.releasedUsd)
+      : round2(Math.max(0, positionCollateral(market, opening.packageSide, lots) - paidUsd));
+    const routeLabel = settlement
+      ? settlement.mode === "NORMAL"
+        ? exercised ? "Holder exercise, normal settlement" : "Normal settlement"
+        : settlement.mode === "LAPSED" || transferUsd === 0
+          ? "Lapsed at final resolution"
+          : "Terminal fallback settlement"
+      : "Holder exercise";
+    const id = settlement?.id ?? read.exerciseTransactionHash ?? view.positionId;
+    const transactionHash = read.settlementTransactionHash ?? read.exerciseTransactionHash ?? "";
+    const createdAt = settlement ? settlement.finalizedAt : read.exerciseAt !== null ? isoAt(read.exerciseAt) : new Date().toISOString();
+    const receipt: ExecutionReceipt = {
+      id,
+      orderHash: opening.ownOrderHash,
+      fillId: id,
+      transactionHash,
+      marketId: market.marketKey,
+      packageCode: market.marketKey,
+      packageSide: opening.packageSide,
+      routeLabel,
+      lots,
+      requestedLots: lots,
+      filledLots: lots,
+      cancelledLots: 0,
+      price: impliedPrice,
+      fees: 0,
+      realizedPnlUsd,
+      collateralReleasedUsd,
+      guarantee: "Onchain cash settlement",
+      evidence: "DEVNET",
+      createdAt,
+    };
+    const updates: SubmissionUpdate[] = [];
+    if (read.exerciseTransactionHash) {
+      updates.push({
+        step: "SUBMITTED",
+        label: "Holder exercised",
+        detail: `${formatLotCount(view.exercisedLots)} elected against the final fixing through the signed lifecycle engine.`,
+        transactionHash: read.exerciseTransactionHash,
+      });
+    }
+    if (settlement && read.settlementTransactionHash) {
+      updates.push({
+        step: "INCLUDED",
+        label: settlement.mode === "NORMAL" ? "Settlement recorded" : settlement.mode === "LAPSED" ? "Lapse recorded" : "Terminal fallback recorded",
+        detail: `Settlement ${settlement.id} written by the cash settlement coordinator.`,
+        transactionHash: read.settlementTransactionHash,
+      });
+    }
+    if (settlement?.claim && read.claimTransactionHash) {
+      updates.push({
+        step: "POSITION_UPDATED",
+        label: "Terminal claim fulfilled",
+        detail: `Claim ${settlement.claim.id} paid ${settlement.claim.amountUsd.toFixed(2)} USD.`,
+        transactionHash: read.claimTransactionHash,
+      });
+    }
+    updates.push({
+      step: "POSITION_CLOSED",
+      label: view.phase === "LAPSED" ? "Position lapsed" : "Position settled",
+      detail: `Realized ${realizedPnlUsd >= 0 ? "+" : "-"}${Math.abs(realizedPnlUsd).toFixed(2)} USD; ${collateralReleasedUsd.toFixed(2)} USD of collateral released.`,
+      transactionHash: transactionHash || undefined,
+    });
+    updates.push({ step: "RECEIPT_READY", label: "Receipt ready", detail: `${routeLabel} is verifiable onchain.`, transactionHash: transactionHash || undefined });
+    return {
+      id,
+      orderHash: opening.ownOrderHash,
+      updates,
+      result: {
+        fillId: id,
+        outcome: "CLOSED",
+        requestedLots: lots,
+        filledLots: lots,
+        cancelledLots: 0,
+        position: null,
+        closedPositionId: view.positionId,
+        closedLots: lots,
+        receipt,
+      },
+      createdAt,
+    };
+  }
+
+  /** Public entry: re-reads positions, receipts and the terminal lifecycle together so they never disagree. */
+  async refreshLifecycles(): Promise<void> {
+    await this.runtime();
+    await Promise.all([this.refreshActivity(), this.refreshAccount()]);
+  }
+
+  /** Series schedule and qualified fixing slots, reconstructed once per series from its qualification event. */
+  private seriesTerminal(seriesId: Hex): Promise<SeriesTerminal> {
+    const key = seriesId.toLowerCase();
+    const cached = this.seriesTerminals.get(key);
+    if (cached) return cached;
+    const load = (async () => {
+      const setryn = this.setryn;
+      const publicClient = this.publicClient;
+      if (!setryn || !publicClient) throw new Error("RUNTIME_UNAVAILABLE");
+      const registry = setryn.seriesRegistry;
+      if (!registry || !isAddress(registry)) throw new Error("SERIES_REGISTRY_UNAVAILABLE");
+      const [series, events] = await Promise.all([
+        publicClient.readContract({ address: registry, abi: seriesRegistryAbi, functionName: "getSeries", args: [seriesId, 1] }),
+        publicClient.getContractEvents({
+          address: registry,
+          abi: seriesRegistryAbi,
+          eventName: "SeriesQualificationPublished",
+          args: { seriesId, version: 1 },
+          fromBlock: BigInt(0),
+          toBlock: "latest",
+        }),
+      ]);
+      const qualification = events[events.length - 1]?.args.qualification;
+      if (!qualification) throw new Error("SERIES_QUALIFICATION_UNAVAILABLE");
+      const definition = series.definition;
+      return {
+        lastTradingAt: definition.lastTradingAt,
+        fixingWindowOpen: definition.fixingWindowOpen,
+        fixingWindowClose: definition.fixingWindowClose,
+        exerciseOpensAt: definition.exerciseOpensAt,
+        exerciseCutoffAt: definition.exerciseCutoffAt,
+        correctionCutoffAt: definition.correctionCutoffAt,
+        finalResolutionAt: definition.finalResolutionAt,
+        settlementDeadline: definition.settlementDeadline,
+        exercisePolicyId: definition.exercisePolicyId,
+        slots: qualification.fixingSlots.map((slot) => ({ slot: slot.slot, candidates: slot.candidates.map((candidate) => ({ ...candidate })) })),
+      };
+    })();
+    this.seriesTerminals.set(key, load);
+    load.catch(() => this.seriesTerminals.delete(key));
+    return load;
+  }
+
+  /** The series fixing, slot by slot: the final result where one exists, otherwise the open proposal. */
+  private async seriesFixing(seriesId: Hex, series: SeriesTerminal): Promise<SeriesFixingRead> {
+    const setryn = this.setryn;
+    const publicClient = this.publicClient;
+    const fixingEngine = setryn?.fixingEngine;
+    const empty: SeriesFixingRead = { status: "PENDING", value: null, decimals: 0, resolutionKind: 0, observedAt: null, finalizedAt: null, encoded: null };
+    if (!publicClient || !fixingEngine) return empty;
+    const slots = await Promise.all(series.slots.map(async (slot) => {
+      const status = await publicClient.readContract({ address: fixingEngine, abi: fixingEngineAbi, functionName: "fixingStatus", args: [seriesId, 1, slot.slot] });
+      if (status === FIXING_STATUS.finalized) {
+        const result = await publicClient.readContract({ address: fixingEngine, abi: fixingEngineAbi, functionName: "getFinalizedFixing", args: [seriesId, 1, slot.slot] });
+        return { status, candidateIndex: result.candidateIndex, decimals: result.decimals, value: result.value, resolutionKind: result.resolutionKind, observedAt: null as bigint | null, finalizedAt: result.finalizedAt };
+      }
+      if (status === FIXING_STATUS.proposed || status === FIXING_STATUS.disputed) {
+        const proposal = await publicClient.readContract({ address: fixingEngine, abi: fixingEngineAbi, functionName: "getProposal", args: [seriesId, 1, slot.slot] });
+        return { status, candidateIndex: proposal.candidateIndex, decimals: proposal.decimals, value: proposal.value, resolutionKind: 0, observedAt: proposal.lastObservedAt as bigint | null, finalizedAt: null as bigint | null };
+      }
+      return null;
+    }));
+    const present = slots.filter((slot): slot is NonNullable<typeof slot> => slot !== null);
+    if (present.length === 0) return empty;
+    const status: SeriesFixingRead["status"] = present.length < slots.length
+      ? "PENDING"
+      : present.every((slot) => slot.status === FIXING_STATUS.finalized)
+        ? "FINALIZED"
+        : present.some((slot) => slot.status === FIXING_STATUS.disputed)
+          ? "DISPUTED"
+          : "PROPOSED";
+    // A terminal-disruption result names no candidate and carries no observed value, so there is nothing to encode.
+    const TERMINAL_DISRUPTION = 3;
+    const observed = present.length === slots.length && present.every((slot, index) =>
+      slot.resolutionKind !== TERMINAL_DISRUPTION && series.slots[index].candidates[slot.candidateIndex] !== undefined);
+    const encoded = observed
+      ? encodeAbiParameters(canonicalFixingsParameter, [present.map((slot, index) => {
+        const candidate = series.slots[index].candidates[slot.candidateIndex];
+        return {
+          slot: series.slots[index].slot,
+          benchmarkId: candidate.benchmarkId,
+          benchmarkVersion: candidate.benchmarkVersion,
+          decimals: slot.decimals,
+          value: slot.value,
+        };
+      })])
+      : null;
+    const first = present[0];
+    return {
+      status,
+      value: first.resolutionKind === TERMINAL_DISRUPTION ? null : first.value,
+      decimals: first.decimals,
+      resolutionKind: first.resolutionKind,
+      observedAt: first.observedAt,
+      finalizedAt: first.finalizedAt,
+      encoded,
+    };
+  }
+
+  /** Reads the terminal lifecycle of each account position that no exit unwound. */
+  private async readLifecycles(
+    accountId: Hex,
+    fills: readonly {
+      fillId: Hex;
+      positionId: Hex;
+      positionStatus: number;
+      market: SetrynRuntimeMarket;
+      packageSide: "LONG" | "SHORT";
+      filledLots: number;
+      price: number;
+    }[],
+    ledgerEvents: readonly LedgerFlow[],
+  ): Promise<Map<string, TerminalRead>> {
+    const setryn = this.setryn;
+    const publicClient = this.publicClient;
+    const reads = new Map<string, TerminalRead>();
+    if (!setryn || !publicClient || fills.length === 0) return reads;
+    const coordinator = setryn.cashSettlementCoordinator;
+    const [block, settledEvents, claimEvents, exerciseEvents] = await Promise.all([
+      publicClient.getBlock({ blockTag: "pending" }),
+      coordinator
+        ? publicClient.getContractEvents({ address: coordinator, abi: cashSettlementAbi, eventName: "CashSettlementFinalized", fromBlock: BigInt(0), toBlock: "latest" })
+        : Promise.resolve([]),
+      coordinator
+        ? publicClient.getContractEvents({ address: coordinator, abi: cashSettlementAbi, eventName: "SettlementClaimFulfilled", fromBlock: BigInt(0), toBlock: "latest" })
+        : Promise.resolve([]),
+      publicClient.getContractEvents({ address: setryn.positionEngine, abi: positionTerminalAbi, eventName: "PositionExactPayoffComputed", fromBlock: BigInt(0), toBlock: "latest" }),
+    ]);
+    const now = block.timestamp;
+    const fixingBySeries = new Map<string, Promise<SeriesFixingRead>>();
+    // One position's unreadable state must not hide the others, so each is read on its own.
+    await Promise.all(fills.map((fill) => this.readLifecycle(fill, accountId, ledgerEvents, {
+      now, coordinator, settledEvents, claimEvents, exerciseEvents, fixingBySeries, reads,
+    }).catch(() => undefined)));
+    return reads;
+  }
+
+  private async readLifecycle(
+    fill: {
+      fillId: Hex;
+      positionId: Hex;
+      market: SetrynRuntimeMarket;
+      packageSide: "LONG" | "SHORT";
+      price: number;
+    },
+    accountId: Hex,
+    ledgerEvents: readonly LedgerFlow[],
+    shared: {
+      now: bigint;
+      coordinator: Address | undefined;
+      settledEvents: readonly { args: { settlementId?: Hex }; transactionHash: Hex }[];
+      claimEvents: readonly { args: { claimId?: Hex }; transactionHash: Hex }[];
+      exerciseEvents: readonly { args: { positionId?: Hex }; transactionHash: Hex; blockNumber: bigint | null }[];
+      fixingBySeries: Map<string, Promise<SeriesFixingRead>>;
+      reads: Map<string, TerminalRead>;
+    },
+  ): Promise<void> {
+    const setryn = this.setryn;
+    const publicClient = this.publicClient;
+    if (!setryn || !publicClient) return;
+    const { now, coordinator, settledEvents, claimEvents, exerciseEvents, fixingBySeries, reads } = shared;
+    const [economics, lifecycle] = await publicClient.readContract({
+      address: setryn.positionEngine,
+      abi: positionTerminalAbi,
+      functionName: "getPosition",
+      args: [fill.positionId],
+    });
+    const series = await this.seriesTerminal(economics.seriesId);
+    const seriesKey = economics.seriesId.toLowerCase();
+    if (!fixingBySeries.has(seriesKey)) fixingBySeries.set(seriesKey, this.seriesFixing(economics.seriesId, series));
+    const fixing = await fixingBySeries.get(seriesKey)!;
+    const long = fill.packageSide === "LONG";
+    const own = (value: bigint) => minorToUsd(long ? value : -value);
+    const status = POSITION_STATUS_NAMES[lifecycle.status] ?? "Unspecified";
+    const open = OPEN_POSITION_STATUSES.includes(lifecycle.status);
+
+    let settlement: OnchainSettlementRecord | null = null;
+    let settlementTransactionHash: Hex | null = null;
+    let claimTransactionHash: Hex | null = null;
+    if (coordinator) {
+      const settlementId = await publicClient.readContract({ address: coordinator, abi: cashSettlementAbi, functionName: "settlementOf", args: [fill.positionId] });
+      if (settlementId !== EMPTY_ID) {
+        const record = await publicClient.readContract({ address: coordinator, abi: cashSettlementAbi, functionName: "getSettlement", args: [settlementId] });
+        const ownDelta = long ? record.longCollateral : record.shortCollateral;
+        let claim: OnchainSettlementRecord["claim"] = null;
+        for (const delta of [record.longCollateral, record.shortCollateral]) {
+          if (delta.claimId === EMPTY_ID) continue;
+          const claimStatus = await publicClient.readContract({ address: setryn.collateralVault, abi: terminalClaimAbi, functionName: "terminalClaimStatusOf", args: [delta.claimId] });
+          const fulfilled = claimEvents.find((event) => event.args.claimId?.toLowerCase() === delta.claimId.toLowerCase());
+          claimTransactionHash = fulfilled?.transactionHash ?? claimTransactionHash;
+          claim = {
+            id: delta.claimId,
+            status: claimStatus === 2 ? "FULFILLED" : "ACTIVE",
+            amountUsd: minorToUsd(delta.claimAmount),
+            receivable: delta.receiverAccountId.toLowerCase() === accountId.toLowerCase(),
+            transactionHash: fulfilled?.transactionHash ?? null,
+          };
+        }
+        settlementTransactionHash = settledEvents.find((event) => event.args.settlementId?.toLowerCase() === settlementId.toLowerCase())?.transactionHash ?? null;
+        settlement = {
+          id: settlementId,
+          mode: record.mode === 1 ? "NORMAL" : record.mode === 3 ? "LAPSED" : "TERMINAL_DISRUPTION",
+          transferUsd: own(record.terminalTransferMinor),
+          finalizedAt: isoAt(record.finalizedAt),
+          transactionHash: settlementTransactionHash,
+          releasedUsd: minorToUsd(ownDelta.releasedAmount),
+          claim,
+        };
+      }
+    }
+
+    const exerciseEvent = [...exerciseEvents].reverse().find((event) => event.args.positionId?.toLowerCase() === fill.positionId.toLowerCase());
+    const exerciseTransactionHash = lifecycle.exercisedLots > BigInt(0) ? exerciseEvent?.transactionHash ?? null : null;
+    const exerciseAt = exerciseTransactionHash && exerciseEvent?.blockNumber != null
+      ? (await publicClient.getBlock({ blockNumber: exerciseEvent.blockNumber })).timestamp
+      : null;
+
+    let projectedTransfer: bigint | null = null;
+    if (open && fixing.encoded && lifecycle.remainingLots > BigInt(0)) {
+      try {
+        const terms = await publicClient.readContract({ address: setryn.positionEngine, abi: positionTerminalAbi, functionName: "payoffTerms", args: [fill.positionId] });
+        projectedTransfer = lifecycle.terminalTransferMinor + await publicClient.readContract({
+          address: economics.payoffModule,
+          abi: payoffModuleAbi,
+          functionName: "evaluatePositionLots",
+          args: [terms, fixing.encoded, lifecycle.remainingLots],
+        });
+      } catch {
+        projectedTransfer = null;
+      }
+    } else if (!open) {
+      projectedTransfer = lifecycle.terminalTransferMinor;
+    }
+    const entryConsiderationUsd = netConsiderationUsd(ledgerEvents, fill.fillId, accountId);
+    const projectedPayoffUsd = projectedTransfer === null ? null : round2(own(projectedTransfer));
+    const acceptedOnPosition = lifecycle.finalFixingReference !== EMPTY_ID;
+    const view: OnchainPositionLifecycle = {
+      positionId: fill.positionId,
+      marketId: fill.market.marketKey,
+      side: fill.packageSide,
+      status,
+      exerciseState: EXERCISE_STATE_NAMES[lifecycle.exerciseState] ?? "Unspecified",
+      exercisePolicy: EXERCISE_POLICIES[economics.exercisePolicyId.toLowerCase()] ?? "UNKNOWN",
+      phase: "LIVE",
+      lots: Number(economics.originalLots),
+      remainingLots: Number(lifecycle.remainingLots),
+      exercisedLots: Number(lifecycle.exercisedLots),
+      closedLots: Number(lifecycle.closedLots),
+      entryPrice: fill.price,
+      holdsElection: lifecycle.lifecycleOwnerAccountId.toLowerCase() === accountId.toLowerCase(),
+      schedule: {
+        lastTradingAt: isoAt(series.lastTradingAt),
+        fixingWindowOpen: isoAt(series.fixingWindowOpen),
+        fixingWindowClose: isoAt(series.fixingWindowClose),
+        exerciseOpensAt: isoAt(economics.exerciseOpensAt),
+        exerciseCutoffAt: isoAt(economics.exerciseCutoffAt),
+        correctionCutoffAt: isoAt(series.correctionCutoffAt),
+        finalResolutionAt: isoAt(economics.finalResolutionAt),
+        settlementDeadline: isoAt(economics.settlementDeadline),
+      },
+      fixing: {
+        status: fixing.status,
+        value: fixing.value === null ? null : Number(fixing.value) / 10 ** fixing.decimals,
+        resolution: fixing.resolutionKind === 1 ? "PRIMARY_FINAL" : fixing.resolutionKind === 2 ? "FALLBACK_FINAL" : fixing.resolutionKind === 3 ? "TERMINAL_DISRUPTION" : null,
+        acceptedOnPosition,
+        observedAt: fixing.observedAt !== null ? isoAt(fixing.observedAt) : null,
+        finalizedAt: fixing.finalizedAt !== null ? isoAt(fixing.finalizedAt) : null,
+      },
+      projectedPayoffUsd,
+      projectedPnlUsd: projectedPayoffUsd === null ? null : round2(projectedPayoffUsd + entryConsiderationUsd),
+      terminalTransferUsd: round2(own(lifecycle.terminalTransferMinor)),
+      settlement,
+      collateralReservedUsd: open ? positionCollateral(fill.market, fill.packageSide, Number(lifecycle.remainingLots)) : 0,
+      exerciseTransactionHash,
+      observedAtSeconds: Number(now),
+    };
+    view.phase = lifecyclePhase(view, lifecycle.status, now, series);
+    reads.set(fill.positionId.toLowerCase(), {
+      view,
+      settlementTransactionHash,
+      claimTransactionHash,
+      exerciseTransactionHash,
+      exerciseAt,
+    });
+  }
+
+  /** Runs one terminal lifecycle action, simulating first so a contract rejection surfaces as a precise reason. */
+  async runLifecycleAction(positionId: string, action: LifecycleActionKey): Promise<LifecycleActionResult> {
+    await this.connected();
+    const key = positionId.toLowerCase();
+    await this.refreshActivity();
+    const view = this.snapshot.lifecycles[key];
+    if (!view) throw new Error("LIFECYCLE_POSITION_NOT_FOUND");
+    let result: LifecycleActionResult;
+    try {
+      if (action === "EXERCISE") result = await this.exercisePosition(view);
+      else if (action === "CLAIM") result = await this.claimPosition(view);
+      else {
+        const { series } = await this.positionSeries(positionId as Hex);
+        if (action === "SETTLE") {
+          const hash = await this.writeSettlement({ kind: "NORMAL", positionId: positionId as Hex, slots: series.slots });
+          result = { action, positionId, transactionHash: hash, detail: "Normal settlement recorded by the cash settlement coordinator." };
+        } else if (
+          view.status === "Lapsed" ||
+          (view.exercisePolicy === "HOLDER_ELECTION" &&
+            (view.status === "Live" || view.status === "Fixing") &&
+            Date.parse(view.schedule.exerciseCutoffAt) < platformNow() &&
+            platformNow() < Date.parse(view.schedule.finalResolutionAt))
+        ) {
+          // An unelected holder-election position lapses permissionlessly between the cutoff and final resolution.
+          const hash = await this.writeSettlement({ kind: "LAPSED", positionId: positionId as Hex });
+          result = { action, positionId, transactionHash: hash, detail: "Lapsed position finalized; both reservations released." };
+        } else {
+          const hash = await this.writeSettlement({ kind: "TERMINAL", positionId: positionId as Hex, slots: series.slots });
+          result = { action, positionId, transactionHash: hash, detail: "Terminal resolution completed through the permissionless fallback." };
+        }
+      }
+    } catch (error) {
+      const reverted = revertOf(error);
+      if (reverted) throw new Error(describeLifecycleRevert(reverted.name, reverted.args));
+      throw error;
+    }
+    await Promise.all([this.refreshActivity(), this.refreshAccount()]);
+    return result;
+  }
+
+  private async positionSeries(positionId: Hex) {
+    const setryn = this.setryn;
+    const publicClient = this.publicClient;
+    if (!setryn || !publicClient) throw new Error("RUNTIME_UNAVAILABLE");
+    const [economics, lifecycle] = await publicClient.readContract({
+      address: setryn.positionEngine,
+      abi: positionTerminalAbi,
+      functionName: "getPosition",
+      args: [positionId],
+    });
+    return { economics, lifecycle, series: await this.seriesTerminal(economics.seriesId) };
+  }
+
+  /** Simulates, then sends, one settlement coordinator completion; every path is permissionless. */
+  private async writeSettlement(
+    call:
+      | { kind: "NORMAL" | "TERMINAL"; positionId: Hex; slots: readonly FixingSlotArg[] }
+      | { kind: "LAPSED"; positionId: Hex },
+  ): Promise<Hex> {
+    const { setryn, address, walletClient, publicClient } = await this.connected();
+    const coordinator = setryn.cashSettlementCoordinator;
+    if (!coordinator) throw new Error("SETTLEMENT_COORDINATOR_UNAVAILABLE");
+    const base = { account: address, address: coordinator, abi: settlementCallAbi } as const;
+    let hash: Hex;
+    if (call.kind === "LAPSED") {
+      const args = [call.positionId, []] as const;
+      await publicClient.simulateContract({ ...base, functionName: "finalizeLapsedPosition", args });
+      hash = await walletClient.writeContract({ ...base, chain: this.chain(setryn), functionName: "finalizeLapsedPosition", args });
+    } else {
+      const functionName = call.kind === "NORMAL" ? "finalizeNormalSettlement" : "finalizeTerminalDisruption";
+      const args = [call.positionId, call.slots, []] as const;
+      await publicClient.simulateContract({ ...base, functionName, args });
+      hash = await walletClient.writeContract({ ...base, chain: this.chain(setryn), functionName, args });
+    }
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    if (receipt.status !== "success") throw new Error("SETTLEMENT_TRANSACTION_FAILED");
+    return hash;
+  }
+
+  /** Pays out an open terminal claim, or withdraws the collateral a completed settlement released to the account. */
+  private async claimPosition(view: OnchainPositionLifecycle): Promise<LifecycleActionResult> {
+    const { setryn, address, walletClient, publicClient } = await this.connected();
+    const settlement = view.settlement;
+    if (!settlement) throw new Error("No settlement is recorded yet; Settle or Finalize the position first.");
+    const claim = settlement.claim;
+    if (claim && claim.status === "ACTIVE" && claim.receivable) {
+      const coordinator = setryn.cashSettlementCoordinator;
+      if (!coordinator) throw new Error("SETTLEMENT_COORDINATOR_UNAVAILABLE");
+      await publicClient.simulateContract({ account: address, address: coordinator, abi: settlementCallAbi, functionName: "fulfillClaim", args: [claim.id as Hex] });
+      const hash = await walletClient.writeContract({
+        account: address,
+        chain: this.chain(setryn),
+        address: coordinator,
+        abi: settlementCallAbi,
+        functionName: "fulfillClaim",
+        args: [claim.id as Hex],
+      });
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      if (receipt.status !== "success") throw new Error("CLAIM_TRANSACTION_FAILED");
+      return { action: "CLAIM", positionId: view.positionId, transactionHash: hash, detail: `Claim paid ${claim.amountUsd.toFixed(2)} USD into the account.` };
+    }
+    await this.refreshAccount();
+    const releasable = settlementReleasable(view);
+    const amount = Math.floor(Math.min(this.snapshot.account.available, releasable) * 100) / 100;
+    if (!(amount > 0)) throw new Error("Nothing released by this settlement is still available to withdraw.");
+    const withdrawal = await this.submitCollateralIntent({
+      kind: "WITHDRAW",
+      accountId: this.snapshot.account.id,
+      asset: this.snapshot.account.collateralAsset,
+      amount,
+      recipient: address,
+    });
+    return {
+      action: "CLAIM",
+      positionId: view.positionId,
+      transactionHash: withdrawal.intentId,
+      detail: `Withdrew ${amount.toFixed(2)} ${this.snapshot.account.collateralAsset} of released collateral to the wallet.`,
+    };
+  }
+
+  /**
+   * Holder election through the signed lifecycle engine: an Exercise action over the position's remaining lots, signed
+   * by the long holder, with the final-fixing witness the position committed to staged for the lifecycle executor.
+   */
+  private async exercisePosition(view: OnchainPositionLifecycle): Promise<LifecycleActionResult> {
+    const { setryn, address, walletClient, publicClient } = await this.connected();
+    const positionId = view.positionId as Hex;
+    const actorAccountId = await this.accountId(address);
+    let { lifecycle, series, economics } = await this.positionSeries(positionId);
+    if (lifecycle.lifecycleOwnerAccountId.toLowerCase() !== actorAccountId.toLowerCase()) {
+      throw new Error("Only the position's lifecycle owner, the long holder, can elect.");
+    }
+    if (lifecycle.finalFixingReference === EMPTY_ID) {
+      // The settlement coordinator is the only account that accepts a final fixing onto a position. Its permissionless
+      // normal-settlement entry does that and, for a holder-election series, leaves the position Live for election.
+      // A coordinator that cannot persist the acceptance reverts here with its own reason.
+      await this.writeSettlement({ kind: "NORMAL", positionId, slots: series.slots });
+      ({ lifecycle, series, economics } = await this.positionSeries(positionId));
+      if (lifecycle.finalFixingReference === EMPTY_ID) throw new Error("The coordinator did not accept the final fixing onto the position.");
+    }
+    const fixing = await this.seriesFixing(economics.seriesId, series);
+    const finalFixings = fixing.encoded;
+    if (!finalFixings || keccak256(finalFixings).toLowerCase() !== lifecycle.finalFixingsHash.toLowerCase()) {
+      throw new Error("The published fixing does not match the final fixing committed on the position.");
+    }
+    const snapshot = await publicClient.readContract({
+      address: setryn.positionEngine,
+      abi: positionLifecycleAbi,
+      functionName: "getLifecyclePosition",
+      args: [positionId],
+    });
+    const inputs = [{
+      positionId,
+      expectedImmutableHash: snapshot.immutableHash,
+      expectedLifecycleHash: snapshot.lifecycleHash,
+      expectedPositionLots: snapshot.positionLots,
+      actionLots: snapshot.remainingExerciseLots,
+    }];
+    // A full exercise leaves no successor, so the holder's replacement terminal liability is zero. The lifecycle engine
+    // commits to a non-empty replacement set, and the holder is the only account an exercise binds.
+    const replacements = [{ accountId: actorAccountId, collateralId: snapshot.collateralId, terminalLiabilityBaseUnits: BigInt(0) }];
+    const [inputsHash, successorsHash, collateralReplacementsHash, participantSetHash, consentsHash] = await Promise.all([
+      publicClient.readContract({ address: setryn.signedLifecycleEngine, abi: signedLifecycleAbi, functionName: "hashLifecycleInputs", args: [inputs] }),
+      publicClient.readContract({ address: setryn.signedLifecycleEngine, abi: signedLifecycleAbi, functionName: "hashLifecycleSuccessors", args: [[]] }),
+      publicClient.readContract({ address: setryn.signedLifecycleEngine, abi: signedLifecycleAbi, functionName: "hashLifecycleCollateralReplacements", args: [replacements] }),
+      publicClient.readContract({ address: setryn.signedLifecycleEngine, abi: signedLifecycleAbi, functionName: "hashLifecycleParticipantSet", args: [actorAccountId, []] }),
+      publicClient.readContract({ address: setryn.signedLifecycleEngine, abi: signedLifecycleAbi, functionName: "hashLifecycleConsentTerms", args: [[]] }),
+    ]);
+    const block = await publicClient.getBlock({ blockTag: "pending" });
+    const nonce = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(crypto.getRandomValues(new Uint32Array(1))[0]);
+    const economicTransitionHash = keccak256(
+      encodeAbiParameters([{ type: "bytes32" }, { type: "bytes32" }], [lifecycle.finalFixingReference, keccak256(finalFixings)]),
+    );
+    let action = {
+      kind: EXERCISE_ACTION_KIND,
+      actor: address,
+      actorAccountId,
+      policyContextHash: EMPTY_ID,
+      inputsHash,
+      successorsHash,
+      collateralReplacementsHash,
+      participantSetHash,
+      consentsHash,
+      riskDomainId: snapshot.riskDomainId,
+      riskDomainVersion: snapshot.riskDomainVersion,
+      feeScheduleId: snapshot.feeScheduleId,
+      feeScheduleVersion: snapshot.feeScheduleVersion,
+      economicTransitionHash,
+      compressionPlanId: EMPTY_ID,
+      breaksPackageProvenance: false,
+      packageBreakPermissionHash: EMPTY_ID,
+      actorMaximumLiabilityIncreaseBaseUnits: BigInt(0),
+      actorMaximumCollateralIncreaseBaseUnits: BigInt(0),
+      inputCount: 1,
+      successorCount: 0,
+      participantCount: 1,
+      deadline: block.timestamp + BigInt(240),
+      nonce,
+      permittedExecutor: address,
+      salt: keccak256(stringToHex(`${address}:${positionId}:exercise:${nonce}`)),
+    } as const;
+    const [policyContextHash] = await publicClient.readContract({
+      address: setryn.lifecyclePolicyValidator,
+      abi: lifecyclePolicyAbi,
+      functionName: "derivePolicyContext",
+      args: [action, [snapshot], []],
+    });
+    action = { ...action, policyContextHash };
+    const [, actionId] = await publicClient.readContract({
+      address: setryn.signedLifecycleEngine,
+      abi: signedLifecycleAbi,
+      functionName: "hashLifecycleAction",
+      args: [action],
+    });
+    const witnessResponse = await fetch("/api/internal/devnet/exercise-witness", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ actionId, positionId, finalFixings }),
+    });
+    const witness = (await witnessResponse.json()) as { transactionHash?: string; error?: string };
+    if (!witnessResponse.ok || !witness.transactionHash) throw new Error(witness.error ?? "EXERCISE_WITNESS_FAILED");
+    const actorSignature = await walletClient.signTypedData({
+      account: address,
+      domain: { name: "Setryn", version: "1", chainId: setryn.chainId, verifyingContract: setryn.signedLifecycleEngine },
+      types: lifecycleActionTypes,
+      primaryType: "SetrynLifecycleActionV1",
+      message: { ...action, chainId: BigInt(setryn.chainId), engine: setryn.signedLifecycleEngine },
+    });
+    const authorizeArgs = [action, inputs, [], replacements, [], [], actorSignature] as const;
+    await publicClient.simulateContract({ account: address, address: setryn.signedLifecycleEngine, abi: lifecycleCallAbi, functionName: "authorizeAction", args: authorizeArgs });
+    const authorizationHash = await walletClient.writeContract({
+      account: address,
+      chain: this.chain(setryn),
+      address: setryn.signedLifecycleEngine,
+      abi: lifecycleCallAbi,
+      functionName: "authorizeAction",
+      args: authorizeArgs,
+    });
+    const authorization = await publicClient.waitForTransactionReceipt({ hash: authorizationHash });
+    if (authorization.status !== "success") throw new Error("EXERCISE_AUTHORIZATION_FAILED");
+    const executeArgs = [action, inputs, [], replacements, []] as const;
+    await publicClient.simulateContract({ account: address, address: setryn.signedLifecycleEngine, abi: lifecycleCallAbi, functionName: "executeAction", args: executeArgs });
+    const executionHash = await walletClient.writeContract({
+      account: address,
+      chain: this.chain(setryn),
+      address: setryn.signedLifecycleEngine,
+      abi: lifecycleCallAbi,
+      functionName: "executeAction",
+      args: executeArgs,
+    });
+    const execution = await publicClient.waitForTransactionReceipt({ hash: executionHash });
+    if (execution.status !== "success") throw new Error("EXERCISE_EXECUTION_FAILED");
+    return {
+      action: "EXERCISE",
+      positionId: view.positionId,
+      transactionHash: executionHash,
+      detail: `Exercised ${formatLotCount(Number(snapshot.remainingExerciseLots))} against the final fixing.`,
+    };
   }
 
   private async refreshRfqs(): Promise<void> {
