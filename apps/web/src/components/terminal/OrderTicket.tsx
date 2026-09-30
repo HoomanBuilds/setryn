@@ -433,7 +433,7 @@ export function OrderTicket({
             <div className="flex items-baseline justify-between gap-2">
               <dt className="text-faint">Available to trade</dt>
               <dd className="tnum font-mono text-dim">
-                {wallet.connected ? `${formatUsd(wallet.available, 2)} ${wallet.asset}` : "–"}
+                {wallet.connected ? formatAsset(wallet.available, wallet.asset) : "–"}
               </dd>
             </div>
             <div className="flex items-baseline justify-between gap-2">

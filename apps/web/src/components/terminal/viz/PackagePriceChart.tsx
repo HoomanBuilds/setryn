@@ -1200,7 +1200,7 @@ export function PackagePriceChart({
     const lines: IPriceLine[] = [];
     for (const position of positionOverlays) {
       if (!Number.isFinite(position.entryPrice)) continue;
-      const entryLabel = position.side === "LONG" ? "Long entry" : "Short entry";
+      const entryLabel = position.side === "LONG" ? "Long position" : "Short position";
       lines.push(
         active.api.createPriceLine({
           price: position.entryPrice,
@@ -1224,7 +1224,7 @@ export function PackagePriceChart({
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
-          title: `${sideLabel} ${intentLabel} ${shortOverlayId(order.id)} ${formatOverlayLots(order.lots)} lots`,
+          title: `${action === "BUY" ? "Buy" : "Sell"} limit, ${sideLabel.toLowerCase()} ${intentLabel} ${shortOverlayId(order.id)} ${formatOverlayLots(order.lots)} lots`,
         }),
       );
     }
