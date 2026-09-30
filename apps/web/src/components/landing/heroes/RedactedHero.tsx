@@ -59,7 +59,7 @@ export default function RedactedHero() {
       const split = SplitText.create(q("[data-line]"), { type: "words", mask: "words", wordsClass: "split-word" });
 
 
-      gsap.set(split.words, { yPercent: 115 });
+      gsap.set(split.words, { yPercent: 140 });
       gsap.set(q("[data-hero-fade]"), { opacity: 0, y: 16, filter: "blur(8px)" });
       gsap.set(q(`.${styles.window}`), { yPercent: 60, opacity: 0 });
 

@@ -79,6 +79,12 @@
   white-space: nowrap;
 }
 
+/* The reveal masks each word; room below the baseline keeps descenders (the g in "exchange") whole. */
+.title :global(.split-word-mask) {
+  padding-bottom: 0.18em;
+  margin-bottom: -0.18em;
+}
+
 .side {
   flex: none;
   width: min(320px, 25vw);
