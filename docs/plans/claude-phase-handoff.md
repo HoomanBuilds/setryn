@@ -218,7 +218,10 @@ Explorer verification on Arbitrum Sepolia needs the deployed bytecode to equal t
 - `@setryn/webhooks`: chain-derived events with reorg-safe cursors, HMAC-signed deliveries, backoff retries, and secret rotation.
 - Embeddable ticker, market, and quote widgets (`/embed/*`, `embed.js`) on the shared preview feed, with partner attribution.
 - `/developers` and `/partners` consoles. Key and partner management is limited to the local devnet until an operator auth system exists.
-- Remaining: framing headers for embeds, enforcing per-deployment API quotas, and private RFQ and lifecycle actions in the public API.
+- Framing headers: `/embed/*` may be framed by any origin (partner origins are checked by the attribution beacon); every other route sends `X-Frame-Options: DENY` and `frame-ancestors 'none'`.
+- Order cancellation through the API and SDK: the server prepares the cancel and book-sync transactions and the risk-release typed data, and the signer executes them.
+- Partner quotas: keys issued under a partner deployment share its `apiRequestsPerMinute` bucket, and a paused partner's keys are refused.
+- Remaining: private RFQ and lifecycle actions in the public API.
 
 ## Phase sequence
 
