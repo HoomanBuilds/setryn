@@ -2,11 +2,17 @@
 set -Eeuo pipefail
 
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-state_directory="$repository_root/.setryn/local-chain"
+# A second, isolated devnet (for example on another port) sets these so it neither stops the default managed anvil nor
+# overwrites the default deployment files or broadcast records. Unset, every path keeps its default.
+state_directory="${SETRYN_LOCAL_STATE_DIR:-$repository_root/.setryn/local-chain}"
 state_file="$state_directory/anvil-state.json"
 pid_file="$state_directory/anvil.pid"
 log_file="$state_directory/anvil.log"
-deployment_directory="$repository_root/deployments/local"
+deployment_directory="${SETRYN_LOCAL_DEPLOYMENT_DIR:-$repository_root/deployments/local}"
+broadcast_directory="${SETRYN_LOCAL_BROADCAST_DIR:-$repository_root/contracts/broadcast}"
+if [[ -n "${SETRYN_LOCAL_BROADCAST_DIR:-}" ]]; then
+    export FOUNDRY_BROADCAST="$broadcast_directory"
+fi
 rpc_url="${LOCAL_RPC_URL:-http://127.0.0.1:8545}"
 chain_id="${LOCAL_CHAIN_ID:-31337}"
 # The devnet starts on the web preview's scenario clock (SCENARIO_CLOCK_ISO), so chain-stamped fills, receipts, and
@@ -281,7 +287,7 @@ forge script "$repository_root/contracts/script/DeploySetryn.s.sol:DeploySetryn"
 node "$repository_root/scripts/generate-deployment-evidence.mjs" \
     --environment local \
     --rpc-url "$rpc_url" \
-    --broadcast "$repository_root/contracts/broadcast/DeploySetryn.s.sol/$chain_id/run-latest.json" \
+    --broadcast "$broadcast_directory/DeploySetryn.s.sol/$chain_id/run-latest.json" \
     --output "$deployment_directory/manifest.json"
 
 mapfile -t bootstrap_addresses < <(

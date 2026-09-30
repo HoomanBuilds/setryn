@@ -846,8 +846,10 @@ contract BootstrapSetrynDevnet is Script {
             tradingStartsAt: dayStart + 8 hours,
             lastTradingAt: dayStart + 18 hours,
             expiryAt: dayStart + 20 hours,
-            exerciseOpensAt: dayStart + 20 hours,
-            exerciseCutoffAt: dayStart + 21 hours,
+            // Holder election needs the final fixing on the position, and a fixing finalizes only once corrections close
+            // at 22:00, so election opens then and closes before final resolution at 23:00.
+            exerciseOpensAt: dayStart + 22 hours,
+            exerciseCutoffAt: dayStart + 22 hours + 45 minutes,
             fixingWindowOpen: dayStart + 19 hours,
             fixingWindowClose: dayStart + 20 hours,
             primaryEvidenceDeadline: dayStart + 21 hours,
