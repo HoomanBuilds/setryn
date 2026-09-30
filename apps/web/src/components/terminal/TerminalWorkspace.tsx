@@ -46,6 +46,17 @@ const MOBILE_TABS = [
 function executionError(error: unknown): string {
   if (!(error instanceof Error)) return "The trading runtime could not complete this package order.";
   if (error.message === "CONNECT_WALLET") return "Connect a wallet before authorizing this package.";
+  // Wallet and transport failures surface through viem with EIP-1193 and JSON-RPC codes in the cause chain.
+  const codes: unknown[] = [];
+  for (let cause: unknown = error; cause && typeof cause === "object" && codes.length < 8; cause = (cause as { cause?: unknown }).cause) {
+    codes.push((cause as { code?: unknown }).code);
+  }
+  if (codes.includes(4001) || /user (rejected|denied)/i.test(error.message)) {
+    return "The request was rejected in your wallet. Nothing was signed or submitted.";
+  }
+  if (codes.includes(-32603) || /rpc unavailable|fetch failed|failed to fetch|http request failed|timed out/i.test(error.message)) {
+    return "The chain RPC did not respond, so nothing was submitted. Check the connection and try again.";
+  }
   if (error.message === "INSUFFICIENT_AVAILABLE_COLLATERAL") {
     return "Available collateral plus released collateral no longer covers the fee cap.";
   }

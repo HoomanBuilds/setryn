@@ -368,13 +368,20 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       });
     }
 
-    const accounts = (await injected.request({ method: "eth_requestAccounts" })) as string[];
-    if (!accounts[0]) throw new Error("WALLET_CONNECTION_REJECTED");
-    const address = getAddress(accounts[0]);
+    let address: Address;
+    try {
+      const accounts = (await injected.request({ method: "eth_requestAccounts" })) as string[];
+      if (!accounts[0]) throw new Error("WALLET_CONNECTION_REJECTED");
+      address = getAddress(accounts[0]);
+      await this.fundNativeGas(address);
+    } catch (error) {
+      // A rejected or failed connection leaves the wallet disconnected so the viewer can try again.
+      this.publish({ ...this.snapshot, wallet: { status: "DISCONNECTED", address: null, chainId: null } });
+      throw error;
+    }
     this.provider = injected;
     this.walletAddress = address;
     this.walletClient = createWalletClient({ account: address, chain: this.chain(setryn), transport: custom(injected) });
-    await this.fundNativeGas(address);
     this.bindProvider(injected);
     this.startPolling();
     this.publish({
