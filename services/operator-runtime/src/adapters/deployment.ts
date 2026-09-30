@@ -6,8 +6,11 @@ import { OperatorExecutionError } from "./errors.ts";
 
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const hashPattern = /^0x[0-9a-fA-F]{64}$/;
-/** Schema 9 adds a `markets` array (one series per catalog market); its single-series fields name the primary market. */
-const runtimeSchemaVersions: readonly unknown[] = [8, 9];
+/**
+ * Schema 9 adds a `markets` array (one series per catalog market); its single-series fields name the primary market.
+ * Schema 10 adds optional fee schedule fields (`feeScheduleVersion`, `treasuryController`) to schema 9.
+ */
+const runtimeSchemaVersions: readonly unknown[] = [8, 9, 10];
 
 /** Addresses the operator ports call; every one is checked against the deployment manifest. */
 export interface OperatorDeploymentAddresses {
@@ -25,6 +28,18 @@ export interface OperatorDeploymentAddresses {
   readonly benchmarkRegistry: Address;
   readonly fixingEngine: Address;
   readonly cashSettlementCoordinator: Address;
+  /** The runtime's `feeScheduleRegistry`, or the manifest's; null reads it from FundedFeeEngine. */
+  readonly feeScheduleRegistry: Address | null;
+}
+
+/**
+ * Fee fields the runtime file recorded at deployment. They are a fallback only: orders sign the version the registry
+ * has active and its rates, read through `readActiveFeeSchedule` in fees.ts.
+ */
+export interface OperatorDeploymentFees {
+  readonly feeScheduleVersion: number | null;
+  readonly makerFeeRatePpm: bigint | null;
+  readonly takerFeeRatePpm: bigint | null;
 }
 
 export interface OperatorDeploymentIds {
@@ -92,6 +107,7 @@ export interface OperatorDeployment {
   readonly payoffTerms: Hex;
   /** Every market this deployment trades. Schema 8 runtimes list only the primary market. */
   readonly markets: readonly OperatorMarket[];
+  readonly fees: OperatorDeploymentFees;
 }
 
 const runtimeAddressFields = [
@@ -193,6 +209,16 @@ export async function loadOperatorDeployment(options: {
     benchmarkRegistry: runtimeAddresses.benchmarkRegistry,
     fixingEngine: requireManifestContract(manifestContracts, "FixingEngine"),
     cashSettlementCoordinator: requireManifestContract(manifestContracts, "CashSettlementCoordinator"),
+    feeScheduleRegistry: runtime.feeScheduleRegistry === undefined || runtime.feeScheduleRegistry === null
+      ? optionalManifestContract(manifestContracts, "FeeScheduleRegistry")
+      : requireAddress(runtime.feeScheduleRegistry, "runtime.feeScheduleRegistry"),
+  };
+  const fees: OperatorDeploymentFees = {
+    feeScheduleVersion: runtime.feeScheduleVersion === undefined || runtime.feeScheduleVersion === null
+      ? null
+      : Number(requirePositiveInteger(runtime.feeScheduleVersion, "runtime.feeScheduleVersion")),
+    makerFeeRatePpm: optionalRate(runtime.makerFeeRatePpm, "runtime.makerFeeRatePpm"),
+    takerFeeRatePpm: optionalRate(runtime.takerFeeRatePpm, "runtime.takerFeeRatePpm"),
   };
   for (const [name, field] of Object.entries(manifestCrossChecks)) {
     const fromManifest = requireManifestContract(manifestContracts, name);
@@ -237,6 +263,7 @@ export async function loadOperatorDeployment(options: {
     economics: integers,
     payoffTerms: runtime.payoffTerms as Hex,
     markets,
+    fees,
   };
 }
 
@@ -412,6 +439,19 @@ function requireManifestContract(contracts: Map<string, Address[]>, name: string
   const matches = contracts.get(name) ?? [];
   if (matches.length !== 1) throw invalid(`manifest must contain exactly one deployed ${name}`);
   return matches[0]!;
+}
+
+function optionalManifestContract(contracts: Map<string, Address[]>, name: string): Address | null {
+  const matches = contracts.get(name) ?? [];
+  return matches.length === 1 ? matches[0]! : null;
+}
+
+function optionalRate(value: unknown, label: string): bigint | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value >= 1_000_000) {
+    throw invalid(`${label} must be a fee rate below 1,000,000 ppm`);
+  }
+  return BigInt(value);
 }
 
 function requireAddress(value: unknown, label: string): Address {

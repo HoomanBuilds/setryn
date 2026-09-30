@@ -289,7 +289,15 @@ export function enumName(names: readonly string[], value: number | bigint): stri
   return names[Number(value)] ?? `unknown-${value.toString()}`;
 }
 
-export function deriveSeriesBookId(deployment: OperatorDeployment, seriesId: Hex): Hex {
+/**
+ * The direct book of one series version under the fee schedule version its market version names. A fee change
+ * re-versions every series, so each (series version, fee version) pair rests in its own book.
+ */
+export function deriveSeriesBookId(
+  deployment: OperatorDeployment,
+  seriesId: Hex,
+  versions: { readonly seriesVersion: number; readonly feeScheduleVersion: number },
+): Hex {
   return keccak256(
     encodeAbiParameters(
       [
@@ -314,12 +322,12 @@ export function deriveSeriesBookId(deployment: OperatorDeployment, seriesId: Hex
         deployment.addresses.orderState,
         1,
         seriesId,
-        1,
+        versions.seriesVersion,
         deployment.ids.executionModeId,
         deployment.ids.settlementAssetId,
         1,
         deployment.ids.feeScheduleId,
-        1,
+        versions.feeScheduleVersion,
         zeroId,
       ],
     ),

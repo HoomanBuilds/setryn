@@ -17,7 +17,8 @@ import { SeriesCatalog, type FixingSlot } from "./series.ts";
  * 1. Explicit evidence for one series. `feedKey` is the benchmark feed name (for example "Crypto.BTC/USD") or its
  *    32-byte keccak, and must match the benchmark the series' fixing candidate names.
  * {
- *   seriesId?: bytes32, seriesVersion?: integer,          // default: the intent market's series (else the primary), v1
+ *   seriesId?: bytes32, seriesVersion?: integer,          // default: the intent market's series (else the primary),
+ *                                                         // every version of it that holds positions
  *   slot?: integer, candidateIndex?: integer,             // default 0, 0 (single-slot series)
  *   observations: [{
  *     value: integer,                                     // scaled to the benchmark's output decimals
@@ -36,7 +37,7 @@ import { SeriesCatalog, type FixingSlot } from "./series.ts";
  *   fixtures: {
  *     marketKeys?: string[],                              // default: every market of the deployment
  *     offsetsBps?: { [benchmarkId]: integer },            // default: a deterministic per-benchmark offset in [-80, 80]
- *     seriesVersion?: integer                             // default 1
+ *     seriesVersion?: integer                             // default: every version holding positions
  *   }
  * }
  *    One value per benchmark, shared by every series that fixes on it so the devnet tape stays coherent: the forward
@@ -79,11 +80,21 @@ export class ChainOracleRelayExecutionPort implements OracleRelayExecutionPort {
     if (intentMarket && intentMarket.marketId !== market.marketId) {
       throw new OperatorExecutionError("invalid-payload", `series ${seriesId} trades as ${market.marketKey}, not market ${intent.marketId}`);
     }
-    const seriesVersion = payload.integer("seriesVersion", { fallback: 1, min: 1 });
+    // A fee change re-versions the series while open positions keep their version, and FixingEngine keys fixings by
+    // version, so the same evidence is relayed to every version that holds positions unless one is named.
+    const requested = payload.has("seriesVersion") ? payload.integer("seriesVersion", { min: 1 }) : null;
+    const versions = await this.#catalog.workVersions(seriesId, requested);
     const feedKey = /^0x[0-9a-fA-F]{64}$/.test(intent.feedKey) ? (intent.feedKey.toLowerCase() as Hex) : keccak256(stringToHex(intent.feedKey));
     const submissions = payload.has("submissions") ? payload.objects("submissions") : [payload];
-    const outcome = await this.#relaySeries({ seriesId, seriesVersion, feedKey, feedLabel: intent.feedKey, submissions });
-    return completed({ marketKey: market.marketKey, ...outcome.details }, outcome.transactions);
+    const outcomes = [];
+    for (const seriesVersion of versions) {
+      outcomes.push(await this.#relaySeries({ seriesId, seriesVersion, feedKey, feedLabel: intent.feedKey, submissions }));
+    }
+    if (outcomes.length === 1) return completed({ marketKey: market.marketKey, ...outcomes[0]!.details }, outcomes[0]!.transactions);
+    return completed(
+      { marketKey: market.marketKey, seriesId, seriesVersions: versions, versions: outcomes.map((outcome) => outcome.details) },
+      outcomes.flatMap((outcome) => outcome.transactions),
+    );
   }
 
   /** Local devnet only: one coherent fixture value per benchmark, relayed to every due series that fixes on it. */
@@ -98,7 +109,7 @@ export class ChainOracleRelayExecutionPort implements OracleRelayExecutionPort {
       throw new OperatorExecutionError("invalid-payload", "relayPayload.fixtures must be an object");
     }
     const options = new PayloadReader(raw, "relayPayload.fixtures");
-    const seriesVersion = options.integer("seriesVersion", { fallback: 1, min: 1 });
+    const requestedVersion = options.has("seriesVersion") ? options.integer("seriesVersion", { min: 1 }) : null;
     const keys = options.has("marketKeys") ? stringList(raw, "marketKeys") : null;
     const markets = keys ? keys.map((key) => requireMarket(deployment, key)) : [...deployment.markets];
     if (intent.marketId !== undefined) {
@@ -122,9 +133,14 @@ export class ChainOracleRelayExecutionPort implements OracleRelayExecutionPort {
     const results: JsonObject[] = [];
     const benchmarks: Record<string, JsonObject> = {};
     let failures = 0;
-    for (const market of markets) {
+    const work = (
+      await Promise.all(markets.map(async (market) =>
+        (await this.#catalog.workVersions(market.seriesId, requestedVersion)).map((seriesVersion) => ({ market, seriesVersion })),
+      ))
+    ).flat();
+    for (const { market, seriesVersion } of work) {
       const slots = await this.#catalog.fixingSlots(market.seriesId, seriesVersion);
-      const base = { marketKey: market.marketKey, seriesId: market.seriesId, benchmarkId: market.benchmarkId };
+      const base = { marketKey: market.marketKey, seriesId: market.seriesId, seriesVersion, benchmarkId: market.benchmarkId };
       try {
         const submissions: PayloadReader[] = [];
         let value: bigint | null = null;
@@ -181,12 +197,12 @@ export class ChainOracleRelayExecutionPort implements OracleRelayExecutionPort {
         results.push({ ...base, outcome: "failed", reason: error instanceof Error ? error.message : String(error) });
       }
     }
-    if (markets.length > 0 && failures === markets.length) {
+    if (work.length > 0 && failures === work.length) {
       throw new OperatorExecutionError("precondition", `every fixture relay failed: ${results.map((result) => `${result.marketKey}: ${String(result.reason)}`).join("; ")}`, {
         details: { results },
       });
     }
-    return completed({ mode: "devnet-fixtures", seriesVersion, chainTime: now, benchmarks, results }, transactions);
+    return completed({ mode: "devnet-fixtures", seriesVersion: requestedVersion, chainTime: now, benchmarks, results }, transactions);
   }
 
   async #benchmark(benchmarkId: Hex, benchmarkVersion: number) {

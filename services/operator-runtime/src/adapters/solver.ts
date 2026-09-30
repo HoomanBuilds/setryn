@@ -5,6 +5,7 @@ import type { OperatorExecutionContext, OperatorExecutionResult, SolverExecution
 import { ensureTradingAccount, hashOrder, reserveOrderRisk, signOrder } from "./book.ts";
 import { transactionSummary, type OperatorChainClient, type OperatorTransaction } from "./chain.ts";
 import { requireMarketById, requireMarketBySeries, type OperatorMarket } from "./deployment.ts";
+import { readActiveFeeSchedule, readActiveSeriesVersions, requireOpenFeeSchedule } from "./fees.ts";
 import { describeChainError, isContractRevert, OperatorExecutionError } from "./errors.ts";
 import { PayloadReader } from "./payload.ts";
 import {
@@ -116,6 +117,23 @@ export class ChainSolverExecutionPort implements SolverExecutionPort {
       throw new OperatorExecutionError("precondition", `${market.marketKey} caps orders at ${market.economics.maxOrderLots} lots; the RFQ asks ${lots}`);
     }
     const maxFeeMinor = plan.bigint("maxFeeMinor", { fallback: rfq.request.maxFeeMinor, min: 0n, max: rfq.request.maxFeeMinor });
+    // The quote and its maker order must carry the request's fee schedule, and clearing charges only under the open
+    // version, so a request signed under a retired version is refused rather than quoted into a fill that cannot clear.
+    const fees = requireOpenFeeSchedule(await readActiveFeeSchedule(client, { fresh: true }));
+    const versions = await readActiveSeriesVersions(client, rfq.request.seriesId);
+    if (
+      rfq.request.feeScheduleId.toLowerCase() !== deployment.ids.feeScheduleId ||
+      (fees.source === "CHAIN" &&
+        (rfq.request.feeScheduleVersion !== fees.version ||
+          versions.feeScheduleVersion !== fees.version ||
+          rfq.request.targetVersion !== versions.seriesVersion))
+    ) {
+      throw new OperatorExecutionError(
+        "precondition",
+        `RFQ ${rfqId} signs series v${rfq.request.targetVersion} under fee schedule v${rfq.request.feeScheduleVersion}; the market trades series v${versions.seriesVersion} under fee schedule v${fees.version}`,
+      );
+    }
+    const feeScheduleVersion = rfq.request.feeScheduleVersion;
     const ttl = BigInt(plan.integer("ttlSeconds", { fallback: 120, min: 5, max: 120 }));
     const tail = BigInt(plan.integer("capacityTailSeconds", { fallback: 60, min: 1, max: 300 }));
     if (lots < rfq.request.lots && (!rfq.request.allowPartialFills || rfq.request.remainderPolicy !== 2)) {
@@ -142,7 +160,7 @@ export class ChainSolverExecutionPort implements SolverExecutionPort {
       deadline,
       executionModeId: deployment.ids.privateRfqExecutionModeId,
       feeScheduleId: deployment.ids.feeScheduleId,
-      feeScheduleVersion: 1,
+      feeScheduleVersion,
       maxFeeMinor,
       recipient: client.address,
       permittedExecutor: deployment.addresses.atomicClearingEngine,
@@ -212,7 +230,7 @@ export class ChainSolverExecutionPort implements SolverExecutionPort {
       bidPriceTicks: rfq.request.sidePolicy === 2 ? priceTicks : 0n,
       askPriceTicks: rfq.request.sidePolicy === 1 ? priceTicks : 0n,
       feeScheduleId: deployment.ids.feeScheduleId,
-      feeScheduleVersion: 1,
+      feeScheduleVersion,
       maxFeeMinor,
       riskDomainId: deployment.ids.riskDomainId,
       riskDomainVersion: 1,

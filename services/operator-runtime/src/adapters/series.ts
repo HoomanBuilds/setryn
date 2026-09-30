@@ -125,6 +125,15 @@ export class SeriesCatalog {
 
   /** Positions opened on a series, discovered from PositionEngine.PositionCreated since the deployment block. */
   async positionIds(seriesId: Hex): Promise<Hex[]> {
+    return [...(await this.positionsByVersion(seriesId)).values()].flat();
+  }
+
+  /**
+   * Every position created on the series, grouped by the exact series version it was opened on. A fee change
+   * re-versions each series, and a position keeps its version for its whole life (its fixings, settlement and terminal
+   * fallback are keyed by it), so series-scoped keeper and oracle work runs once per version that holds positions.
+   */
+  async positionsByVersion(seriesId: Hex): Promise<Map<number, Hex[]>> {
     const { deployment } = this.#client;
     const events = await this.#client.read("read created positions", (reader) =>
       reader.getContractEvents({
@@ -137,6 +146,27 @@ export class SeriesCatalog {
         strict: true,
       }),
     );
-    return [...new Set(events.map((event) => event.args.positionId))];
+    const byVersion = new Map<number, Hex[]>();
+    for (const event of events) {
+      const version = Number(event.args.seriesVersion);
+      const list = byVersion.get(version) ?? [];
+      if (!list.includes(event.args.positionId)) list.push(event.args.positionId);
+      byVersion.set(version, list);
+    }
+    return new Map([...byVersion.entries()].sort(([left], [right]) => left - right));
+  }
+
+  /**
+   * The series versions series-scoped work should cover: the requested one, else every version holding positions, else
+   * the series' active version (so a fixing can still be proposed before the first fill).
+   */
+  async workVersions(seriesId: Hex, requested: number | null): Promise<number[]> {
+    if (requested !== null) return [requested];
+    const withPositions = [...(await this.positionsByVersion(seriesId)).keys()];
+    if (withPositions.length > 0) return withPositions;
+    const active = await this.#client.read("read active series version", (reader) =>
+      reader.readContract({ address: this.#client.deployment.addresses.seriesRegistry, abi: abis.seriesRegistry, functionName: "activeVersion", args: [seriesId] }),
+    );
+    return [Number(active) || 1];
   }
 }

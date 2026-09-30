@@ -6,6 +6,7 @@ import type { KeeperWorkIntent, OperatorExecutionContext, OperatorExecutionResul
 import { isLiveOrderStatus, readBookSide } from "./book.ts";
 import { transactionSummary, type OperatorChainClient, type OperatorTransaction } from "./chain.ts";
 import { requireMarket, requireMarketBySeries, type OperatorMarket } from "./deployment.ts";
+import { readActiveSeriesVersions, readSeriesVersions } from "./fees.ts";
 import { describeChainError, isContractRevert, OperatorExecutionError } from "./errors.ts";
 import { toAbiSlot } from "./oracle.ts";
 import { PayloadReader } from "./payload.ts";
@@ -77,9 +78,17 @@ const recoveryKinds = [
  *     series. `resourceId` must be the zero id: the sweep is deployment-scoped. One market's failure is recorded and
  *     the sweep continues; transport failures still throw so the runtime retries the (idempotent) sweep.
  *
- * Series-scoped work only runs on series that are markets of the deployment. Positions default to every
- * PositionCreated on the series. Work that is not yet due is reported, not failed.
+ * Series-scoped work only runs on series that are markets of the deployment. Without `seriesVersion` it runs once per
+ * series version that holds positions (a fee change re-versions each series, and every position keeps the version it
+ * was opened on); positions default to every PositionCreated on that version. Work that is not yet due is reported,
+ * not failed.
  */
+/** One series version's share of series-scoped keeper work, before it is folded into the job result. */
+interface VersionOutcome {
+  readonly details: Record<string, unknown> & { readonly actions?: unknown };
+  readonly transactions: readonly OperatorTransaction[];
+}
+
 export class ChainKeeperExecutionPort implements KeeperExecutionPort {
   readonly #client: OperatorChainClient;
   readonly #catalog: SeriesCatalog;
@@ -118,12 +127,18 @@ export class ChainKeeperExecutionPort implements KeeperExecutionPort {
     const { deployment } = client;
     const seriesId = this.#seriesFor(intent, work);
     const maxOrders = work.integer("maxOrders", { fallback: 64, min: 1, max: 128 });
-    const bookId = deriveSeriesBookId(deployment, seriesId);
+    // Each series version (with the fee version its market names) keys its own book, and orders left in a retired
+    // version's book still need expiring, so every version's book is swept.
+    const active = await readActiveSeriesVersions(client, seriesId);
+    const bookVersions = await Promise.all(
+      Array.from({ length: active.latestVersion }, (_, index) => readSeriesVersions(client, seriesId, index + 1)),
+    );
+    const bookIds = bookVersions.map((versions) => deriveSeriesBookId(deployment, seriesId, versions));
     const now = await client.chainNow();
     const actions: KeeperAction[] = [];
     const transactions: OperatorTransaction[] = [];
     const seen = new Set<Hex>();
-    for (const side of [1, 2] as const) {
+    for (const [bookId, side] of bookIds.flatMap((bookId) => [[bookId, 1], [bookId, 2]] as const)) {
       const resting = await readBookSide(client, bookId, side, maxOrders);
       for (const order of resting) {
         seen.add(order.orderHash);
@@ -157,17 +172,57 @@ export class ChainKeeperExecutionPort implements KeeperExecutionPort {
       actions.push(executed.action);
       if (executed.transaction) transactions.push(executed.transaction);
     }
-    return completed({ workType: "expire-orders", marketKey: requireMarketBySeries(deployment, seriesId).marketKey, seriesId, bookId, chainTime: now, actions: [...actions] }, transactions);
+    return completed({ workType: "expire-orders", marketKey: requireMarketBySeries(deployment, seriesId).marketKey, seriesId, bookId: deriveSeriesBookId(deployment, seriesId, active), bookIds: [...bookIds], chainTime: now, actions: [...actions] }, transactions);
   }
 
   async #resolveFixing(intent: KeeperWorkIntent, work: PayloadReader): Promise<OperatorExecutionResult> {
+    const seriesId = this.#seriesFor(intent, work);
+    return this.#perSeriesVersion(seriesId, work, "resolve-fixing", (seriesVersion, positionIds) =>
+      this.#resolveFixingVersion(seriesId, seriesVersion, positionIds));
+  }
+
+  /**
+   * Runs series-scoped work once per series version: the requested one, else every version holding positions. A fee
+   * change re-versions each series while its open positions keep their own version, and fixings, settlement and the
+   * terminal fallback are all keyed by that version.
+   */
+  async #perSeriesVersion(
+    seriesId: Hex,
+    work: PayloadReader,
+    workType: string,
+    run: (seriesVersion: number, positionIds: readonly Hex[]) => Promise<VersionOutcome>,
+  ): Promise<OperatorExecutionResult> {
+    const requested = work.has("seriesVersion") ? work.integer("seriesVersion", { min: 1 }) : null;
+    const explicit = work.has("positionIds") ? work.bytes32List("positionIds") : null;
+    const byVersion = await this.#catalog.positionsByVersion(seriesId);
+    const versions = await this.#catalog.workVersions(seriesId, requested);
+    const outcomes: VersionOutcome[] = [];
+    for (const seriesVersion of versions) {
+      const onVersion = (byVersion.get(seriesVersion) ?? []).map((id) => id.toLowerCase());
+      const positionIds = explicit
+        ? requested !== null ? explicit : explicit.filter((id) => onVersion.includes(id.toLowerCase()))
+        : (byVersion.get(seriesVersion) ?? []);
+      outcomes.push(await run(seriesVersion, positionIds));
+    }
+    if (outcomes.length === 1) return completed(outcomes[0]!.details, outcomes[0]!.transactions);
+    return completed(
+      {
+        workType,
+        marketKey: requireMarketBySeries(this.#client.deployment, seriesId).marketKey,
+        seriesId,
+        seriesVersions: versions,
+        actions: outcomes.flatMap((outcome) => (Array.isArray(outcome.details.actions) ? outcome.details.actions : [])),
+        versions: outcomes.map((outcome) => outcome.details),
+      },
+      outcomes.flatMap((outcome) => outcome.transactions),
+    );
+  }
+
+  async #resolveFixingVersion(seriesId: Hex, seriesVersion: number, positionIds: readonly Hex[]): Promise<VersionOutcome> {
     const client = this.#client;
     const { deployment } = client;
-    const seriesId = this.#seriesFor(intent, work);
-    const seriesVersion = work.integer("seriesVersion", { fallback: 1, min: 1 });
     const schedule = await this.#catalog.schedule(seriesId, seriesVersion);
     const slots = await this.#catalog.fixingSlots(seriesId, seriesVersion);
-    const positionIds = work.has("positionIds") ? work.bytes32List("positionIds") : await this.#catalog.positionIds(seriesId);
     const now = await client.chainNow();
     const actions: KeeperAction[] = [];
     const transactions: OperatorTransaction[] = [];
@@ -252,8 +307,8 @@ export class ChainKeeperExecutionPort implements KeeperExecutionPort {
         reader.readContract({ address: deployment.addresses.fixingEngine, abi: abis.fixingEngine, functionName: "getFinalizedFixing", args: [seriesId, seriesVersion, slot.slot] }),
       ),
     ));
-    return completed(
-      {
+    return {
+      details: {
         workType: "resolve-fixing",
         marketKey: requireMarketBySeries(deployment, seriesId).marketKey,
         seriesId,
@@ -270,17 +325,20 @@ export class ChainKeeperExecutionPort implements KeeperExecutionPort {
         actions: [...actions],
       },
       transactions,
-    );
+    };
   }
 
   async #settlePositions(intent: KeeperWorkIntent, work: PayloadReader): Promise<OperatorExecutionResult> {
+    const seriesId = this.#seriesFor(intent, work);
+    return this.#perSeriesVersion(seriesId, work, "settle-positions", (seriesVersion, positionIds) =>
+      this.#settleVersion(seriesId, seriesVersion, positionIds));
+  }
+
+  async #settleVersion(seriesId: Hex, seriesVersion: number, positionIds: readonly Hex[]): Promise<VersionOutcome> {
     const client = this.#client;
     const { deployment } = client;
-    const seriesId = this.#seriesFor(intent, work);
-    const seriesVersion = work.integer("seriesVersion", { fallback: 1, min: 1 });
     const schedule = await this.#catalog.schedule(seriesId, seriesVersion);
     const slots = (await this.#catalog.fixingSlots(seriesId, seriesVersion)).map(toAbiSlot);
-    const positionIds = work.has("positionIds") ? work.bytes32List("positionIds") : await this.#catalog.positionIds(seriesId);
     const now = await client.chainNow();
     const coordinator = deployment.addresses.cashSettlementCoordinator;
     const actions: KeeperAction[] = [];
@@ -364,7 +422,10 @@ export class ChainKeeperExecutionPort implements KeeperExecutionPort {
         settlements.push({ positionId, settlementId, positionStatus: enumName(positionStatusNames, after) });
       }
     }
-    return completed({ workType: "settle-positions", marketKey: requireMarketBySeries(deployment, seriesId).marketKey, seriesId, seriesVersion, chainTime: now, settlements, actions: [...actions] }, transactions);
+    return {
+      details: { workType: "settle-positions", marketKey: requireMarketBySeries(deployment, seriesId).marketKey, seriesId, seriesVersion, chainTime: now, settlements, actions: [...actions] },
+      transactions,
+    };
   }
 
   async #recover(work: PayloadReader): Promise<OperatorExecutionResult> {
@@ -460,13 +521,17 @@ export class ChainKeeperExecutionPort implements KeeperExecutionPort {
       if (!(sweepSteps as readonly string[]).includes(step)) throw new OperatorExecutionError("invalid-payload", `work.steps has unknown step ${step}`);
       return step as SweepStep;
     }) : [...sweepSteps];
-    const seriesVersion = work.integer("seriesVersion", { fallback: 1, min: 1 });
+    // Without an explicit version each series step covers every version that holds positions.
+    const seriesVersion = work.has("seriesVersion") ? work.integer("seriesVersion", { min: 1 }) : null;
     const now = await this.#client.chainNow();
     const transactions: { label: string; hash: Hex; blockNumber: string; gasUsed: string }[] = [];
     const perMarket: JsonObject[] = [];
     let failures = 0;
     for (const market of markets) {
-      const seriesWork = new PayloadReader({ seriesId: market.seriesId, seriesVersion }, `work.${market.marketKey}`);
+      const seriesWork = new PayloadReader(
+        seriesVersion === null ? { seriesId: market.seriesId } : { seriesId: market.seriesId, seriesVersion },
+        `work.${market.marketKey}`,
+      );
       const seriesIntent = { ...intent, resourceId: market.seriesId as never };
       const results: Record<string, JsonObject> = {};
       try {

@@ -17,6 +17,7 @@ import {
 import { transactionSummary, type OperatorChainClient, type OperatorTransaction } from "./chain.ts";
 import { requireMarketById, type OperatorMarket } from "./deployment.ts";
 import { describeChainError, OperatorExecutionError } from "./errors.ts";
+import { feeChargeMinor, readActiveFeeSchedule, readActiveSeriesVersions, requireOpenFeeSchedule } from "./fees.ts";
 import { assertIntentEnvironment, completed, transactionHashes } from "./results.ts";
 import { PayloadReader } from "./payload.ts";
 import {
@@ -45,7 +46,7 @@ import {
  *   lots?: integer, bidLots?, askLots?,  // default and cap: the market's maxOrderLots
  *   ttlSeconds?: 30..300,                // default 240, measured on chain time
  *   refreshMarginSeconds?: integer,      // own quotes expiring sooner than this are replaced (default 30)
- *   maxFeeMinor?: integer,               // default 100_000_000
+ *   maxFeeMinor?: integer,               // default: the active schedule's maker charge on the quote's consideration
  *   sides?: "both" | "bid" | "ask"       // default "both"
  * }
  * Each side is sized to the account's free collateral at the market's per-lot debit cap. On the local devnet a
@@ -107,7 +108,8 @@ export class ChainMakerQuoteExecutionPort implements MakerQuoteExecutionPort {
     const lots = request.bigint("lots", { fallback: maxLots, min: 1n, max: maxLots });
     const ttl = BigInt(request.integer("ttlSeconds", { fallback: 240, min: 30, max: 300 }));
     const refreshMargin = BigInt(request.integer("refreshMarginSeconds", { fallback: 30, min: 0, max: 240 }));
-    const maxFeeMinor = request.bigint("maxFeeMinor", { fallback: 100_000_000n, min: 1n });
+    // An explicit cap wins; otherwise each quote caps at the maker charge the active schedule puts on its consideration.
+    const explicitMaxFeeMinor = request.has("maxFeeMinor") ? request.bigint("maxFeeMinor", { min: 1n }) : null;
     const sides = request.oneOf("sides", ["both", "bid", "ask"] as const, "both");
     const bidTicks = ((mid - halfSpread) / grid) * grid;
     const askTicks = ceilDiv(mid + halfSpread, grid) * grid;
@@ -118,26 +120,42 @@ export class ChainMakerQuoteExecutionPort implements MakerQuoteExecutionPort {
 
     const seriesId = market.seriesId;
     const now = await client.chainNow();
-    const open = await client.read("read series trading status", (reader) =>
+    // Quotes sign the series' active version and the fee schedule version its market version names.
+    const versions = await readActiveSeriesVersions(client, seriesId);
+    const open = versions.active && await client.read("read series trading status", (reader) =>
       reader.readContract({
         address: deployment.addresses.seriesRegistry,
         abi: abis.seriesRegistry,
         functionName: "isOpenForNewRisk",
-        args: [seriesId, 1, Number(now / 86_400n)],
+        args: [seriesId, versions.seriesVersion, Number(now / 86_400n)],
       }),
     );
     if (!open) {
       return completed({ quoted: false, marketKey: market.marketKey, reason: "series is not open for new risk at chain time", chainTime: now.toString() }, []);
     }
 
+    const fees = requireOpenFeeSchedule(await readActiveFeeSchedule(client));
+    if (fees.source === "CHAIN" && versions.feeScheduleVersion !== fees.version) {
+      return completed({
+        quoted: false,
+        marketKey: market.marketKey,
+        reason: `series v${versions.seriesVersion} is on fee schedule v${versions.feeScheduleVersion}; v${fees.version} is active, so nothing on it can clear yet`,
+        chainTime: now.toString(),
+      }, []);
+    }
     const account = await ensureTradingAccount(client, { fundingMinor: this.#fundingMinor });
     const transactions: OperatorTransaction[] = [...account.transactions];
-    const bookId = deriveSeriesBookId(deployment, seriesId);
+    const bookId = deriveSeriesBookId(deployment, seriesId, versions);
     const posted: JsonObject[] = [];
     const kept: JsonObject[] = [];
     const withdrawn: JsonObject[] = [];
     const skipped: JsonObject[] = [];
-    const plan = this.#plans.get(intent.idempotencyKey) ?? new Map<OrderSide, PublicOrder>();
+    // A plan signed under a fee schedule version that is no longer active could never clear, so it is dropped.
+    const previousPlan = this.#plans.get(intent.idempotencyKey);
+    const plan = previousPlan && [...previousPlan.values()].every((order) =>
+      order.feeScheduleVersion === versions.feeScheduleVersion && order.targetVersion === versions.seriesVersion)
+      ? previousPlan
+      : new Map<OrderSide, PublicOrder>();
     this.#plans.set(intent.idempotencyKey, plan);
 
     // Withdraw stale own quotes on both sides before posting, so a moved mid never crosses our own old quote.
@@ -202,6 +220,9 @@ export class ChainMakerQuoteExecutionPort implements MakerQuoteExecutionPort {
         continue;
       }
 
+      const consideration = target.lots * (target.priceTicks < 0n ? -target.priceTicks : target.priceTicks) * market.economics.tickSizeMinor;
+      const makerCharge = feeChargeMinor(fees.maker, consideration);
+      const maxFeeMinor = explicitMaxFeeMinor ?? (makerCharge > 0n ? makerCharge : 1n);
       const order = planned ?? {
         signer: client.address,
         accountId: account.accountId,
@@ -211,7 +232,7 @@ export class ChainMakerQuoteExecutionPort implements MakerQuoteExecutionPort {
         targetKind: 1,
         seriesId,
         packageId: zeroId,
-        targetVersion: 1,
+        targetVersion: versions.seriesVersion,
         side: target.side,
         lots: target.lots,
         priceTicks: target.priceTicks,
@@ -219,7 +240,7 @@ export class ChainMakerQuoteExecutionPort implements MakerQuoteExecutionPort {
         deadline: now + ttl,
         executionModeId: deployment.ids.executionModeId,
         feeScheduleId: deployment.ids.feeScheduleId,
-        feeScheduleVersion: 1,
+        feeScheduleVersion: versions.feeScheduleVersion,
         maxFeeMinor,
         recipient: client.address,
         permittedExecutor: deployment.addresses.atomicClearingEngine,
@@ -257,6 +278,9 @@ export class ChainMakerQuoteExecutionPort implements MakerQuoteExecutionPort {
         maker: client.address,
         makerAccountId: account.accountId,
         bookId,
+        seriesVersion: versions.seriesVersion,
+        feeScheduleVersion: versions.feeScheduleVersion,
+        makerFeeRatePpm: fees.maker.chargeRatePpm.toString(),
         chainTime: now.toString(),
         referencePriceTicks: mid.toString(),
         posted,

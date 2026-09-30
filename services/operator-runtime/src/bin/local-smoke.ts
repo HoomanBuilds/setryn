@@ -34,6 +34,7 @@ import {
   type PublicOrder,
 } from "../adapters/protocol.ts";
 import { readBookSide } from "../adapters/book.ts";
+import { feeChargeMinor, readActiveFeeSchedule, readActiveSeriesVersions } from "../adapters/fees.ts";
 import { InternalOperatorRuntime } from "../runtime.ts";
 import { InMemoryOperatorRuntimeStore } from "../store.ts";
 import type { OperatorIntent, OperatorJob, RetryPolicy } from "../types.ts";
@@ -370,7 +371,7 @@ async function advanceTo(timestamp: bigint): Promise<void> {
 }
 
 async function bookSnapshot(market: OperatorMarket) {
-  const book = deriveSeriesBookId(deployment, market.seriesId);
+  const book = deriveSeriesBookId(deployment, market.seriesId, await readActiveSeriesVersions(client, market.seriesId));
   const [bids, asks] = await Promise.all([readBookSide(client, book, 1, 8), readBookSide(client, book, 2, 8)]);
   const level = (order: { priceTicks: bigint; remainingLots: bigint }) => `${formatTicks(order.priceTicks, market)}x${order.remainingLots}`;
   return { bids: bids.map(level), asks: asks.map(level) };
@@ -380,6 +381,13 @@ async function bookSnapshot(market: OperatorMarket) {
 async function openTakerRfq(participant: OperatorChainClient, accountId: Hex, market: OperatorMarket, limitTicks: bigint) {
   const now = await participant.chainNow();
   const nonce = deterministicWord(`${run}:${market.marketKey}:taker-order`);
+  // The taker signs the active fee schedule version, capping its fee at twice the larger charge at its limit.
+  const fees = await readActiveFeeSchedule(client, { fresh: true });
+  const versions = await readActiveSeriesVersions(client, market.seriesId);
+  const limitConsideration = takerLots * (limitTicks < 0n ? -limitTicks : limitTicks) * market.economics.tickSizeMinor;
+  const makerCharge = feeChargeMinor(fees.maker, limitConsideration);
+  const takerCharge = feeChargeMinor(fees.taker, limitConsideration);
+  const takerMaxFeeMinor = 2n * (makerCharge > takerCharge ? makerCharge : takerCharge) + 1n;
   const order: PublicOrder = {
     signer: participant.address,
     accountId,
@@ -389,7 +397,7 @@ async function openTakerRfq(participant: OperatorChainClient, accountId: Hex, ma
     targetKind: 1,
     seriesId: market.seriesId,
     packageId: zeroId,
-    targetVersion: 1,
+    targetVersion: versions.seriesVersion,
     side: 1,
     lots: takerLots,
     priceTicks: limitTicks,
@@ -397,8 +405,8 @@ async function openTakerRfq(participant: OperatorChainClient, accountId: Hex, ma
     deadline: now + 240n,
     executionModeId: deployment.ids.privateRfqExecutionModeId,
     feeScheduleId: deployment.ids.feeScheduleId,
-    feeScheduleVersion: 1,
-    maxFeeMinor: 50_000_000n,
+    feeScheduleVersion: versions.feeScheduleVersion,
+    maxFeeMinor: takerMaxFeeMinor,
     recipient: participant.address,
     permittedExecutor: deployment.addresses.atomicClearingEngine,
     nonce,
@@ -432,7 +440,7 @@ async function openTakerRfq(participant: OperatorChainClient, accountId: Hex, ma
     targetKind: 1,
     seriesId: market.seriesId,
     packageId: zeroId,
-    targetVersion: 1,
+    targetVersion: order.targetVersion,
     hasPackageLegCommitment: false,
     packageLegsHash: zeroId,
     sidePolicy: 1,
@@ -440,8 +448,8 @@ async function openTakerRfq(participant: OperatorChainClient, accountId: Hex, ma
     allowPartialFills: order.allowPartialFills,
     minimumFillLots: order.minimumFillLots,
     remainderPolicy: order.remainderPolicy,
-    feeScheduleId: deployment.ids.feeScheduleId,
-    feeScheduleVersion: 1,
+    feeScheduleId: order.feeScheduleId,
+    feeScheduleVersion: order.feeScheduleVersion,
     maxFeeMinor: order.maxFeeMinor,
     riskDomainId: deployment.ids.riskDomainId,
     riskDomainVersion: 1,
