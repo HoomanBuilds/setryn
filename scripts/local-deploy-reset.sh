@@ -245,14 +245,14 @@ accounts_json="$(cast rpc eth_accounts --rpc-url "$rpc_url")"
 mapfile -t local_accounts < <(
     ACCOUNTS_JSON="$accounts_json" node -e '
         const accounts = JSON.parse(process.env.ACCOUNTS_JSON);
-        if (accounts.length < 7 || new Set(accounts.slice(0, 7).map((account) => account.toLowerCase())).size !== 7) process.exit(1);
-        process.stdout.write(`${accounts.slice(0, 7).join("\n")}\n`);
+        if (accounts.length < 10 || new Set(accounts.slice(0, 10).map((account) => account.toLowerCase())).size !== 10) process.exit(1);
+        process.stdout.write(`${accounts.slice(0, 10).join("\n")}\n`);
     '
 ) || {
-    printf 'Local Anvil must expose at least seven distinct unlocked accounts.\n' >&2
+    printf 'Local Anvil must expose at least ten distinct unlocked accounts.\n' >&2
     exit 1
 }
-if [[ "${#local_accounts[@]}" -ne 7 ]]; then
+if [[ "${#local_accounts[@]}" -ne 10 ]]; then
     printf 'Local Anvil returned an invalid principal set.\n' >&2
     exit 1
 fi
@@ -267,6 +267,15 @@ export SETRYN_GUARDIAN="${local_accounts[3]}"
 export SETRYN_EXCESS_RECOVERY_OPERATOR="${local_accounts[4]}"
 export SETRYN_PRIVACY_KEY_PUBLISHER="${local_accounts[5]}"
 export SETRYN_LIFECYCLE_WITNESS_STAGER="${local_accounts[6]}"
+# The protocol fee recipient account is controlled by its own account, never the operator: anvil #9 by default (#7 and #8
+# are left to local traders). The bootstrap creates the account as the operator and hands control over in two steps.
+export SETRYN_TREASURY_CONTROLLER="${SETRYN_TREASURY_CONTROLLER:-${local_accounts[9]}}"
+for principal_index in 0 1 2 3 4 5 6; do
+    if [[ "${SETRYN_TREASURY_CONTROLLER,,}" == "${local_accounts[$principal_index],,}" ]]; then
+        printf 'SETRYN_TREASURY_CONTROLLER must not be a deployment principal (anvil #%s).\n' "$principal_index" >&2
+        exit 1
+    fi
+done
 export SETRYN_EVALUATION_GAS_HARD_CAP=2000000
 export SETRYN_SEQUENCER_RECOVERY_GRACE=1
 export SETRYN_DEPLOYMENT_ID=0xd008df4e26809366bea8099013ff60a895a26d818a8604d326067034ed7a7c93
@@ -409,9 +418,18 @@ SETRYN_RUNTIME="$deployment_directory/runtime.tmp.json" node -e '
         }
     });
     const primary = runtime.markets[0];
-    for (const field of ["marketId", "seriesId", "payoffTerms", "tickSizeMinor", "maxOrderLots", "maxLongDebitMinorPerLot", "maxShortDebitMinorPerLot", "instrumentId", "benchmarkId"]) {
+    for (const field of ["marketId", "marketVersion", "seriesId", "seriesVersion", "payoffTerms", "tickSizeMinor", "maxOrderLots", "maxLongDebitMinorPerLot", "maxShortDebitMinorPerLot", "instrumentId", "benchmarkId"]) {
         if (runtime[field] !== primary[field]) fail(`top-level ${field} does not name the primary market`);
     }
+    const version = (value) => Number.isSafeInteger(value) && value > 0;
+    runtime.markets.forEach((market) => {
+        if (!version(market.marketVersion) || !version(market.seriesVersion)) fail(`${market.marketKey} market or series version`);
+    });
+    if (!version(runtime.feeScheduleVersion)) fail("feeScheduleVersion");
+    if (!hash.test(runtime.feeRecipientAccountId ?? "")) fail("feeRecipientAccountId");
+    if (!/^0x[0-9a-fA-F]{40}$/.test(runtime.treasuryController ?? "")) fail("treasuryController");
+    if (runtime.treasuryController.toLowerCase() === String(runtime.operator).toLowerCase()) fail("treasuryController is the operator");
+    if (runtime.treasuryController.toLowerCase() !== process.env.SETRYN_TREASURY_CONTROLLER.toLowerCase()) fail("treasuryController differs from SETRYN_TREASURY_CONTROLLER");
 '
 mv "$deployment_directory/runtime.tmp.json" "$deployment_directory/runtime.json"
 

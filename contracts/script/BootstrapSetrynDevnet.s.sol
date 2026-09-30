@@ -3,6 +3,8 @@ pragma solidity 0.8.37;
 
 import {Script} from "forge-std/Script.sol";
 
+import {DevnetSeriesQualification} from "./DevnetSeriesQualification.sol";
+
 import {CanonicalStrategyCompiler} from "../src/compiler/CanonicalStrategyCompiler.sol";
 import {DevnetMarketAdapter} from "../src/devnet/DevnetMarketAdapter.sol";
 import {DevnetSettlementToken} from "../src/devnet/DevnetSettlementToken.sol";
@@ -105,8 +107,13 @@ contract BootstrapSetrynDevnet is Script {
     uint8 private constant FIXING_DECIMALS = 8;
     uint32 private constant MAKER_FEE_RATE_PPM = 500;
     uint32 private constant TAKER_FEE_RATE_PPM = 1_000;
+    bytes32 private constant FEE_RECIPIENT_ACCOUNT_SALT = keccak256("SETRYN_PROTOCOL_FEES_DEVNET_V1");
+    /// Anvil development account #9. Accounts #0 to #6 carry the deployer and the six protocol principals (the operator
+    /// is #2) and the local smoke run trades as #8, so #9 is the first one no other devnet role uses.
+    address private constant DEFAULT_LOCAL_TREASURY_CONTROLLER = 0xa0Ee7A142d267C1f36714E4a8F75612F20a79720;
 
     error PublicNetworkBootstrapDisabled(uint256 chainId);
+    error InvalidTreasuryController(address treasuryController, address operator);
     error InvalidDependency(string name);
     error UnexpectedVersion(string name, uint32 version);
     error InvalidMarketCatalog(string reason);
@@ -158,6 +165,8 @@ contract BootstrapSetrynDevnet is Script {
         MarketId marketId;
         SeriesId seriesId;
         AccountId feeRecipientAccountId;
+        address treasuryController;
+        uint32 feeScheduleVersion;
         bytes payoffTerms;
         uint128 maxLongDebitMinorPerLot;
         uint128 maxShortDebitMinorPerLot;
@@ -188,7 +197,9 @@ contract BootstrapSetrynDevnet is Script {
     struct SeriesRecord {
         string marketKey;
         MarketId marketId;
+        uint32 marketVersion;
         SeriesId seriesId;
+        uint32 seriesVersion;
         BenchmarkId benchmarkId;
         bytes payoffTerms;
         uint128 maxLongDebitMinorPerLot;
@@ -212,23 +223,50 @@ contract BootstrapSetrynDevnet is Script {
         uint64 settlementDeadline;
     }
 
+    /// Everything the bootstrap needs, resolved from the environment by `run` or supplied directly by a test.
+    struct BootstrapInput {
+        Contracts contracts;
+        address operator;
+        /// Controller of the protocol fee recipient account. The operator creates the account, proposes this address,
+        /// and, when `acceptTreasuryControl` is set, the treasury accepts in the same run (an unlocked local account).
+        address treasuryController;
+        bool acceptTreasuryControl;
+        uint64 observationAge;
+        FamilySpec[] families;
+        MarketSpec[] specs;
+    }
+
     function run() external returns (Runtime memory runtime) {
+        BootstrapInput memory input;
+        input.contracts = _loadContracts();
+        input.operator = vm.envAddress("SETRYN_GOVERNANCE_OPERATOR");
+        input.treasuryController = vm.envOr("SETRYN_TREASURY_CONTROLLER", DEFAULT_LOCAL_TREASURY_CONTROLLER);
+        input.acceptTreasuryControl = vm.envOr("SETRYN_TREASURY_ACCEPT_CONTROL", true);
+        input.observationAge = uint64(vm.envOr("SETRYN_MAXIMUM_RISK_OBSERVATION_AGE", uint256(5 minutes)));
+        (input.families, input.specs) = _readCatalog(vm.readFile(vm.envString("SETRYN_DEVNET_MARKETS")));
+
+        runtime = bootstrap(input);
+        _writeRuntime(input.contracts, runtime, input.operator, vm.envString("SETRYN_RUNTIME_OUTPUT"));
+    }
+
+    /// Qualifies the complete devnet graph as the operator and hands the fee recipient account to the treasury.
+    function bootstrap(BootstrapInput memory input) public returns (Runtime memory runtime) {
         if (block.chainid == ARBITRUM_ONE_CHAIN_ID || block.chainid == ARBITRUM_SEPOLIA_CHAIN_ID) {
             revert PublicNetworkBootstrapDisabled(block.chainid);
         }
+        if (input.treasuryController == address(0) || input.treasuryController == input.operator) {
+            revert InvalidTreasuryController(input.treasuryController, input.operator);
+        }
 
-        Contracts memory c = _loadContracts();
-        address operator = vm.envAddress("SETRYN_GOVERNANCE_OPERATOR");
-        uint64 observationAge = uint64(vm.envOr("SETRYN_MAXIMUM_RISK_OBSERVATION_AGE", uint256(5 minutes)));
+        Contracts memory c = input.contracts;
+        FamilySpec[] memory families = input.families;
+        MarketSpec[] memory specs = input.specs;
         runtime.day = uint32(block.timestamp / 1 days);
         Schedule memory schedule = _schedule(runtime.day);
 
-        (FamilySpec[] memory families, MarketSpec[] memory specs) =
-            _readCatalog(vm.readFile(vm.envString("SETRYN_DEVNET_MARKETS")));
-
-        vm.startBroadcast(operator);
+        vm.startBroadcast(input.operator);
         runtime.settlementToken = new DevnetSettlementToken();
-        runtime.marketAdapter = new DevnetMarketAdapter(c.risks, c.adapters, observationAge);
+        runtime.marketAdapter = new DevnetMarketAdapter(c.risks, c.adapters, input.observationAge);
         _registerSettlementAsset(c, runtime);
         _registerAdapters(c, runtime);
         (runtime.calendarId, runtime.sessionId) = _registerCalendarAndSession(c, runtime.day, schedule);
@@ -236,9 +274,15 @@ contract BootstrapSetrynDevnet is Script {
         (AssetId[] memory familyAssets, BenchmarkId[] memory familyBenchmarks) = _registerFamilies(c, runtime, families);
         runtime.baseAssetId = familyAssets[0];
         runtime.benchmarkId = familyBenchmarks[0];
-        runtime.feeRecipientAccountId = c.collateralVault.createAccount(keccak256("SETRYN_PROTOCOL_FEES_DEVNET_V1"));
+        // The operator creates the protocol fee account, so its id stays derivable from the operator and the salt, and
+        // immediately proposes the treasury as its controller. Fees credit the account whoever controls it; only the
+        // controller can withdraw them.
+        runtime.feeRecipientAccountId = c.collateralVault.createAccount(FEE_RECIPIENT_ACCOUNT_SALT);
+        c.collateralVault.proposeController(runtime.feeRecipientAccountId, input.treasuryController);
+        runtime.treasuryController = input.treasuryController;
         (FeeRule[] memory feeRules, FeeRecipientSet memory feeRecipients) = _feeWitness(runtime.feeRecipientAccountId);
         runtime.feeScheduleId = _registerFeeSchedule(c, runtime, feeRules, feeRecipients);
+        runtime.feeScheduleVersion = VERSION;
         c.fundedFeeEngine.installScheduleWitness(runtime.feeScheduleId, VERSION, feeRules, feeRecipients);
         runtime.riskDomainId = _registerRiskDomain(c, runtime);
         runtime.instrumentId = _registerInstrument(c, runtime);
@@ -265,7 +309,15 @@ contract BootstrapSetrynDevnet is Script {
         _publishSessionDay(c, runtime.sessionId, runtime.day, schedule);
         vm.stopBroadcast();
 
-        _writeRuntime(c, runtime, operator, vm.envString("SETRYN_RUNTIME_OUTPUT"));
+        if (input.acceptTreasuryControl) {
+            vm.startBroadcast(input.treasuryController);
+            c.collateralVault.acceptController(runtime.feeRecipientAccountId);
+            vm.stopBroadcast();
+            (address controller,) = c.collateralVault.getAccount(runtime.feeRecipientAccountId);
+            if (controller != input.treasuryController) {
+                revert InvalidTreasuryController(controller, input.operator);
+            }
+        }
     }
 
     function _readCatalog(string memory json)
@@ -622,8 +674,10 @@ contract BootstrapSetrynDevnet is Script {
         record.priceScale = spec.priceScale;
         record.maxOrderLots = spec.maxOrderLots;
         record.marketId = _registerMarket(c, runtime, spec, baseAssetId, benchmarkId);
+        record.marketVersion = VERSION;
         (record.seriesId, record.payoffTerms, record.maxLongDebitMinorPerLot, record.maxShortDebitMinorPerLot) =
             _registerSeries(c, runtime, schedule, spec, record.marketId, benchmarkId);
+        record.seriesVersion = VERSION;
     }
 
     function _registerMarket(
@@ -717,7 +771,7 @@ contract BootstrapSetrynDevnet is Script {
         maxShortDebitMinorPerLot = compiled.maxShortDebitMinorPerLot;
         SeriesDefinition memory definition = _seriesDefinition(runtime, schedule, compiled, marketId, spec.marketKey);
         SeriesQualificationData memory qualification =
-            _qualification(runtime.day, benchmarkId, definition, compiled.canonicalTerms);
+            DevnetSeriesQualification.qualification(runtime.day, benchmarkId, definition, compiled.canonicalTerms);
         definition.payoffTermsHash = c.series.hashPayoffTerms(TERMS_SCHEMA, qualification.payoffTerms);
         definition.fixingSlotsHash = c.series.hashFixingSlots(definition, qualification.fixingSlots, 4);
         definition.dateAdjustmentEvidenceHash = c.series.hashDateProofs(definition, qualification.dateProofs);
@@ -766,44 +820,6 @@ contract BootstrapSetrynDevnet is Script {
         });
     }
 
-    function _qualification(
-        uint32 day,
-        BenchmarkId benchmarkId,
-        SeriesDefinition memory definition,
-        bytes memory payoffTerms
-    ) private pure returns (SeriesQualificationData memory qualification) {
-        qualification.payoffTerms = payoffTerms;
-        qualification.fixingSlots = new FixingSlot[](1);
-        qualification.fixingSlots[0].slot = 0;
-        qualification.fixingSlots[0].candidates = new FixingCandidate[](1);
-        qualification.fixingSlots[0].candidates[0] = FixingCandidate({
-            benchmarkId: benchmarkId,
-            benchmarkVersion: VERSION,
-            requiredWindowKindId: SessionDefinitionLib.WINDOW_KIND_FIXING,
-            selectionRuleId: SeriesDefinitionLib.FIXING_SELECTION_OFFICIAL,
-            targetAt: definition.fixingWindowOpen + 15 minutes,
-            windowStartsAt: definition.fixingWindowOpen,
-            windowEndsAt: definition.fixingWindowOpen + 30 minutes,
-            unavailableAfter: definition.fixingWindowClose + 30 minutes,
-            maxPublicationLagSeconds: 30 minutes,
-            minimumObservations: 1,
-            maximumObservations: 1,
-            selectionParametersHash: keccak256(abi.encode("SETRYN_SERIES_FIXING_SELECTION_V1", benchmarkId))
-        });
-
-        qualification.dateProofs = new SeriesDateProof[](11);
-        CalendarDay memory calendarDay = _calendarDay(day);
-        for (uint8 rawKind = 1; rawKind <= 11; ++rawKind) {
-            uint256 index = uint256(rawKind) - 1;
-            qualification.dateProofs[index].kind = SeriesDateKind(rawKind);
-            qualification.dateProofs[index].conventionId = SeriesDefinitionLib.DATE_ADJUSTMENT_UNADJUSTED;
-            qualification.dateProofs[index].scheduledDay = day;
-            qualification.dateProofs[index].calendarDays = new CalendarDayProof[](1);
-            qualification.dateProofs[index].calendarDays[0].calendarDay = calendarDay;
-            qualification.dateProofs[index].calendarDays[0].merkleProof = new bytes32[](0);
-        }
-    }
-
     function _publishSessionDay(Contracts memory c, SessionId sessionId, uint32 day, Schedule memory schedule) private {
         SessionWindow[] memory windows = _sessionWindows(day, schedule);
         SessionDay memory sessionDay = SessionDay({
@@ -836,7 +852,7 @@ contract BootstrapSetrynDevnet is Script {
     }
 
     function _calendarDay(uint32 day) private pure returns (CalendarDay memory) {
-        return CalendarDay({day: day, isBusinessDay: true, evidenceHash: keccak256("SETRYN_LOCAL_CALENDAR_DAY_V1")});
+        return DevnetSeriesQualification.calendarDay(day);
     }
 
     function _schedule(uint32 day) private pure returns (Schedule memory schedule) {
@@ -963,6 +979,8 @@ contract BootstrapSetrynDevnet is Script {
         vm.serializeBytes32(objectKey, "benchmarkId", BenchmarkId.unwrap(runtime.benchmarkId));
         vm.serializeBytes32(objectKey, "feeScheduleId", FeeScheduleId.unwrap(runtime.feeScheduleId));
         vm.serializeBytes32(objectKey, "feeRecipientAccountId", AccountId.unwrap(runtime.feeRecipientAccountId));
+        vm.serializeAddress(objectKey, "treasuryController", runtime.treasuryController);
+        vm.serializeUint(objectKey, "feeScheduleVersion", runtime.feeScheduleVersion);
         vm.serializeUint(objectKey, "maxLongDebitMinorPerLot", runtime.maxLongDebitMinorPerLot);
         vm.serializeUint(objectKey, "maxShortDebitMinorPerLot", runtime.maxShortDebitMinorPerLot);
         // Market economics the terminal previews against: consideration is lots x price ticks x tick size.
@@ -973,7 +991,9 @@ contract BootstrapSetrynDevnet is Script {
         vm.serializeBytes32(objectKey, "riskDomainId", RiskDomainId.unwrap(runtime.riskDomainId));
         vm.serializeBytes32(objectKey, "instrumentId", InstrumentId.unwrap(runtime.instrumentId));
         vm.serializeBytes32(objectKey, "marketId", MarketId.unwrap(runtime.marketId));
+        vm.serializeUint(objectKey, "marketVersion", runtime.series[0].marketVersion);
         vm.serializeBytes32(objectKey, "seriesId", SeriesId.unwrap(runtime.seriesId));
+        vm.serializeUint(objectKey, "seriesVersion", runtime.series[0].seriesVersion);
         vm.serializeBytes32(objectKey, "executionModeSetHash", EXECUTION_MODE_SET);
         vm.serializeBytes32(objectKey, "executionModeId", EXECUTION_MODE_PUBLIC_BOOK);
         vm.serializeBytes32(objectKey, "privateRfqExecutionModeId", EXECUTION_MODE_PRIVATE_RFQ);
@@ -1000,8 +1020,10 @@ contract BootstrapSetrynDevnet is Script {
             string memory objectKey = string.concat("setryn-runtime-market-", vm.toString(i));
             vm.serializeString(objectKey, "marketKey", record.marketKey);
             vm.serializeBytes32(objectKey, "marketId", MarketId.unwrap(record.marketId));
+            vm.serializeUint(objectKey, "marketVersion", record.marketVersion);
             vm.serializeBytes32(objectKey, "instrumentId", InstrumentId.unwrap(runtime.instrumentId));
             vm.serializeBytes32(objectKey, "seriesId", SeriesId.unwrap(record.seriesId));
+            vm.serializeUint(objectKey, "seriesVersion", record.seriesVersion);
             vm.serializeBytes32(objectKey, "benchmarkId", BenchmarkId.unwrap(record.benchmarkId));
             vm.serializeBytes(objectKey, "payoffTerms", record.payoffTerms);
             vm.serializeUint(objectKey, "tickSizeMinor", record.tickSizeMinor);
