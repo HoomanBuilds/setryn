@@ -1,17 +1,10 @@
 "use client";
 
 /** Client shapes and fetch helpers for the partner console. Mirrors the `/api/v1/partners` and `/api/v1/webhooks` routes. */
-export const WEBHOOK_EVENT_TYPES = [
-  "order.registered",
-  "order.filled",
-  "order.cancelled",
-  "position.opened",
-  "position.closed",
-  "settlement.finalized",
-  "receipt.ready",
-  "market.status",
-] as const;
-export type WebhookEventType = (typeof WEBHOOK_EVENT_TYPES)[number];
+// One list with the server contract, so the console offers every event type the worker emits.
+import { WEBHOOK_EVENT_TYPES, type WebhookEventType } from "@/lib/webhooks/types";
+
+export { WEBHOOK_EVENT_TYPES, type WebhookEventType };
 
 export const WIDGET_KINDS = ["ticker", "market", "trade"] as const;
 export type WidgetKind = (typeof WIDGET_KINDS)[number];
