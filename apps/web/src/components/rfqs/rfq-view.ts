@@ -54,6 +54,14 @@ export const STATUS_TONE: Record<RfqStatusId, ChipTone> = {
   EXPIRED: "muted",
 };
 
+/** Taker ranking: price for the side, then lower fee cap, then larger capacity. */
+export function compareQuotes(a: FirmRfqQuote, b: FirmRfqQuote, action: "BUY" | "SELL"): number {
+  const price = action === "BUY" ? a.packagePrice - b.packagePrice : b.packagePrice - a.packagePrice;
+  if (price !== 0) return price;
+  if (a.feeCap !== b.feeCap) return a.feeCap - b.feeCap;
+  return b.capacityLots - a.capacityLots;
+}
+
 function parse(value: string): number {
   const ms = Date.parse(value);
   return Number.isFinite(ms) ? ms : 0;
@@ -75,9 +83,9 @@ export function rfqView(request: RfqRequest, now: number): RfqView {
     const quoteExpiresMs = parse(quote.expiresAt);
     return { quote, expiresMs: quoteExpiresMs, expired: quoteExpiresMs <= now };
   });
-  // Best price for the taker: lowest ask when buying, highest bid when selling.
-  const better = (a: number, b: number) => (action === "BUY" ? a - b : b - a);
-  const ranked = [...withExpiry].sort((a, b) => better(a.quote.packagePrice, b.quote.packagePrice));
+  // Best price for the taker: lowest ask when buying, highest bid when selling. Ties break on the
+  // lower fee cap, then the larger capacity, so the order never depends on arrival.
+  const ranked = [...withExpiry].sort((a, b) => compareQuotes(a.quote, b.quote, action));
   // While a request is live, only live quotes compete for best.
   const contenders = active ? ranked.filter((entry) => !entry.expired) : ranked;
   const bestId = contenders[0]?.quote.id ?? null;
@@ -131,4 +139,81 @@ export function signedPriceText(value: number, market: PackageMarket | null): st
   const rounded = Number(value.toFixed(decimals));
   const sign = rounded > 0 ? "+" : rounded < 0 ? "-" : "±";
   return `${sign}${formatNumber(Math.abs(rounded), decimals)}`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Quote competition                                                   */
+/* ------------------------------------------------------------------ */
+
+export type ExclusionReason = "EXPIRED" | "CAPACITY" | "CLASS";
+
+export interface CompetingQuote extends RankedQuote {
+  /** Why the quote cannot be auto-ranked against the winner, or null when it competes. */
+  exclusion: ExclusionReason | null;
+  /** Signed improvement over the winner in price units; positive means better for the taker. */
+  versusWinner: number | null;
+}
+
+export interface QuoteCompetition {
+  /** The settlement class automatic ranking is confined to. */
+  primaryClass: string | null;
+  quotes: CompetingQuote[];
+  eligible: CompetingQuote[];
+  winner: CompetingQuote | null;
+  runnerUp: CompetingQuote | null;
+  /** Excluded quotes that beat the winner on price: shown as tradeoffs, never collapsed into a winner. */
+  tradeoffs: CompetingQuote[];
+}
+
+export const EXCLUSION_COPY: Record<ExclusionReason, string> = {
+  EXPIRED: "Quote expired",
+  CAPACITY: "Capacity below requested size",
+  CLASS: "Different settlement class",
+};
+
+/**
+ * Ranks quotes only among the same settlement guarantee class and among quotes
+ * that can execute the full size before they expire. Execution requires capacity
+ * at least equal to the requested lots, so a smaller quote is excluded with that
+ * reason rather than silently ranked.
+ */
+export function quoteCompetition(view: RfqView): QuoteCompetition {
+  const lots = view.request.authorization.intent.lots;
+  const live = view.quotes.filter((entry) => !entry.expired || !view.active);
+  const classCounts = new Map<string, number>();
+  for (const entry of live) {
+    classCounts.set(entry.quote.settlementGuarantee, (classCounts.get(entry.quote.settlementGuarantee) ?? 0) + 1);
+  }
+  /* The primary class is the one most quotes share; ties go to the class of the best-ranked quote. */
+  let primaryClass: string | null = null;
+  let primaryCount = 0;
+  for (const entry of live) {
+    const count = classCounts.get(entry.quote.settlementGuarantee) ?? 0;
+    if (count > primaryCount) {
+      primaryClass = entry.quote.settlementGuarantee;
+      primaryCount = count;
+    }
+  }
+  const quotes: CompetingQuote[] = view.quotes.map((entry) => {
+    const exclusion: ExclusionReason | null =
+      view.active && entry.expired
+        ? "EXPIRED"
+        : entry.quote.capacityLots < lots
+          ? "CAPACITY"
+          : primaryClass !== null && entry.quote.settlementGuarantee !== primaryClass
+            ? "CLASS"
+            : null;
+    return { ...entry, exclusion, versusWinner: null };
+  });
+  const eligible = quotes.filter((entry) => entry.exclusion === null);
+  const winner = eligible[0] ?? null;
+  for (const entry of quotes) {
+    if (!winner) break;
+    const delta = entry.quote.packagePrice - winner.quote.packagePrice;
+    entry.versusWinner = view.action === "BUY" ? -delta : delta;
+  }
+  const tradeoffs = quotes.filter(
+    (entry) => entry.exclusion !== null && entry.exclusion !== "EXPIRED" && winner !== null && (entry.versusWinner ?? 0) > 0,
+  );
+  return { primaryClass, quotes, eligible, winner, runnerUp: eligible[1] ?? null, tradeoffs };
 }

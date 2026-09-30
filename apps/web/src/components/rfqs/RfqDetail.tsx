@@ -227,6 +227,10 @@ export function RfqDetail({ view, now }: { view: RfqView; now: number }) {
       </div>
 
       <div className="shrink-0 space-y-2 border-t border-line bg-panel px-4 py-3">
+        <Link href={`/rfqs/${encodeURIComponent(request.id)}`} className={`${BUTTON_QUIET} h-9 w-full`}>
+          Open quote competition
+          <ArrowUpRight size={13} aria-hidden="true" />
+        </Link>
         {view.active || (request.state === "EXECUTED" && request.receiptId) ? (
           <div className="flex gap-2">
             {view.active && market ? (

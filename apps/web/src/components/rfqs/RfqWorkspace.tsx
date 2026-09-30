@@ -61,11 +61,10 @@ function BlotterEmpty({ tab }: { tab: BlotterTab }) {
     <div className={`flex flex-col items-center px-6 py-14 text-center ${motion.fade}`}>
       <p className="text-sm text-ink">No active private RFQ requests.</p>
       <p className="mt-1 max-w-md text-xs leading-relaxed text-faint">
-        A private solver request created in a market terminal appears here until it is selected, executed, or
-        cancelled.
+        A private request built here or in a market terminal appears until it is selected, executed, or cancelled.
       </p>
-      <Link href={DEFAULT_TRADE_HREF} className={`${BUTTON_QUIET} mt-4`}>
-        Open package market
+      <Link href="/rfqs/new" className={`${BUTTON_QUIET} mt-4`}>
+        New RFQ
         <ArrowUpRight size={12} aria-hidden="true" />
       </Link>
     </div>
@@ -194,7 +193,7 @@ export function RfqWorkspace() {
                 Local chain only
               </Chip>
               <EnvironmentChip />
-              <Link href={DEFAULT_TRADE_HREF} className={BUTTON_QUIET}>
+              <Link href="/rfqs/new" className={BUTTON_QUIET}>
                 New request
                 <ArrowUpRight size={12} aria-hidden="true" />
               </Link>
