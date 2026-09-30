@@ -67,8 +67,21 @@ export interface Market {
     maxOrderLots: number;
     maxLongDebitMinorPerLot: number;
     maxShortDebitMinorPerLot: number;
+    /** The series' active version: the `targetVersion` orders sign. A fee change re-versions every series. */
+    seriesVersion: number;
+    /** The fee schedule orders sign. */
+    feeScheduleId: Hex;
+    /** The version the fee schedule registry has active; orders must sign it and the book is keyed by it. */
+    feeScheduleVersion: number;
+    /** Active maker charge rate against 1,000,000 (100 = 1 bp), read from chain. */
     makerFeeRatePpm: number;
+    /** Active taker charge rate against 1,000,000 (100 = 1 bp), read from chain. */
     takerFeeRatePpm: number;
+    /** Flat charge per fill in settlement minor units, on top of the rate. */
+    makerFlatFeeMinor: number;
+    takerFlatFeeMinor: number;
+    /** RUNTIME when the chain was unreachable and the deployment's recorded rates were used. */
+    feeSource: "CHAIN" | "RUNTIME";
   } | null;
   quote: { source: "PREVIEW_SNAPSHOT"; netPrice: number; priorNetPrice: number; bestBid: number; bestAsk: number };
   legs: { id: string; side: "BUY" | "SELL"; ratio: number }[];

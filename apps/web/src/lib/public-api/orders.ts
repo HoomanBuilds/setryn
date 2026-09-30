@@ -25,10 +25,12 @@ import {
 } from "@/lib/internal-gateway/protocol";
 import { POST as reserveRisk } from "@/app/api/internal/orders/reserve-risk/route";
 import type { SetrynRuntimeMarket } from "@/lib/internal-gateway/runtime";
+import { marketTradingVersions, orderFeeCapMinor } from "@/lib/internal-gateway/fee-schedule";
 import { PublicApiError } from "./errors";
 import {
   EMPTY_ID,
   PUBLIC_SERIES_POLICY,
+  activeVersions,
   bookHead,
   deriveAccountId,
   deriveBookId,
@@ -224,6 +226,10 @@ export async function draftOrder(
   }
   const lots = BigInt(input.lots as number);
   const priceTicks = priceTicksFor(market, input.limitPrice);
+  const versions = activeVersions(context, market);
+  if (context.feeSchedule.source === "CHAIN" && !versions.tradable) {
+    throw new PublicApiError(409, "FEE_SCHEDULE_CHANGED", `${market.marketKey} is moving to fee schedule version ${context.feeSchedule.version}. Retry shortly.`);
+  }
   const tifName = typeof input.timeInForce === "string" ? input.timeInForce : route === "PRIVATE_RFQ" ? "IOC" : "GTC";
   const timeInForce = TIFS[tifName];
   if (!timeInForce) throw new PublicApiError(400, "INVALID_REQUEST", "timeInForce must be GTC, GTD, IOC or FOK.");
@@ -256,10 +262,11 @@ export async function draftOrder(
     }
     maxFeeMinor = parseUnits(input.maxFeeUsd.toFixed(6), 6);
   } else {
-    // Twice the taker fee on the order's full consideration (lots x price ticks x the market's tick size).
+    // Twice the larger of the maker and taker charges under the active schedule on the order's full consideration
+    // (lots x price ticks x the market's tick size), so a better fill price or a resting fill still fits the cap.
     const absTicks = priceTicks < BigInt(0) ? -priceTicks : priceTicks;
     const consideration = lots * absTicks * BigInt(market.tickSizeMinor);
-    maxFeeMinor = (consideration * BigInt(setryn.takerFeeRatePpm) * BigInt(2)) / BigInt(1_000_000);
+    maxFeeMinor = orderFeeCapMinor(context.feeSchedule, consideration, "EITHER") * BigInt(2);
   }
   if (maxFeeMinor < BigInt(1)) maxFeeMinor = BigInt(1);
 
@@ -277,7 +284,7 @@ export async function draftOrder(
     targetKind: 1,
     seriesId: market.seriesId,
     packageId: EMPTY_ID,
-    targetVersion: 1,
+    targetVersion: versions.seriesVersion,
     side: side.side,
     lots,
     priceTicks,
@@ -285,7 +292,7 @@ export async function draftOrder(
     deadline,
     executionModeId: route === "PRIVATE_RFQ" ? setryn.privateRfqExecutionModeId : setryn.executionModeId,
     feeScheduleId: setryn.feeScheduleId,
-    feeScheduleVersion: 1,
+    feeScheduleVersion: versions.feeScheduleVersion,
     maxFeeMinor,
     recipient: signer,
     permittedExecutor: setryn.atomicClearingEngine,
@@ -381,6 +388,25 @@ export async function verifySignedOrder(context: ChainContext, orderInput: unkno
   return { order, signature };
 }
 
+/**
+ * Clearing charges only under the open fee schedule version, so an order signed under another schedule or a retired
+ * version could never fill; it is refused before any risk is reserved.
+ */
+export function assertActiveFeeSchedule(context: ChainContext, order: OnchainPublicOrder): void {
+  if (order.feeScheduleId.toLowerCase() !== context.setryn.feeScheduleId.toLowerCase()) {
+    throw new PublicApiError(409, "ORDER_REJECTED", "The order names a fee schedule this deployment does not use.");
+  }
+  if (context.feeSchedule.source !== "CHAIN") return;
+  const versions = marketTradingVersions(context.feeSchedule, order.seriesId);
+  if (!versions.tradable || order.feeScheduleVersion !== versions.feeScheduleVersion || order.targetVersion !== versions.seriesVersion) {
+    throw new PublicApiError(
+      409,
+      "FEE_SCHEDULE_CHANGED",
+      `The order signs series version ${order.targetVersion} under fee schedule version ${order.feeScheduleVersion}; the market trades series version ${versions.seriesVersion} under fee schedule version ${context.feeSchedule.version}. Prepare a fresh order.`,
+    );
+  }
+}
+
 export interface SubmitInput {
   order?: unknown;
   signature?: unknown;
@@ -396,6 +422,7 @@ export async function submitSignedOrder(context: ChainContext, key: StoredApiKey
   const market = marketOfSeries(setryn, order.seriesId);
   if (!market) throw new PublicApiError(409, "MARKET_NOT_ONCHAIN", "The order's series is not an onchain market on this deployment.");
   const tif: TimeInForceName = timeInForceName(order.timeInForce);
+  assertActiveFeeSchedule(context, order);
   if (order.deadline <= context.chainTime || order.deadline > context.chainTime + RISK_WINDOW_SECONDS) {
     throw new PublicApiError(409, "ORDER_REJECTED", "The order deadline is outside the live window. Prepare a fresh order.");
   }
@@ -405,7 +432,7 @@ export async function submitSignedOrder(context: ChainContext, key: StoredApiKey
   if (existing && existing.registeredAt !== BigInt(0)) throw new PublicApiError(409, "ORDER_REJECTED", "This order is already registered.");
 
   // Check marketability before any risk is reserved, so a refused order leaves nothing behind.
-  const bookId = deriveBookId(setryn, market);
+  const bookId = deriveBookId(setryn, market, { seriesVersion: order.targetVersion, feeScheduleVersion: order.feeScheduleVersion });
   const makerSide: 1 | 2 = order.side === 1 ? 2 : 1;
   const head = await bookHead(context, bookId, makerSide);
   const crosses = (priceTicks: bigint) => (order.side === 1 ? order.priceTicks >= priceTicks : order.priceTicks <= priceTicks);

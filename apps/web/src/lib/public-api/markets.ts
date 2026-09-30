@@ -2,6 +2,7 @@ import { MARKETS } from "@/lib/terminal/markets";
 import { seedPreviewTrades } from "@/lib/terminal/preview-trades";
 import type { PackageMarket } from "@/lib/terminal/types";
 import type { SetrynRuntime } from "@/lib/internal-gateway/runtime";
+import { marketTradingVersions, readActiveFeeSchedule, type ActiveFeeSchedule } from "@/lib/internal-gateway/fee-schedule";
 import { considerationPerPriceUnit, runtimeMarketByKey } from "@/lib/internal-gateway/runtime-markets";
 import { deriveBookId } from "./chain";
 
@@ -52,8 +53,18 @@ export interface ApiMarket {
     maxOrderLots: number;
     maxLongDebitMinorPerLot: number;
     maxShortDebitMinorPerLot: number;
+    /** The series version orders sign as `targetVersion`: the series' active version. */
+    seriesVersion: number;
+    /** The fee schedule orders sign: its id and the version the market's active version names. */
+    feeScheduleId: string;
+    feeScheduleVersion: number;
+    /** Active rates against 1,000,000 (100 ppm = 1 bp), read from chain; `feeSource` says RUNTIME if the chain was unreachable. */
     makerFeeRatePpm: number;
     takerFeeRatePpm: number;
+    /** Flat charge per fill in settlement minor units, on top of the rate (zero under a pure rate schedule). */
+    makerFlatFeeMinor: number;
+    takerFlatFeeMinor: number;
+    feeSource: "CHAIN" | "RUNTIME";
   } | null;
   quote: {
     source: "PREVIEW_SNAPSHOT";
@@ -68,7 +79,15 @@ export interface ApiMarket {
 /** Largest order the platform accepts on an onchain market, before the market's own cap. */
 export const PLATFORM_MAX_ORDER_LOTS = 10;
 
-export function projectMarket(market: PackageMarket, setryn: SetrynRuntime | null): ApiMarket {
+/** The runtime and its active fee schedule for market projections; null when no deployment is readable. */
+export async function marketDeployment(setryn: SetrynRuntime | null): Promise<{ setryn: SetrynRuntime; fees: ActiveFeeSchedule } | null> {
+  if (!setryn) return null;
+  return { setryn, fees: await readActiveFeeSchedule(setryn) };
+}
+
+export function projectMarket(market: PackageMarket, deployment: { setryn: SetrynRuntime; fees: ActiveFeeSchedule } | null): ApiMarket {
+  const setryn = deployment?.setryn ?? null;
+  const fees = deployment?.fees ?? null;
   const onchain = setryn ? runtimeMarketByKey(setryn, market.id) : null;
   const maxLots = onchain ? Math.min(PLATFORM_MAX_ORDER_LOTS, onchain.maxOrderLots) : market.maxOrderLots ?? null;
   return {
@@ -95,12 +114,12 @@ export function projectMarket(market: PackageMarket, setryn: SetrynRuntime | nul
     maxOrderLots: maxLots,
     execution: onchain ? "ONCHAIN" : "PREVIEW_ONLY",
     onchain:
-      onchain && setryn
+      onchain && setryn && fees
         ? {
             chainId: setryn.chainId,
             seriesId: onchain.seriesId,
             marketId: onchain.marketId,
-            bookId: deriveBookId(setryn, onchain),
+            bookId: deriveBookId(setryn, onchain, marketTradingVersions(fees, onchain.seriesId)),
             orderState: setryn.orderState,
             publicOrderBook: setryn.publicOrderBook,
             privateRfqBook: setryn.privateRfqBook,
@@ -109,8 +128,14 @@ export function projectMarket(market: PackageMarket, setryn: SetrynRuntime | nul
             maxOrderLots: onchain.maxOrderLots,
             maxLongDebitMinorPerLot: onchain.maxLongDebitMinorPerLot,
             maxShortDebitMinorPerLot: onchain.maxShortDebitMinorPerLot,
-            makerFeeRatePpm: setryn.makerFeeRatePpm,
-            takerFeeRatePpm: setryn.takerFeeRatePpm,
+            seriesVersion: marketTradingVersions(fees, onchain.seriesId).seriesVersion,
+            feeScheduleId: setryn.feeScheduleId,
+            feeScheduleVersion: marketTradingVersions(fees, onchain.seriesId).feeScheduleVersion,
+            makerFeeRatePpm: fees.makerFeeRatePpm,
+            takerFeeRatePpm: fees.takerFeeRatePpm,
+            makerFlatFeeMinor: fees.maker.flatChargeMinor,
+            takerFlatFeeMinor: fees.taker.flatChargeMinor,
+            feeSource: fees.source,
           }
         : null,
     quote: {

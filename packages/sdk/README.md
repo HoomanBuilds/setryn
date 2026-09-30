@@ -15,6 +15,10 @@ Every market the deployment registers onchain reports `execution: "ONCHAIN"` wit
 ETH funding carries, ARB basis, EURUSD and XAUUSD forwards). Any other catalog market is `PREVIEW_ONLY`: it serves
 labelled preview data and cannot be traded.
 
+- **Fees.** `feeScheduleVersion`, `makerFeeRatePpm` and `takerFeeRatePpm` (100 ppm = 1 bp) are the fee schedule
+  version the registry has active right now and its rates, read from chain. Fee schedules are versioned: a change
+  activates a new version, `/orders/prepare` signs the active one, and an order signed under a retired version is
+  refused with `FEE_SCHEDULE_CHANGED` (prepare a fresh order). `bookId` is the active version's book.
 - **Price grid.** Onchain prices are integer ticks: `priceTicks = price x onchain.priceScale` (for example a scale of 10
   quotes in steps of 0.1, a scale of 100 in steps of 0.01). A `limitPrice` off the grid is refused with
   `INVALID_REQUEST`.

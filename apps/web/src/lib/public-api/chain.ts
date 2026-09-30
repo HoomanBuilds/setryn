@@ -29,6 +29,7 @@ import {
   ticksToPrice as marketTicksToPrice,
 } from "@/lib/internal-gateway/runtime-markets";
 import { readLocalRuntime } from "@/lib/internal-gateway/runtime-server";
+import { marketTradingVersions, readActiveFeeSchedule, type ActiveFeeSchedule, type MarketTradingVersions } from "@/lib/internal-gateway/fee-schedule";
 
 /**
  * Server-side projections of contract state and events for the public API. They reconstruct orders, fills, positions,
@@ -103,6 +104,8 @@ export interface ChainContext {
   headBlock: bigint;
   /** Pending-block timestamp: the clock order deadlines are checked against. */
   chainTime: bigint;
+  /** The active fee schedule (15 s cache): the version orders sign, its rates, and the book it keys. */
+  feeSchedule: ActiveFeeSchedule;
 }
 
 const CLIENTS_KEY = Symbol.for("setryn.public-api.clients");
@@ -123,11 +126,12 @@ function clientFor(rpcUrl: string): PublicClient {
 export async function chainContext(): Promise<ChainContext> {
   const setryn = await readLocalRuntime();
   const client = clientFor(setryn.rpcUrl);
-  const [headBlock, pending] = await Promise.all([
+  const [headBlock, pending, feeSchedule] = await Promise.all([
     client.getBlockNumber({ cacheTime: 0 }),
     client.getBlock({ blockTag: "pending" }),
+    readActiveFeeSchedule(setryn, { client }),
   ]);
-  return { setryn, client, headBlock, chainTime: pending.timestamp };
+  return { setryn, client, headBlock, chainTime: pending.timestamp, feeSchedule };
 }
 
 /** Memoizes a projection for one head block of one deployment, so a burst of reads costs one chain scan. */
@@ -147,9 +151,18 @@ function cachedByBlock<T>(name: string, context: ChainContext, loader: () => Pro
   return value;
 }
 
-/** The direct public book of one onchain market's series. */
-export function deriveBookId(setryn: SetrynRuntime, market: SetrynRuntimeMarket): Hex {
-  return deriveSeriesBookId(setryn, market.seriesId);
+/** The direct public book of one onchain market's series under one series and fee schedule version pair. */
+export function deriveBookId(
+  setryn: SetrynRuntime,
+  market: SetrynRuntimeMarket,
+  versions: Pick<MarketTradingVersions, "seriesVersion" | "feeScheduleVersion">,
+): Hex {
+  return deriveSeriesBookId(setryn, market.seriesId, versions);
+}
+
+/** The versions an order on `market` signs right now: its series' active version and that market's fee version. */
+export function activeVersions(context: ChainContext, market: SetrynRuntimeMarket): MarketTradingVersions {
+  return marketTradingVersions(context.feeSchedule, market.seriesId);
 }
 
 /** The onchain market of a catalog market id, or null when that catalog market is preview-only on this deployment. */
@@ -719,9 +732,10 @@ function aggregate(rows: BookOrderRow[]): BookLevel[] {
  * Each onchain market rests on its own series book.
  */
 export async function loadPublicBook(context: ChainContext, market: SetrynRuntimeMarket): Promise<OnchainBook> {
-  const { bookId, rows } = await cachedByBlock(`book:${market.seriesId.toLowerCase()}`, context, async () => {
+  const versions = activeVersions(context, market);
+  const { bookId, rows } = await cachedByBlock(`book:${market.seriesId.toLowerCase()}:${versions.seriesVersion}:${versions.feeScheduleVersion}`, context, async () => {
     const { client, setryn } = context;
-    const bookId = deriveBookId(setryn, market);
+    const bookId = deriveBookId(setryn, market, versions);
     const events = await client.getContractEvents({
       address: setryn.publicOrderBook,
       abi: publicOrderBookAbi,

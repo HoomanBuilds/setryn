@@ -42,6 +42,7 @@ import {
   type TimeInForceName,
 } from "./chain";
 import {
+  assertActiveFeeSchedule,
   assertSignerAllowed,
   draftOrder,
   lockOperatorTransactions,
@@ -247,7 +248,7 @@ function requestForOrder(
     targetKind: 1,
     seriesId: order.seriesId,
     packageId: EMPTY_ID,
-    targetVersion: 1,
+    targetVersion: order.targetVersion,
     hasPackageLegCommitment: false,
     packageLegsHash: EMPTY_ID,
     sidePolicy: order.side === 1 ? 1 : 2,
@@ -255,8 +256,9 @@ function requestForOrder(
     allowPartialFills: order.allowPartialFills,
     minimumFillLots: order.minimumFillLots,
     remainderPolicy: order.remainderPolicy,
-    feeScheduleId: setryn.feeScheduleId,
-    feeScheduleVersion: 1,
+    // The request must carry the order's own fee schedule: the RFQ book and clearing both check they agree.
+    feeScheduleId: order.feeScheduleId,
+    feeScheduleVersion: order.feeScheduleVersion,
     maxFeeMinor: order.maxFeeMinor,
     riskDomainId: setryn.riskDomainId,
     riskDomainVersion: 1,
@@ -523,6 +525,7 @@ export async function submitRfq(context: ChainContext, key: StoredApiKey, input:
   }
   const market = marketOfSeries(setryn, order.seriesId);
   if (!market) throw new PublicApiError(409, "MARKET_NOT_ONCHAIN", "The order's series is not an onchain market on this deployment.");
+  assertActiveFeeSchedule(context, order);
   if (order.deadline <= context.chainTime || order.deadline > context.chainTime + RISK_WINDOW_SECONDS) {
     throw new PublicApiError(409, "ORDER_REJECTED", "The order deadline is outside the live window. Prepare a fresh RFQ.");
   }
