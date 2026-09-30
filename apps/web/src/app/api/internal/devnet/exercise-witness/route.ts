@@ -1,6 +1,7 @@
 import { createPublicClient, createWalletClient, getAddress, http, keccak256, stringToHex, type Address, type Hex } from "viem";
 import { exerciseWitnessAbi, positionTerminalAbi } from "@/lib/internal-gateway/protocol";
 import { readLocalRuntime } from "@/lib/internal-gateway/runtime-server";
+import { devnetOperatorTransport } from "@/lib/internal-gateway/devnet-operator-transport";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -84,7 +85,7 @@ export async function POST(request: Request) {
     }
     if (!stager) return Response.json({ error: "WITNESS_STAGER_UNAVAILABLE" }, { status: 503 });
 
-    const walletClient = createWalletClient({ account: stager, transport: http(setryn.rpcUrl) });
+    const walletClient = createWalletClient({ account: stager, transport: devnetOperatorTransport(setryn.rpcUrl) });
     const args = [body.actionId as Hex, lifecycle.finalFixingReference, body.finalFixings as Hex] as const;
     await publicClient.simulateContract({ account: stager, address: executor, abi: exerciseWitnessAbi, functionName: "stageExerciseWitness", args });
     const hash = await walletClient.writeContract({

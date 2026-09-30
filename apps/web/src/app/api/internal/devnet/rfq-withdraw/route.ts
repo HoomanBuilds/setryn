@@ -1,6 +1,7 @@
 import { createPublicClient, createWalletClient, getAddress, http, keccak256, stringToHex, type Hex } from "viem";
 import { capacityCancelTypedData, privateRfqBookAbi } from "@/lib/internal-gateway/protocol";
 import { readLocalRuntime } from "@/lib/internal-gateway/runtime-server";
+import { devnetOperatorTransport } from "@/lib/internal-gateway/devnet-operator-transport";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,7 +16,7 @@ export async function POST(request: Request) {
     const setryn = await readLocalRuntime();
     const maker = getAddress(setryn.operator);
     const publicClient = createPublicClient({ transport: http(setryn.rpcUrl) });
-    const walletClient = createWalletClient({ account: maker, transport: http(setryn.rpcUrl) });
+    const walletClient = createWalletClient({ account: maker, transport: devnetOperatorTransport(setryn.rpcUrl) });
     const quote = await publicClient.readContract({
       address: setryn.privateRfqBook,
       abi: privateRfqBookAbi,

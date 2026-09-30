@@ -18,6 +18,7 @@ import {
 } from "@/lib/internal-gateway/protocol";
 import { runtimeMarketBySeries } from "@/lib/internal-gateway/runtime-markets";
 import { readLocalRuntime } from "@/lib/internal-gateway/runtime-server";
+import { devnetOperatorTransport } from "@/lib/internal-gateway/devnet-operator-transport";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -123,7 +124,7 @@ export async function POST(request: Request) {
     const setryn = await readLocalRuntime();
     const operator = getAddress(setryn.operator);
     const publicClient = createPublicClient({ transport: http(setryn.rpcUrl) });
-    const walletClient = createWalletClient({ account: operator, transport: http(setryn.rpcUrl) });
+    const walletClient = createWalletClient({ account: operator, transport: devnetOperatorTransport(setryn.rpcUrl) });
     const rfq = await publicClient.readContract({
       address: setryn.privateRfqBook,
       abi: privateRfqBookAbi,

@@ -27,6 +27,7 @@ import { deriveSeriesBookId, priceToTicks } from "@/lib/internal-gateway/runtime
 import { withDevnetMakerLock } from "@/lib/internal-gateway/devnet-maker-lock";
 import { readLocalRuntime } from "@/lib/internal-gateway/runtime-server";
 import { MARKETS } from "@/lib/terminal/markets";
+import { devnetOperatorTransport } from "@/lib/internal-gateway/devnet-operator-transport";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -158,7 +159,7 @@ export async function POST(request: Request) {
     if (markets.length === 0) return Response.json({ error: "MARKET_NOT_ONCHAIN_ENABLED" }, { status: 404 });
     const maker = getAddress(setryn.operator);
     const publicClient = createPublicClient({ transport: http(setryn.rpcUrl), pollingInterval: 250 });
-    const walletClient = createWalletClient({ account: maker, transport: http(setryn.rpcUrl) });
+    const walletClient = createWalletClient({ account: maker, transport: devnetOperatorTransport(setryn.rpcUrl) });
     const accountId = await publicClient.readContract({
       address: setryn.collateralVault,
       abi: vaultAbi,

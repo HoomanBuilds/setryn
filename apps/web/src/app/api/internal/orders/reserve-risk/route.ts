@@ -18,6 +18,7 @@ import {
 } from "@/lib/internal-gateway/protocol";
 import { runtimeMarketBySeries } from "@/lib/internal-gateway/runtime-markets";
 import { readLocalRuntime } from "@/lib/internal-gateway/runtime-server";
+import { devnetOperatorTransport } from "@/lib/internal-gateway/devnet-operator-transport";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,6 +49,14 @@ const vaultAbi = [
 ] as const;
 
 const riskEngineAbi = [
+  {
+    type: "error",
+    name: "RiskRequestExpired",
+    inputs: [
+      { name: "deadline", type: "uint64" },
+      { name: "currentTimestamp", type: "uint256" },
+    ],
+  },
   {
     type: "function",
     name: "reserveNewRisk",
@@ -301,7 +310,16 @@ export async function POST(request: Request) {
 
     const walletClient = createWalletClient({
       account: getAddress(setryn.operator),
-      transport: http(setryn.rpcUrl),
+      transport: devnetOperatorTransport(setryn.rpcUrl),
+    });
+    // Simulate first so a refusal carries the risk engine's revert reason into the server log.
+    await publicClient.simulateContract({
+      account: getAddress(setryn.operator),
+      blockTag: "pending",
+      address: setryn.portfolioRiskEngine,
+      abi: riskEngineAbi,
+      functionName: "reserveNewRisk",
+      args: [riskRequest, positions, observations],
     });
     const transactionHash = await walletClient.writeContract({
       account: getAddress(setryn.operator),
@@ -318,7 +336,9 @@ export async function POST(request: Request) {
       { admissionId, transactionHash },
       { headers: { "Cache-Control": "no-store" } },
     );
-  } catch {
+  } catch (error) {
+    // The client sees a stable message; the cause (revert name, RPC failure) stays in the server log.
+    console.error("[reserve-risk]", error instanceof Error ? error.message.split("\n").slice(0, 6).join(" ") : error);
     return Response.json({ error: "Risk reservation failed" }, { status: 422 });
   }
 }
