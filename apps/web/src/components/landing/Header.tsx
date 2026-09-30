@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useExperience } from "@/components/landing/Experience";
 import Menu from "@/components/landing/Menu";
 import SetrynMark from "@/components/landing/SetrynMark";
+import { ArbitrumMark } from "@/components/landing/ui/Chain";
 import { gsap, ScrollTrigger, useGSAP } from "@/lib/landing/gsap";
 import { PHASES } from "@/lib/landing/phases";
 import SoundToggle from "@/components/landing/ui/SoundToggle";
@@ -65,10 +66,17 @@ export default function Header() {
         data-scrolled={scrolled || undefined}
         data-hidden={stage === "intro" || undefined}
       >
-        <a href="#top" className={styles.brand} aria-label="Setryn, back to top" data-sfx="ui">
-          <SetrynMark className={styles.mark} />
-          <span>Setryn</span>
-        </a>
+        <div className={styles.start}>
+          <a href="#top" className={styles.brand} aria-label="Setryn, back to top" data-sfx="ui">
+            <SetrynMark className={styles.mark} />
+            <span>Setryn</span>
+          </a>
+          {/* The network, once the hero's own Arbitrum label has scrolled away */}
+          <a href="#network" className={styles.network} aria-label="Built for Arbitrum One" data-sfx="ui">
+            <ArbitrumMark size={20} />
+            <span className="label">Arbitrum One</span>
+          </a>
+        </div>
 
         <nav className={styles.phases} aria-label="Phases">
           {PHASES.map(({ id, label }, index) => (

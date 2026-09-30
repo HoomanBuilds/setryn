@@ -1,0 +1,41 @@
+.single,
+.pair {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  line-height: 0;
+}
+
+.flag {
+  display: block;
+  border-radius: 50%;
+}
+
+.letter {
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--ink-3);
+  color: var(--muted);
+  font-family: var(--font-mono), monospace;
+  font-size: 10px;
+}
+
+/* The quote tucks behind the base, ringed in the chip's own background */
+.quote,
+.base {
+  position: absolute;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--ring, var(--ink));
+  line-height: 0;
+}
+
+.quote {
+  right: 0;
+  bottom: 0;
+}
+
+.base {
+  top: 0;
+  left: 0;
+}

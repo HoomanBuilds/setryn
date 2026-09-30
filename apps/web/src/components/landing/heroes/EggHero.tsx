@@ -3,6 +3,7 @@
 import { useRef } from "react";
 import { useExperience } from "@/components/landing/Experience";
 import Button from "@/components/landing/ui/Button";
+import { ArbitrumMark } from "@/components/landing/ui/Chain";
 import { DECODE_CHARS, gsap, SplitText, useGSAP } from "@/lib/landing/gsap";
 import { sound } from "@/lib/landing/sound";
 import styles from "./EggHero.module.css";
@@ -140,7 +141,7 @@ export default function EggHero() {
               </div>
               {/* What the crack lets out: the position at expiry */}
               <div className={styles.inside} aria-hidden="true">
-                <span className="label">Fixed 26 Mar 2027, 08:00 UTC</span>
+                <span className="label">Fixed 26 Mar 2027, 16:00 London</span>
                 <span className={styles.insideLine}>Settled in USDC</span>
               </div>
               <svg className={styles.slash} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true">
@@ -164,14 +165,18 @@ export default function EggHero() {
             Risk with a date on it
           </p>
           <p className={styles.lede} data-hero-fade>
-            Setryn is an exchange for fixed-expiry forwards, options and strategies on Arbitrum. Each position is
-            cleared against USDC, managed to its expiry and settled from a published fixing.
+            Setryn is an exchange for fixed-expiry forwards and multi-leg strategies. Each position is cleared against
+            native USDC, managed to its expiry and settled from a published fixing.
           </p>
           <div className={styles.actions} data-hero-fade>
             <Button href="#how">How it works</Button>
             <a className={styles.down} href="#problem" aria-label="Scroll to the next section" data-sfx="ui">
               ↓
             </a>
+            <span className={`label ${styles.chain}`}>
+              <ArbitrumMark size={22} />
+              Launching on Arbitrum One
+            </span>
           </div>
         </div>
       </div>

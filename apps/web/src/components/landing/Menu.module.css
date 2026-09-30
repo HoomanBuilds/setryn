@@ -125,10 +125,22 @@
 }
 
 .mail {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   margin: 0;
   font-family: var(--font-arizona), serif;
   font-style: italic;
   font-size: 24px;
+}
+
+.chainMark {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(18, 170, 255, 0.4);
+  background: #213147;
 }
 
 .socials {

@@ -29,7 +29,7 @@
   margin-bottom: clamp(18px, 3vh, 30px);
 }
 
-.labels span {
+.labels > span {
   display: inline-flex;
   align-items: center;
   height: 30px;
@@ -39,8 +39,23 @@
   font-weight: 500;
 }
 
-.labels span:first-child {
+.labels > span:first-child {
   background: var(--mint);
+}
+
+/* The network chip: Arbitrum's mark on its navy, then the label on paper */
+.labels > .chain {
+  gap: 10px;
+  padding-left: 0;
+}
+
+.chain svg {
+  box-sizing: content-box;
+  width: 20px;
+  height: 20px;
+  padding: 4px;
+  border-right: 1px solid #000;
+  background: #213147;
 }
 
 .headline {

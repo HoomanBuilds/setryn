@@ -203,8 +203,15 @@
   transform-origin: center;
 }
 
+.columns a.marked {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .legal {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
   margin-top: clamp(64px, 7vw, 100px);
@@ -212,6 +219,53 @@
   border-top: 1px solid rgba(255, 255, 255, 0.12);
   color: rgba(245, 243, 239, 0.6);
   font-size: 12px;
+}
+
+.legalText {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+}
+
+/* The network lockup: Arbitrum's mark on its navy tile, then the name in the page's type */
+.builtOn {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text);
+  transition: opacity 0.2s;
+}
+
+.builtOn:hover {
+  opacity: 0.8;
+}
+
+.builtOnMark {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(18, 170, 255, 0.4);
+  background: #213147;
+}
+
+.builtOn > span:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.builtOn :global(.label) {
+  color: rgba(245, 243, 239, 0.55);
+  font-size: 9px;
+}
+
+.builtOn strong {
+  font-family: var(--font-display), sans-serif;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.01em;
 }
 
 @media (max-width: 900px) {
@@ -229,6 +283,11 @@
   }
 
   .legal {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .legalText {
     flex-direction: column;
   }
 }

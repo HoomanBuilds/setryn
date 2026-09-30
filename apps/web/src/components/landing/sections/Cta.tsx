@@ -15,7 +15,7 @@ export default function Cta() {
         </h2>
         <div className={styles.actions} data-reveal>
           <Button href={APP_LINKS.trade}>Start trading</Button>
-          <Button href="mailto:makers@setryn.example" variant="outline">
+          <Button href={APP_LINKS.maker} variant="outline">
             Make markets with us
           </Button>
         </div>

@@ -2,15 +2,50 @@
 
 import { useRef, useState, type FormEvent } from "react";
 import { Arrow } from "@/components/landing/ui/Button";
+import { ArbitrumMark, UsdcMark } from "@/components/landing/ui/Chain";
 import { APP_LINKS } from "@/lib/landing/app-links";
 import { gsap, useGSAP } from "@/lib/landing/gsap";
 import styles from "./Footer.module.css";
 
-const COLUMNS = [
-  { title: "Product", links: [["Protect", APP_LINKS.protect], ["Trade", APP_LINKS.trade], ["Make markets", APP_LINKS.maker], ["Receipts", APP_LINKS.receipts]] },
-  { title: "Protocol", links: [["Overview", "#top"], ["Risk and margin", "#top"], ["Fixing rules", "#top"], ["Execution modes", "#network"]] },
-  { title: "Company", links: [["About", "#top"], ["Field notes", "#field-notes"], ["Careers", "#top"], ["Brand", "#top"]] },
-  { title: "Social", links: [["X", "#top"], ["GitHub", "#top"], ["Discord", "#top"], ["Telegram", "#top"]] },
+type FooterLink = { label: string; href: string; mark?: "arbitrum" | "usdc" };
+
+/** Every link opens a real platform route, a section of this page, or the network's own site. */
+const COLUMNS: { title: string; links: FooterLink[] }[] = [
+  {
+    title: "Product",
+    links: [
+      { label: "Protect", href: APP_LINKS.protect },
+      { label: "Trade", href: APP_LINKS.trade },
+      { label: "Markets", href: APP_LINKS.markets },
+      { label: "Make markets", href: APP_LINKS.maker },
+    ],
+  },
+  {
+    title: "Protocol",
+    links: [
+      { label: "How it works", href: "#how" },
+      { label: "Execution modes", href: "#network" },
+      { label: "Risk and margin", href: "/portfolio/risk" },
+      { label: "Fixing and settlement", href: "/lifecycle" },
+    ],
+  },
+  {
+    title: "Platform",
+    links: [
+      { label: "Receipts", href: "/receipts" },
+      { label: "Developers", href: "/developers" },
+      { label: "Partners", href: "/partners" },
+      { label: "System status", href: "/status" },
+    ],
+  },
+  {
+    title: "Network",
+    links: [
+      { label: "Arbitrum One", href: "https://arbitrum.io", mark: "arbitrum" },
+      { label: "Native USDC", href: "https://www.circle.com/usdc", mark: "usdc" },
+      { label: "Field notes", href: "#field-notes" },
+    ],
+  },
 ];
 
 /** zk.email's annotated wordmark: dimension lines with handwritten-style labels. */
@@ -73,13 +108,24 @@ export default function Footer() {
             <div key={title}>
               <p className="label">{title}</p>
               <ul>
-                {links.map(([label, href]) => (
-                  <li key={label}>
-                    <a href={href} data-sfx="ui">
-                      {label}
-                    </a>
-                  </li>
-                ))}
+                {links.map(({ label, href, mark }) => {
+                  const external = href.startsWith("http");
+                  return (
+                    <li key={label}>
+                      <a
+                        href={href}
+                        className={mark ? styles.marked : undefined}
+                        data-sfx="ui"
+                        {...(external ? { target: "_blank", rel: "noreferrer" } : {})}
+                      >
+                        {mark === "arbitrum" && <ArbitrumMark size={18} />}
+                        {mark === "usdc" && <UsdcMark size={18} />}
+                        {label}
+                        {external && <span aria-hidden="true"> ↗</span>}
+                      </a>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           ))}
@@ -101,8 +147,19 @@ export default function Footer() {
       </div>
 
       <div className={`container ${styles.legal}`}>
-        <span>© 2026 Setryn Labs</span>
-        <span className={styles.credits}>Trading dated instruments carries a risk of loss.</span>
+        <a className={styles.builtOn} href="https://arbitrum.io" target="_blank" rel="noreferrer" data-sfx="ui">
+          <span className={styles.builtOnMark}>
+            <ArbitrumMark size={30} />
+          </span>
+          <span>
+            <span className="label">Built for</span>
+            <strong>Arbitrum One</strong>
+          </span>
+        </a>
+        <span className={styles.legalText}>
+          <span>© 2026 Setryn Labs</span>
+          <span className={styles.credits}>Trading dated instruments carries a risk of loss.</span>
+        </span>
       </div>
     </footer>
   );

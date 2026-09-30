@@ -4,12 +4,19 @@ import { useEffect, useRef } from "react";
 import { getLenis } from "@/components/landing/Experience";
 import { gsap, useGSAP } from "@/lib/landing/gsap";
 import { inkBlob } from "@/lib/landing/ink";
+import { ArbitrumMark } from "@/components/landing/ui/Chain";
 import { APP_LINKS } from "@/lib/landing/app-links";
 import { PHASES } from "@/lib/landing/phases";
 import { sound } from "@/lib/landing/sound";
 import styles from "./Menu.module.css";
 
-const SOCIALS = ["X", "GitHub", "Discord", "Telegram"];
+/** Platform surfaces beyond the app's front door; every one is a live route. */
+const PLATFORM_LINKS = [
+  { label: "Markets", href: APP_LINKS.markets },
+  { label: "Developers", href: "/developers" },
+  { label: "Partners", href: "/partners" },
+  { label: "Status", href: "/status" },
+];
 
 /** hatom's full-screen menu, opened by an ink stain spreading from the Menu button. */
 export default function Menu({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -120,19 +127,22 @@ export default function Menu({ open, onClose }: { open: boolean; onClose: () => 
         </div>
         <div className={styles.row}>
           <p className="label" data-menu-item>
-            Say hello
+            Built for
           </p>
         </div>
         <div className={styles.row}>
           <p className={styles.mail} data-menu-item>
-            hello@setryn.example
+            <span className={styles.chainMark}>
+              <ArbitrumMark size={26} />
+            </span>
+            Arbitrum One
           </p>
         </div>
         <ul className={styles.socials}>
-          {SOCIALS.map((name) => (
-            <li key={name} className={styles.row}>
-              <a href="#" data-menu-item data-sfx="ui">
-                {name} ↗
+          {PLATFORM_LINKS.map(({ label, href }) => (
+            <li key={label} className={styles.row}>
+              <a href={href} data-menu-item data-sfx="ui">
+                {label} →
               </a>
             </li>
           ))}

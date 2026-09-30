@@ -2,12 +2,17 @@
 
 import { useId, useState } from "react";
 import Button from "@/components/landing/ui/Button";
+import { APP_LINKS } from "@/lib/landing/app-links";
 import styles from "./Faq.module.css";
 
 const QUESTIONS = [
   {
     q: "What is Setryn?",
-    a: "An exchange and clearing protocol for dated risk on Arbitrum. It lists fixed-expiry forwards, options, rate and basis markets and multi-leg strategies, clears them against USDC, and manages each position until it settles.",
+    a: "An exchange and clearing protocol for dated risk, built for Arbitrum One. It trades fixed-expiry forwards, options, rate and basis markets and multi-leg strategies on one instrument model, clears them against native USDC, and manages each position until it settles.",
+  },
+  {
+    q: "Is it live on mainnet?",
+    a: "Not yet. The exchange runs end to end on a local devnet today. Next is a public release candidate on Arbitrum Sepolia with test assets, then a capped Arbitrum One launch with native USDC. No figure on this page is a mainnet balance or volume.",
   },
   {
     q: "Is it a perp DEX with privacy added?",
@@ -19,11 +24,15 @@ const QUESTIONS = [
   },
   {
     q: "What do I need as collateral?",
-    a: "Native USDC on Arbitrum. Most contracts are cash-settled in USDC, so the asset you are hedging does not need its own token on the chain.",
+    a: "Native USDC on Arbitrum One, issued by Circle rather than bridged. Most contracts are cash-settled in USDC, so the asset you are hedging, whether gold, euros or BTC, does not need its own token on the chain.",
   },
   {
     q: "How are fixing and settlement decided?",
-    a: "Each market publishes its benchmark, observation window, calendar and fallback rules before it lists. At expiry the position fixes from those rules and settles in USDC, and anyone can complete settlement from the committed state.",
+    a: "Each market publishes its benchmark, observation window, calendar and fallback rules before it lists. At expiry the position fixes from those rules and settles in USDC. Options are exercised at the holder's election, and anyone can complete settlement from the committed state.",
+  },
+  {
+    q: "What if an operator goes offline or pauses the market?",
+    a: "A guardian can pause new risk, but it cannot move funds, change a market's economics or block exits. Settlement and claims are permissionless, so existing positions and collateral always have a way to finish.",
   },
 ];
 
@@ -39,10 +48,10 @@ export default function Faq() {
           <h2 className={styles.title} data-reveal>
             Questions
           </h2>
-          <p data-reveal>Short answers to what treasuries, traders and makers ask first. The product overview goes deeper.</p>
+          <p data-reveal>Short answers to what treasuries, traders and makers ask first. The markets page lists every maturity in the preview.</p>
           <div data-reveal>
-            <Button href="#top" variant="pill">
-              Read the overview
+            <Button href={APP_LINKS.markets} variant="pill">
+              Browse the markets
             </Button>
           </div>
         </div>

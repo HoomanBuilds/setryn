@@ -58,11 +58,17 @@
   --bg: 36, 32, 31;
 }
 
+.start {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  justify-self: start;
+}
+
 .brand {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  justify-self: start;
   font-family: var(--font-display), sans-serif;
   font-size: 18px;
   font-weight: 500;
@@ -72,6 +78,37 @@
 .mark {
   width: 22px;
   height: auto;
+}
+
+/* A quiet network pill beside the mark, in the section's own ink */
+.network {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 11px 0 5px;
+  border: 1px solid color-mix(in srgb, var(--fg) 22%, transparent);
+  border-radius: 999px;
+  white-space: nowrap;
+  transition:
+    opacity 0.4s var(--ease-out),
+    translate 0.4s var(--ease-out),
+    border-color 0.3s;
+}
+
+.network :global(.label) {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+}
+
+.network:hover {
+  border-color: #12aaff;
+}
+
+.header:not([data-scrolled]) .network {
+  opacity: 0;
+  translate: -6px 0;
+  pointer-events: none;
 }
 
 /* hatom's phase dots: 5 small dots, the active one lime and glowing */
@@ -231,6 +268,12 @@
   }
 
   .phases {
+    display: none;
+  }
+}
+
+@media (max-width: 1080px) {
+  .network {
     display: none;
   }
 }

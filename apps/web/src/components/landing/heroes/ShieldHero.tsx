@@ -3,6 +3,7 @@
 import { useRef } from "react";
 import { useExperience } from "@/components/landing/Experience";
 import Button from "@/components/landing/ui/Button";
+import { ArbitrumMark } from "@/components/landing/ui/Chain";
 import { DECODE_CHARS, gsap, ScrollTrigger, SplitText, useGSAP } from "@/lib/landing/gsap";
 import { inkBlob } from "@/lib/landing/ink";
 import { sound } from "@/lib/landing/sound";
@@ -164,7 +165,7 @@ export default function ShieldHero() {
         .fromTo(lineB, { x: () => room(lineB) }, { x: () => room(lineB) / 2, duration: 0.6 }, 0)
         .fromTo(q(`.${styles.picture}`), { scale: 1.12 }, { scale: 1, duration: 1 }, 0)
         .fromTo(q(`.${styles.wordmark}`), { scale: 1.35, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.45, ease: "power2.out" }, 0.3)
-        .to(q(`.${styles.kicker} span`), { yPercent: -120, duration: 0.25 }, 0.5);
+        .to(q(`.${styles.kicker} > *`), { yPercent: -120, duration: 0.25 }, 0.5);
 
       return cleanup;
     },
@@ -176,7 +177,7 @@ export default function ShieldHero() {
     () => {
       if (stage === "intro" || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
       const q = gsap.utils.selector(root);
-      const kicker = q<HTMLElement>(`.${styles.kicker} span`)[0];
+      const kicker = q<HTMLElement>("[data-kicker-text]")[0];
       gsap
         .timeline({ delay: 0.3, defaults: { ease: "power3.out" } })
         .fromTo(q(`.${styles.painting}`), { scale: 1.2 }, { scale: 1, duration: 2.6, ease: "expo.out" }, 0)
@@ -222,7 +223,12 @@ export default function ShieldHero() {
 
         <div className={`container ${styles.content}`}>
           <p className={styles.kicker}>
-            <span>On Arbitrum One</span>
+            <span className={styles.kickerMark}>
+              <ArbitrumMark size={28} />
+            </span>
+            <span className={styles.kickerText} data-kicker-text>
+              Launching on Arbitrum One
+            </span>
           </p>
           <h1 className={styles.title}>
             <span data-line="a">Private exchange</span>
@@ -233,8 +239,9 @@ export default function ShieldHero() {
         <div className={`container ${styles.bar}`}>
           <div className={styles.intro} data-hero-fade>
             <p>
-              Lock in a price for a future date. Setryn lists fixed-expiry forwards, options and multi-leg strategies,
-              lets public books and private quotes compete, and clears every position against USDC until it settles.
+              Lock in a price for a future date. Setryn lists fixed-expiry forwards and multi-leg carry, basis and
+              funding strategies, lets public books and private quotes compete, and clears every position against native
+              USDC until it settles.
             </p>
             <div className={styles.actions}>
               <Button href="#how">How it works</Button>

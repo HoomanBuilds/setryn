@@ -119,12 +119,31 @@
 
 /* aztec's highlighted pixel-type kicker */
 .kicker {
+  display: flex;
+  align-items: stretch;
   align-self: flex-start;
   overflow: hidden;
   margin: 0 0 clamp(14px, 2vh, 24px);
 }
 
-.kicker span {
+/* Arbitrum's logomark on its own navy tile, butted against the lime label */
+.kickerMark {
+  --tile: calc(clamp(15px, 1.5vw, 22px) * 1.2 + 4px);
+  position: relative;
+  flex-shrink: 0;
+  width: var(--tile);
+  height: var(--tile);
+  background: #213147;
+}
+
+.kickerMark svg {
+  position: absolute;
+  inset: -8%;
+  width: 116%;
+  height: 116%;
+}
+
+.kickerText {
   display: inline-block;
   padding: 1px 6px 3px;
   background: var(--lime);

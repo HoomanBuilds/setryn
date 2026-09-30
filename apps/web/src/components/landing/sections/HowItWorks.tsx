@@ -21,7 +21,7 @@ const STEPS = [
     body: "Book depth, maker quotes and RFQ responses appear together with their all-in price, fees, size, expiry and settlement terms. Indicative prices are labelled and never counted as firm depth.",
     icon: "/zkemail/RegexIcon.png",
     who: "Makers quote",
-    sees: "3 firm quotes, best 3,412.50",
+    sees: "3 firm quotes, best 4,232.10",
   },
   {
     name: "Settle",
@@ -40,17 +40,18 @@ const USE_CASES = [
   },
   {
     title: "Treasury payables",
-    body: "A DAO that pays contributors in euros fixes the EUR/USDC rate for each payroll date in advance.",
+    body: "A DAO that pays contributors in euros fixes the EUR/USD rate for each payroll date in advance, settled in USDC.",
     image: "/zkemail/WhistleblowLogo.png",
   },
 ];
 const STEP_SECONDS = 5.5;
-const QUOTES = ["Maker A 3,409.80", "Maker B 3,412.50", "Maker C 3,411.10"];
+/* The hero's order, sell ETH forward to 26 Mar 2027, quoted around that maturity's preview mark (4,231.90). */
+const QUOTES = ["Maker A 4,229.40", "Maker B 4,232.10", "Maker C 4,230.60"];
 const RECEIPT = `receipt  0x7c1e…b40a
-order    0x9f2c…e41a
+market   ETH 26MAR27 forward
 quote    Maker B, firm
-price    3,412.50 USDC
-fixing   26 Mar 2027 08:00 UTC
+price    4,232.10 USDC
+fixing   26 Mar 2027 16:00 LDN
 payout   +18,420.00 USDC
 fees     61.42 USDC`;
 
@@ -167,10 +168,10 @@ export default function HowItWorks() {
               <p>{body}</p>
             </article>
           ))}
-          <a href="mailto:hello@setryn.example" className={`${styles.case} ${styles.caseOpen}`} data-reveal data-sfx="ui" data-cursor="Email">
+          <a href="/protect/new" className={`${styles.case} ${styles.caseOpen}`} data-reveal data-sfx="ui" data-cursor="Protect">
             <span className={styles.plus} aria-hidden="true" />
             <h4>Your exposure</h4>
-            <p>Receivables, inventory, debt, a fund&apos;s basis trade or a maker&apos;s quote surface. Tell us what you need to price.</p>
+            <p>Receivables, inventory, debt, a fund&apos;s basis trade or a maker&apos;s quote surface. Describe it in Protect and see what the hedge costs.</p>
           </a>
         </div>
       </div>

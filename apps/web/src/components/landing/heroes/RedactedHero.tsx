@@ -3,6 +3,7 @@
 import { useRef, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useExperience } from "@/components/landing/Experience";
 import Button from "@/components/landing/ui/Button";
+import { ArbitrumMark } from "@/components/landing/ui/Chain";
 import { DECODE_CHARS, gsap, SplitText, useGSAP } from "@/lib/landing/gsap";
 import { sound } from "@/lib/landing/sound";
 import styles from "./RedactedHero.module.css";
@@ -123,7 +124,7 @@ export default function RedactedHero() {
     () => {
       if (stage === "intro" || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
       const q = gsap.utils.selector(root);
-      const labels = q<HTMLElement>(`.${styles.labels} span`);
+      const labels = q<HTMLElement>(`.${styles.labels} [data-scramble]`);
       gsap
         .timeline({ delay: 0.3, defaults: { ease: "power3.out" } })
         .to(q(".split-word"), { yPercent: 0, duration: 1.1, stagger: 0.07 }, 0.2)
@@ -194,8 +195,13 @@ export default function RedactedHero() {
       <div className={styles.stage}>
         <div className={`container ${styles.top}`}>
           <div className={styles.labels}>
-            <span className="label">Private dated-risk exchange</span>
-            <span className="label">On Arbitrum One</span>
+            <span className="label">
+              <span data-scramble>Private dated-risk exchange</span>
+            </span>
+            <span className={`label ${styles.chain}`}>
+              <ArbitrumMark size={20} />
+              <span data-scramble>Launching on Arbitrum One</span>
+            </span>
           </div>
           <div className={styles.headline}>
             <h1 className={styles.title}>
@@ -214,7 +220,7 @@ export default function RedactedHero() {
             <div className={styles.side} data-hero-fade>
               <p>
                 Setryn is an exchange for risk with a date on it. Enter what you need to buy or sell and when, ask the
-                makers you choose for a firm price, and clear the hedge against USDC.
+                makers you choose for a firm price, and clear the hedge against native USDC.
               </p>
               <div className={styles.actions}>
                 <Button href="#how">How it works</Button>

@@ -55,11 +55,11 @@ const ROLLOUT_STEPS = [
   },
   {
     title: "Roll or exercise",
-    body: "Move to a new expiry or exercise an option, with the cost shown before you commit.",
+    body: "Move to a new expiry, or exercise an option at the holder's election, with the cost shown before you commit.",
   },
   {
     title: "Fix and settle",
-    body: "At expiry the position fixes from its published rules and pays out in USDC. Anyone can complete settlement, even if an operator goes offline.",
+    body: "At expiry the position fixes from its published rules and pays out in USDC. Anyone can complete settlement from committed state, even if an operator goes offline.",
   },
 ];
 

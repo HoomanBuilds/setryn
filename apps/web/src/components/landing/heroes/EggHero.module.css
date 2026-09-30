@@ -218,6 +218,18 @@
   gap: 14px;
 }
 
+/* The network, set beside the actions in the egg's cream */
+.chain {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: 12px;
+  padding-left: 22px;
+  border-left: 1px solid rgba(241, 225, 212, 0.25);
+  color: rgba(241, 225, 212, 0.8);
+  white-space: nowrap;
+}
+
 /* dymension's round arrow button */
 .down {
   display: grid;
@@ -260,6 +272,17 @@
 
   .insideLine {
     font-size: 12vw;
+  }
+
+  .actions {
+    flex-wrap: wrap;
+  }
+
+  .chain {
+    flex-basis: 100%;
+    margin: 6px 0 0;
+    padding: 0;
+    border: 0;
   }
 }
 

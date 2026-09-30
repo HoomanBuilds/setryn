@@ -1,15 +1,32 @@
 "use client";
 
 import { useRef } from "react";
+import { ArbitrumMark, UnderlyingMark, UsdcMark } from "@/components/landing/ui/Chain";
 import PhaseTag from "@/components/landing/ui/PhaseTag";
 import { gsap, ScrollTrigger, useGSAP } from "@/lib/landing/gsap";
 import { sound } from "@/lib/landing/sound";
 import styles from "./Network.module.css";
 
 const STATS = [
-  { value: 6, decimals: 0, prefix: "", label: "Market families: crypto, FX, commodities, indices, rates and events" },
+  { value: 16, decimals: 0, prefix: "", label: "Dated markets in the preview, across BTC, ETH, ARB, EUR/USD and gold" },
   { value: 8, decimals: 0, prefix: "", label: "Execution modes, from order books to sealed auctions" },
-  { value: 9, decimals: 0, prefix: "", label: "Order types, including IOC, FOK, GTD and post-only" },
+  { value: 9, decimals: 0, prefix: "", label: "Order policies, including IOC, FOK, GTD and post-only" },
+];
+
+/** The preview catalog's five families, each opening its terminal at a listed maturity. */
+const MARKETS = [
+  { underlying: "BTC", name: "Yield carry", href: "/trade/BTC-YC-24DEC26" },
+  { underlying: "ETH", name: "Funding carry", href: "/trade/ETH-FC-24DEC26" },
+  { underlying: "ARB", name: "Dated basis", href: "/trade/ARB-BS-26MAR27" },
+  { underlying: "EUR/USD", name: "Non-deliverable forward", href: "/trade/EURUSD-FW-30DEC26" },
+  { underlying: "XAU/USD", name: "Gold forward", href: "/trade/XAUUSD-FW-29JUN27" },
+];
+
+/** Where Setryn is on its way to Arbitrum One. Nothing here is a mainnet balance or volume. */
+const ROLLOUT = [
+  { network: "Local devnet", state: "Running now", current: true },
+  { network: "Arbitrum Sepolia", state: "Public release candidate", current: false },
+  { network: "Arbitrum One", state: "Capped launch", current: false },
 ];
 
 /** Who works the market besides traders, each on one of hatom's planets. */
@@ -105,6 +122,60 @@ export default function Network() {
               <span className="label">{label}</span>
             </div>
           ))}
+        </div>
+
+        {/* The chain and the collateral: Arbitrum One and native USDC, then the markets that settle there */}
+        <div className={styles.chain} data-chain-block>
+          <div className={styles.chainLead} data-reveal>
+            <span className={styles.chainMark}>
+              <ArbitrumMark size={120} />
+            </span>
+            <div className={styles.chainCopy}>
+              <p className="label">Settlement layer</p>
+              <h3 className={styles.chainTitle}>Built for Arbitrum One</h3>
+              <p className={styles.chainBody}>
+                Every position clears and settles on Arbitrum One against native USDC, issued by Circle rather than bridged.
+                Fixings, payouts and receipts are onchain events that anyone can replay.
+              </p>
+              <ul className={styles.chainFacts}>
+                <li>
+                  <ArbitrumMark size={18} />
+                  Arbitrum One
+                </li>
+                <li>
+                  <UsdcMark size={18} />
+                  Native USDC collateral
+                </li>
+                <li>Cash-settled at a published fixing</li>
+              </ul>
+            </div>
+          </div>
+
+          <div className={styles.chainSide} data-reveal>
+            <p className="label">Markets in the preview</p>
+            <ul className={styles.markets}>
+              {MARKETS.map(({ underlying, name, href }) => (
+                <li key={underlying}>
+                  <a href={href} className={styles.market} data-sfx="ui">
+                    <UnderlyingMark underlying={underlying} size={22} />
+                    <strong>{underlying}</strong>
+                    <span>{name}</span>
+                    <span className={styles.marketArrow} aria-hidden="true">
+                      →
+                    </span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+            <ol className={styles.rollout} aria-label="Rollout">
+              {ROLLOUT.map(({ network, state, current }) => (
+                <li key={network} data-current={current || undefined}>
+                  <span className="label">{state}</span>
+                  <strong>{network}</strong>
+                </li>
+              ))}
+            </ol>
+          </div>
         </div>
 
         <div className={styles.lower}>

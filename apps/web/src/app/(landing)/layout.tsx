@@ -6,7 +6,7 @@ import "./landing.css";
 export const metadata: Metadata = {
   title: "Setryn: the private exchange for dated risk",
   description:
-    "Setryn is a private dated-risk exchange on Arbitrum. Trade fixed-expiry forwards, options and multi-leg strategies, compare public and private liquidity, clear against USDC and verify every settlement from its receipt.",
+    "Setryn is a private dated-risk exchange built for Arbitrum One. Trade fixed-expiry forwards, options and multi-leg strategies, compare public and private liquidity, clear against native USDC and verify every settlement from its receipt.",
 };
 
 export const viewport: Viewport = {
