@@ -197,6 +197,22 @@ export const NAV_GROUPS: NavGroup[] = [
         description: "Organizations, roles, approvals, and privacy",
         keywords: "preferences account security",
       },
+      {
+        id: "developers",
+        label: "Developers",
+        prefix: "/developers",
+        href: "/developers",
+        description: "API keys, SDK, request logs, and signing",
+        keywords: "api sdk keys integration openapi",
+      },
+      {
+        id: "partners",
+        label: "Partners",
+        prefix: "/partners",
+        href: "/partners",
+        description: "Embedded widgets, webhooks, attribution, and usage",
+        keywords: "embed widget webhook attribution revenue",
+      },
     ],
   },
 ];
