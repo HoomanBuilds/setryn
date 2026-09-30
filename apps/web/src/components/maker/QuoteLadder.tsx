@@ -41,7 +41,7 @@ export function QuoteLadder({
           </>
         }
       />
-      <div className="scroll-thin overflow-x-auto">
+      <div role="region" tabIndex={0} aria-label="Quote surface" className="focus-ring scroll-thin overflow-x-auto">
         <table className="w-full min-w-[880px] border-collapse text-xs whitespace-nowrap">
           <caption className="sr-only">Simulated quote surface and capacity ladder</caption>
           <thead>

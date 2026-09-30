@@ -85,7 +85,7 @@ export function LibraryPanel({
         <span>Package</span>
         <span className="text-right">Mark / 24h</span>
       </div>
-      <ul className="scroll-thin min-h-0 flex-1 overflow-y-auto" aria-label="Listed package templates">
+      <ul tabIndex={0} className="focus-ring scroll-thin min-h-0 flex-1 overflow-y-auto" aria-label="Listed package templates">
         {visible.map((market) => {
           const selected = market.id === marketId;
           return (

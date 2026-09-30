@@ -263,7 +263,11 @@ export function RfqBlotter({
           </div>
           <div role="rowgroup">
             {views.length === 0
-              ? empty
+              ? (
+                  <div role="row">
+                    <div role="cell">{empty}</div>
+                  </div>
+                )
               : views.map((view, index) => (
                   <BlotterRow
                     key={view.request.id}

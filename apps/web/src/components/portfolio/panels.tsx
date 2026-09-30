@@ -122,7 +122,12 @@ export function Aggregate({
 /** Closes a plane at the foot of its column, so a short book still reads as bounded. */
 export function PlaneFooter({ children }: { children: ReactNode }) {
   return (
-    <div className="no-scrollbar flex h-8 shrink-0 items-center gap-5 overflow-x-auto border-t border-line px-3 lg:px-4">
+    <div
+      role="region"
+      tabIndex={0}
+      aria-label="Panel summary"
+      className="focus-ring no-scrollbar flex h-8 shrink-0 items-center gap-5 overflow-x-auto border-t border-line px-3 lg:px-4"
+    >
       {children}
     </div>
   );

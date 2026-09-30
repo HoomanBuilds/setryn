@@ -104,7 +104,7 @@ export function RfqDetail({ view, now }: { view: RfqView; now: number }) {
 
   return (
     <div key={request.id} className={`flex min-h-0 flex-1 flex-col ${motion.fade}`}>
-      <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
+      <div role="region" tabIndex={0} aria-label="RFQ detail" className="focus-ring scroll-thin min-h-0 flex-1 overflow-y-auto">
         <div className="border-b border-line px-4 pt-3.5 pb-3">
           <div className="flex items-center gap-2">
             <StatusChip view={view} />

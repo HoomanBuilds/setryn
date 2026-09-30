@@ -92,7 +92,8 @@ function Level({
 }) {
   const depth = `${Math.max(2, (row.cumulative / maxCumulative) * 100)}%`;
   const ask = row.side === "ASK";
-  const tone = ask ? "text-down" : "text-up";
+  // Indicative rows stay legible: a muted price and a hatched depth fill mark them, not reduced opacity.
+  const tone = !row.executable ? "text-dim" : ask ? "text-down" : "text-up";
   const fill = ask ? "bg-down/12" : "bg-up/12";
   const describe = `${SOURCE_LABEL[row.source]}, ${FIRMNESS_LABEL[row.firmness]}${
     row.ttlSeconds ? `, quote valid ${row.ttlSeconds}s` : ""
@@ -100,15 +101,27 @@ function Level({
 
   const cells = (
     <>
-      <span aria-hidden="true" className={`absolute inset-y-px right-0 ${fill}`} style={{ width: depth }} />
+      <span
+        aria-hidden="true"
+        className={`absolute inset-y-px right-0 ${row.executable ? fill : ""}`}
+        style={
+          row.executable
+            ? { width: depth }
+            : {
+                width: depth,
+                backgroundImage:
+                  "repeating-linear-gradient(135deg, rgba(242,240,237,0.07) 0 3px, transparent 3px 6px)",
+              }
+        }
+      />
       <span className="relative flex justify-center text-off" title={describe}>
         <SourceMark source={row.source} />
       </span>
       <span className={`tnum relative truncate font-mono text-xs ${tone}`}>{formatPrice(row.price, market)}</span>
-      <span className="tnum relative truncate text-right font-mono text-xs text-dim">
+      <span className="tnum relative truncate text-right font-mono text-xs text-ink">
         {sizeLabel(row.lots, unit, market)}
       </span>
-      <span className="tnum relative truncate text-right font-mono text-xs text-faint">
+      <span className="tnum relative truncate text-right font-mono text-xs text-dim">
         {sizeLabel(row.cumulative, unit, market)}
       </span>
     </>
@@ -116,7 +129,7 @@ function Level({
 
   if (!row.executable) {
     return (
-      <div className={`${ROW} relative opacity-40`} title={`Indicative. ${describe}. Not executable depth.`}>
+      <div className={`${ROW} relative italic`} title={`Indicative. ${describe}. Not executable depth.`}>
         {cells}
       </div>
     );
@@ -221,7 +234,7 @@ function TradesTape({ market, trades }: { market: PackageMarket; trades: Preview
         <span className="text-right">Size (lots)</span>
         <span className="text-right">Time</span>
       </div>
-      <ol className="scroll-thin min-h-0 flex-1 overflow-y-auto" aria-label="Recent trades">
+      <ol tabIndex={0} className="focus-ring scroll-thin min-h-0 flex-1 overflow-y-auto" aria-label="Recent trades">
         {trades.map((trade, index) => (
           <li
             key={trade.id}
@@ -270,7 +283,7 @@ function BookNotes() {
             <p className="flex items-center gap-2">
               <SourceMark source="SOLVER_FIRM" /> Solver firm quotes, signed and time limited.
             </p>
-            <p className="text-faint">Faded rows are indicative and never count as executable depth.</p>
+            <p className="text-faint">Hatched rows are indicative and never count as executable depth.</p>
           </div>
         </>
       ) : null}

@@ -111,7 +111,7 @@ export function AttemptDetail({ attempt }: { attempt: ActivityAttemptView }) {
 
   return (
     <div key={attempt.id} className={`flex min-h-0 flex-1 flex-col ${motion.fade}`}>
-      <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
+      <div role="region" tabIndex={0} aria-label="Attempt detail" className="focus-ring scroll-thin min-h-0 flex-1 overflow-y-auto">
         <div className="border-b border-line px-4 pt-3.5 pb-3">
           <div className="flex items-center gap-2">
             <Chip tone={RESULT_TONE[attempt.result]} dot>
@@ -206,7 +206,7 @@ export function OrderDetail({
 
   return (
     <div key={order.id} className={`flex min-h-0 flex-1 flex-col ${motion.fade}`}>
-      <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
+      <div role="region" tabIndex={0} aria-label="Order detail" className="focus-ring scroll-thin min-h-0 flex-1 overflow-y-auto">
         <div className="border-b border-line px-4 pt-3.5 pb-3">
           <div className="flex items-center gap-2">
             <Chip tone={ORDER_STATE_TONE[order.state]} dot live={open}>

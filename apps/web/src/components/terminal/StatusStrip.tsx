@@ -33,12 +33,14 @@ export function StatusStrip() {
         : reservedShare >= 0.7
           ? { label: "Watch", tone: "text-brand" }
           : { label: "Healthy", tone: "text-up" };
-  const tape = markets.map((market) => {
+  // The ticker loops by repeating its tape; the repeat is hidden from assistive technology and the tab order.
+  const tape = (repeat: boolean) => markets.map((market) => {
     const change = market.priorNetPrice !== 0 ? ((market.netPrice - market.priorNetPrice) / Math.abs(market.priorNetPrice)) * 100 : 0;
     return (
       <Link
         key={market.id}
         href={`/trade/${market.id}`}
+        tabIndex={repeat ? -1 : undefined}
         className="flex shrink-0 items-baseline gap-1.5 px-3 text-[11px] text-faint transition-colors hover:text-ink"
       >
         <span className="text-dim">{market.id}</span>
@@ -95,9 +97,9 @@ export function StatusStrip() {
       </div>
       <div className="ticker-mask relative min-w-0 flex-1 overflow-hidden" aria-label="Market ticker">
         <div className="ticker-track flex w-max">
-          {tape}
+          {tape(false)}
           <div aria-hidden="true" className="flex">
-            {tape}
+            {tape(true)}
           </div>
         </div>
       </div>

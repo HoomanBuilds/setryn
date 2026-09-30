@@ -199,7 +199,11 @@ export function MarketsDirectory() {
             </span>
           </div>
 
-          <dl className="no-scrollbar -mx-3 flex items-stretch gap-0 overflow-x-auto px-3 lg:mx-0 lg:ml-auto lg:px-0">
+          <dl
+            tabIndex={0}
+            aria-label="Market totals"
+            className="focus-ring no-scrollbar -mx-3 flex items-stretch gap-0 overflow-x-auto px-3 lg:mx-0 lg:ml-auto lg:px-0"
+          >
             <BoardStat label="Listed" value={String(markets.length)} />
             <BoardStat
               label="Breadth"
@@ -350,7 +354,11 @@ export function MarketsDirectory() {
           </div>
 
           {visible.length > 0 ? (
-            <footer className="no-scrollbar sticky bottom-0 z-10 flex h-8 shrink-0 items-center gap-5 overflow-x-auto border-t border-line bg-panel px-3">
+            <footer
+              tabIndex={0}
+              aria-label="Directory summary"
+              className="focus-ring no-scrollbar sticky bottom-0 z-10 flex h-8 shrink-0 items-center gap-5 overflow-x-auto border-t border-line bg-panel px-3"
+            >
               <Aggregate label="Shown" value={`${visible.length} of ${markets.length}`} />
               <Aggregate label="Firm depth" value={`${formatLots(summary.firmDepthLots)} lots`} />
               <Aggregate label="Open interest" value={`${formatLots(summary.openInterestLots)} lots`} />

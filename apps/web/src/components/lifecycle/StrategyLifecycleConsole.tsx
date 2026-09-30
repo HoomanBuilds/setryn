@@ -219,7 +219,7 @@ function StrategyList({
         <SectionLabel>Active packages</SectionLabel>
         <span className="tnum font-mono text-xs text-off">{strategies.length}</span>
       </div>
-      <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
+      <div role="region" tabIndex={0} aria-label="Strategy detail" className="focus-ring scroll-thin min-h-0 flex-1 overflow-y-auto">
         <div className="flex h-8 items-center justify-between border-b border-line px-3">
           <span className="text-[11px] uppercase text-faint">Runtime positions</span>
           <span className="tnum font-mono text-[11px] text-off">{runtimeCount}</span>
@@ -577,7 +577,7 @@ function BoundariesPanel({ strategy }: { strategy: LifecycleStrategy }) {
 function OperationsRail({ strategy }: { strategy: LifecycleStrategy }) {
   const nextBoundary = strategy.boundaries[0];
   return (
-    <aside className="border-t border-line bg-panel xl:min-h-0 xl:overflow-y-auto xl:border-t-0">
+    <aside tabIndex={0} aria-label="Lifecycle actions" className="focus-ring border-t border-line bg-panel xl:min-h-0 xl:overflow-y-auto xl:border-t-0">
       <section className="border-b border-line">
         <div className="flex h-10 items-center gap-2 border-b border-line px-3">
           <Gauge size={15} aria-hidden="true" className="text-brand" />

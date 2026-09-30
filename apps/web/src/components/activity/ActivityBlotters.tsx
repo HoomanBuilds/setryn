@@ -48,6 +48,17 @@ function HeaderRow({ grid, cells }: { grid: string; cells: Array<{ label: string
   );
 }
 
+/** Keeps an empty state, and any action in it, inside the table's row structure. */
+function EmptyRow({ children }: { children: ReactNode }) {
+  return (
+    <div role="rowgroup">
+      <div role="row">
+        <div role="cell">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 function DayHeader({ label, meta }: { label: string; meta: ReactNode }) {
   return (
     <div
@@ -256,7 +267,7 @@ export function FillsBlotter({
             <HeaderRow grid={FILL_GRID} cells={FILL_HEAD} />
           </div>
           {attempts.length === 0
-            ? empty
+            ? <EmptyRow>{empty}</EmptyRow>
             : groups.map((group) => {
                 const lots = group.rows.reduce((sum, row) => sum + row.filledLots, 0);
                 const fees = group.rows.reduce((sum, row) => sum + row.feeAmount, 0);
@@ -493,7 +504,7 @@ export function OrdersBlotter({
             <HeaderRow grid={ORDER_GRID} cells={ORDER_HEAD} />
           </div>
           {orders.length === 0
-            ? empty
+            ? <EmptyRow>{empty}</EmptyRow>
             : groups.map((group) => {
                 const filled = group.rows.filter((row) => row.state === "FILLED").length;
                 return (

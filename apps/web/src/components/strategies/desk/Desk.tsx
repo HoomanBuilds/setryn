@@ -557,7 +557,7 @@ export function TabBody({
   className?: string;
 }) {
   return (
-    <div id={`${idBase}-panel`} role="tabpanel" className={`${styles.fade} min-h-0 ${className}`}>
+    <div id={`${idBase}-panel`} role="tabpanel" tabIndex={0} className={`focus-ring ${styles.fade} min-h-0 ${className}`}>
       {children}
     </div>
   );

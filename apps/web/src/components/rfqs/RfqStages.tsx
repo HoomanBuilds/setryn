@@ -24,7 +24,11 @@ export function RfqStages({
   className?: string;
 }) {
   return (
-    <ol className={`no-scrollbar flex min-w-0 items-center gap-1 overflow-x-auto ${className}`} aria-label="RFQ stages">
+    <ol
+      tabIndex={0}
+      className={`focus-ring no-scrollbar flex min-w-0 items-center gap-1 overflow-x-auto ${className}`}
+      aria-label="RFQ stages"
+    >
       {STAGES.map((stage, index) => {
         const state = states[stage.id] ?? "upcoming";
         return (

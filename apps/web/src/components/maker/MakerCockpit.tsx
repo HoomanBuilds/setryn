@@ -64,7 +64,7 @@ function SeriesTabs({
             </span>
             <span className="flex items-center justify-between gap-2 text-[11px]">
               <span className="truncate text-faint">{item.template}</span>
-              <span className="tnum shrink-0 font-mono text-off">{item.expiry}</span>
+              <span className="tnum shrink-0 font-mono text-faint">{item.expiry}</span>
             </span>
             {risk ? (
               <span className="flex items-center gap-2 text-[10px]">

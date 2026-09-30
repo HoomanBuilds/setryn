@@ -293,7 +293,7 @@ export function Inventory({ selected }: { selected: string }) {
   return (
     <Panel label="Inventory discipline" delay={140} className="min-w-0">
       <PanelHead title="Inventory and hedges" tools={<Chip>Simulated</Chip>} />
-      <div className="scroll-thin overflow-x-auto">
+      <div role="region" tabIndex={0} aria-label="Inventory limits" className="focus-ring scroll-thin overflow-x-auto">
         <table className="w-full min-w-[520px] border-collapse text-xs whitespace-nowrap">
           <thead>
             <tr className="border-b border-line">

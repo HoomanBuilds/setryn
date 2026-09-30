@@ -208,7 +208,7 @@ export function AuctionDetail({
 
   return (
     <div key={record.id} className={`flex min-h-0 flex-1 flex-col ${motion.fade}`}>
-      <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
+      <div role="region" tabIndex={0} aria-label="Auction detail" className="focus-ring scroll-thin min-h-0 flex-1 overflow-y-auto">
         <div className="border-b border-line px-3 pt-3 pb-3">
           <div className="flex flex-wrap items-center gap-1.5">
             <AuctionStatusChip status={record.version.status} />

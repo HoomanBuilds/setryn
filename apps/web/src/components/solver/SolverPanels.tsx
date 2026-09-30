@@ -129,7 +129,7 @@ function Ladder({ plan, market }: { plan: RoutePlan; market: PackageMarket }) {
   const maxLots = Math.max(1, ...plan.fills.map((fill) => fill.lots), ...plan.exclusions.map((entry) => entry.lots));
   const cumulative = plan.fills.reduce<number[]>((running, fill) => [...running, (running[running.length - 1] ?? 0) + fill.lots], []);
   return (
-    <div className="scroll-thin overflow-x-auto">
+    <div role="region" tabIndex={0} aria-label="Route fill ladder" className="focus-ring scroll-thin overflow-x-auto">
       <table className="w-full min-w-[560px] border-collapse text-xs">
         <thead>
           <tr className="border-b border-line">
@@ -448,7 +448,7 @@ export function PerformancePanel({ performance }: { performance: SolverPerforman
           </div>
         </div>
         <div className="min-w-0">
-          <div className="scroll-thin overflow-x-auto">
+          <div role="region" tabIndex={0} aria-label="Route comparison" className="focus-ring scroll-thin overflow-x-auto">
             <table className="w-full min-w-[380px] border-collapse text-xs">
               <thead>
                 <tr className="border-b border-line">

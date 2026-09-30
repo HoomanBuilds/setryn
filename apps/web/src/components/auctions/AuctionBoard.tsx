@@ -339,7 +339,12 @@ function History({
           <ProvenanceChip value="MODELED" />
         </span>
       </div>
-      <div className="scroll-thin max-h-[420px] min-h-0 flex-1 overflow-auto">
+      <div
+        id="auction-history-panel"
+        role="tabpanel"
+        aria-label="Auction history rounds"
+        className="scroll-thin max-h-[420px] min-h-0 flex-1 overflow-auto"
+      >
         <div className="min-w-[860px]">
           <div className={`${HISTORY_GRID} sticky top-0 z-[1] border-b border-line bg-panel px-3 py-1.5 text-[11px] text-faint`}>
             <span>Cleared</span>

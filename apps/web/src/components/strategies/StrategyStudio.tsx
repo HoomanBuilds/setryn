@@ -231,7 +231,12 @@ function StudioContent() {
             </label>
           </div>
 
-          <div className="no-scrollbar flex min-w-0 items-stretch gap-5 overflow-x-auto lg:flex-1">
+          <div
+            role="region"
+            tabIndex={0}
+            aria-label="Strategy summary"
+            className="focus-ring no-scrollbar flex min-w-0 items-stretch gap-5 overflow-x-auto lg:flex-1"
+          >
             <HeaderStat label="Preview mark">
               <span className="flex items-center gap-1.5">
                 <Flash value={liveSelected.netPrice}>{formatNumber(liveSelected.netPrice, liveSelected.priceDecimals)}</Flash>
