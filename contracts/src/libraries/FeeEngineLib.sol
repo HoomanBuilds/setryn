@@ -63,14 +63,23 @@ library FeeEngineLib {
         if (count > MAX_RULES) revert TooManyFeeRules(count, MAX_RULES);
 
         bytes32 previousAction;
+        bool effective;
         for (uint256 i; i < count; ++i) {
             FeeRule memory rule = rules[i];
             bytes32 action = FeeActionId.unwrap(rule.actionId);
             if (action == bytes32(0)) revert ZeroFeeAction(i);
             if (i != 0 && action <= previousAction) revert FeeRulesNotStrictlySorted(i);
             _validateRule(definition, rule, i);
+            effective = effective || _isEffective(rule);
             previousAction = action;
         }
+        // A maker-taker rule may price one side at zero, because every fill consumes both fill actions and an omitted
+        // rule would revert it. A rule set that prices nothing at all is still an inert policy and is refused; the
+        // index one past the last rule names the set rather than any single rule.
+        if (
+            FeeModelId.unwrap(definition.feeModelId)
+                    == FeeModelId.unwrap(FeeScheduleDefinitionLib.FEE_MODEL_MAKER_TAKER) && !effective
+        ) revert InvalidRuleForModel(count, definition.feeModelId);
     }
 
     function validateRecipients(FeeRecipientSet memory set) internal pure {
@@ -263,15 +272,13 @@ library FeeEngineLib {
             return;
         }
         if (model == FeeModelId.unwrap(FeeScheduleDefinitionLib.FEE_MODEL_MAKER_TAKER)) {
+            // An all-zero maker or taker rule is an explicit zero fee on that side; validateRules still requires the set
+            // to price something.
             if (
                 rule.tiers.length != 0
                     || (action != FeeActionId.unwrap(FeeScheduleDefinitionLib.FEE_ACTION_MAKER_FILL)
                         && action != FeeActionId.unwrap(FeeScheduleDefinitionLib.FEE_ACTION_TAKER_FILL))
                     || !rule.requiresOpenSchedule
-                    || (FeeRatePpm.unwrap(rule.chargeRatePpm) == 0
-                        && FeeRatePpm.unwrap(rule.rebateRatePpm) == 0
-                        && rule.flatChargeMinor == 0
-                        && rule.flatRebateMinor == 0)
             ) revert InvalidRuleForModel(ruleIndex, definition.feeModelId);
             _requireBounds(
                 definition,
@@ -293,6 +300,21 @@ library FeeEngineLib {
             return;
         }
         revert UnsupportedFeeModel(definition.feeModelId);
+    }
+
+    function _isEffective(FeeRule memory rule) private pure returns (bool) {
+        if (
+            FeeRatePpm.unwrap(rule.chargeRatePpm) != 0 || FeeRatePpm.unwrap(rule.rebateRatePpm) != 0
+                || rule.flatChargeMinor != 0 || rule.flatRebateMinor != 0
+        ) return true;
+        for (uint256 i; i < rule.tiers.length; ++i) {
+            FeeTier memory tier = rule.tiers[i];
+            if (
+                FeeRatePpm.unwrap(tier.chargeRatePpm) != 0 || FeeRatePpm.unwrap(tier.rebateRatePpm) != 0
+                    || tier.flatChargeMinor != 0 || tier.flatRebateMinor != 0
+            ) return true;
+        }
+        return false;
     }
 
     function _validateTiers(FeeScheduleDefinition memory definition, FeeRule memory rule, uint256 ruleIndex)

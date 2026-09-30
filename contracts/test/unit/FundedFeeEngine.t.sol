@@ -7,7 +7,7 @@ import {ICollateralVault} from "../../src/interfaces/ICollateralVault.sol";
 import {IFeeScheduleRegistry} from "../../src/interfaces/IFeeScheduleRegistry.sol";
 import {IFundedFeeEngine} from "../../src/interfaces/IFundedFeeEngine.sol";
 import {FundedFeeEngine} from "../../src/fees/FundedFeeEngine.sol";
-import {FeeEngineLib} from "../../src/libraries/FeeEngineLib.sol";
+import {FeeEngineLib, InvalidRuleForModel} from "../../src/libraries/FeeEngineLib.sol";
 import {FeeScheduleDefinitionLib} from "../../src/libraries/FeeScheduleDefinitionLib.sol";
 import {ClearingFeeQuote} from "../../src/types/ClearingTypes.sol";
 import {
@@ -274,6 +274,84 @@ contract FundedFeeEngineTest is Test {
         assertEq(quote.takerFeeMinor, 11);
         assertEq(AccountId.unwrap(quote.recipientAccountId), AccountId.unwrap(COLLECTOR_A));
         assertTrue(quote.quoteReference != bytes32(0));
+    }
+
+    /// A maker-taker schedule may price one side at zero: the zero side consumes with no lock and no ledger entry,
+    /// while the other side still charges.
+    function test_MakerTakerZeroSideIsAcceptedAndChargesNothing() public {
+        FeeRule[] memory rules = _makerTakerRules();
+        for (uint256 i; i < rules.length; ++i) {
+            if (
+                FeeActionId.unwrap(rules[i].actionId)
+                    == FeeActionId.unwrap(FeeScheduleDefinitionLib.FEE_ACTION_MAKER_FILL)
+            ) {
+                rules[i].chargeRatePpm = FeeRatePpm.wrap(0);
+                rules[i].rebateRatePpm = FeeRatePpm.wrap(0);
+            }
+        }
+        FeeRecipientSet memory recipients = _singleRecipient();
+        FeeScheduleDefinition memory definition = _definition(FeeScheduleDefinitionLib.FEE_MODEL_MAKER_TAKER);
+        definition.feeRulesHash = harness.hashRules(rules);
+        definition.recipientsHash = harness.hashRecipients(recipients);
+        harness.validate(definition, rules, recipients);
+        FeeScheduleId zeroMakerId = schedules.setSchedule(definition, 2, true, true);
+        engine.installScheduleWitness(zeroMakerId, 2, rules, recipients);
+
+        assertEq(
+            engine.previewFeeAction(zeroMakerId, 2, FeeScheduleDefinitionLib.FEE_ACTION_MAKER_FILL, 1e6, 0).chargeMinor,
+            0
+        );
+        assertEq(
+            engine.previewFeeAction(zeroMakerId, 2, FeeScheduleDefinitionLib.FEE_ACTION_TAKER_FILL, 1e6, 0).chargeMinor,
+            200
+        );
+
+        bytes32 parentActionId = keccak256("zero.maker.fill");
+        bytes32 consumptionId = engine.deriveConsumptionId(
+            parentActionId,
+            zeroMakerId,
+            2,
+            FeeScheduleDefinitionLib.FEE_ACTION_MAKER_FILL,
+            CHARGE_PAYER,
+            CHARGE_PAYER,
+            0
+        );
+        FeeActionResult memory result = engine.consumeFeeAction(
+            FeeActionRequest({
+                parentActionId: parentActionId,
+                consumptionId: consumptionId,
+                feeScheduleId: zeroMakerId,
+                feeScheduleVersion: 2,
+                actionId: FeeScheduleDefinitionLib.FEE_ACTION_MAKER_FILL,
+                chargePayerAccountId: CHARGE_PAYER,
+                rebateRecipientAccountId: CHARGE_PAYER,
+                notionalMinor: 1e6,
+                qualifyingVolumeMinor: 0,
+                maxFeeMinor: 1,
+                chargeLockId: CollateralLockId.wrap(bytes32(0)),
+                budgetLockId: CollateralLockId.wrap(bytes32(0)),
+                actionOrdinal: 0
+            })
+        );
+        assertEq(result.chargeMinor, 0);
+        assertEq(result.entries.length, 0);
+        assertEq(vault.credited(COLLECTOR_A), 0);
+    }
+
+    /// Zero on both sides prices nothing at all and is still refused; the index names the whole rule set.
+    function test_MakerTakerRuleSetThatPricesNothingIsRefused() public {
+        FeeRule[] memory rules = _makerTakerRules();
+        for (uint256 i; i < rules.length; ++i) {
+            rules[i].chargeRatePpm = FeeRatePpm.wrap(0);
+            rules[i].rebateRatePpm = FeeRatePpm.wrap(0);
+        }
+        FeeScheduleDefinition memory definition = _definition(FeeScheduleDefinitionLib.FEE_MODEL_MAKER_TAKER);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                InvalidRuleForModel.selector, rules.length, FeeScheduleDefinitionLib.FEE_MODEL_MAKER_TAKER
+            )
+        );
+        harness.validate(definition, rules, _singleRecipient());
     }
 
     function test_VolumeTierSelectsHighestReachedThreshold() public view {
