@@ -37,13 +37,16 @@ pnpm dev
 ## Local chain
 
 ```bash
-bash scripts/local-deploy-reset.sh          # anvil on 127.0.0.1:8545 (chain 31337), full deployment and 16 markets
+bash scripts/local-deploy-reset.sh          # anvil on 127.0.0.1:8545 (chain 31337), full deployment and 15 markets
 pnpm dev                                    # web app on http://localhost:3000
 node scripts/update-devnet-fees.mjs --maker-bps 5 --taker-bps 10   # publish a new fee version locally
 ```
 
-The reset writes `deployments/local/runtime.json`, which the web app, public API and operator runtime read. The local
-chain starts on the market calendar's clock (2026-09-22 09:00 UTC) so the trading session is open.
+The reset regenerates the dated range forward listing `deployments/local/markets.json` from live Chainlink Arbitrum One
+references (read-only; the existing listing is kept if the RPC is unreachable), deploys the core, registers the listing
+with `BootstrapSetrynMarkets.s.sol`, and writes `deployments/local/runtime.json` (schema 11) and `session-days.json`,
+which the web app and operator runtime read. The local chain starts at the current time (`SETRYN_DEVNET_EPOCH`
+overrides it) and settles in a mintable local USDC.
 
 ## Testing
 
@@ -56,6 +59,13 @@ pnpm check:full      # milestone: routine check plus the invariant suite
 
 Invariant runs can also be taken on their own with `pnpm contracts:test:invariant`, and the entire
 Forge suite with `pnpm contracts:test:full`.
+
+## Deploying to Arbitrum Sepolia
+
+[docs/runbooks/network-deployment.md](docs/runbooks/network-deployment.md) has the exact commands: generate the listing,
+`DeploySetryn.s.sol` (with `SETRYN_SEQUENCER_UPTIME_FEED=testnet-static`, since Arbitrum Sepolia has no Chainlink
+sequencer uptime feed), `BootstrapSetrynMarkets.s.sol` (Circle test USDC, signed-observation fixings), the web app
+environment, and the operator schedule (session days, fixings, settlement).
 
 ## Network safety
 
