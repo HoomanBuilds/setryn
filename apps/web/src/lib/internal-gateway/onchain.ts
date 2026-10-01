@@ -80,6 +80,8 @@ import type {
   SubmissionUpdate,
   TreasuryWithdrawal,
   TreasuryWithdrawalResult,
+  WalletControls,
+  WalletSession,
 } from "./types";
 
 const ACCOUNT_SALT = keccak256(stringToHex("SETRYN_PRIMARY_ACCOUNT_V1"));
@@ -555,9 +557,38 @@ function initialSnapshot(): GatewaySnapshot {
   };
 }
 
-function errorCode(error: unknown): number | null {
-  if (!error || typeof error !== "object" || !("code" in error)) return null;
-  return typeof error.code === "number" ? error.code : null;
+/** The account-scoped part of a snapshot, as it reads before any wallet connects. */
+function withoutAccount(snapshot: GatewaySnapshot): GatewaySnapshot {
+  const empty = initialSnapshot();
+  return {
+    ...snapshot,
+    account: empty.account,
+    positions: empty.positions,
+    receipts: empty.receipts,
+    executions: empty.executions,
+    restingOrders: empty.restingOrders,
+    rfqRequests: empty.rfqRequests,
+    lifecycles: empty.lifecycles,
+  };
+}
+
+/** A connection the user did not complete. Code 4001 is the EIP-1193 user rejection, so callers report nothing sent. */
+function connectionRejected(): Error {
+  return Object.assign(new Error("WALLET_CONNECTION_REJECTED"), { code: 4001 });
+}
+
+interface PendingConnection {
+  promise: Promise<void>;
+  resolve: () => void;
+  reject: (error: unknown) => void;
+}
+
+/** The connected wallet the gateway is attaching or has attached; `ready` settles once its account is loaded. */
+interface AttachedSession {
+  provider: EIP1193Provider;
+  address: Address;
+  chainId: number;
+  ready: Promise<void>;
 }
 
 /** Where a position stands in its terminal lifecycle, from its onchain status, settlement record and chain time. */
@@ -598,10 +629,18 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   private readonly listeners = new Set<() => void>();
   private runtimePromise: Promise<SetrynRuntime> | null = null;
   private setryn: SetrynRuntime | null = null;
-  private provider: EIP1193Provider | null = null;
   private publicClient: ReturnType<typeof createPublicClient> | null = null;
   private walletClient: ReturnType<typeof createWalletClient> | null = null;
   private walletAddress: Address | null = null;
+  /** The wallet layer's prompts, bound by the wallet bridge. */
+  private walletControls: WalletControls | null = null;
+  /** The wallet session being attached or attached; a newer session bumps `walletEpoch` so older work stops. */
+  private session: AttachedSession | null = null;
+  private walletEpoch = 0;
+  /** A connectWallet call waiting for the user to pick a wallet, switch network, or dismiss the prompt. */
+  private pendingConnection: PendingConnection | null = null;
+  /** Devnet accounts already given gas this page session. */
+  private readonly fundedAccounts = new Set<Address>();
   private readonly authorizations = new Map<string, SignedOrderAuthorization>();
   /** Fills reconstructed per order hash, and the position an exit order's fill closed. */
   private orderFills = new Map<string, { fillIds: string[]; receiptIds: string[]; closedPositionId: string | null }>();
@@ -641,58 +680,154 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     window.setInterval(read, 5_000);
   }
 
+  /**
+   * Asks the wallet layer for a wallet and resolves once one is attached on the runtime chain with its account loaded.
+   * A wallet already connected on another chain is asked to switch instead.
+   */
   async connectWallet(): Promise<void> {
-    const setryn = await this.runtime();
-    const injected = window.ethereum as EIP1193Provider | undefined;
-    if (!injected) throw new Error("WALLET_UNAVAILABLE");
-    this.publish({ ...this.snapshot, wallet: { status: "CONNECTING", address: null, chainId: null } });
-
-    const chainHex = `0x${setryn.chainId.toString(16)}`;
-    try {
-      await injected.request({ method: "wallet_switchEthereumChain", params: [{ chainId: chainHex }] });
-    } catch (error) {
-      if (errorCode(error) !== 4902) {
-        this.publish({ ...this.snapshot, wallet: { status: "WRONG_NETWORK", address: null, chainId: null } });
-        throw error;
+    const status = this.snapshot.wallet.status;
+    if (status === "CONNECTED") return;
+    const controls = this.walletControls;
+    if (!controls) throw new Error("WALLET_UNAVAILABLE");
+    const pending = this.awaitConnection();
+    if (this.session) {
+      // A wallet is already connected: one on another chain is asked to switch, one being prepared settles the wait.
+      if (status === "WRONG_NETWORK") this.requestRuntimeChain();
+    } else {
+      // Opening again is harmless while the prompt is up, and recovers a prompt that closed without reporting back.
+      if (status !== "CONNECTING") {
+        this.publish({ ...this.snapshot, wallet: { status: "CONNECTING", address: null, chainId: null } });
       }
-      await injected.request({
-        method: "wallet_addEthereumChain",
-        params: [
-          {
-            chainId: chainHex,
-            chainName: "Setryn",
-            nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-            rpcUrls: [setryn.rpcUrl],
-          },
-        ],
+      if (!controls.openConnect()) {
+        this.publish({ ...this.snapshot, wallet: { status: "DISCONNECTED", address: null, chainId: null } });
+        this.settleConnection(new Error("WALLET_UNAVAILABLE"));
+      }
+    }
+    return pending;
+  }
+
+  bindWalletControls(controls: WalletControls | null): void {
+    this.walletControls = controls;
+  }
+
+  attachWallet(session: WalletSession): Promise<void> {
+    const address = getAddress(session.address);
+    const current = this.session;
+    if (current && current.provider === session.provider && current.address === address && current.chainId === session.chainId) {
+      return current.ready;
+    }
+    const epoch = ++this.walletEpoch;
+    const ready = this.attach(epoch, session.provider, address, session.chainId);
+    this.session = { provider: session.provider, address, chainId: session.chainId, ready };
+    return ready;
+  }
+
+  detachWallet(): void {
+    if (!this.session) return;
+    this.walletEpoch += 1;
+    this.session = null;
+    this.walletAddress = null;
+    this.walletClient = null;
+    this.publish({ ...withoutAccount(this.snapshot), wallet: { status: "DISCONNECTED", address: null, chainId: null } });
+    // A caller still waiting on this wallet (it disconnected while being prepared) learns the connection ended.
+    this.settleConnection(connectionRejected());
+  }
+
+  cancelWalletConnection(): void {
+    if (!this.pendingConnection || this.session) return;
+    if (this.snapshot.wallet.status === "CONNECTING") {
+      this.publish({ ...this.snapshot, wallet: { status: "DISCONNECTED", address: null, chainId: null } });
+    }
+    this.settleConnection(connectionRejected());
+  }
+
+  private awaitConnection(): Promise<void> {
+    if (!this.pendingConnection) {
+      let resolve!: () => void;
+      let reject!: (error: unknown) => void;
+      const promise = new Promise<void>((onResolve, onReject) => {
+        resolve = onResolve;
+        reject = onReject;
       });
+      this.pendingConnection = { promise, resolve, reject };
+    }
+    return this.pendingConnection.promise;
+  }
+
+  /** Resolves a waiting connectWallet, or rejects it with the error that ended the attempt. */
+  private settleConnection(error?: unknown): void {
+    const pending = this.pendingConnection;
+    if (!pending) return;
+    this.pendingConnection = null;
+    if (error === undefined) pending.resolve();
+    else pending.reject(error);
+  }
+
+  /** Asks the wallet to move to the runtime chain; a refusal ends the waiting connectWallet with the wallet's error. */
+  private requestRuntimeChain(): void {
+    const controls = this.walletControls;
+    if (!controls) {
+      this.settleConnection(new Error("WALLET_UNAVAILABLE"));
+      return;
+    }
+    void this.runtime()
+      .then((setryn) => controls.switchChain(setryn.chainId))
+      .catch((error: unknown) => this.settleConnection(error));
+  }
+
+  /**
+   * Prepares a connected wallet for signing: on the runtime chain it funds devnet gas, builds the signing client over
+   * the connector's own provider, and loads the account. On another chain it stays visible but cannot sign.
+   */
+  private async attach(epoch: number, provider: EIP1193Provider, address: Address, chainId: number): Promise<void> {
+    const current = () => epoch === this.walletEpoch;
+    // A previous account or chain stops signing at once; the new one signs only after it is ready.
+    const sameAccount = this.walletAddress === address;
+    this.walletClient = null;
+    // Read at publish time so snapshot changes made while awaiting are kept; another account's data is cleared.
+    const base = () => (sameAccount ? this.snapshot : withoutAccount(this.snapshot));
+    let setryn: SetrynRuntime;
+    try {
+      setryn = await this.runtime();
+      if (!current()) return;
+      if (chainId !== setryn.chainId) {
+        this.walletAddress = address;
+        this.publish({ ...base(), wallet: { status: "WRONG_NETWORK", address, chainId } });
+        if (this.pendingConnection) this.requestRuntimeChain();
+        return;
+      }
+      this.publish({ ...base(), wallet: { status: "CONNECTING", address: null, chainId: null } });
+      if (chainId === LOCAL_CHAIN_ID && !this.fundedAccounts.has(address)) {
+        await this.fundNativeGas(address);
+        this.fundedAccounts.add(address);
+      }
+      if (!current()) return;
+    } catch (error) {
+      if (!current()) return;
+      // A wallet the gateway cannot prepare is handed back, so the wallet controls and the gateway agree it is not connected.
+      this.session = null;
+      this.walletAddress = null;
+      this.publish({ ...withoutAccount(this.snapshot), wallet: { status: "DISCONNECTED", address: null, chainId: null } });
+      this.settleConnection(error);
+      this.walletControls?.disconnect();
+      return;
     }
 
-    let address: Address;
-    try {
-      const accounts = (await injected.request({ method: "eth_requestAccounts" })) as string[];
-      if (!accounts[0]) throw new Error("WALLET_CONNECTION_REJECTED");
-      address = getAddress(accounts[0]);
-      await this.fundNativeGas(address);
-    } catch (error) {
-      // A rejected or failed connection leaves the wallet disconnected so the viewer can try again.
-      this.publish({ ...this.snapshot, wallet: { status: "DISCONNECTED", address: null, chainId: null } });
-      throw error;
-    }
-    this.provider = injected;
     this.walletAddress = address;
-    this.walletClient = createWalletClient({ account: address, chain: this.chain(setryn), transport: custom(injected) });
-    this.bindProvider(injected);
+    this.walletClient = createWalletClient({ account: address, chain: this.chain(setryn), transport: custom(provider) });
     this.startPolling();
-    this.publish({
-      ...this.snapshot,
-      wallet: { status: "CONNECTED", address, chainId: setryn.chainId },
-    });
+    this.publish({ ...this.snapshot, wallet: { status: "CONNECTED", address, chainId } });
     // Seeding every market's book takes a while on a fresh devnet, so it runs behind the account reads and the book
     // is re-read once it lands. An order that finds its book empty asks for that market's quotes itself.
     void this.requestDevnetLiquidity().then(() => this.refreshPublicBook()).catch(() => undefined);
-    await this.refreshAccount();
-    await Promise.all([this.refreshOrders(), this.refreshPublicBook(), this.refreshActivity(), this.refreshRfqs()]);
+    try {
+      await this.refreshAccount();
+      await Promise.all([this.refreshOrders(), this.refreshPublicBook(), this.refreshActivity(), this.refreshRfqs()]);
+      if (current()) this.settleConnection();
+    } catch (error) {
+      // The wallet stays connected and polling retries the reads; a waiting caller learns the chain did not answer.
+      if (current()) this.settleConnection(error);
+    }
   }
 
   async submitCollateralIntent(intent: CollateralIntent): Promise<CollateralIntentResult> {
@@ -1965,7 +2100,11 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   }
 
   private runtime(): Promise<SetrynRuntime> {
-    this.runtimePromise ??= this.initialize();
+    // A failed load (for example an RPC outage) is retried on the next call instead of being cached.
+    this.runtimePromise ??= this.initialize().catch((error: unknown) => {
+      this.runtimePromise = null;
+      throw error;
+    });
     return this.runtimePromise;
   }
 
@@ -1988,7 +2127,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   private chain(setryn: SetrynRuntime) {
     return defineChain({
       id: setryn.chainId,
-      name: "Setryn",
+      name: setryn.chainId === LOCAL_CHAIN_ID ? "Setryn Local" : "Setryn",
       nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
       rpcUrls: { default: { http: [setryn.rpcUrl] } },
     });
@@ -1996,8 +2135,11 @@ export class OnchainTradingGateway implements InternalTradingGateway {
 
   private async connected() {
     const setryn = await this.runtime();
-    if (!this.walletAddress || !this.walletClient || !this.publicClient) throw new Error("CONNECT_WALLET");
-    if (this.snapshot.wallet.status !== "CONNECTED") throw new Error("WRONG_NETWORK");
+    // A wallet on another chain has no signing client, so the wrong network is reported before a missing wallet.
+    if (this.snapshot.wallet.status === "WRONG_NETWORK") throw new Error("WRONG_NETWORK");
+    if (!this.walletAddress || !this.walletClient || !this.publicClient || this.snapshot.wallet.status !== "CONNECTED") {
+      throw new Error("CONNECT_WALLET");
+    }
     return {
       setryn,
       address: this.walletAddress,
@@ -3677,58 +3819,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     }, 20_000);
   }
 
-  private bindProvider(provider: EIP1193Provider): void {
-    const eventProvider = provider as EIP1193Provider & {
-      on?: (event: string, listener: (value: unknown) => void) => void;
-    };
-    eventProvider.on?.("accountsChanged", (value) => {
-      const accounts = Array.isArray(value) ? value : [];
-      if (typeof accounts[0] !== "string") {
-        this.walletAddress = null;
-        this.walletClient = null;
-        this.publish({ ...this.snapshot, wallet: { status: "DISCONNECTED", address: null, chainId: null } });
-        return;
-      }
-      const address = getAddress(accounts[0]);
-      this.walletAddress = address;
-      if (this.setryn) {
-        this.walletClient = createWalletClient({
-          account: address,
-          chain: this.chain(this.setryn),
-          transport: custom(provider),
-        });
-        this.publish({
-          ...this.snapshot,
-          wallet: { status: "CONNECTED", address, chainId: this.setryn.chainId },
-        });
-        void Promise.all([this.refreshAccount(), this.refreshOrders(), this.refreshPublicBook(), this.refreshActivity(), this.refreshRfqs()]);
-      }
-    });
-    eventProvider.on?.("chainChanged", (value) => {
-      const chainId = typeof value === "string" ? Number.parseInt(value, 16) : null;
-      const connected = chainId === this.setryn?.chainId && this.walletAddress !== null;
-      this.publish({
-        ...this.snapshot,
-        wallet: {
-          status: connected ? "CONNECTED" : "WRONG_NETWORK",
-          address: this.walletAddress,
-          chainId,
-        },
-      });
-      if (connected) {
-        void Promise.all([this.refreshAccount(), this.refreshOrders(), this.refreshPublicBook(), this.refreshActivity(), this.refreshRfqs()]);
-      }
-    });
-  }
-
   private publish(snapshot: GatewaySnapshot): void {
     this.snapshot = snapshot;
     for (const listener of this.listeners) listener();
-  }
-}
-
-declare global {
-  interface Window {
-    ethereum?: EIP1193Provider;
   }
 }

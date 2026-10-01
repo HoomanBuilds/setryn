@@ -5,6 +5,7 @@ import { GlobalHeader } from "@/components/terminal/GlobalHeader";
 import { StatusStrip } from "@/components/terminal/StatusStrip";
 import { InternalGatewayProvider } from "@/components/gateway/InternalGatewayProvider";
 import { PreviewMarketProvider } from "@/components/terminal/PreviewMarketProvider";
+import { WalletProvider } from "@/components/wallet/WalletProvider";
 import { SkipLinks } from "@/components/shell/SkipLinks";
 import "./globals.css";
 
@@ -46,13 +47,16 @@ export default function PlatformLayout({ children }: Readonly<{ children: ReactN
       <body>
         <SkipLinks />
         <InternalGatewayProvider>
-          <PreviewMarketProvider>
-            <div className="flex h-dvh w-full flex-col overflow-hidden bg-app">
-              <GlobalHeader />
-              {children}
-              <StatusStrip />
-            </div>
-          </PreviewMarketProvider>
+          {/* The wallet layer loads with the platform only; the landing and embed roots never include it. */}
+          <WalletProvider>
+            <PreviewMarketProvider>
+              <div className="flex h-dvh w-full flex-col overflow-hidden bg-app">
+                <GlobalHeader />
+                {children}
+                <StatusStrip />
+              </div>
+            </PreviewMarketProvider>
+          </WalletProvider>
         </InternalGatewayProvider>
       </body>
     </html>

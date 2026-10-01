@@ -46,6 +46,15 @@ const MOBILE_TABS = [
 function executionError(error: unknown): string {
   if (!(error instanceof Error)) return "The trading runtime could not complete this package order.";
   if (error.message === "CONNECT_WALLET") return "Connect a wallet before authorizing this package.";
+  if (error.message === "WALLET_CONNECTION_REJECTED") {
+    return "The wallet connection was not completed. Nothing was signed or submitted.";
+  }
+  if (error.message === "WALLET_UNAVAILABLE") {
+    return "The wallet prompt could not open, so nothing was signed or submitted. Reload the page and try again.";
+  }
+  if (error.message === "DEVNET_GAS_FUNDING_FAILED") {
+    return "The local devnet could not fund gas for this wallet, so nothing was submitted. Check the local chain and try again.";
+  }
   // Wallet and transport failures surface through viem with EIP-1193 and JSON-RPC codes in the cause chain.
   const codes: unknown[] = [];
   for (let cause: unknown = error; cause && typeof cause === "object" && codes.length < 8; cause = (cause as { cause?: unknown }).cause) {

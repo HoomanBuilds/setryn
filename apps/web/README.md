@@ -26,6 +26,13 @@ pnpm --filter @setryn/web typecheck
 pnpm --filter @setryn/web build
 ```
 
+## Wallets
+
+Wallet connection uses wagmi, viem, TanStack Query and RainbowKit (`src/components/wallet/`, `src/lib/wallet/config.ts`),
+mounted only in the platform layout. `WalletBridge` hands the connected wallet's provider to the gateway, which signs and
+sends every transaction. Browser wallets (EIP-6963), Coinbase Wallet and Safe are always offered; WalletConnect appears
+when `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` is set (see `.env.example`).
+
 ## Local chain
 
 The platform reads `deployments/local/runtime.json` (schema 9), written by `scripts/local-deploy-reset.sh`. Fee rates,

@@ -98,7 +98,7 @@ export function ConnectWalletButton({ className = BUTTON_PRIMARY, label = "Conne
       const message = cause instanceof Error ? cause.message : "";
       setError(
         message === "WALLET_UNAVAILABLE"
-          ? "No browser wallet was found."
+          ? "The wallet prompt could not open."
           : message === "RUNTIME_UNAVAILABLE"
             ? "The local runtime is not reachable."
             : "Wallet connection was not completed.",

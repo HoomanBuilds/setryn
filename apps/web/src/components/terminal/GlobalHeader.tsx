@@ -3,11 +3,12 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronDown, Menu, Search, Wallet, X } from "lucide-react";
+import { ChevronDown, Menu, Search, X } from "lucide-react";
 import { DataRow, SectionLabel, StatusDot } from "@/components/terminal/primitives";
 import { useGatewaySnapshot, useInternalGateway } from "@/components/gateway/InternalGatewayProvider";
 import { formatCompactAsset } from "@/lib/terminal/format";
 import { AssetAmount, AssetIcon, ChainIcon, chainLabelOf } from "@/components/icons/AssetIcon";
+import { WalletDetails, WalletTrigger, isWalletRejection } from "@/components/wallet/WalletMenu";
 import SetrynMark from "@/components/landing/SetrynMark";
 import { CommandPalette, openCommandPalette } from "@/components/shell/CommandPalette";
 import { NotificationBell } from "@/components/shell/NotificationBell";
@@ -65,16 +66,22 @@ export function GlobalHeader() {
     <AssetAmount value={formatCompactAsset(value, asset).replace(` ${asset}`, "")} symbol={asset} />
   );
 
-  const shortAddress = snapshot.wallet.address
-    ? `${snapshot.wallet.address.slice(0, 6)}...${snapshot.wallet.address.slice(-4)}`
-    : null;
-
+  /* Opens the wallet prompt. Dismissing it is not an error; any other failure opens the panel to explain. */
   const connect = async () => {
     setAccountMessage(null);
     try {
       await gateway.connectWallet();
-    } catch {
-      setAccountMessage("Wallet connection was not completed. Try again from your wallet.");
+    } catch (error) {
+      if (isWalletRejection(error)) return;
+      const text = error instanceof Error ? error.message : "";
+      setAccountMessage(
+        text === "DEVNET_GAS_FUNDING_FAILED"
+          ? "The local devnet could not fund gas for this wallet. Check the local chain and try again."
+          : /rpc|fetch|http request failed|timed out|RUNTIME_UNAVAILABLE/i.test(text)
+            ? "The chain RPC did not respond, so the wallet was not connected. Check the connection and try again."
+            : "Wallet connection was not completed. Try again from your wallet.",
+      );
+      setAccountOpen(true);
     }
   };
 
@@ -244,31 +251,20 @@ export function GlobalHeader() {
           <EnvironmentChip chainId={snapshot.environment.chainId} className="hidden xl:flex" />
 
           <div className="relative shrink-0">
-            <button
-              type="button"
-              onClick={() => {
+            <WalletTrigger
+              expanded={accountOpen}
+              accountLabel={snapshot.account.label}
+              onConnect={() => {
+                setOpenGroup(null);
+                setMenuOpen(false);
+                void connect();
+              }}
+              onToggle={() => {
                 setAccountOpen((open) => !open);
                 setOpenGroup(null);
                 setMenuOpen(false);
               }}
-              aria-expanded={accountOpen}
-              aria-label={`Account, ${snapshot.account.label}`}
-              className="focus-ring flex h-11 items-center gap-1.5 rounded-md border border-line bg-raised px-2 text-sm text-dim transition-colors hover:border-line-strong hover:text-ink lg:h-9 lg:gap-2 lg:px-2.5"
-            >
-              {shortAddress ? (
-                <ChainIcon size={15} />
-              ) : (
-                <Wallet size={15} aria-hidden="true" className="shrink-0" />
-              )}
-              <span className={`hidden min-[360px]:inline ${shortAddress ? "font-mono text-xs text-ink" : ""}`}>
-                {shortAddress ?? "Connect"}
-              </span>
-              <ChevronDown
-                size={14}
-                aria-hidden="true"
-                className={`shrink-0 transition-transform ${accountOpen ? "rotate-180" : ""}`}
-              />
-            </button>
+            />
 
             {accountOpen ? (
               <>
@@ -283,24 +279,7 @@ export function GlobalHeader() {
                     <SectionLabel>Account</SectionLabel>
                     <span className="text-xs text-faint">{snapshot.account.label}</span>
                   </div>
-                  {snapshot.wallet.status !== "CONNECTED" ? (
-                    <button
-                      type="button"
-                      disabled={snapshot.wallet.status === "CONNECTING"}
-                      onClick={connect}
-                      className="focus-ring mt-3 h-9 w-full rounded-md bg-brand text-xs font-semibold text-app disabled:opacity-60"
-                    >
-                      {snapshot.wallet.status === "CONNECTING" ? "Connecting..." : "Connect wallet"}
-                    </button>
-                  ) : (
-                    <p className="mt-2 flex items-center justify-between gap-2 text-xs">
-                      <span className="font-mono text-dim">{shortAddress}</span>
-                      <span className="flex items-center gap-1.5 text-faint">
-                        <ChainIcon size={13} />
-                        {chainLabelOf(snapshot.wallet.chainId ?? snapshot.environment.chainId)}
-                      </span>
-                    </p>
-                  )}
+                  <WalletDetails onConnect={() => void connect()} onDisconnect={() => setAccountOpen(false)} />
 
                   <div className="mt-3 divide-y divide-line border-t border-line">
                     <DataRow label="Equity" value={balance(snapshot.account.equity)} />

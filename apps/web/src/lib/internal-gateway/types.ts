@@ -1,9 +1,27 @@
 import type { ActiveFeeSchedule } from "./fee-schedule";
 import type { Intent, PackageSide, TimeInForce } from "@/lib/terminal/economics";
 import type { BookRow, PackageMarket } from "@/lib/terminal/types";
+import type { EIP1193Provider } from "viem";
 import type { OnchainPublicOrder } from "./protocol";
 
 export type WalletStatus = "DISCONNECTED" | "CONNECTING" | "CONNECTED" | "WRONG_NETWORK";
+
+/** A wallet the wallet layer connected: the connector's EIP-1193 provider with its active account and chain. */
+export interface WalletSession {
+  provider: EIP1193Provider;
+  address: string;
+  chainId: number;
+}
+
+/** Prompts the wallet layer owns, which the gateway asks for when a caller needs a connected wallet. */
+export interface WalletControls {
+  /** Opens the connect prompt. Returns false when no prompt can open. */
+  openConnect(): boolean;
+  /** Asks the connected wallet to switch to the chain, adding it first when the wallet does not know it. */
+  switchChain(chainId: number): Promise<void>;
+  /** Ends the wallet layer's session so its controls agree when the gateway cannot use the wallet. */
+  disconnect(): void;
+}
 
 export interface RuntimeEnvironment {
   id: "LOCAL_DEMO" | "LOCAL_DEVNET" | "ARBITRUM_SEPOLIA";
@@ -429,7 +447,19 @@ export interface InternalTradingGateway {
   /** The snapshot the server renders, used for hydration. */
   getServerSnapshot(): GatewaySnapshot;
   subscribe(listener: () => void): () => void;
+  /**
+   * Opens the wallet layer's connect prompt, or asks a wallet on another chain to switch, and resolves once the wallet
+   * is attached and its account loaded. A dismissed prompt rejects with WALLET_CONNECTION_REJECTED (code 4001).
+   */
   connectWallet(): Promise<void>;
+  /** Wires connectWallet to the wallet layer's prompts; null unbinds them. */
+  bindWalletControls(controls: WalletControls | null): void;
+  /** Uses the wallet the wallet layer connected for signing; called again on every account or chain change. */
+  attachWallet(session: WalletSession): Promise<void>;
+  /** Stops signing with the wallet and clears the account it loaded. */
+  detachWallet(): void;
+  /** The connect prompt closed without a wallet; a pending connectWallet rejects. */
+  cancelWalletConnection(): void;
   submitCollateralIntent(intent: CollateralIntent): Promise<CollateralIntentResult>;
   authorizeOrder(intent: PackageOrderIntent): Promise<SignedOrderAuthorization>;
   submitAuthorizedOrder(

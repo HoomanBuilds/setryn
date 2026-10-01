@@ -6,7 +6,7 @@
 const COPY: Record<string, string> = {
   CONNECT_WALLET: "Connect a wallet before signing this request.",
   WRONG_NETWORK: "Switch the wallet to the Setryn network and try again.",
-  WALLET_UNAVAILABLE: "No browser wallet was found. Install or unlock a wallet, then connect.",
+  WALLET_UNAVAILABLE: "The wallet prompt could not open. Reload the page, then connect.",
   WALLET_CONNECTION_REJECTED: "The wallet did not share an account. Approve the connection to continue.",
   RUNTIME_UNAVAILABLE:
     "The local Setryn runtime is not running, so nothing can be signed. Start the local chain and deployment, then retry.",
