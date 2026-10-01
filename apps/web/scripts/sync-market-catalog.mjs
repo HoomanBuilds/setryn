@@ -153,8 +153,15 @@ if (runtime && runtime.schemaVersion >= 11) {
       return projectMarket(market, family, references);
     }),
   };
+} else if (existsSync(OUTPUT)) {
+  // A hosted build (for example Vercel) checks out only committed files: deployments/local/ is git-ignored, and a
+  // network's runtime exists only after its deployment is committed. Keep the committed catalog rather than fail.
+  console.warn(
+    `sync-market-catalog: no schema 11 runtime at ${runtimePath} and no listing at ${listingPath}; keeping the committed catalog`,
+  );
+  process.exit(0);
 } else {
-  fail(`no schema 11 runtime at ${runtimePath} and no listing at ${listingPath}`);
+  fail(`no schema 11 runtime at ${runtimePath}, no listing at ${listingPath}, and no committed catalog`);
 }
 
 const keys = new Set();

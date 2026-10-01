@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { setrynDataRoot } from "@/lib/webhooks/json-store";
 
 /**
  * Persistent state of the public API: issued keys (hashed) and each key's recent request log. It lives in the
@@ -75,8 +76,7 @@ function state(): StoreState {
 
 export function storeDirectory(): string {
   if (process.env.SETRYN_PUBLIC_API_DIR) return resolve(/*turbopackIgnore: true*/ process.env.SETRYN_PUBLIC_API_DIR);
-  const suffix = process.cwd().endsWith("/apps/web") ? "../../.setryn/public-api" : ".setryn/public-api";
-  return resolve(/*turbopackIgnore: true*/ process.cwd(), suffix);
+  return resolve(/*turbopackIgnore: true*/ setrynDataRoot(), "public-api");
 }
 
 async function readJson<T>(path: string, fallback: T): Promise<T> {

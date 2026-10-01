@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 /**
@@ -13,8 +14,18 @@ export function setrynDataDirectory(...segments: string[]): string {
   if (segments[0] === "webhooks" && process.env.SETRYN_WEBHOOKS_DIR) {
     return resolve(/*turbopackIgnore: true*/ process.env.SETRYN_WEBHOOKS_DIR, ...segments.slice(1));
   }
+  return resolve(/*turbopackIgnore: true*/ setrynDataRoot(), ...segments);
+}
+
+/**
+ * Root of the server's local data: `<repo>/.setryn`. Vercel functions can only write under the temp directory, so
+ * there it is `<tmp>/setryn`, which does not survive a cold start: set the per-store paths (SETRYN_ORG_STORE_PATH,
+ * SETRYN_PUBLIC_API_DIR, SETRYN_WEBHOOKS_DIR) to durable storage for records that must persist.
+ */
+export function setrynDataRoot(): string {
+  if (process.env.VERCEL) return join(tmpdir(), "setryn");
   const root = process.cwd().endsWith("/apps/web") ? "../.." : ".";
-  return resolve(/*turbopackIgnore: true*/ process.cwd(), root, ".setryn", ...segments);
+  return resolve(/*turbopackIgnore: true*/ process.cwd(), root, ".setryn");
 }
 
 export async function readJson<T>(directory: string, file: string, empty: T): Promise<T> {

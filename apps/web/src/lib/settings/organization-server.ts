@@ -6,6 +6,7 @@
  */
 import * as fs from "node:fs";
 import { resolve } from "node:path";
+import { setrynDataRoot } from "@/lib/webhooks/json-store";
 import { createPublicClient, http, isAddress, isHex, verifyMessage, type Hex, type PublicClient } from "viem";
 import {
   FileOrganizationControlStore,
@@ -61,8 +62,7 @@ export function organizationNetwork(): ControlEnvironment {
 /** `SETRYN_ORG_STORE_PATH`, or `<repo>/.setryn/organization-control/<network>.json` next to the other local data. */
 export function organizationStorePath(network: ControlEnvironment): string {
   if (process.env.SETRYN_ORG_STORE_PATH) return resolve(/*turbopackIgnore: true*/ process.env.SETRYN_ORG_STORE_PATH);
-  const suffix = process.cwd().endsWith("/apps/web") ? "../../.setryn/organization-control" : ".setryn/organization-control";
-  return resolve(/*turbopackIgnore: true*/ process.cwd(), suffix, `${network}.json`);
+  return resolve(/*turbopackIgnore: true*/ setrynDataRoot(), "organization-control", `${network}.json`);
 }
 
 /** RPC used only to check contract-wallet (ERC-1271 / ERC-6492) signatures. */

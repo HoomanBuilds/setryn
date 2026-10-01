@@ -19,6 +19,20 @@ and nothing here writes to it. The only Arbitrum One access is read-only `eth_ca
 
 Filled copies hold private keys and are gitignored; only the `.example` files are committed.
 
+## Hosting the web app on Vercel
+
+- Project root directory: `apps/web`. Install and build commands stay the defaults (`pnpm install`, `pnpm run build`).
+- Environment variables: copy `apps/web/.env.arbitrum-sepolia.example` into the Vercel project settings
+  (`SETRYN_NETWORK=arbitrum-sepolia`, RPC URLs, `SETRYN_OPERATOR_PRIVATE_KEY`, optional `SETRYN_MAKER_PRIVATE_KEY`,
+  `SETRYN_PUBLIC_ORIGIN` = the Vercel domain).
+- The app reads `deployments/arbitrum-sepolia/runtime.json`, `manifest.json` and `session-days.json` from the
+  repository; they are bundled into the server routes at build time. After the bootstrap, commit those three files and
+  redeploy. Until then the app builds and shows the listing and Chainlink references with the chain marked unavailable.
+- `deployments/local/` is not in git, so a build without `SETRYN_NETWORK` keeps the committed market catalog.
+- Vercel functions can only write to a temporary directory, so organization, API-key and webhook records do not
+  persist across cold starts unless `SETRYN_ORG_STORE_PATH`, `SETRYN_PUBLIC_API_DIR` and `SETRYN_WEBHOOKS_DIR` point at
+  durable storage.
+
 ## What gets deployed
 
 | Step | Script | Sender | Result |

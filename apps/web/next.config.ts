@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
@@ -5,7 +6,15 @@ const nextConfig: NextConfig = {
     // One setting drives both sides: the browser bundle is built for SETRYN_NETWORK unless it is overridden explicitly.
     NEXT_PUBLIC_SETRYN_NETWORK: process.env.NEXT_PUBLIC_SETRYN_NETWORK?.trim() || process.env.SETRYN_NETWORK?.trim() || "local",
   },
+  // Server routes read the deployment's runtime, manifest and session-day files at request time from the repository's
+  // deployments/ directory, outside this app. Tracing from the monorepo root ships them with every server bundle on
+  // hosts such as Vercel, which only see traced files.
+  outputFileTracingRoot: join(__dirname, "../.."),
+  outputFileTracingIncludes: {
+    "/**": ["../../deployments/*/runtime.json", "../../deployments/*/manifest.json", "../../deployments/*/session-days.json"],
+  },
   turbopack: {
+    root: join(__dirname, "../.."),
     resolveAlias: {
       // RainbowKit pulls in wagmi's Base Account connector, which lazy-loads this SDK in the browser when a user picks
       // that wallet. The SDK's Node entry adds CDP payment helpers whose optional x402 peers are not installed and break
