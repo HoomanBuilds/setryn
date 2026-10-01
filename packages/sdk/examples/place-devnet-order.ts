@@ -80,8 +80,8 @@ try {
   if (!market || market.execution !== "ONCHAIN") throw new Error("No onchain market to trade on this deployment.");
   let book = await client.getBook(market.id);
   if (book.asks.length === 0) {
-    // Devnet only: the platform's devnet maker quotes both sides of this market's book.
-    await fetch(`${baseUrl}/api/internal/devnet/liquidity`, {
+    // Where the deployment runs a designated maker, ask it to quote both sides of this market's book.
+    await fetch(`${baseUrl}/api/internal/operator/liquidity`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ marketId: market.id }),

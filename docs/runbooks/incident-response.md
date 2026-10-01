@@ -58,7 +58,7 @@ controller's governance principal.
 | Signal | Where | What it shows |
 | --- | --- | --- |
 | `/status` | `apps/web` status board, fed by `/api/internal/deployment` and `/api/v1/status` | Chain id, head block, chain time, and live runtime code hash against the recorded hash for every deployed contract. `Hash differs` or `No code` is an incident |
-| System strip and home health rows | `apps/web/src/lib/alerts/health.ts` | Chain, wallet, oracle, sequencer, private execution, and indexer as `HEALTHY`, `DEGRADED`, `UNAVAILABLE`, or `CHECKING`. Chain comes from `/api/internal/devnet/status`. Oracle, sequencer, private execution, and indexer come from operator runtime evidence, which is a recorded fixture until the operator ports are wired |
+| System strip and home health rows | `apps/web/src/lib/alerts/health.ts` | Chain, wallet, oracle, sequencer, private execution, and indexer as `HEALTHY`, `DEGRADED`, `UNAVAILABLE`, or `CHECKING`. Chain comes from `/api/internal/operator/status`; oracle reads the Chainlink references in the market-data feed (`/api/market-data`); market data reports the feed's own status |
 | `/operations`, `/alerts` | `apps/web` | Operator dependency freshness and raised alerts |
 | Operator runtime health | `InternalOperatorRuntime.healthSnapshot(environment)` | `unhealthy` on a critical alert or unhealthy dependency. `degraded` on failed, blocked, or retry-scheduled jobs, or a degraded or unknown dependency. Lists active kill switches |
 | Operator execution ports | `services/operator-runtime/src/ports.ts` | `maker` (quote cycles), `solver` (solver execution), `keeper` (expire-orders, resolve-fixing, settle-positions, recover), `oracle` (oracle relay). A port that is missing or failing blocks or retries its jobs |
