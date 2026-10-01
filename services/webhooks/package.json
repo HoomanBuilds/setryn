@@ -17,6 +17,7 @@
     "@setryn/indexer": "workspace:*",
     "@setryn/internal-contracts": "workspace:*",
     "@setryn/internal-schemas": "workspace:*",
+    "@setryn/persistence": "workspace:*",
     "viem": "^2.56.9"
   },
   "devDependencies": {
