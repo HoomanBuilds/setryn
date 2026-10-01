@@ -22,16 +22,31 @@ export function runtimeMarketBySeries(setryn: SetrynRuntime, seriesId: string): 
   return setryn.markets.find((market) => market.seriesId.toLowerCase() === needle) ?? null;
 }
 
-/** Package price to onchain price ticks on the market's own grid. */
-export function priceToTicks(market: SetrynRuntimeMarket, price: number): bigint {
-  if (!Number.isFinite(price)) throw new Error("INVALID_LIMIT_PRICE");
-  return BigInt(Math.round(price * market.priceScale));
+/** The price at zero ticks: the range forward's floor on a schema 11 market, zero on older runtimes. */
+export function priceOffset(market: Pick<SetrynRuntimeMarket, "priceOffset">): number {
+  const offset = market.priceOffset === undefined ? 0 : Number(market.priceOffset);
+  if (!Number.isFinite(offset)) throw new Error("INVALID_PRICE_OFFSET");
+  return offset;
 }
 
-/** Onchain price ticks back to the package price the catalog quotes. */
+/** Display decimals of a market's price: its own field on schema 11, else the price scale's power of ten. */
+export function marketPriceDecimals(market: Pick<SetrynRuntimeMarket, "priceDecimals" | "priceScale">): number {
+  return market.priceDecimals ?? Math.round(Math.log10(market.priceScale));
+}
+
+/** Package price to onchain price ticks on the market's own grid: ticks = (price - offset) x scale. */
+export function priceToTicks(market: SetrynRuntimeMarket, price: number): bigint {
+  if (!Number.isFinite(price)) throw new Error("INVALID_LIMIT_PRICE");
+  // Rounded through the display decimals first so binary float noise in the offset subtraction cannot move a tick.
+  const decimals = marketPriceDecimals(market);
+  const delta = Number((price - priceOffset(market)).toFixed(decimals));
+  return BigInt(Math.round(delta * market.priceScale));
+}
+
+/** Onchain price ticks back to the package price the catalog quotes: offset + ticks / scale. */
 export function ticksToPrice(market: SetrynRuntimeMarket, priceTicks: bigint): number {
-  const decimals = Math.round(Math.log10(market.priceScale));
-  return Number((Number(priceTicks) / market.priceScale).toFixed(decimals));
+  const decimals = marketPriceDecimals(market);
+  return Number((priceOffset(market) + Number(priceTicks) / market.priceScale).toFixed(decimals));
 }
 
 /** Settlement units of consideration per lot for one unit of package price: the market's contract multiplier. */

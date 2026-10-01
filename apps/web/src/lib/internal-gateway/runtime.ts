@@ -22,7 +22,40 @@ export interface SetrynRuntimeMarket {
    */
   marketVersion?: number;
   seriesVersion?: number;
+  /*
+   * Schema 11 (network listings, docs/plans/network-runtime-real-data.md). Every field below is absent on a schema 9 or
+   * 10 runtime, whose prices then convert with a zero offset.
+   */
+  /** Display underlying: "BTC", "ETH", "ARB", "EUR/USD", "XAU/USD". */
+  underlying?: string;
+  /** Benchmark feed key, for example "Crypto.BTC/USD". */
+  feedKey?: string;
+  strategyKind?: "DATED_YIELD_CARRY" | "FUNDING_CARRY" | "DATED_BASIS" | "DELIVERABLE_FORWARD";
+  displayName?: string;
+  /** Payoff floor and cap of the range forward, decimal strings in the quote currency. */
+  floor?: string;
+  cap?: string;
+  /** Units of the underlying per lot, decimal string. */
+  lotSize?: string;
+  /** Price increment of one tick, decimal string. */
+  tickPrice?: string;
+  priceDecimals?: number;
+  /** Price at zero ticks (the floor): price = priceOffset + ticks / priceScale. */
+  priceOffset?: string;
+  /** Chainlink aggregator on Arbitrum One that references the underlying. */
+  referenceFeed?: Address;
+  tradingStartsAt?: number;
+  lastTradingAt?: number;
+  expiryAt?: number;
+  fixingWindowOpen?: number;
+  fixingWindowClose?: number;
+  exerciseOpensAt?: number;
+  exerciseCutoffAt?: number;
+  finalResolutionAt?: number;
+  settlementDeadline?: number;
 }
+
+export type SetrynNetwork = "local" | "arbitrum-sepolia" | "arbitrum-one";
 
 export interface SetrynRuntime {
   schemaVersion: number;
@@ -90,6 +123,16 @@ export interface SetrynRuntime {
   positionLifecycleExecutor?: Address;
   /** Every onchain market in catalog order. The single-series fields above name the first, primary one. */
   markets: SetrynRuntimeMarket[];
+  /* Schema 11 top-level fields; absent on older runtimes. */
+  network?: SetrynNetwork;
+  listedAt?: number;
+  fixingAdapter?: Address;
+  fixingAdapterKind?: "signed-observation" | "chainlink-historical";
+  riskAdapter?: Address;
+  oracleSigners?: Address[];
+  oracleThreshold?: number;
+  sessionDaysPath?: string;
+  referenceChainId?: number;
 }
 
 export async function loadSetrynRuntime(): Promise<SetrynRuntime> {
