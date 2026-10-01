@@ -172,7 +172,7 @@ function Unavailable() {
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-dim">
               {wallet.connected
                 ? "This receipt was not found in the connected development chain state. Confirm the network and transaction identifier, then try again."
-                : "Receipts are reconstructed from the connected development chain for your account. Connect the wallet that executed this package to load its evidence."}
+                : "Receipts are reconstructed from chain state for your account. Connect the wallet that executed this order to load its evidence."}
             </p>
             <div className="mt-6 flex flex-wrap gap-2">
               {wallet.connected ? null : (
@@ -410,18 +410,18 @@ export function ReceiptExplorer({ receiptId }: { receiptId: string }) {
               </PanelHeader>
               <p className="px-4 py-3 text-xs leading-relaxed text-dim">
                 {partial
-                  ? `Filled ${formatLots(filledLots)} of ${formatLots(requestedLots)} lots; ${formatLots(cancelledLots)} lots cancelled. The fill and position evidence is recorded on the connected development chain.`
+                  ? `Filled ${formatLots(filledLots)} of ${formatLots(requestedLots)} lots; ${formatLots(cancelledLots)} lots cancelled. The fill and position evidence is recorded on ${snapshot.environment.label}.`
                   : outcome === "CLOSED"
-                    ? "This exit closed the position and released its eligible collateral on the connected development chain."
+                    ? `This exit closed the position and released its eligible collateral on ${snapshot.environment.label}.`
                     : outcome === "REDUCED"
-                      ? "This exit reduced the position. Remaining lots and collateral stay active on the connected development chain."
-                      : "This fill, position, fee, and route outcome is recorded by the local production-parity contracts."}
+                      ? `This exit reduced the position. Remaining lots and collateral stay active on ${snapshot.environment.label}.`
+                      : `This fill, position, fee, and route outcome is recorded by the Setryn contracts on ${snapshot.environment.label}.`}
               </p>
             </Panel>
 
             {selectedQuote ? (
               <Panel className={motion.mount} label="Private RFQ evidence">
-                <PanelHeader right={<span className="text-[11px] text-faint">executed locally</span>}>
+                <PanelHeader right={<span className="text-[11px] text-faint">executed onchain</span>}>
                   <PanelTitle icon={<Lock size={13} aria-hidden="true" />}>Private RFQ evidence</PanelTitle>
                 </PanelHeader>
                 <dl className="grid grid-cols-2 gap-x-4 px-4 py-1.5 sm:grid-cols-3">
@@ -514,7 +514,7 @@ export function ReceiptExplorer({ receiptId }: { receiptId: string }) {
                   <Chip tone="muted">{`${evidenceLabel(receipt.evidence)} evidence`}</Chip>
                 </div>
                 <p className="mt-2 text-xs leading-relaxed text-faint">
-                  Mainnet writes are disabled. This receipt is reconstructed from local contract state and events.
+                  {`Mainnet writes are disabled. This receipt is reconstructed from contract state and events on ${snapshot.environment.label}.`}
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-2 border-t border-line px-4 py-3">

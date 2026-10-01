@@ -3,20 +3,20 @@
 import { useMemo } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useGatewaySnapshot } from "@/components/gateway/InternalGatewayProvider";
-import { usePreviewBoard } from "@/components/terminal/PreviewMarketProvider";
-import { LIFECYCLE_STRATEGIES } from "@/lib/lifecycle/fixtures";
+import { useChainNow, useMarketBoard } from "@/components/market-data/MarketDataProvider";
 import { resolvePosition, type PositionDossier } from "@/lib/positions/dossier";
 import { marketFor, positionMetrics } from "@/lib/positions/economics";
 import { lifeProgress, positionTimeline } from "@/lib/positions/timeline";
 import { settlementStage } from "@/lib/settlements/center";
 import { STAGE_COPY } from "@/lib/settlements/stages";
 import type { OnchainPositionLifecycle } from "@/lib/internal-gateway/types";
+import type { LiveMarketData } from "@/lib/market-data/types";
 import type { PackageMarket } from "@/lib/terminal/types";
 import { LifecyclePanel } from "./LifecyclePanel";
 import { MANAGE_ACTIONS, ManagePanel, type ManageAction } from "./ManagePanel";
 import { PositionGate, PositionSkeleton } from "./PositionGate";
 import { PositionHeader } from "./PositionHeader";
-import { ActivityPanel, LegsPanel, RiskPanel } from "./PositionPanels";
+import { ActivityPanel, RiskPanel, TermsPanel } from "./PositionPanels";
 
 function isAction(value: string | null): value is ManageAction {
   return value !== null && (MANAGE_ACTIONS as readonly string[]).includes(value);
@@ -26,12 +26,14 @@ function PositionView({
   dossier,
   market,
   markets,
+  live,
   nowMs,
   lifecycle,
 }: {
   dossier: PositionDossier;
   market: PackageMarket;
   markets: readonly PackageMarket[];
+  live: LiveMarketData | null;
   nowMs: number;
   lifecycle: OnchainPositionLifecycle | null;
 }) {
@@ -51,10 +53,10 @@ function PositionView({
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   };
 
-  const metrics = positionMetrics(dossier, market, nowMs);
-  const steps = positionTimeline(dossier, market, metrics, nowMs);
+  const metrics = positionMetrics(dossier, market, live, nowMs, lifecycle);
+  const steps = positionTimeline(dossier, market, metrics, nowMs, lifecycle);
   const progress = lifeProgress(dossier, metrics, nowMs);
-  const stageLabel = dossier.phase === "CLOSED" ? "Closed" : STAGE_COPY[settlementStage(market, nowMs)].label;
+  const stageLabel = dossier.phase === "CLOSED" ? "Closed" : STAGE_COPY[settlementStage(market, nowMs, lifecycle)].label;
 
   return (
     <main className="scroll-thin min-h-0 flex-1 overflow-y-auto bg-app p-1">
@@ -66,7 +68,7 @@ function PositionView({
           <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-1">
             <LifecyclePanel steps={steps} stageLabel={stageLabel} className="order-2 lg:order-none" delay={60} />
             <ActivityPanel dossier={dossier} market={market} className="order-4 lg:order-none" delay={120} />
-            <LegsPanel dossier={dossier} market={market} className="order-5 lg:order-none" delay={160} />
+            <TermsPanel market={market} metrics={metrics} className="order-5 lg:order-none" delay={160} />
           </div>
           <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-1">
             <ManagePanel
@@ -74,6 +76,8 @@ function PositionView({
               market={market}
               markets={markets}
               metrics={metrics}
+              live={live}
+              nowMs={nowMs}
               lifecycle={lifecycle}
               action={action}
               onAction={onAction}
@@ -81,7 +85,7 @@ function PositionView({
               delay={40}
             />
             {dossier.phase === "CLOSED" ? null : (
-              <RiskPanel dossier={dossier} market={market} metrics={metrics} className="order-3 lg:order-none" delay={100} />
+              <RiskPanel dossier={dossier} market={market} metrics={metrics} live={live} className="order-3 lg:order-none" delay={100} />
             )}
           </div>
         </div>
@@ -91,15 +95,16 @@ function PositionView({
 }
 
 /**
- * `/positions/[id]`: one position's complete lifecycle. The account read and
- * the marks come from the shared gateway snapshot and preview board, so the
- * figures here match the portfolio and the terminal tick for tick.
+ * `/positions/[id]`: one position's complete lifecycle. The account read comes
+ * from the gateway snapshot and the marks from the market-data feed, so the
+ * figures here match the portfolio and the terminal snapshot for snapshot.
  */
 export function PositionWorkspace({ positionId }: { positionId: string }) {
   const snapshot = useGatewaySnapshot();
-  const { markets, previewEpochSeconds } = usePreviewBoard();
+  const { markets, snapshot: feed } = useMarketBoard();
+  const nowSeconds = useChainNow();
   const resolution = useMemo(
-    () => resolvePosition(positionId, snapshot, markets, LIFECYCLE_STRATEGIES),
+    () => resolvePosition(positionId, snapshot, markets),
     [positionId, snapshot, markets],
   );
 
@@ -109,13 +114,15 @@ export function PositionWorkspace({ positionId }: { positionId: string }) {
 
   const market = marketFor(resolution.dossier.marketId, markets);
   if (!market) return <PositionGate kind="missing" positionId={positionId} />;
-  const lifecycle = resolution.dossier.origin === "ACCOUNT" ? snapshot.lifecycles[positionId.toLowerCase()] ?? null : null;
+  const lifecycle = snapshot.lifecycles[positionId.toLowerCase()] ?? null;
+  const live = feed?.markets.find((candidate) => candidate.marketKey === market.id) ?? null;
   return (
     <PositionView
       dossier={resolution.dossier}
       market={market}
       markets={markets}
-      nowMs={previewEpochSeconds * 1000}
+      live={live}
+      nowMs={nowSeconds * 1000}
       lifecycle={lifecycle}
     />
   );

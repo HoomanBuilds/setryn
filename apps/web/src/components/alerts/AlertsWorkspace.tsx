@@ -3,9 +3,9 @@
 import { useMemo, useState } from "react";
 import { CheckCheck, CircleAlert } from "lucide-react";
 import { useGatewaySnapshot } from "@/components/gateway/InternalGatewayProvider";
-import { PageFrame, PageHeader, ProvenanceChip, BUTTON_GHOST } from "@/components/home/kit";
+import { PageFrame, PageHeader, BUTTON_GHOST } from "@/components/home/kit";
 import { Chip, DeskTabs, Panel, PanelHead, TabBody, deskMotion } from "@/components/strategies/desk/Desk";
-import { usePreviewBoard } from "@/components/terminal/PreviewMarketProvider";
+import { useChainNow, useMarketBoard } from "@/components/market-data/MarketDataProvider";
 import { Segmented } from "@/components/terminal/primitives";
 import {
   ALERT_CATEGORIES,
@@ -18,7 +18,6 @@ import {
   type AlertRule,
   type AlertStatus,
 } from "@/lib/alerts";
-import { OPERATIONS_FIXTURE } from "@/lib/operations/fixture";
 import { portfolioRuntime } from "@/lib/portfolio/runtime";
 import { ruleWatches } from "@/lib/alerts";
 import { AlertInbox } from "./AlertInbox";
@@ -39,7 +38,8 @@ const STATUS_VIEWS: { value: StatusView; label: string }[] = [
 
 export function AlertsWorkspace() {
   const snapshot = useGatewaySnapshot();
-  const { markets, previewEpochSeconds } = usePreviewBoard();
+  const { markets, snapshot: live } = useMarketBoard();
+  const nowSeconds = useChainNow();
   const inbox = useAlertInbox();
   const { alerts, rules, ledger, setRules, setLedger } = inbox;
   const [category, setCategory] = useState<CategoryView>("ALL");
@@ -48,12 +48,12 @@ export function AlertsWorkspace() {
   const health = useMemo(() => {
     if (snapshot.positions.length === 0) return null;
     try {
-      const account = portfolioRuntime(snapshot, markets).account;
+      const account = portfolioRuntime(snapshot, markets, { live }).account;
       return account.maintenanceMargin > 0 ? account.healthFactor : null;
     } catch {
       return null;
     }
-  }, [snapshot, markets]);
+  }, [snapshot, markets, live]);
   const heldMarketIds = useMemo(() => [...new Set(snapshot.positions.map((position) => position.marketId))], [snapshot.positions]);
 
   const unresolvedByCategory = useMemo(() => {
@@ -85,13 +85,12 @@ export function AlertsWorkspace() {
   };
 
   const watches = useMemo(
-    () => ruleWatches(rules, snapshot, markets, previewEpochSeconds, inbox.nowMs),
-    [rules, snapshot, markets, previewEpochSeconds, inbox.nowMs],
+    () => ruleWatches(rules, snapshot, markets, nowSeconds, inbox.nowMs, live),
+    [rules, snapshot, markets, nowSeconds, inbox.nowMs, live],
   );
 
   const createRule = (rule: AlertRule) => setRules((current) => [...current, rule]);
   const openVisible = visible.filter((alert) => alert.status === "OPEN").length;
-  const fixtureCount = alerts.filter((alert) => alert.provenance === "RECORDED_FIXTURE").length;
 
   return (
     <PageFrame label="Alerts">
@@ -154,13 +153,9 @@ export function AlertsWorkspace() {
           <div className={`${deskMotion.rise} flex items-start gap-2 rounded-lg border border-line bg-inset px-3 py-2 text-[11px] leading-relaxed text-faint`}>
             <CircleAlert size={13} aria-hidden="true" className="mt-0.5 shrink-0 text-dim" />
             <span className="min-w-0">
-              Rule alerts evaluate the live board and the {snapshot.environment.label} account on every tick and
-              stay listed once raised until you resolve them. Acknowledgements live in this browser only. {fixtureCount}{" "}
-              System {fixtureCount === 1 ? "alert comes" : "alerts come"} from the operator runtime{" "}
-              <span className="whitespace-nowrap">
-                <ProvenanceChip kind="RECORDED_FIXTURE" />
-              </span>{" "}
-              captured {OPERATIONS_FIXTURE.captureLabel.replace("Recorded fixture - ", "")}.
+              Rule alerts evaluate the live market data and the {snapshot.environment.label} account on every
+              snapshot and stay listed once raised until you resolve them. Settlement and system alerts come from the
+              account&apos;s onchain lifecycle and the connected wallet. Acknowledgements live in this browser only.
             </span>
           </div>
         </div>
@@ -168,7 +163,8 @@ export function AlertsWorkspace() {
         <aside className="flex min-w-0 flex-col gap-1">
           <NewRulePanel
             markets={markets}
-            previewEpochSeconds={previewEpochSeconds}
+            live={live}
+            nowSeconds={nowSeconds}
             health={health}
             heldMarketIds={heldMarketIds}
             onCreate={createRule}

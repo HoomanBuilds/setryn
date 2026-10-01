@@ -83,7 +83,7 @@ function BlotterEmpty({ kind, filtered }: { kind: ActivityTab; filtered: boolean
         <Wallet size={18} aria-hidden="true" className="text-faint" />
         <p className="mt-3 text-sm text-ink">Connect a wallet to load package activity.</p>
         <p className="mt-1 max-w-md text-xs leading-relaxed text-faint">
-          Fills, orders, and receipts are reconstructed from the connected development chain for your account.
+          Fills, orders, and receipts are reconstructed from chain state for your account.
         </p>
         <div className="mt-4 flex gap-2">
           <button type="button" onClick={wallet.connect} disabled={wallet.connecting} className={BUTTON_INK}>
@@ -105,7 +105,7 @@ function BlotterEmpty({ kind, filtered }: { kind: ActivityTab; filtered: boolean
       </p>
       <p className="mt-1 max-w-md text-xs leading-relaxed text-faint">
         {kind === "FILLS"
-          ? "A submitted package will appear here with its runtime chronology and local receipt. Indexed event data will replace this source when a chain adapter is connected."
+          ? "No fills yet. A submitted order appears here with its execution chronology and receipt."
           : "Every signed package order registered by your account appears here with its fill progress and final state."}
       </p>
       {!filtered ? (
@@ -171,7 +171,7 @@ export function ActivityWorkspace() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "setryn-local-receipts.csv";
+    link.download = "setryn-receipts.csv";
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -267,11 +267,11 @@ export function ActivityWorkspace() {
             </>
           }
           title="Package execution ledger"
-          description="Review every package attempt, its result state, recorded runtime steps, and receipt evidence without mistaking local simulation for onchain settlement."
+          description="Review every attempt, its result state, recorded execution steps, and receipt evidence, each tied to its onchain transaction."
           right={
             <>
-              <Chip tone="muted" title="Attempts come from the first-party browser runtime and connected development chain.">
-                Runtime evidence only
+              <Chip tone="muted" title="Attempts, fills, and receipts are read from chain state for the connected account.">
+                Onchain evidence
               </Chip>
               <EnvironmentChip />
             </>
@@ -281,7 +281,7 @@ export function ActivityWorkspace() {
             <Kpi label="Recorded attempts" value={attempts.length} sub={`${terminal} terminal outcome${terminal === 1 ? "" : "s"}`} />
             <Kpi label="Filled lots" value={formatLots(filledLots)} sub="across all attempts" />
             <Kpi label="Fees paid" value={formatCompactUsd(fees)} sub="bounded by fee caps" />
-            <Kpi label="Receipt records" value={receipts} sub="Runtime evidence only" />
+            <Kpi label="Receipt records" value={receipts} sub="Onchain evidence" />
             <Kpi label="Working orders" value={working} sub={`${orders.length} registered`} tone={working > 0 ? "text-brand" : "text-ink"} />
             <Kpi
               label="Unresolved state"
@@ -315,7 +315,7 @@ export function ActivityWorkspace() {
                   className={`${BUTTON_QUIET} h-7 px-2.5`}
                 >
                   <Download size={12} aria-hidden="true" />
-                  <span className="hidden sm:inline">Export local CSV</span>
+                  <span className="hidden sm:inline">Export CSV</span>
                   <span className="sm:hidden">CSV</span>
                 </button>
               </div>

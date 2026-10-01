@@ -1,8 +1,8 @@
 import type { AlertSeverity, AlertState } from "@/lib/operations/types";
 
 /**
- * Alert vocabulary shared by the inbox, the home preview, and the global notification bell. Severity and status reuse
- * the operator runtime enums so a recorded operations alert and a viewer rule alert sort and read the same way.
+ * Alert vocabulary shared by the inbox, the home summary, and the global notification bell. Severity and status reuse
+ * the operator runtime enums so operator and viewer rule alerts sort and read the same way.
  */
 export type { AlertSeverity };
 export type AlertStatus = AlertState;
@@ -25,7 +25,7 @@ export interface Alert {
   detail: string;
   source: string;
   provenance: AlertProvenance;
-  /** Wall-clock milliseconds the alert was raised. Recorded fixtures carry their capture time. */
+  /** Wall-clock milliseconds the alert was raised. */
   raisedAtMs: number;
   /** Short time label as the source recorded it, e.g. "07:39:54 UTC". */
   timeLabel: string;
@@ -58,7 +58,7 @@ export interface PriceCrossRule extends RuleBase {
 
 export interface HealthBelowRule extends RuleBase {
   kind: "HEALTH_BELOW";
-  /** Maintenance health multiple, equity over maintenance margin. */
+  /** Collateral cover multiple: marked collateral equity over the collateral positions and orders lock. */
   threshold: number;
 }
 

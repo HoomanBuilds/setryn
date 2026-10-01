@@ -6,8 +6,9 @@ import { ArrowUpRight, ChevronRight, Receipt } from "lucide-react";
 import { BUTTON_QUIET, CopyButton, EnvironmentChip } from "@/components/activity/ledger-ui";
 import { UnderlyingIcon } from "@/components/icons/AssetIcon";
 import { Flash, Meter, Panel } from "@/components/strategies/desk/Desk";
-import { OriginChip, ProvenanceChip } from "@/components/settlements/trust";
-import { formatCountdownMs, formatUtcDate, formatUtcSession, formatUtcShort } from "@/lib/settlements/calendar";
+import { ProvenanceChip } from "@/components/settlements/trust";
+import { MARK_SOURCE_LABEL } from "@/lib/portfolio/forward";
+import { SCHEDULE_SOURCE_LABEL, formatCountdownMs, formatUtcDate, formatUtcSession, formatUtcShort } from "@/lib/settlements/calendar";
 import { receiptHref, type PositionDossier } from "@/lib/positions/dossier";
 import type { PositionMetrics } from "@/lib/positions/economics";
 import type { LifeProgress, LifecycleStep } from "@/lib/positions/timeline";
@@ -50,7 +51,7 @@ export function phaseOf(dossier: PositionDossier, metrics: PositionMetrics, nowM
   if (dossier.phase === "CLOSED") return { label: "Closed", tone: "closed" };
   if (nowMs >= metrics.fixingMs) return { label: "Awaiting fixing record", tone: "attention" };
   if (nowMs >= metrics.windowOpensMs) return { label: "Fixing window", tone: "window" };
-  if (dossier.reference?.health === "WINDOW_OPEN") return { label: "Window open", tone: "window" };
+  if (nowMs >= metrics.schedule.lastTradingMs) return { label: "Trading closed", tone: "window" };
   return { label: "Active", tone: "live" };
 }
 
@@ -109,7 +110,7 @@ function LifeBar({
           </span>
         ))}
         <span
-          title="Now, on the index feed clock"
+          title="Now, on the platform clock"
           className="absolute top-1/2 h-[9px] w-[9px] -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-panel bg-brand"
           style={{ left: at(nowMs) }}
         />
@@ -137,7 +138,10 @@ export function PositionHeader({
   const phase = phaseOf(dossier, metrics, nowMs);
   const unit = priceUnitSuffix(market.priceUnit);
   const record = metrics.recordProvenance;
-  const derived = metrics.derivedProvenance;
+  const rangeShare =
+    metrics.mark === null || metrics.terms.floor === null || metrics.terms.cap === null
+      ? null
+      : Math.max(0, Math.min(1, (metrics.mark - metrics.terms.floor) / (metrics.terms.cap - metrics.terms.floor)));
   const recordSource = dossier.sourceLabel;
   const opening = dossier.fills.find((fill) => fill.kind === "OPEN") ?? null;
   const closed = dossier.phase === "CLOSED";
@@ -184,21 +188,7 @@ export function PositionHeader({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-          {dossier.origin === "REFERENCE" ? (
-            <>
-              <OriginChip origin="REFERENCE" />
-              <span
-                title="Reference records are static lifecycle examples, independent of the connected account."
-                className="inline-flex h-7 shrink-0 items-center gap-2 rounded-md border border-dashed border-line-strong px-2.5 text-xs text-dim"
-              >
-                <span className="text-ink">{dossier.environmentLabel}</span>
-                <span className="text-off">/</span>
-                <span className="font-mono text-faint">{`${dossier.evidenceLabel.toLowerCase()} record`}</span>
-              </span>
-            </>
-          ) : (
-            <EnvironmentChip />
-          )}
+          <EnvironmentChip />
           {opening ? (
             <Link href={receiptHref(opening.receipt.id)} className={BUTTON_QUIET}>
               <Receipt size={12} aria-hidden="true" />
@@ -230,13 +220,16 @@ export function PositionHeader({
         />
         <Tile
           label="Mark"
-          provenance="ESTIMATED"
-          source="Package mark, Setryn index feed"
-          value={<Flash value={market.netPrice}>{price(market.netPrice, market)}</Flash>}
+          provenance={metrics.mark === null ? "MODELED" : metrics.markProvenance}
+          source={MARK_SOURCE_LABEL[metrics.markSource]}
+          value={metrics.mark === null ? "No quote yet" : <Flash value={metrics.mark}>{price(metrics.mark, market)}</Flash>}
+          tone={metrics.mark === null ? "text-faint" : "text-ink"}
           note={
             closed
               ? "current series mark"
-              : `close ${formatNumber(metrics.closeTouch, market.priceDecimals)} ${dossier.side === "LONG" ? "bid" : "ask"}`
+              : metrics.closeTouch === null
+                ? `no resting ${dossier.side === "LONG" ? "bid" : "ask"}`
+                : `close ${formatNumber(metrics.closeTouch, market.priceDecimals)} ${dossier.side === "LONG" ? "bid" : "ask"}`
           }
         />
         {closed ? (
@@ -251,11 +244,15 @@ export function PositionHeader({
         ) : (
           <Tile
             label="Open PnL"
-            provenance={derived}
-            source="Entry against the package mark, less fees"
-            value={<Flash value={metrics.totalPnl}>{signedUsd(metrics.totalPnl)}</Flash>}
-            tone={toneOf(metrics.totalPnl)}
-            note={`${signedUsd(metrics.touchPnl)} at the ${dossier.side === "LONG" ? "bid" : "ask"}`}
+            provenance={metrics.mark === null ? "MODELED" : "ESTIMATED"}
+            source="Entry against the mark, less fees"
+            value={metrics.mark === null ? "—" : <Flash value={metrics.totalPnl}>{signedUsd(metrics.totalPnl)}</Flash>}
+            tone={metrics.mark === null ? "text-faint" : toneOf(metrics.totalPnl)}
+            note={
+              metrics.touchPnl === null
+                ? "no executable close"
+                : `${signedUsd(metrics.touchPnl)} at the ${dossier.side === "LONG" ? "bid" : "ask"}`
+            }
           />
         )}
         {closed ? (
@@ -273,23 +270,24 @@ export function PositionHeader({
             provenance={record}
             source={recordSource}
             value={usd(dossier.collateral)}
-            note={`floor ${formatCompactUsd(metrics.maintenance)}`}
+            note={`${formatCompactUsd(metrics.atRisk)} at risk to the ${dossier.side === "LONG" ? "floor" : "cap"}`}
           />
         )}
         {closed ? (
           <Tile label="Fees paid" provenance="OBSERVED" source="Linked receipts" value={usd(dossier.fees, 2)} note={`${dossier.fills.length} linked fills`} />
         ) : (
           <Tile
-            label="Health"
-            provenance={derived}
-            source="Equity buffer over the maintenance floor"
-            value={`${formatNumber(metrics.bufferShare * 100, 1)}% buffer`}
-            tone={metrics.bufferShare < 0.1 ? "text-down" : "text-ink"}
+            label="Range position"
+            provenance={metrics.mark === null ? "MODELED" : "ESTIMATED"}
+            source="Mark between the payoff floor and cap"
+            value={rangeShare === null ? "—" : `${formatNumber(rangeShare * 100, 1)}% of range`}
+            tone={rangeShare !== null && (rangeShare < 0.1 || rangeShare > 0.9) ? "text-brand" : "text-ink"}
+            note={rangeShare === null ? (metrics.terms.floor === null ? "range not published" : "no mark yet") : "delta-one inside the range"}
           >
             <Meter
-              value={metrics.bufferShare}
-              tone={metrics.bufferShare < 0.1 ? "down" : metrics.bufferShare < 0.2 ? "brand" : "up"}
-              label="Risk buffer share of equity"
+              value={rangeShare ?? 0}
+              tone={rangeShare !== null && (rangeShare < 0.1 || rangeShare > 0.9) ? "brand" : "up"}
+              label="Mark position inside the payoff range"
             />
           </Tile>
         )}
@@ -303,21 +301,22 @@ export function PositionHeader({
           />
         ) : (
           <Tile
-            label="Liquidation"
-            provenance={derived}
-            source="Mark less the buffer in package points"
-            value={metrics.liquidationPrice === null ? "No quote level" : price(metrics.liquidationPrice, market)}
-            note={
-              metrics.liquidationPrice === null
-                ? "buffer runs through zero"
-                : `${formatNumber(Math.abs(market.netPrice - metrics.liquidationPrice), market.priceDecimals)} ${unit} away`
+            label="Payoff range"
+            provenance="OBSERVED"
+            source="Series listing"
+            value={
+              metrics.terms.floor === null || metrics.terms.cap === null
+                ? "Not published"
+                : `${price(metrics.terms.floor, market, false)} – ${price(metrics.terms.cap, market, false)}`
             }
+            tone={metrics.terms.floor === null ? "text-faint" : "text-ink"}
+            note={`${unit}, ${formatNumber(metrics.terms.lotSize, metrics.terms.lotSize < 1 ? 4 : 0)} ${market.underlying.split("/")[0]} per lot`}
           />
         )}
         <Tile
           label="Fixing"
-          provenance="MODELED"
-          source="Scheduled from series terms"
+          provenance={metrics.schedule.source === "POSITION" ? "OBSERVED" : "MODELED"}
+          source={SCHEDULE_SOURCE_LABEL[metrics.schedule.source]}
           value={closed ? "Not applicable" : formatCountdownMs(metrics.msToFixing)}
           tone={closed ? "text-faint" : metrics.msToFixing < 7 * 86_400_000 ? "text-brand" : "text-ink"}
           note={formatUtcSession(metrics.fixingMs)}

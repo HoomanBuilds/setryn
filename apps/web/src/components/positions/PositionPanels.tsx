@@ -7,6 +7,9 @@ import { BUTTON_QUIET, CopyButton, formatUtcTime, middleTruncate } from "@/compo
 import { toCsvCell } from "@/components/activity/activity-view";
 import { DeskTabs, Meter, Panel, PanelHead, TH, TH_NUM, TabBody } from "@/components/strategies/desk/Desk";
 import { ProvenanceChip } from "@/components/settlements/trust";
+import { useReferencePrices } from "@/components/market-data/MarketDataProvider";
+import type { LiveMarketData } from "@/lib/market-data/types";
+import { impliedCarry, longPayoffPerLot } from "@/lib/portfolio/forward";
 import { receiptHref, type LinkedFill, type PositionDossier } from "@/lib/positions/dossier";
 import type { PositionMetrics } from "@/lib/positions/economics";
 import { evidenceLabel, formatLots, formatNumber, priceUnitSuffix } from "@/lib/terminal/format";
@@ -262,7 +265,6 @@ export function ActivityPanel({
   delay?: number;
 }) {
   const [tab, setTab] = useState<ActivityTab>("fills");
-  const reference = dossier.origin === "REFERENCE";
   return (
     <Panel label="Linked activity" className={className} delay={delay}>
       <PanelHead
@@ -290,7 +292,7 @@ export function ActivityPanel({
               title={
                 dossier.fills.length === 0
                   ? "No linked fills to export"
-                  : `Local ${dossier.evidenceLabel.toLowerCase()} export of linked fills, not venue accounting`
+                  : "Export of the linked fills and their receipts"
               }
               className={`${BUTTON_QUIET} h-7 px-2`}
             >
@@ -305,19 +307,8 @@ export function ActivityPanel({
           dossier.fills.length > 0 ? (
             <FillsTable fills={dossier.fills} market={market} />
           ) : (
-            <Empty
-              action={
-                reference ? (
-                  <Link href={tradeHref(market)} className={BUTTON_QUIET}>
-                    Open the market
-                    <ArrowUpRight size={12} aria-hidden="true" />
-                  </Link>
-                ) : undefined
-              }
-            >
-              {reference
-                ? "A reference record has no fills or receipts. Account positions list every fill here with its receipt and transaction reference."
-                : "No fill is linked to this position in the current account snapshot. The position record itself is read from chain state."}
+            <Empty>
+              No fill is linked to this position in the current account snapshot. The position record itself is read from chain state.
             </Empty>
           )
         ) : null}
@@ -341,72 +332,64 @@ export function ActivityPanel({
 }
 
 /* ------------------------------------------------------------------ */
-/* Legs                                                                */
+/* Contract terms                                                      */
 /* ------------------------------------------------------------------ */
 
-export function LegsPanel({
-  dossier,
+export function TermsPanel({
   market,
+  metrics,
   className = "",
   delay = 0,
 }: {
-  dossier: PositionDossier;
   market: PackageMarket;
+  metrics: PositionMetrics;
   className?: string;
   delay?: number;
 }) {
-  const roles = new Map((dossier.reference?.legs ?? []).map((leg) => [leg.id, leg]));
+  const reference = useReferencePrices()[market.underlying] ?? null;
+  const terms = metrics.terms;
+  const unit = priceUnitSuffix(market.priceUnit);
+  const base = market.underlying.split("/")[0];
+  const days = Math.max(0, metrics.msToFixing / 86_400_000);
+  const carry = metrics.mark !== null && reference ? impliedCarry(metrics.mark, reference.price, days) : null;
+  const maxPayoff = terms.cap === null ? null : longPayoffPerLot(terms.cap, terms);
   return (
-    <Panel label="Package legs" className={className} delay={delay}>
-      <PanelHead
-        title="Package legs"
-        tools={<span className="text-[11px] text-faint">{`${market.legs.length} legs, one package`}</span>}
-      />
-      <div className="overflow-x-auto">
-        <table className="relative w-full min-w-[560px] border-collapse text-left">
-          <caption className="sr-only">Legs of the package, with their reference observations.</caption>
-          <thead>
-            <tr className="border-b border-line">
-              <th scope="col" className={TH}>Leg</th>
-              <th scope="col" className={TH}>Side</th>
-              <th scope="col" className={TH}>Venue</th>
-              <th scope="col" className={TH_NUM}>Mark</th>
-              <th scope="col" className={TH}>Source</th>
-            </tr>
-          </thead>
-          <tbody>
-            {market.legs.map((leg) => {
-              const role = roles.get(leg.id);
-              const decimals = leg.markUnit === "USD" ? (Math.abs(leg.mark) < 10 ? 4 : 2) : 1;
-              return (
-                <tr key={leg.id} className="border-b border-line-soft last:border-b-0">
-                  <td className="px-3 py-2">
-                    <span className="block text-xs text-ink">{leg.instrument}</span>
-                    <span className="block text-[11px] text-faint">{role?.lifecycleRole ?? leg.family.replace("_", " ").toLowerCase()}</span>
-                  </td>
-                  <td className="px-3 text-xs whitespace-nowrap text-dim">{`${leg.side === "BUY" ? "Buy" : "Sell"} ${formatNumber(leg.ratio, 2)}x`}</td>
-                  <td className="px-3 text-xs whitespace-nowrap text-dim">{leg.venueClass === "NATIVE_BOOK" ? "Native book" : "Implied component"}</td>
-                  <td className="tnum px-3 text-right font-mono text-xs whitespace-nowrap text-ink">
-                    {`${formatNumber(leg.mark, decimals)} ${priceUnitSuffix(leg.markUnit)}`}
-                  </td>
-                  <td className="px-3">
-                    <ProvenanceChip
-                      provenance={leg.venueClass === "NATIVE_BOOK" ? "EXECUTABLE" : "OBSERVED"}
-                      source={leg.venueClass === "NATIVE_BOOK" ? "Setryn package book" : "Qualified component observation"}
-                      compact
-                    />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+    <Panel label="Contract terms" className={className} delay={delay}>
+      <PanelHead title="Contract terms" tools={<span className="text-[11px] text-faint">cash-settled dated range forward</span>} />
+      <div className="px-3 py-2 lg:px-4">
+        <div className="divide-y divide-line-soft">
+          <TrustRow label="Underlying" value={market.underlying} note={market.fixingSource} provenance="OBSERVED" source="Series listing" />
+          <TrustRow label="Lot size" value={`${formatNumber(terms.lotSize, terms.lotSize < 1 ? 4 : 0)} ${base}`} provenance="OBSERVED" source="Series listing" />
+          <TrustRow label="Tick" value={`${formatNumber(market.tickSize, market.priceDecimals)} ${unit}`} provenance="OBSERVED" source="Series listing" />
+          <TrustRow
+            label="Payoff floor / cap"
+            value={terms.floor === null || terms.cap === null ? "Not published" : `${price(terms.floor, market, false)} / ${price(terms.cap, market, false)}`}
+            tone={terms.floor === null ? "text-faint" : "text-ink"}
+            provenance={terms.floor === null ? undefined : "OBSERVED"}
+            source="Series listing"
+          />
+          <TrustRow
+            label="Long payoff per lot"
+            note="lot x clamp(fixing - floor, 0, cap - floor)"
+            value={maxPayoff === null ? "Not bounded here" : `0 to ${usd(maxPayoff)}`}
+          />
+          <TrustRow label="Settlement" value={`Cash ${market.settlementAsset}`} note="at the fixing, no delivery" />
+          <TrustRow
+            label="Chainlink reference"
+            value={reference ? price(reference.price, market) : "Not read"}
+            tone={reference ? "text-ink" : "text-faint"}
+            provenance={reference ? "OBSERVED" : undefined}
+            source={reference ? `Chainlink ${market.underlying}, chain ${reference.chainId}` : undefined}
+          />
+          <TrustRow
+            label="Implied carry"
+            note="(mark / reference - 1) x 365 / days, display only"
+            value={carry === null ? "—" : `${carry >= 0 ? "+" : "-"}${formatNumber(Math.abs(carry) * 100, 2)}% a year`}
+            tone={carry === null ? "text-faint" : "text-ink"}
+            provenance={carry === null ? undefined : "ESTIMATED"}
+          />
+        </div>
       </div>
-      {dossier.reference ? (
-        <p className="border-t border-line px-3 py-2 text-[11px] leading-relaxed text-faint lg:px-4">
-          Legs close together from the package terminal. A direct single-leg close would break the package hedge and is not offered.
-        </p>
-      ) : null}
     </Panel>
   );
 }
@@ -419,68 +402,83 @@ export function RiskPanel({
   dossier,
   market,
   metrics,
+  live,
   className = "",
   delay = 0,
 }: {
   dossier: PositionDossier;
   market: PackageMarket;
   metrics: PositionMetrics;
+  live: LiveMarketData | null;
   className?: string;
   delay?: number;
 }) {
-  const derived = metrics.derivedProvenance;
+  const estimated = metrics.mark === null ? "MODELED" : "ESTIMATED";
   const unit = priceUnitSuffix(market.priceUnit);
-  const distance =
-    metrics.liquidationPrice === null || market.netPrice === 0
+  const base = market.underlying.split("/")[0];
+  const crossing =
+    metrics.mark === null || metrics.closeTouch === null
       ? null
-      : Math.abs(market.netPrice - metrics.liquidationPrice) / Math.abs(market.netPrice);
-  const crossing = Math.abs(market.netPrice - metrics.closeTouch) * metrics.perPoint;
-  const residual = dossier.reference?.maxResidual ?? dossier.lots * market.residualPerLot;
+      : Math.abs(metrics.mark - metrics.closeTouch) * Math.abs(metrics.perPoint);
+  const share = dossier.collateral > 0 ? Math.min(1, metrics.atRisk / dossier.collateral) : 0;
   return (
     <Panel label="Position risk" className={className} delay={delay}>
-      <PanelHead title="Risk" tools={<span className="text-[11px] text-faint">isolated package margin</span>} />
+      <PanelHead title="Risk" tools={<span className="text-[11px] text-faint">fully collateralized</span>} />
       <div className="px-3 py-2 lg:px-4">
         <div className="divide-y divide-line-soft">
-          <TrustRow label="Position equity" note="collateral plus PnL" value={usd(metrics.equity)} provenance={derived} />
-          <TrustRow label="Maintenance floor" value={usd(metrics.maintenance)} provenance={derived} />
+          <TrustRow label="Collateral locked" note="bounded terminal liability" value={usd(dossier.collateral)} provenance="OBSERVED" source={dossier.sourceLabel} />
+          <TrustRow label="Value at the mark" note="collateral plus price PnL" value={usd(metrics.equity)} provenance={estimated} />
           <div className="py-2">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-xs text-faint">Buffer above maintenance</span>
-              <span className="tnum font-mono text-xs text-ink">{`${usd(metrics.buffer)}, ${formatNumber(metrics.bufferShare * 100, 1)}%`}</span>
+              <span className="text-xs text-faint">{`At risk to the ${dossier.side === "LONG" ? "floor" : "cap"}`}</span>
+              <span className="tnum font-mono text-xs text-ink">{usd(metrics.atRisk)}</span>
             </div>
             <Meter
               className="mt-2"
-              value={metrics.bufferShare}
-              limit={0.1}
-              tone={metrics.bufferShare < 0.1 ? "down" : metrics.bufferShare < 0.2 ? "brand" : "up"}
-              label="Buffer share of equity"
+              value={share}
+              tone={share > 0.9 ? "brand" : "up"}
+              label="Share of locked collateral still at risk"
             />
           </div>
           <TrustRow
-            label="Liquidation level"
-            note={distance === null ? "buffer runs through zero" : `${formatNumber(distance * 100, 1)}% from the mark`}
-            value={metrics.liquidationPrice === null ? "No quote level" : price(metrics.liquidationPrice, market)}
-            provenance={derived}
+            label={`Most gained at the ${dossier.side === "LONG" ? "cap" : "floor"}`}
+            value={metrics.maxGain === null ? "Not published" : signedUsd(metrics.maxGain)}
+            tone={metrics.maxGain === null ? "text-faint" : toneOf(metrics.maxGain)}
+            provenance={metrics.maxGain === null ? undefined : "ESTIMATED"}
+          />
+          <TrustRow
+            label="Exposure"
+            note={metrics.deltaUnits === 0 && metrics.mark !== null ? "outside the range: no delta" : "delta-one inside the range"}
+            value={`${metrics.deltaUnits >= 0 ? "+" : ""}${formatNumber(metrics.deltaUnits, Math.abs(metrics.deltaUnits) < 10 ? 2 : 0)} ${base}`}
+            provenance={estimated}
           />
           <TrustRow
             label="Close cost at the touch"
-            note={`mark to ${dossier.side === "LONG" ? "bid" : "ask"}, ${formatNumber(Math.abs(market.netPrice - metrics.closeTouch), market.priceDecimals)} ${unit}`}
-            value={usd(crossing)}
-            provenance="ESTIMATED"
+            note={
+              crossing === null || metrics.closeTouch === null || metrics.mark === null
+                ? `no resting ${dossier.side === "LONG" ? "bid" : "ask"}`
+                : `mark to ${dossier.side === "LONG" ? "bid" : "ask"}, ${formatNumber(Math.abs(metrics.mark - metrics.closeTouch), market.priceDecimals)} ${unit}`
+            }
+            value={crossing === null ? "—" : usd(crossing)}
+            tone={crossing === null ? "text-faint" : "text-ink"}
+            provenance={crossing === null ? undefined : "EXECUTABLE"}
           />
-          <TrustRow label="Max terminal residual" value={usd(residual)} provenance={dossier.reference ? "MODELED" : "ESTIMATED"} />
-          {dossier.origin === "ACCOUNT" ? (
-            <TrustRow label="Fees paid" value={usd(dossier.fees, 2)} provenance="OBSERVED" source="Linked receipts" />
-          ) : (
-            <TrustRow label="Fees paid" value="Not recorded" tone="text-faint" note="reference records carry no fills" />
-          )}
-          <TrustRow label="Price PnL" value={signedUsd(metrics.pricePnl)} tone={toneOf(metrics.pricePnl)} provenance={derived} />
+          <TrustRow
+            label="Book depth to close"
+            value={live ? `${formatNumber(live.book.filter((row) => row.side === (dossier.side === "LONG" ? "BID" : "ASK") && row.executable).reduce((total, row) => total + row.lots, 0), 0)} lots` : "—"}
+            provenance={live ? "EXECUTABLE" : undefined}
+            source="Onchain public book"
+          />
+          <TrustRow label="Fees paid" value={usd(dossier.fees, 2)} provenance="OBSERVED" source="Linked receipts" />
+          <TrustRow
+            label="Price PnL"
+            value={metrics.mark === null ? "—" : signedUsd(metrics.pricePnl)}
+            tone={metrics.mark === null ? "text-faint" : toneOf(metrics.pricePnl)}
+            provenance={estimated}
+          />
           <TrustRow label="Settlement guarantee" value={GUARANTEE_COPY[dossier.guarantee].label} />
         </div>
       </div>
-      {dossier.reference ? (
-        <p className="border-t border-line px-3 py-2 text-[11px] leading-relaxed text-faint lg:px-4">{dossier.reference.healthDetail}</p>
-      ) : null}
     </Panel>
   );
 }

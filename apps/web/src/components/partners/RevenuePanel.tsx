@@ -4,7 +4,7 @@ import { Chip, Panel, PanelHead, TH, TH_NUM } from "@/components/strategies/desk
 import { formatMinorUsdc, formatStamp, shortHash, type RevenueReport } from "./api";
 
 /**
- * Revenue reconciliation. Fees are OBSERVED from FillCleared records on the local chain; the partner share is MODELED
+ * Revenue reconciliation. Fees are OBSERVED from FillCleared records on the settlement chain; the partner share is MODELED
  * from each deployment's fee-share setting. No payout exists onchain, so every row reconciles as unsettled.
  */
 export function RevenuePanel({ report }: { report: RevenueReport | null }) {

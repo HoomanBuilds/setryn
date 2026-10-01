@@ -189,17 +189,8 @@ export function parseExposureCsv(text: string, batch: string, createdAt: string,
   return rows;
 }
 
-/** A small treasury book in the importer's own format, for trying the netting and coverage views. */
-export const EXAMPLE_EXPOSURE_CSV = [
-  "type,asset,amount,date,certainty,label",
-  "receivable,EUR,250000,2026-12-30,confirmed,Invoice INV-2291 Lyon distributor",
-  "payable,EUR,90000,2027-01-15,forecast,Frankfurt supplier Q1 run",
-  "treasury,BTC,400000,2026-12-24,confirmed,Year-end BTC reserve",
-  "debt,BTC,150000,2027-01-08,forecast,BTC-denominated credit line",
-  "token unlock,ETH,180000,2027-03-26,forecast,Series A token cliff",
-  "inventory,XAU,120000,2027-06-29,forecast,Bullion inventory",
-  "investment,ARB,60000,2027-03-26,confirmed,ARB ecosystem allocation",
-].join("\n");
+/** The importer's header row: the columns every CSV row carries, in order. */
+export const EXPOSURE_CSV_HEADER = "type,asset,amount,date,certainty,label";
 
 /** Merges new rows into the book by id; a row already in the book is not duplicated. */
 export function mergeExposures(book: readonly ExposureRecord[], rows: readonly ExposureRecord[]): { book: ExposureRecord[]; added: number; duplicates: number } {

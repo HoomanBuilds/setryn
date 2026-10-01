@@ -2,19 +2,17 @@
 
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
-import { ArrowUpRight, CalendarClock, CircleAlert, CircleCheck, Info } from "lucide-react";
+import { ArrowUpRight, CircleAlert, CircleCheck, Info } from "lucide-react";
 import { BUTTON_PRIMARY, BUTTON_QUIET } from "@/components/activity/ledger-ui";
 import { DeskTabs, Panel, RangeField, Stepper, TabBody } from "@/components/strategies/desk/Desk";
 import { ProvenanceChip } from "@/components/settlements/trust";
-import {
-  ADJUSTMENT_RULE,
-  FIXING_WINDOW_MINUTES,
-  fixingSchedule,
-  formatUtcDate,
-  formatUtcSession,
-} from "@/lib/settlements/calendar";
+import { SCHEDULE_SOURCE_LABEL, formatUtcDate, formatUtcSession, seriesSchedule } from "@/lib/settlements/calendar";
 import { TerminalLifecycle } from "@/components/lifecycle/TerminalLifecycle";
+import { useGatewaySnapshot } from "@/components/gateway/InternalGatewayProvider";
+import { useMarketBoard } from "@/components/market-data/MarketDataProvider";
 import type { OnchainPositionLifecycle } from "@/lib/internal-gateway/types";
+import type { LiveMarketData } from "@/lib/market-data/types";
+import { markOf } from "@/lib/portfolio/forward";
 import type { PositionDossier } from "@/lib/positions/dossier";
 import {
   closeHandoffHref,
@@ -22,11 +20,13 @@ import {
   rollOpenHandoffHref,
   rollPreview,
   rollTargets,
+  settlementCashAt,
+  settlementPnlAt,
   type PositionMetrics,
 } from "@/lib/positions/economics";
 import { GUARANTEE_COPY } from "@/lib/terminal/economics";
 import { formatLots, formatNumber, priceUnitSuffix } from "@/lib/terminal/format";
-import { MARKETS, tradeHref } from "@/lib/terminal/markets";
+import { tradeHref } from "@/lib/terminal/markets";
 import type { PackageMarket } from "@/lib/terminal/types";
 import { SubHead, TrustRow, price, signedUsd, toneOf, usd } from "./parts";
 import { MarketMark } from "@/components/portfolio/MarketMark";
@@ -107,19 +107,41 @@ function Segment({
 }
 
 const HANDOFF_NOTE =
-  "The terminal re-quotes the route, runs preflight again and asks for your signature. Nothing is submitted from this page, and success shows only when the protocol records the terminal state.";
+  "The terminal re-quotes the book, runs preflight again and asks for your signature. Nothing is submitted from this page, and success shows only when the protocol records the terminal state.";
+
+function maybePrice(value: number | null, market: PackageMarket): string {
+  return value === null ? "—" : price(value, market);
+}
+
+function maybeUsd(value: number | null, decimals = 0): string {
+  return value === null ? "—" : usd(value, decimals);
+}
 
 /* ------------------------------------------------------------------ */
 /* Close                                                               */
 /* ------------------------------------------------------------------ */
 
-function CloseTab({ dossier, market }: { dossier: PositionDossier; market: PackageMarket }) {
+function CloseTab({
+  dossier,
+  market,
+  live,
+  metrics,
+  nowMs,
+}: {
+  dossier: PositionDossier;
+  market: PackageMarket;
+  live: LiveMarketData | null;
+  metrics: PositionMetrics;
+  nowMs: number;
+}) {
+  const snapshot = useGatewaySnapshot();
+  const economics = snapshot.onchainMarkets[market.id] ?? null;
   const canPartial = dossier.lots > 1;
   const [mode, setMode] = useState<"FULL" | "PARTIAL">("FULL");
   const [partialLots, setPartialLots] = useState(() => Math.max(1, Math.floor(dossier.lots / 2)));
   const partial = mode === "PARTIAL" && canPartial;
   const lots = partial ? Math.min(Math.max(1, partialLots), dossier.lots - 1) : dossier.lots;
-  const preview = closePreview(dossier, market, lots);
+  const preview = closePreview(dossier, market, live, economics, lots, nowMs, metrics.schedule);
   const sideWord = dossier.side === "LONG" ? "bid" : "ask";
 
   return (
@@ -174,28 +196,35 @@ function CloseTab({ dossier, market }: { dossier: PositionDossier; market: Packa
       <div className="divide-y divide-line-soft">
         <TrustRow
           label={`Close at the ${sideWord}`}
-          note={preview.route ? preview.route.label : "Best package touch"}
-          value={price(preview.price, market)}
-          provenance="EXECUTABLE"
-          source={preview.route ? `${preview.route.label}, reference book` : "Package book touch"}
+          note={preview.price === null ? `no resting ${sideWord}` : `${formatLots(preview.fillableLots)} lots fill on the book`}
+          value={maybePrice(preview.price, market)}
+          tone={preview.price === null ? "text-faint" : "text-ink"}
+          provenance={preview.price === null ? undefined : "EXECUTABLE"}
+          source="Onchain public book, average across levels"
         />
         <TrustRow
           label="Closing / remaining"
           value={`${formatLots(preview.lots)} / ${formatLots(preview.remainingLots)} lots`}
         />
-        <TrustRow label="Fees at this route" value={usd(preview.fees, 2)} provenance="ESTIMATED" source="Route fee schedule" />
         <TrustRow
-          label="Realized PnL at this quote"
-          value={signedUsd(preview.realizedPnl, 2)}
-          tone={toneOf(preview.realizedPnl)}
-          provenance={dossier.origin === "ACCOUNT" ? "ESTIMATED" : "MODELED"}
-          source="Entry against the close price, less fees"
+          label="Taker fee"
+          value={maybeUsd(preview.fees, 2)}
+          tone={preview.fees === null ? "text-faint" : "text-ink"}
+          provenance={preview.fees === null ? undefined : "ESTIMATED"}
+          source="Active onchain fee schedule, on the consideration"
+        />
+        <TrustRow
+          label="Realized PnL at this price"
+          value={preview.realizedPnl === null ? "—" : signedUsd(preview.realizedPnl, 2)}
+          tone={preview.realizedPnl === null ? "text-faint" : toneOf(preview.realizedPnl)}
+          provenance={preview.realizedPnl === null ? undefined : "ESTIMATED"}
+          source="Entry against the close price, less the fee"
         />
         <TrustRow
           label="Collateral released"
           value={usd(preview.collateralRelease)}
-          provenance={dossier.origin === "ACCOUNT" ? "ESTIMATED" : "MODELED"}
-          source="Pro rata share of posted collateral"
+          provenance="ESTIMATED"
+          source="Pro rata share of locked collateral"
         />
       </div>
 
@@ -221,32 +250,51 @@ function RollTab({
   dossier,
   market,
   markets,
+  live,
+  metrics,
+  nowMs,
 }: {
   dossier: PositionDossier;
   market: PackageMarket;
   markets: readonly PackageMarket[];
+  live: LiveMarketData | null;
+  metrics: PositionMetrics;
+  nowMs: number;
 }) {
+  const snapshot = useGatewaySnapshot();
+  const { snapshot: feed } = useMarketBoard();
   const targets = rollTargets(market, markets);
   const [targetId, setTargetId] = useState<string | null>(null);
   const [rollLots, setRollLots] = useState<number | null>(null);
   const target = targets.find((candidate) => candidate.id === targetId) ?? targets[0] ?? null;
+  const liveOf = (id: string) => feed?.markets.find((candidate) => candidate.marketKey === id) ?? null;
 
   if (!target) {
     return (
       <div className="flex flex-col gap-3 p-3 lg:p-4">
         <p className="text-sm text-ink">No later maturity is listed.</p>
         <p className="text-xs leading-relaxed text-faint">
-          {`${market.name} has no maturity after ${market.tenorLabel}. Close the position before its fixing or hold it to cash settlement.`}
+          {`${market.underlying} has no maturity listed after ${market.tenorLabel}. Close the position before its last trade or hold it to cash settlement.`}
         </p>
       </div>
     );
   }
 
   const lots = Math.min(dossier.lots, Math.max(1, rollLots ?? dossier.lots));
-  const roll = rollPreview(dossier, market, target, lots);
-  const targetSchedule = fixingSchedule(target);
+  const targetLive = liveOf(target.id);
+  const roll = rollPreview(
+    dossier,
+    market,
+    live,
+    target,
+    targetLive,
+    { current: snapshot.onchainMarkets[market.id] ?? null, target: snapshot.onchainMarkets[target.id] ?? null },
+    lots,
+    nowMs,
+    metrics.schedule,
+  );
+  const targetSchedule = seriesSchedule(target);
   const unit = priceUnitSuffix(market.priceUnit);
-  const estimated = dossier.origin === "ACCOUNT" ? "ESTIMATED" : "MODELED";
   const openBlockers = roll.openBlockers.filter((blocker) => !roll.close.blockers.includes(blocker));
 
   return (
@@ -256,7 +304,11 @@ function RollTab({
         <div role="radiogroup" aria-label="Roll target" className="mt-2 flex flex-col gap-1">
           {targets.map((candidate) => {
             const active = candidate.id === target.id;
-            const schedule = fixingSchedule(candidate);
+            const candidateLive = liveOf(candidate.id);
+            const candidateMark = markOf(candidateLive).price;
+            const depth = (candidateLive?.book ?? [])
+              .filter((row) => row.executable && row.side === (dossier.side === "LONG" ? "ASK" : "BID"))
+              .reduce((total, row) => total + row.lots, 0);
             return (
               <button
                 key={candidate.id}
@@ -272,22 +324,17 @@ function RollTab({
                   <span className="flex items-center gap-2">
                     <MarketMark underlying={candidate.underlying} size={14} />
                     <span className={`font-mono text-xs ${active ? "text-ink" : "text-dim"}`}>{candidate.code}</span>
-                    {candidate.qualification !== "QUALIFIED" ? (
+                    {candidateLive && candidateLive.seriesStatus !== "ACTIVE" && candidateLive.seriesStatus !== "UNKNOWN" ? (
                       <span className="rounded-[3px] border border-line-strong px-1 font-mono text-[9.5px] tracking-[0.05em] text-dim uppercase">
-                        {candidate.qualification.toLowerCase()}
-                      </span>
-                    ) : null}
-                    {schedule.adjustment ? (
-                      <span title={`${schedule.adjustment.reason}. Modeled`} className="text-brand">
-                        <CalendarClock size={12} aria-label="Fixing date falls on a closed session" />
+                        {candidateLive.seriesStatus.toLowerCase()}
                       </span>
                     ) : null}
                   </span>
-                  <span className="mt-0.5 block text-[11px] text-faint">{`Fixes ${formatUtcDate(candidate.expiryIso)}`}</span>
+                  <span className="mt-0.5 block text-[11px] text-faint">{`Fixes ${formatUtcDate(seriesSchedule(candidate).fixingMs)}`}</span>
                 </span>
                 <span className="tnum text-right font-mono text-xs text-ink">
-                  {price(candidate.netPrice, candidate, false)}
-                  <span className="block text-[10.5px] text-faint">{`${candidate.firmDepthLots.toLocaleString("en-US")} firm lots`}</span>
+                  {candidateMark === null ? <span className="text-faint">No quote</span> : price(candidateMark, candidate, false)}
+                  <span className="block text-[10.5px] text-faint">{`${depth.toLocaleString("en-US")} lots ${dossier.side === "LONG" ? "offered" : "bid"}`}</span>
                 </span>
               </button>
             );
@@ -312,69 +359,56 @@ function RollTab({
       <div className="divide-y divide-line-soft">
         <TrustRow
           label={`Close ${market.code}`}
-          note={roll.close.route?.label}
-          value={price(roll.close.price, market)}
-          provenance="EXECUTABLE"
-          source="Exit touch, reference book"
+          note={roll.close.price === null ? "nothing rests to close against" : `${formatLots(roll.close.fillableLots)} lots on the book`}
+          value={maybePrice(roll.close.price, market)}
+          tone={roll.close.price === null ? "text-faint" : "text-ink"}
+          provenance={roll.close.price === null ? undefined : "EXECUTABLE"}
+          source="Exit, onchain public book"
         />
         <TrustRow
           label={`Open ${target.code}`}
-          note={roll.openRoute?.label}
-          value={price(roll.openPrice, target)}
-          provenance="EXECUTABLE"
-          source="Entry touch, reference book"
+          note={roll.openPrice === null ? "nothing rests to open against" : `${formatLots(roll.openFillableLots)} lots on the book`}
+          value={maybePrice(roll.openPrice, target)}
+          tone={roll.openPrice === null ? "text-faint" : "text-ink"}
+          provenance={roll.openPrice === null ? undefined : "EXECUTABLE"}
+          source="Entry, onchain public book"
         />
         <TrustRow
           label="Roll spread"
           note="target entry less current exit"
-          value={`${roll.rollSpread >= 0 ? "+" : "-"}${formatNumber(Math.abs(roll.rollSpread), market.priceDecimals)} ${unit}`}
+          value={
+            roll.rollSpread === null
+              ? "—"
+              : `${roll.rollSpread >= 0 ? "+" : "-"}${formatNumber(Math.abs(roll.rollSpread), market.priceDecimals)} ${unit}`
+          }
         />
-        <TrustRow label="Crossing cost" note="mark to touch, both tickets" value={usd(roll.crossingCost)} provenance={estimated} />
-        <TrustRow label="Fees, both tickets" value={usd(roll.fees, 2)} provenance="ESTIMATED" source="Route fee schedules" />
+        <TrustRow label="Crossing cost" note="mark to fill, both tickets" value={maybeUsd(roll.crossingCost)} provenance={roll.crossingCost === null ? undefined : "ESTIMATED"} />
+        <TrustRow label="Fees, both tickets" value={maybeUsd(roll.fees, 2)} provenance={roll.fees === null ? undefined : "ESTIMATED"} source="Active onchain fee schedule" />
         <TrustRow
           label="Released / required"
-          value={`${usd(roll.collateralRelease)} / ${formatNumber(roll.collateralRequired, 0)}`}
-          provenance={estimated}
+          value={`${usd(roll.collateralRelease)} / ${roll.collateralRequired === null ? "—" : formatNumber(roll.collateralRequired, 0)}`}
+          provenance="ESTIMATED"
         />
         <TrustRow
           label="Net collateral change"
-          value={signedUsd(roll.netCollateral)}
-          tone={roll.netCollateral > 0 ? "text-ink" : "text-dim"}
-          provenance={estimated}
+          value={roll.netCollateral === null ? "—" : signedUsd(roll.netCollateral)}
+          tone={roll.netCollateral !== null && roll.netCollateral > 0 ? "text-ink" : "text-dim"}
+          provenance={roll.netCollateral === null ? undefined : "ESTIMATED"}
         />
         <TrustRow
           label="New fixing"
           note={`+${roll.extensionDays} days`}
           value={formatUtcSession(targetSchedule.fixingMs).replace(" UTC", "")}
-          provenance="MODELED"
-          source="Scheduled from series terms"
+          provenance={targetSchedule.source === "EXPIRY_RULE" ? "MODELED" : "OBSERVED"}
+          source={SCHEDULE_SOURCE_LABEL[targetSchedule.source]}
         />
       </div>
-
-      {target.qualification !== "QUALIFIED" || targetSchedule.adjustment ? (
-        <div className="flex flex-col gap-1.5 rounded-md border border-brand-edge/40 bg-brand-soft/30 px-3 py-2.5">
-          {target.qualification !== "QUALIFIED" ? (
-            <p className="text-xs leading-snug text-ink">
-              <span className="font-medium">{`${target.code} is ${target.qualification.toLowerCase()}. `}</span>
-              <span className="text-dim">{target.qualificationNote}</span>
-            </p>
-          ) : null}
-          {targetSchedule.adjustment ? (
-            <p className="text-xs leading-snug text-dim">
-              {`${formatUtcDate(targetSchedule.adjustment.scheduled)} is ${targetSchedule.adjustment.reason}. ${targetSchedule.adjustment.rule} would move the print to ${formatUtcDate(targetSchedule.adjustment.adjusted)} (modeled).`}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
 
       <Preflight
         title="Preflight, both tickets"
         blockers={[...roll.close.blockers.map((text) => `Close: ${text}`), ...openBlockers.map((text) => `Open: ${text}`)]}
         notices={[
           ...roll.close.notices,
-          ...(dossier.origin === "REFERENCE"
-            ? ["Required collateral is the terminal's margin for the new ticket on the live route; the reference record's posted collateral uses its own basis."]
-            : []),
           "Two terminal tickets, not one atomic package. Between them the rolled lots are flat, and the open ticket quotes at its own time.",
         ]}
       />
@@ -419,17 +453,20 @@ function SettleTab({
   metrics: PositionMetrics;
   lifecycle: OnchainPositionLifecycle | null;
 }) {
-  const base = MARKETS.find((candidate) => candidate.id === market.id) ?? market;
-  const span = Math.max(market.tickSize * 20, Math.abs(base.netPrice) * 0.06);
+  const terms = metrics.terms;
+  const anchor = metrics.mark ?? dossier.entryPrice;
+  const span = Math.max(market.tickSize * 20, Math.abs(anchor) * 0.25);
   const snap = (value: number) => Math.round(value / market.tickSize) * market.tickSize;
-  const min = snap(base.netPrice - span);
-  const max = snap(base.netPrice + span);
+  /* The payoff is flat beyond the bounds, so the slider spans the range itself when it is published. */
+  const min = snap(terms.floor ?? Math.max(0, anchor - span));
+  const max = snap(terms.cap ?? anchor + span);
   const [level, setLevel] = useState<number | null>(null);
-  const fixing = level ?? Math.min(max, Math.max(min, market.netPrice));
-  const payoutAt = (value: number) => (value - dossier.entryPrice) * metrics.perPoint * metrics.direction;
-  const schedule = fixingSchedule(market);
+  const fixing = level ?? Math.min(max, Math.max(min, anchor));
+  const schedule = metrics.schedule;
   const unit = priceUnitSuffix(market.priceUnit);
   const guarantee = GUARANTEE_COPY[dossier.guarantee];
+  const cash = settlementCashAt(dossier, market, fixing);
+  const scheduled = schedule.source === "POSITION" ? "OBSERVED" : "MODELED";
 
   return (
     <div className="flex flex-col gap-3 p-3 lg:p-4">
@@ -438,36 +475,31 @@ function SettleTab({
       ) : (
         <>
         <div className="rounded-md border border-line bg-inset px-3 py-2.5">
-          <p className="text-[13px] text-ink">No election on this series</p>
+          <p className="text-[13px] text-ink">Cash settlement at the fixing</p>
           <p className="mt-1 text-xs leading-relaxed text-faint">
-            {`Cash-settled dated package. The ${formatLots(dossier.lots)} lots settle automatically against ${market.fixingSource}. Exercise, election and lapse do not apply, so there is no window to act in.`}
+            {`The ${formatLots(dossier.lots)} lots settle in ${market.settlementAsset} against ${market.fixingSource}. The long elects in the window after the fixing; settlement then completes permissionlessly before its deadline.`}
           </p>
         </div>
 
         <div className="divide-y divide-line-soft">
+          <TrustRow label="Last trade" value={formatUtcSession(schedule.lastTradingMs)} provenance={scheduled} source={SCHEDULE_SOURCE_LABEL[schedule.source]} />
           <TrustRow
-            label="Settlement class"
-            value={market.settlementClass === "CASH_USDC_NDF" ? "Cash USDC, NDF" : "Cash USDC"}
-            provenance="OBSERVED"
-            source="Series terms"
-          />
-          <TrustRow label="Fixing session" value={formatUtcSession(schedule.fixingMs)} provenance="MODELED" source="Scheduled from series terms" />
-          <TrustRow
-            label="Observation window"
-            value={`${FIXING_WINDOW_MINUTES} min to the print`}
-            provenance="MODELED"
-            source="Series terms schedule"
+            label="Fixing window"
+            value={`${formatUtcSession(schedule.windowOpensMs).slice(0, 11)}, ${formatUtcSession(schedule.windowOpensMs).slice(13, 18)}–${formatUtcSession(schedule.fixingMs).slice(13)}`}
+            note={`${schedule.windowMinutes} min observation`}
+            provenance={scheduled}
+            source={SCHEDULE_SOURCE_LABEL[schedule.source]}
           />
           <TrustRow
-            label="Business-day rule"
-            note={schedule.adjustment ? `${formatUtcDate(schedule.adjustment.scheduled)}: ${schedule.adjustment.reason}` : ADJUSTMENT_RULE}
-            value={schedule.adjustment ? `moves to ${formatUtcDate(schedule.adjustment.adjusted)}` : "No adjustment"}
-            tone={schedule.adjustment ? "text-brand" : "text-ink"}
-            provenance="MODELED"
-            source="LDN business calendar v1"
+            label="Holder election"
+            value={`${formatUtcSession(schedule.electionOpensMs).slice(13, 18)}–${formatUtcSession(schedule.electionClosesMs).slice(13)}`}
+            note={dossier.side === "LONG" ? "the long elects" : "the long side elects"}
+            provenance={scheduled}
+            source={SCHEDULE_SOURCE_LABEL[schedule.source]}
           />
+          <TrustRow label="Settlement deadline" value={formatUtcSession(schedule.settlementDeadlineMs)} provenance={scheduled} source={SCHEDULE_SOURCE_LABEL[schedule.source]} />
           <TrustRow label="Completion path" value="Permissionless" note="after the fixing is committed" />
-          <TrustRow label="Guarantee" value={guarantee.label} note={dossier.reference?.recoveryClass} />
+          <TrustRow label="Guarantee" value={guarantee.label} />
         </div>
         </>
       )}
@@ -492,17 +524,24 @@ function SettleTab({
         <div className="mt-2 divide-y divide-line-soft">
           <TrustRow
             label="At the current mark"
-            value={signedUsd(payoutAt(market.netPrice))}
-            tone={toneOf(payoutAt(market.netPrice))}
-            provenance={metrics.derivedProvenance}
+            value={metrics.mark === null ? "No mark yet" : signedUsd(settlementPnlAt(dossier, market, metrics.mark))}
+            tone={metrics.mark === null ? "text-faint" : toneOf(settlementPnlAt(dossier, market, metrics.mark))}
+            provenance={metrics.mark === null ? undefined : metrics.markProvenance}
           />
           <TrustRow
-            label={`At ${formatNumber(fixing, market.priceDecimals)} ${unit}`}
-            value={signedUsd(payoutAt(fixing))}
-            tone={toneOf(payoutAt(fixing))}
+            label={`PnL at ${formatNumber(fixing, market.priceDecimals)} ${unit}`}
+            value={signedUsd(settlementPnlAt(dossier, market, fixing))}
+            tone={toneOf(settlementPnlAt(dossier, market, fixing))}
             provenance="MODELED"
           />
-          <TrustRow label="Sensitivity" value={`${formatNumber(metrics.perPoint, 2)} USDC per 1 ${unit}`} />
+          <TrustRow
+            label="Cash received at settlement"
+            note={dossier.side === "LONG" ? "lots x lot x (fixing - floor)" : "lots x lot x (cap - fixing)"}
+            value={cash === null ? "Range not published" : usd(cash)}
+            tone={cash === null ? "text-faint" : "text-ink"}
+            provenance={cash === null ? undefined : "MODELED"}
+          />
+          <TrustRow label="Sensitivity" value={`${formatNumber(Math.abs(metrics.perPoint), 4)} USDC per 1 ${unit}`} note="inside the range; flat beyond it" />
         </div>
         {level !== null ? (
           <button type="button" onClick={() => setLevel(null)} className="focus-ring mt-1 rounded-sm text-[11px] text-faint underline underline-offset-2 hover:text-ink">
@@ -565,6 +604,8 @@ export function ManagePanel({
   market,
   markets,
   metrics,
+  live,
+  nowMs,
   lifecycle = null,
   action,
   onAction,
@@ -575,6 +616,8 @@ export function ManagePanel({
   market: PackageMarket;
   markets: readonly PackageMarket[];
   metrics: PositionMetrics;
+  live: LiveMarketData | null;
+  nowMs: number;
   lifecycle?: OnchainPositionLifecycle | null;
   action: ManageAction;
   onAction: (action: ManageAction) => void;
@@ -606,16 +649,14 @@ export function ManagePanel({
           ]}
         />
         <span className="ml-auto flex items-center">
-          <ProvenanceChip
-            provenance={dossier.origin === "ACCOUNT" ? "EXECUTABLE" : "MODELED"}
-            source={dossier.origin === "ACCOUNT" ? "Live package routes" : "Reference record against live routes"}
-            compact
-          />
+          <ProvenanceChip provenance="EXECUTABLE" source="Onchain public book" compact />
         </span>
       </div>
       <TabBody idBase="manage" key={action}>
-        {action === "close" ? <CloseTab dossier={dossier} market={market} /> : null}
-        {action === "roll" ? <RollTab dossier={dossier} market={market} markets={markets} /> : null}
+        {action === "close" ? <CloseTab dossier={dossier} market={market} live={live} metrics={metrics} nowMs={nowMs} /> : null}
+        {action === "roll" ? (
+          <RollTab dossier={dossier} market={market} markets={markets} live={live} metrics={metrics} nowMs={nowMs} />
+        ) : null}
         {action === "settle" ? <SettleTab dossier={dossier} market={market} metrics={metrics} lifecycle={lifecycle} /> : null}
       </TabBody>
     </Panel>

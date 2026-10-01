@@ -37,7 +37,7 @@ export function StatusTag({ status }: { status: AlertStatus }) {
   );
 }
 
-/** Compact alert line for previews: the home page and the notification menu. */
+/** Compact alert line for summaries: the home page and the notification menu. */
 export function AlertLine({ alert }: { alert: Alert }) {
   const body = (
     <>
@@ -49,7 +49,7 @@ export function AlertLine({ alert }: { alert: Alert }) {
         <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-faint">
           <span className="shrink-0">{CATEGORY_LABEL[alert.category]}</span>
           <span aria-hidden="true" className="text-off">/</span>
-          <span className="truncate">{alert.provenance === "RECORDED_FIXTURE" ? "Recorded fixture" : alert.source}</span>
+          <span className="truncate">{alert.source}</span>
         </span>
       </span>
       <span className="flex shrink-0 flex-col items-end gap-0.5">

@@ -8,10 +8,15 @@ export interface ChartPoint {
   v: number;
 }
 
-function clock(epochSeconds: number): string {
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** Time of day for a span inside one day; date and time once the series runs longer. */
+function clock(epochSeconds: number, multiDay = false): string {
   const date = new Date(epochSeconds * 1000);
   const pad = (value: number) => String(value).padStart(2, "0");
-  return `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}`;
+  const time = `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
+  if (multiDay) return `${pad(date.getUTCDate())} ${MONTHS[date.getUTCMonth()]} ${time}`;
+  return `${time}:${pad(date.getUTCSeconds())}`;
 }
 
 function niceTicks(min: number, max: number, count: number): number[] {
@@ -27,8 +32,9 @@ function niceTicks(min: number, max: number, count: number): number[] {
 }
 
 /**
- * One series over the session, drawn at its measured pixel width so the line
- * stays 2px and crisp. A crosshair and tooltip follow the pointer; the value
+ * One series through time, drawn at its measured pixel width so the line
+ * stays 2px and crisp. Points sit at their own times, so irregular
+ * observations keep their true spacing. A crosshair and tooltip follow the pointer; the value
  * axis sits on the right like the terminal chart. Colour follows the sign of
  * the latest value against the baseline, never the series identity.
  */
@@ -79,8 +85,11 @@ export function SessionChart({
   const min = lo - span * 0.14;
   const max = hi + span * 0.14;
   const y = (value: number) => top + (1 - (value - min) / (max - min)) * plotH;
+  const first = points[0]?.t ?? 0;
+  const spanT = (points[points.length - 1]?.t ?? first) - first;
+  const multiDay = spanT > 86_400;
   const x = (index: number) =>
-    points.length <= 1 ? plotW : (index / (points.length - 1)) * plotW;
+    points.length <= 1 || spanT <= 0 ? plotW : ((points[index].t - first) / spanT) * plotW;
 
   const last = points[points.length - 1];
   const rising = last ? last.v >= baseline : true;
@@ -105,7 +114,12 @@ export function SessionChart({
     if (points.length === 0 || plotW === 0) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / plotW));
-    setHover(Math.round(ratio * (points.length - 1)));
+    const target = first + ratio * spanT;
+    let nearest = 0;
+    points.forEach((point, index) => {
+      if (Math.abs(point.t - target) < Math.abs(points[nearest].t - target)) nearest = index;
+    });
+    setHover(spanT <= 0 ? points.length - 1 : nearest);
   };
 
   const active = hover !== null && hover < points.length ? hover : null;
@@ -219,7 +233,7 @@ export function SessionChart({
           {points.length > 1 && !empty ? (
             <>
               <text x={0} y={height - 5} fill="var(--color-off)" fontSize={10} className="tnum font-mono">
-                {clock(points[0].t)}
+                {clock(points[0].t, multiDay)}
               </text>
               <text
                 x={plotW}
@@ -229,7 +243,7 @@ export function SessionChart({
                 textAnchor="end"
                 className="tnum font-mono"
               >
-                {clock(points[points.length - 1].t)}
+                {clock(points[points.length - 1].t, multiDay)}
               </text>
             </>
           ) : null}
@@ -243,7 +257,7 @@ export function SessionChart({
             left: Math.min(Math.max(0, focus.x - 64), Math.max(0, plotW - 128)),
           }}
         >
-          <div className="tnum font-mono text-[10px] text-faint">{`${clock(points[active].t)} UTC`}</div>
+          <div className="tnum font-mono text-[10px] text-faint">{`${clock(points[active].t, multiDay)} UTC`}</div>
           <div className="tnum font-mono text-xs text-ink">{format(points[active].v)}</div>
         </div>
       ) : null}

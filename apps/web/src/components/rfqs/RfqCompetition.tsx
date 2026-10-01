@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -14,7 +14,7 @@ import {
   Trophy,
 } from "lucide-react";
 import { useGatewaySnapshot, useInternalGateway } from "@/components/gateway/InternalGatewayProvider";
-import { usePreviewBoard } from "@/components/terminal/PreviewMarketProvider";
+import { useMarketBoard } from "@/components/market-data/MarketDataProvider";
 import {
   BUTTON_INK,
   BUTTON_PRIMARY,
@@ -39,13 +39,13 @@ import { StepTimeline, type TimelineStep } from "@/components/activity/StepTimel
 import { ProvenanceChip } from "@/components/auctions/board-kit";
 import { Flash } from "@/components/strategies/desk/Desk";
 import type { SubmissionUpdate } from "@/lib/internal-gateway/types";
+import { markOf, rangeTerms } from "@/lib/portfolio/forward";
 import { formatLots, formatUsd } from "@/lib/terminal/format";
 import { packageLabel, tradeHref } from "@/lib/terminal/markets";
 import type { PackageMarket } from "@/lib/terminal/types";
 import { StatusChip } from "./RfqBlotter";
 import { RfqStages, type RfqStageId, type RfqStageState } from "./RfqStages";
 import { gatewayErrorCode, gatewayErrorCopy } from "./rfq-errors";
-import { SAMPLE_REQUEST_ID, sampleRequest } from "./rfq-sample";
 import {
   EXCLUSION_COPY,
   priceText,
@@ -110,13 +110,6 @@ function MissingRequest({ requestId }: { requestId: string }) {
           </Link>
         </div>
         {wallet.error ? <p className="mt-2 text-xs text-down">{wallet.error}</p> : null}
-        <p className="mt-4 text-[11px] text-faint">
-          Want to see how a competition reads first?{" "}
-          <Link href={`/rfqs/${SAMPLE_REQUEST_ID}`} className="text-dim underline decoration-line-strong underline-offset-2 hover:text-ink">
-            Open the modeled walkthrough
-          </Link>
-          .
-        </p>
       </div>
     </main>
   );
@@ -129,14 +122,21 @@ function MissingRequest({ requestId }: { requestId: string }) {
 const BOARD_GRID =
   "grid grid-cols-[26px_minmax(150px,1.3fr)_104px_86px_86px_minmax(120px,1fr)_minmax(130px,1fr)_84px_minmax(110px,0.9fr)_16px] items-center gap-3";
 
+/** Consideration a fill exchanges: lots x lot size x (price - floor), the floor being the price at zero ticks. */
+function considerationAt(price: number, lots: number, market: PackageMarket | null, multiplier: number): number {
+  if (!market) return Math.abs(price) * multiplier * lots;
+  const terms = rangeTerms(market);
+  return Math.abs(price - (terms.floor ?? 0)) * terms.lotSize * lots;
+}
+
 function QuoteDetails({ entry, view, market }: { entry: CompetingQuote; view: RfqView; market: PackageMarket | null }) {
   const intent = view.request.authorization.intent;
   const lots = intent.lots;
-  const value = entry.quote.packagePrice * intent.contractMultiplier * lots;
+  const value = considerationAt(entry.quote.packagePrice, lots, market, intent.contractMultiplier);
   return (
     <div className={`grid grid-cols-2 gap-x-6 gap-y-2 border-b border-line bg-inset/60 px-4 py-3 text-xs sm:grid-cols-4 ${motion.fade}`}>
       <div>
-        <div className="text-[11px] text-faint">Package value at quote</div>
+        <div className="text-[11px] text-faint">Consideration at quote</div>
         <div className="tnum mt-0.5 font-mono text-ink">{formatUsd(value, 2)}</div>
       </div>
       <div>
@@ -152,7 +152,7 @@ function QuoteDetails({ entry, view, market }: { entry: CompetingQuote; view: Rf
       <div>
         <div className="text-[11px] text-faint">Capacity evidence</div>
         <div className="mt-0.5 text-dim">
-          {entry.quote.provenance === "DEVNET_MAKER" ? "Reserved onchain with the quote" : "Seeded firm quote"}
+          {entry.quote.provenance === "DESIGNATED_MAKER" ? "Setryn maker, reserved onchain with the quote" : "Maker quote, reserved onchain"}
         </div>
       </div>
       <div className="col-span-2">
@@ -261,7 +261,7 @@ function QuoteBoard({
                           {entry.isSelected ? <Chip tone="up">Selected</Chip> : isWinner ? <Chip tone="brand">Wins</Chip> : null}
                         </span>
                         <span className="block truncate text-[10px] text-faint">
-                          {entry.exclusion ? EXCLUSION_COPY[entry.exclusion] : entry.quote.provenance === "DEVNET_MAKER" ? "Setryn maker, firm" : "Firm, capacity-backed"}
+                          {entry.exclusion ? EXCLUSION_COPY[entry.exclusion] : entry.quote.provenance === "DESIGNATED_MAKER" ? "Setryn maker, firm" : "Firm, capacity-backed"}
                         </span>
                       </span>
                       <span className="tnum text-right font-mono text-sm text-ink">{priceText(entry.quote.packagePrice, market, false)}</span>
@@ -434,7 +434,6 @@ function rfqTimeline(
   view: RfqView,
   busy: Busy,
   updates: SubmissionUpdate[],
-  modeled: boolean,
 ): TimelineStep[] {
   const request = view.request;
   const state = request.state;
@@ -453,18 +452,18 @@ function rfqTimeline(
     {
       id: "draft",
       label: "Order signed",
-      state: modeled ? "pending" : "done",
+      state: "done",
       meta: formatUtcTime(request.createdAt),
-      detail: modeled ? "Modeled: nothing was signed." : `${request.authorization.intent.timeInForce} package order authorization, risk admission bound.`,
-      hash: modeled ? undefined : request.authorization.orderHash,
+      detail: `${request.authorization.intent.timeInForce} order authorization, risk admission bound.`,
+      hash: request.authorization.orderHash,
       hashLabel: "Order hash",
     },
     {
       id: "commit",
       label: "Request committed privately",
-      state: modeled ? "pending" : "done",
+      state: "done",
       detail: "Blind qualified disclosure. The eligible maker set is committed with the request.",
-      hash: modeled ? undefined : request.id,
+      hash: request.id,
       hashLabel: "RFQ ID",
     },
     {
@@ -565,15 +564,9 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
   const gateway = useInternalGateway();
   const wallet = useWalletPrompt();
   const wallNow = useNow();
-  const { markets, previewEpochSeconds } = usePreviewBoard();
-  const modeled = requestId === SAMPLE_REQUEST_ID;
-  const activeFeeVersion = snapshot.feeSchedule?.version;
-  const sample = useMemo(
-    () => (modeled ? sampleRequest(previewEpochSeconds, activeFeeVersion) : null),
-    [activeFeeVersion, modeled, previewEpochSeconds],
-  );
-  const request = sample ?? snapshot.rfqRequests.find((candidate) => candidate.id === requestId) ?? null;
-  const now = modeled ? previewEpochSeconds * 1000 : wallNow;
+  const { snapshot: feed } = useMarketBoard();
+  const request = snapshot.rfqRequests.find((candidate) => candidate.id === requestId) ?? null;
+  const now = wallNow;
 
   const [busy, setBusy] = useState<Busy>(null);
   const [updates, setUpdates] = useState<SubmissionUpdate[]>([]);
@@ -585,21 +578,21 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
   const competition = quoteCompetition(view);
   const intent = request.authorization.intent;
   const market = view.market;
-  const liveMarket = markets.find((candidate) => candidate.id === intent.marketId) ?? null;
-  const liveMark = liveMarket?.netPrice ?? null;
+  const live = feed?.markets.find((candidate) => candidate.marketKey === intent.marketId) ?? null;
+  const liveMark = markOf(live).price;
   const unit = unitText(market);
   const execution = snapshot.executions.find((record) => record.orderHash === request.authorization.orderHash) ?? null;
   const shownUpdates = updates.length > 0 ? updates : (execution?.updates ?? []);
   const secondsLeft = Math.max(0, Math.ceil((view.expiresMs - now) / 1000));
   const winner = competition.winner;
   const selectedQuote = view.selected;
-  const canSelect = !modeled && wallet.connected && request.state === "OPEN" && view.active;
+  const canSelect = wallet.connected && request.state === "OPEN" && view.active;
   const actionWord = view.action === "BUY" ? "Buy" : "Sell";
 
   const fail = (caught: unknown) => setError({ message: gatewayErrorCopy(caught), code: gatewayErrorCode(caught) });
 
   const select = async (quoteId: string) => {
-    if (busy || modeled) return;
+    if (busy) return;
     const quote = request.quotes.find((candidate) => candidate.id === quoteId);
     if (!quote) return fail(new Error("RFQ_QUOTE_NOT_FOUND"));
     if (Date.parse(quote.expiresAt) <= now || !view.active) return fail(new Error("RFQ_EXPIRED"));
@@ -616,7 +609,7 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
   };
 
   const execute = async () => {
-    if (busy || modeled || request.state !== "SELECTED" || !selectedQuote) return;
+    if (busy || request.state !== "SELECTED" || !selectedQuote) return;
     if (selectedQuote.capacityLots < intent.lots) return fail(new Error("RFQ_CAPACITY_EXCEEDED"));
     if (Date.parse(request.expiresAt) <= now || Date.parse(selectedQuote.expiresAt) <= now) return fail(new Error("RFQ_EXPIRED"));
     setBusy({ kind: "EXECUTE" });
@@ -632,7 +625,7 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
   };
 
   const cancel = async () => {
-    if (busy || modeled) return;
+    if (busy) return;
     setBusy({ kind: "CANCEL" });
     setError(null);
     try {
@@ -654,9 +647,7 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
 
   /* Primary action copy and availability derive from wallet, request, quote and capacity state. */
   let primary: { label: string; disabled: boolean; reason: string | null; onClick: (() => void) | null };
-  if (modeled) {
-    primary = { label: "Select winning quote", disabled: true, reason: "Modeled walkthrough: there is nothing onchain to select.", onClick: null };
-  } else if (!wallet.connected) {
+  if (!wallet.connected) {
     primary = {
       label: wallet.connecting ? "Connecting..." : "Connect wallet",
       disabled: wallet.connecting,
@@ -689,7 +680,7 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
     };
   }
 
-  const cancellable = !modeled && wallet.connected && (request.state === "OPEN" || (request.state === "SELECTED" && !view.active));
+  const cancellable = wallet.connected && (request.state === "OPEN" || (request.state === "SELECTED" && !view.active));
 
   return (
     <main className="scroll-thin min-h-0 flex-1 overflow-y-auto bg-app p-1">
@@ -703,8 +694,8 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
                   Private RFQs
                 </Link>
                 <span className="text-off">/</span>
-                <span className="tnum font-mono normal-case tracking-normal">{modeled ? "walkthrough" : middleTruncate(request.id, 8, 6)}</span>
-                {modeled ? null : <CopyButton value={request.id} label="RFQ request ID" />}
+                <span className="tnum font-mono normal-case tracking-normal">{middleTruncate(request.id, 8, 6)}</span>
+                <CopyButton value={request.id} label="RFQ request ID" />
               </div>
               <h1 className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-serif text-[26px] leading-[30px] text-ink">
                 <MarketMark underlying={market?.underlying} code={intent.packageCode} size={26} />
@@ -716,14 +707,7 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
                   <Lock size={10} aria-hidden="true" />
                   Private, blind qualified
                 </Chip>
-                {modeled ? (
-                  <ProvenanceChip
-                    value="MODELED"
-                    title="A walkthrough built from the shared index feed. It implements the production request type but nothing was signed or committed."
-                  />
-                ) : (
-                  <ProvenanceChip value="OBSERVED" title="Read from the PrivateRfqBook on the local chain for the connected taker." />
-                )}
+                <ProvenanceChip value="OBSERVED" title="Read from the PrivateRfqBook onchain for the connected taker." />
                 <span className={`text-xs ${view.action === "BUY" ? "text-up" : "text-down"}`}>
                   {`${view.intentLabel} ${view.sideLabel.toLowerCase()} · ${actionWord} ${formatLots(intent.lots)} lots · limit ${priceText(intent.limitPrice, market)}`}
                 </span>
@@ -762,30 +746,16 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
             <Kpi
               label="vs live mark"
               value={headlineVsMark !== null ? signedPriceText(headlineVsMark, market) : "—"}
-              sub={liveMark !== null ? `mark ${priceText(liveMark, market)}, index feed` : "no live mark"}
+              sub={liveMark !== null ? `mark ${priceText(liveMark, market)}, live` : "no live mark"}
             />
             <Kpi label="Eligible quotes" value={`${competition.eligible.length} / ${request.quotes.length}`} sub={`${view.makers} makers answered`} />
             <Kpi
-              label="Package value"
-              value={headline ? formatUsd(headline.packagePrice * intent.contractMultiplier * intent.lots, 0) : "—"}
+              label="Consideration"
+              value={headline ? formatUsd(considerationAt(headline.packagePrice, intent.lots, market, intent.contractMultiplier), 0) : "—"}
               sub={`fee cap ${formatUsd(intent.feeCap, 2)}`}
             />
           </KpiStrip>
         </Panel>
-
-        {modeled ? (
-          <div className={`flex items-start gap-2 rounded-lg border border-brand-edge/40 bg-brand-soft/30 px-3 py-2 text-xs text-dim ${motion.fade}`}>
-            <TriangleAlert size={13} aria-hidden="true" className="mt-0.5 shrink-0 text-brand" />
-            <span>
-              Modeled walkthrough. Makers and quotes are generated from the shared index feed so the ranking rule can be seen with
-              several responses. Nothing is signed, committed or executable, and the walkthrough restarts each window.{" "}
-              <Link href="/rfqs/new" className="text-ink underline decoration-line-strong underline-offset-2">
-                Build a real request
-              </Link>
-              .
-            </span>
-          </div>
-        ) : null}
 
         <div className="grid min-h-0 flex-1 gap-1 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_400px]">
           <div className="flex min-w-0 flex-col gap-1">
@@ -817,7 +787,7 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
             <WinningRule view={view} competition={competition} market={market} />
 
             <Panel className={motion.mount} label="Request terms">
-              <PanelHeader right={modeled ? <ProvenanceChip value="MODELED" /> : <ProvenanceChip value="OBSERVED" />}>
+              <PanelHeader right={<ProvenanceChip value="OBSERVED" />}>
                 <PanelTitle>Request terms and evidence</PanelTitle>
               </PanelHeader>
               <dl className="grid grid-cols-2 gap-x-4 px-4 py-2 sm:grid-cols-3 xl:grid-cols-4">
@@ -834,17 +804,13 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
                 <Term label="Guarantee" value={intent.settlementGuarantee} />
                 <Term label="Created" value={formatUtcTime(request.createdAt)} title={formatUtcFull(request.createdAt)} />
                 <Term label="Deadline" value={formatUtcTime(request.expiresAt)} title={formatUtcFull(request.expiresAt)} />
-                {modeled ? null : (
-                  <>
-                    <Term label="Order hash" value={middleTruncate(request.authorization.orderHash, 10, 6)} title={request.authorization.orderHash} />
-                    <Term label="Signer" value={middleTruncate(request.authorization.signer, 8, 6)} title={request.authorization.signer} />
-                    <Term
-                      label="Risk admission"
-                      value={middleTruncate(request.authorization.riskAdmissionId, 10, 6)}
-                      title={request.authorization.riskAdmissionId}
-                    />
-                  </>
-                )}
+                <Term label="Order hash" value={middleTruncate(request.authorization.orderHash, 10, 6)} title={request.authorization.orderHash} />
+                <Term label="Signer" value={middleTruncate(request.authorization.signer, 8, 6)} title={request.authorization.signer} />
+                <Term
+                  label="Risk admission"
+                  value={middleTruncate(request.authorization.riskAdmissionId, 10, 6)}
+                  title={request.authorization.riskAdmissionId}
+                />
               </dl>
               {market ? null : (
                 <p className="flex items-start gap-2 border-t border-line px-4 py-2.5 text-xs text-faint">
@@ -872,20 +838,20 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
                     onClick={primary.onClick ?? undefined}
                     disabled={primary.disabled || !primary.onClick}
                     className={`${
-                      primary.disabled || !primary.onClick ? BUTTON_QUIET : !wallet.connected && !modeled ? BUTTON_INK : BUTTON_PRIMARY
+                      primary.disabled || !primary.onClick ? BUTTON_QUIET : !wallet.connected ? BUTTON_INK : BUTTON_PRIMARY
                     } h-10 w-full text-[13px]`}
                   >
                     {primary.label}
                   </button>
                 )}
                 {primary.reason ? <p className="text-[11px] leading-snug text-faint">{primary.reason}</p> : null}
-                {request.state === "OPEN" && view.active && !modeled && wallet.connected ? (
+                {request.state === "OPEN" && view.active && wallet.connected ? (
                   <p className="text-[11px] leading-snug text-faint">
                     Selecting signs one selection authorization, then locks the quote, reserves the maker&apos;s capacity and submits it to
                     private clearing. Success shows only when clearing completes.
                   </p>
                 ) : null}
-                {request.state === "SELECTED" && !modeled ? (
+                {request.state === "SELECTED" ? (
                   <p className="text-[11px] leading-snug text-faint">
                     The selected quote stays locked until the request deadline. Execution clears atomically; nothing is claimed at signature.
                   </p>
@@ -896,7 +862,7 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
                       {busy?.kind === "CANCEL" ? "Cancelling..." : request.state === "SELECTED" ? "Expire request" : "Cancel request"}
                     </button>
                   ) : null}
-                  {view.active && market && !modeled && request.state !== "EXECUTED" ? (
+                  {view.active && market && request.state !== "EXECUTED" ? (
                     <Link href={`${tradeHref(market)}?rfq=${encodeURIComponent(request.id)}`} className={`${BUTTON_QUIET} flex-1`}>
                       Open in terminal
                       <ArrowUpRight size={12} aria-hidden="true" />
@@ -925,7 +891,7 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
               <PanelHeader>
                 <PanelTitle>Clearing timeline</PanelTitle>
               </PanelHeader>
-              <StepTimeline steps={rfqTimeline(view, busy, shownUpdates, modeled)} dense className="px-4 py-3" />
+              <StepTimeline steps={rfqTimeline(view, busy, shownUpdates)} dense className="px-4 py-3" />
             </Panel>
 
             <Panel className={motion.mount} label="Disclosure">

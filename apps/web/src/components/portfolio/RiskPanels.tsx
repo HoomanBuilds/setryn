@@ -67,23 +67,26 @@ export function ExposurePanel({
       title="Exposure concentration"
       note={
         <>
-          <Chip tone="muted" title="Modeled reference observations, not live risk limits.">
-            Reference
+          <Chip tone="muted" title="Open positions read onchain, valued at live marks.">
+            Onchain
           </Chip>
-          {`By ${label.toLowerCase()}, package notional`}
+          {`By ${label.toLowerCase()}, underlying value at the mark`}
         </>
       }
       aside={aside}
     >
-      <div className={WIDE}>
+      {groups.length === 0 ? (
+        <p className="px-3 py-6 text-center text-xs text-faint lg:px-4">No positions yet.</p>
+      ) : null}
+      <div className={groups.length === 0 ? "hidden" : WIDE}>
         <table className={`${TABLE} min-w-[470px] table-fixed`}>
           <caption className="sr-only">
-            Gross and net package notional by underlying, with the collateral allocated to each.
+            Gross and net underlying value by group, with the collateral each locks.
           </caption>
           <thead>
             <tr className="border-b border-line">
               <th scope="col" className={TH}>
-                {label.replace(/ reference$/, "")}
+                {label}
               </th>
               <th scope="col" className={`${TH} w-[92px] text-right`}>
                 Gross
@@ -139,7 +142,7 @@ export function ExposurePanel({
         </table>
       </div>
 
-      <ul className={NARROW}>
+      <ul className={groups.length === 0 ? "hidden" : NARROW}>
         {groups.map((group) => (
           <StackRow key={group.id}>
             <div className="flex items-baseline justify-between gap-3">
@@ -147,7 +150,7 @@ export function ExposurePanel({
                 <MarketMark underlying={knownUnderlying(group.label)} size={16} />
                 <span className="truncate text-[13px] text-ink">{group.label}</span>
                 <span className="shrink-0 text-xs text-off">
-                  {`${group.count} ${group.count === 1 ? "package" : "packages"}`}
+                  {`${group.count} ${group.count === 1 ? "position" : "positions"}`}
                 </span>
               </span>
               <span className="tnum shrink-0 font-mono text-xs text-dim">
@@ -188,17 +191,20 @@ export function ScenarioMatrix({ results }: { results: ScenarioResult[] }) {
           <Chip tone="muted" title="Modeled shocks, not observed prices.">
             Modeled
           </Chip>
-          Package-price shocks by risk domain
+          Forward-level shocks by risk domain
         </>
       }
       delay={40}
     >
-      <div className={WIDE}>
+      {results.length === 0 ? (
+        <p className="px-3 py-6 text-center text-xs text-faint lg:px-4">No positions to stress.</p>
+      ) : null}
+      <div className={results.length === 0 ? "hidden" : WIDE}>
         <table className={`${TABLE} min-w-[430px] table-fixed`}>
           <caption className="sr-only">
-            Modeled package-price shocks by risk domain, with the resulting portfolio impact,
-            post-stress headroom over maintenance margin, and health factor. The binding scenario
-            is the one that leaves the least headroom.
+            Modeled forward-level shocks by risk domain, clamped into each series&apos; payoff range,
+            with the resulting portfolio impact, post-stress headroom over locked collateral, and
+            cover. The binding scenario is the one that leaves the least headroom.
           </caption>
           <thead>
             <tr className="border-b border-line">
@@ -212,7 +218,7 @@ export function ScenarioMatrix({ results }: { results: ScenarioResult[] }) {
                 Headroom
               </th>
               <th scope="col" className={`${TH} w-[62px] text-right`}>
-                Health
+                Cover
               </th>
             </tr>
           </thead>
@@ -249,7 +255,7 @@ export function ScenarioMatrix({ results }: { results: ScenarioResult[] }) {
         </table>
       </div>
 
-      <ul className={NARROW}>
+      <ul className={results.length === 0 ? "hidden" : NARROW}>
         {results.map((result) => (
           <StackRow key={result.scenario.id}>
             <div className="flex min-w-0 flex-col">
@@ -266,7 +272,7 @@ export function ScenarioMatrix({ results }: { results: ScenarioResult[] }) {
                 valueTone={tone(result.impact)}
               />
               <Figure label="Headroom" value={formatCompactUsd(result.headroom)} />
-              <Figure label="Health" value={formatMultiple(result.healthFactor)} />
+              <Figure label="Cover" value={formatMultiple(result.healthFactor)} />
             </FigureGrid>
           </StackRow>
         ))}
@@ -281,19 +287,22 @@ export function ExpiryLadderPanel({ rungs }: { rungs: LadderRung[] }) {
       title="Expiry and cash ladder"
       note={
         <>
-          <Chip tone="muted" title="Modeled reference observations, not live account state.">
-            Reference
+          <Chip tone="muted" title="Locked collateral from chain state; PnL at today's marks, not the fixing.">
+            Estimated
           </Chip>
           Collateral released at each fixing
         </>
       }
       delay={80}
     >
-      <div className={WIDE}>
+      {rungs.length === 0 ? (
+        <p className="px-3 py-6 text-center text-xs text-faint lg:px-4">No positions maturing.</p>
+      ) : null}
+      <div className={rungs.length === 0 ? "hidden" : WIDE}>
         <table className={`${TABLE} min-w-[720px] table-fixed`}>
           <caption className="sr-only">
-            Maturing packages by expiry, with collateral released, terminal residual cash, and the
-            available collateral that results once each rung settles.
+            Maturing positions by expiry, with the collateral released, the price PnL settled if the
+            fixing prints at today&apos;s mark, and the available collateral once each rung settles.
           </caption>
           <thead>
             <tr className="border-b border-line">
@@ -301,7 +310,7 @@ export function ExpiryLadderPanel({ rungs }: { rungs: LadderRung[] }) {
                 Expiry
               </th>
               <th scope="col" className={TH}>
-                Maturing packages
+                Maturing positions
               </th>
               <th scope="col" className={`${TH} w-[60px] text-right`}>
                 Lots
@@ -310,7 +319,7 @@ export function ExpiryLadderPanel({ rungs }: { rungs: LadderRung[] }) {
                 Collateral release
               </th>
               <th scope="col" className={`${TH} w-[116px] text-right`}>
-                Residual cash
+                PnL at mark
               </th>
               <th scope="col" className={`${TH} w-[126px] text-right`}>
                 Available after
@@ -326,7 +335,7 @@ export function ExpiryLadderPanel({ rungs }: { rungs: LadderRung[] }) {
                 <th scope="row" className={`${TD} h-10 text-left font-normal`}>
                   <span className="flex flex-col">
                     <span className="tnum font-mono text-xs text-ink">
-                      {formatExpiry(rung.expiryIso)}
+                      {formatExpiry(rung.expiryIso.slice(0, 10))}
                     </span>
                     <span className="tnum font-mono text-xs text-off">{`${rung.days}d`}</span>
                   </span>
@@ -351,12 +360,12 @@ export function ExpiryLadderPanel({ rungs }: { rungs: LadderRung[] }) {
         </table>
       </div>
 
-      <ul className={NARROW}>
+      <ul className={rungs.length === 0 ? "hidden" : NARROW}>
         {rungs.map((rung) => (
           <StackRow key={rung.expiryIso}>
             <div className="flex items-baseline justify-between gap-3">
               <span className="tnum shrink-0 font-mono text-[13px] text-ink">
-                {`${formatExpiry(rung.expiryIso)} / ${rung.days}d`}
+                {`${formatExpiry(rung.expiryIso.slice(0, 10))} / ${rung.days}d`}
               </span>
               <StateTag state={rung.state} />
             </div>
@@ -367,7 +376,7 @@ export function ExpiryLadderPanel({ rungs }: { rungs: LadderRung[] }) {
               <Figure label="Lots" value={rung.lots} />
               <Figure label="Release" value={formatCompactUsd(rung.collateralRelease)} />
               <Figure
-                label="Residual"
+                label="PnL at mark"
                 value={formatSignedCompactUsd(rung.residualCash)}
                 valueTone={tone(rung.residualCash)}
               />

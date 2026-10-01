@@ -1,8 +1,9 @@
 import type { GatewaySnapshot } from "@/lib/internal-gateway/types";
+import type { MarketDataSnapshot } from "@/lib/market-data/types";
 import { portfolioRuntime } from "@/lib/portfolio/runtime";
 import { formatMultiple, formatNumber, formatSigned, priceUnitSuffix } from "@/lib/terminal/format";
 import type { PackageMarket } from "@/lib/terminal/types";
-import { formatHours, hoursToFixing } from "./engine";
+import { formatHours, hoursToFixing, liveMark } from "./engine";
 import type { AlertRule } from "./types";
 
 /** One watched subject of a rule: where the observation sits against its trigger right now. */
@@ -26,8 +27,9 @@ export function ruleWatches(
   rules: readonly AlertRule[],
   snapshot: GatewaySnapshot,
   markets: readonly PackageMarket[],
-  previewEpochSeconds: number,
+  nowSeconds: number,
   nowMs: number,
+  live?: MarketDataSnapshot | null,
 ): RuleWatch[] {
   const rows: RuleWatch[] = [];
   for (const rule of rules) {
@@ -35,23 +37,24 @@ export function ruleWatches(
     if (rule.kind === "PRICE_CROSS") {
       const market = markets.find((candidate) => candidate.id === rule.marketId);
       if (!market) continue;
-      const ticks = (rule.level - market.netPrice) / market.tickSize;
-      const holding = rule.direction === "ABOVE" ? market.netPrice >= rule.level : market.netPrice <= rule.level;
+      const mark = liveMark(market, live);
+      const ticks = mark === null ? null : (rule.level - mark) / market.tickSize;
+      const holding = mark !== null && (rule.direction === "ABOVE" ? mark >= rule.level : mark <= rule.level);
       rows.push({
         key: `${rule.id}:${market.id}`,
         ruleId: rule.id,
         subject: market.code,
-        current: formatNumber(market.netPrice, market.priceDecimals),
+        current: mark === null ? "No quote" : formatNumber(mark, market.priceDecimals),
         trigger: `${rule.direction === "ABOVE" ? ">=" : "<="} ${formatNumber(rule.level, market.priceDecimals)} ${priceUnitSuffix(market.priceUnit)}`,
-        distance: holding ? "Through" : `${formatSigned(Math.round(ticks), 0)} ticks`,
-        proximity: holding ? 1 : Math.max(0, 1 - Math.abs(ticks) / 20),
+        distance: ticks === null ? "-" : holding ? "Through" : `${formatSigned(Math.round(ticks), 0)} ticks`,
+        proximity: ticks === null ? 0 : holding ? 1 : Math.max(0, 1 - Math.abs(ticks) / 20),
         holding,
       });
     } else if (rule.kind === "HEALTH_BELOW") {
       let health: number | null = null;
       if (snapshot.positions.length > 0) {
         try {
-          const account = portfolioRuntime(snapshot, markets).account;
+          const account = portfolioRuntime(snapshot, markets, { live, nowMs: nowSeconds * 1000 }).account;
           health = account.maintenanceMargin > 0 ? account.healthFactor : null;
         } catch {
           health = null;
@@ -61,8 +64,8 @@ export function ruleWatches(
       rows.push({
         key: `${rule.id}:account`,
         ruleId: rule.id,
-        subject: "Account health",
-        current: health === null ? "No margin" : formatMultiple(health),
+        subject: "Collateral cover",
+        current: health === null ? "Nothing locked" : formatMultiple(health),
         trigger: `< ${formatMultiple(rule.threshold)}`,
         distance: health === null ? "-" : holding ? "Through" : `${formatSigned(health - rule.threshold, 2)}x`,
         proximity: health === null ? 0 : holding ? 1 : Math.max(0, 1 - (health - rule.threshold) / rule.threshold),
@@ -72,7 +75,7 @@ export function ruleWatches(
       const held = new Set(snapshot.positions.map((position) => position.marketId));
       const nearest = markets
         .filter((market) => (rule.scope === "HELD" ? held.has(market.id) : true))
-        .map((market) => ({ market, hours: hoursToFixing(market, previewEpochSeconds) }))
+        .map((market) => ({ market, hours: hoursToFixing(market, nowSeconds) }))
         .filter((entry) => entry.hours > 0)
         .sort((a, b) => a.hours - b.hours)
         .slice(0, 3);

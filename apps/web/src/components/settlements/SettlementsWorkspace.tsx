@@ -5,9 +5,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { CalendarRange, Wallet } from "lucide-react";
 import { BUTTON_INK, EnvironmentChip, formatUtcTime, useWalletPrompt } from "@/components/activity/ledger-ui";
 import { useGatewaySnapshot } from "@/components/gateway/InternalGatewayProvider";
-import { usePreviewBoard } from "@/components/terminal/PreviewMarketProvider";
+import { useChainNow, useMarketBoard } from "@/components/market-data/MarketDataProvider";
 import { DeskTabs, Panel, TabBody, type DeskTab } from "@/components/strategies/desk/Desk";
-import { LIFECYCLE_STRATEGIES } from "@/lib/lifecycle/fixtures";
 import { formatCountdownMs, formatUtcShort } from "@/lib/settlements/calendar";
 import { settlementCenter } from "@/lib/settlements/center";
 import type { Provenance } from "@/lib/terminal/types";
@@ -138,18 +137,18 @@ function Pills<T extends string>({
 }
 
 /**
- * `/settlements`: the fixing schedule, the observations behind each fixing,
- * payouts, cross-record reconciliation and exceptions, for the connected
- * account and the static reference book, on the shared feed clock.
+ * `/settlements`: the series schedule, the live inputs behind each mark and
+ * fixing, payouts, cross-record reconciliation and exceptions for the
+ * connected account, on the platform clock.
  */
 export function SettlementsWorkspace() {
   const snapshot = useGatewaySnapshot();
   const wallet = useWalletPrompt();
-  const { markets, previewEpochSeconds } = usePreviewBoard();
-  const nowMs = previewEpochSeconds * 1000;
+  const { markets, snapshot: feed } = useMarketBoard();
+  const nowMs = useChainNow() * 1000;
   const center = useMemo(
-    () => settlementCenter({ snapshot, markets, references: LIFECYCLE_STRATEGIES, nowMs }),
-    [snapshot, markets, nowMs],
+    () => settlementCenter({ snapshot, markets, feed, nowMs }),
+    [snapshot, markets, feed, nowMs],
   );
 
   const router = useRouter();
@@ -260,16 +259,16 @@ export function SettlementsWorkspace() {
               </div>
               <h1 className="mt-1 font-serif text-[28px] leading-8 font-normal tracking-[-0.01em] text-ink lg:text-[30px]">Settlements</h1>
               <p className="mt-1 max-w-2xl text-xs leading-relaxed text-dim">
-                Fixing schedule, the observations behind each fixing, payouts, reconciliation and exceptions. Scheduled values stay labeled as modeled until a fixing record is observed.
+                Series schedule, the live inputs behind each mark and fixing, payouts, reconciliation and exceptions. Scheduled values stay labeled until the position&apos;s onchain record confirms them.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2 lg:justify-end">
               <span
-                title="All countdowns run on the shared index feed clock"
+                title="All countdowns run on the platform clock, corrected to the settlement chain"
                 className="inline-flex h-7 items-center gap-2 rounded-md border border-line px-2.5 text-xs text-dim"
               >
                 <span aria-hidden="true" className="live-dot relative h-[6px] w-[6px] rounded-full bg-up text-up" />
-                <span className="text-faint">Feed clock</span>
+                <span className="text-faint">Chain clock</span>
                 <span className="tnum font-mono text-ink">{`${formatUtcTime(new Date(nowMs).toISOString())} UTC`}</span>
               </span>
               <EnvironmentChip />
@@ -287,21 +286,21 @@ export function SettlementsWorkspace() {
               value={nextRemaining !== null ? (nextRemaining > 0 ? formatCountdownMs(nextRemaining) : "now") : "None"}
               valueTone={nextRemaining !== null && nextRemaining < 7 * 86_400_000 ? "text-brand" : "text-ink"}
               note={next?.atMs != null ? `${next.market.code} · ${formatUtcShort(next.atMs)}` : undefined}
-              provenance="MODELED"
-              source="Scheduled from series terms"
+              provenance={next?.provenance ?? "MODELED"}
+              source={next?.source ?? "Series schedule"}
             />
             <Kpi
               label="Held series"
               value={`${kpis.heldSeries}`}
-              note={`${center.accountPositions} account · ${center.referencePositions} reference · ${kpis.heldWithin30d} fix in 30d`}
+              note={`${center.accountPositions} open position${center.accountPositions === 1 ? "" : "s"} · ${kpis.heldWithin30d} fix in 30d`}
             />
             <Kpi
               label="Account payout at mark"
               value={kpis.projectedAccount === null ? "Not connected" : signedUsd(kpis.projectedAccount)}
               valueTone={kpis.projectedAccount === null ? "text-faint" : tone(kpis.projectedAccount)}
-              note={`reference book ${signedUsd(kpis.projectedReference)}, modeled`}
+              note="price term at live marks or the final fixing"
               provenance="ESTIMATED"
-              source="Entry against the package mark, price term only"
+              source="Entry against the mark or fixing, price term only"
             />
             <Kpi
               label="Realized payouts"
@@ -353,7 +352,7 @@ export function SettlementsWorkspace() {
                   <ConnectPrompt
                     compact
                     title="Account payouts need a connected wallet."
-                    detail="The reference book below is modeled from static lifecycle records."
+                    detail="Projected and realized payouts are read from the connected account."
                     connecting={wallet.connecting}
                     label={connectLabel}
                     error={wallet.error}
@@ -369,7 +368,7 @@ export function SettlementsWorkspace() {
               ) : (
                 <ConnectPrompt
                   title="Connect a wallet to reconcile account records."
-                  detail="Positions, fills, receipts, orders and RFQs are cross-checked against the connected chain state. Reference records carry no evidence to reconcile."
+                  detail="Positions, fills, receipts, orders and RFQs are cross-checked against the connected chain state."
                   connecting={wallet.connecting}
                   label={connectLabel}
                   error={wallet.error}

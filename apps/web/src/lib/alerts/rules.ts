@@ -48,7 +48,7 @@ export const EMPTY_ALERT_LEDGER: AlertLedger = {};
 
 export const RULE_KIND_LABEL: Record<AlertRuleKind, string> = {
   PRICE_CROSS: "Price crosses",
-  HEALTH_BELOW: "Health below",
+  HEALTH_BELOW: "Collateral cover below",
   FIXING_WITHIN: "Fixing within",
   RFQ_QUOTE: "RFQ quote received",
 };
@@ -149,9 +149,9 @@ export function describeRule(rule: AlertRule, markets: readonly PackageMarket[])
     const market = markets.find((candidate) => candidate.id === rule.marketId);
     return `${rule.marketId} ${rule.direction === "ABOVE" ? "at or above" : "at or below"} ${marketPrice(market, rule.level)}`;
   }
-  if (rule.kind === "HEALTH_BELOW") return `Maintenance health below ${formatNumber(rule.threshold, 2)}x`;
+  if (rule.kind === "HEALTH_BELOW") return `Collateral cover below ${formatNumber(rule.threshold, 2)}x`;
   if (rule.kind === "FIXING_WITHIN") {
-    return `${rule.scope === "HELD" ? "Held package" : "Any listed market"} fixes within ${formatNumber(rule.hours, 0)}h`;
+    return `${rule.scope === "HELD" ? "Held position" : "Any listed market"} fixes within ${formatNumber(rule.hours, 0)}h`;
   }
   return "A firm quote arrives on an open RFQ";
 }

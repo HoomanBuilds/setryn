@@ -1,13 +1,6 @@
+import type { MarkSource } from "@/lib/market-data/types";
 import type { PositionOrigin } from "@/lib/positions/dossier";
-import type {
-  LegFamily,
-  PackageMarket,
-  PositionSide,
-  PriceUnit,
-  Provenance,
-  Qualification,
-} from "@/lib/terminal/types";
-import type { FixingAdjustment, MarketHoliday } from "./calendar";
+import type { PackageMarket, PositionSide, Provenance } from "@/lib/terminal/types";
 
 /** The dated settlement state machine from the interface specification, in order. */
 export type SettlementStage =
@@ -32,7 +25,7 @@ export interface HeldExposure {
   label: string;
 }
 
-export type BoundaryKind = "FIXING" | "FUNDING" | "REBALANCE";
+export type BoundaryKind = "FIXING" | "LAST_TRADE" | "ELECTION";
 
 export interface ScheduleBoundary {
   id: string;
@@ -46,7 +39,6 @@ export interface ScheduleBoundary {
   windowOpensMs: number | null;
   state: "UPCOMING" | "WINDOW_OPEN" | "PASSED";
   held: HeldExposure[];
-  adjustment: FixingAdjustment | null;
   provenance: Provenance;
   source: string;
 }
@@ -57,21 +49,22 @@ export interface CalendarFamily {
   underlying: string;
 }
 
-export interface LegObservation {
+/** One live input behind a series' mark or fixing: the Chainlink reference, the book touch, the last fill. */
+export interface InputObservation {
   id: string;
-  instrument: string;
-  family: LegFamily;
-  side: "BUY" | "SELL";
-  ratio: number;
-  value: number;
-  unit: PriceUnit;
-  ageSeconds: number;
+  label: string;
+  role: string;
+  /** Null when the source holds no value right now (an empty book side, no fill yet). */
+  value: number | null;
+  unit: string;
+  decimals: number;
+  /** Seconds since the source last updated; null when it has no value. */
+  ageSeconds: number | null;
   provenance: Provenance;
   source: string;
-  qualification: Qualification;
 }
 
-export type FixingRecordState = "PENDING" | "WINDOW_OPEN" | "AWAITING_RECORD";
+export type FixingRecordState = "PENDING" | "WINDOW_OPEN" | "AWAITING_RECORD" | "PROPOSED" | "DISPUTED" | "FINALIZED";
 
 export interface ObservationGroup {
   market: PackageMarket;
@@ -79,9 +72,14 @@ export interface ObservationGroup {
   fixingMs: number;
   windowOpensMs: number;
   fixingState: FixingRecordState;
-  /** Package mark from the shared preview board: derived from executable inputs. */
-  packageMark: number;
-  legs: LegObservation[];
+  /** Committed fixing value from a held position's onchain record, once proposed or final. */
+  fixingValue: number | null;
+  /** Live mark from the market-data feed; null while the market has no quote, fill or reference. */
+  packageMark: number | null;
+  markSource: MarkSource;
+  /** Seconds since the feed snapshot was read at its block. */
+  markAgeSeconds: number | null;
+  inputs: InputObservation[];
 }
 
 export interface PayoutRow {
@@ -93,9 +91,10 @@ export interface PayoutRow {
   side: PositionSide;
   lots: number;
   entryPrice: number;
-  referencePrice: number;
+  /** The level the amount is computed at: the live mark, the fixing, or the close fill; null without one. */
+  referencePrice: number | null;
   referenceLabel: string;
-  /** Price term only: lots x multiplier x (reference - entry), signed for the holder. */
+  /** Price term only: lots x lot size x (reference - entry), signed for the holder. */
   amount: number;
   /** USDC per 1.00 move in the settlement reference, across the lots. */
   perPoint: number;
@@ -133,9 +132,9 @@ export interface ReconciliationRow {
 export type ExceptionSeverity = "CRITICAL" | "ACTION" | "NOTICE";
 
 export type ExceptionKind =
-  | "CALENDAR"
-  | "QUALIFICATION"
-  | "WINDOW"
+  | "SERIES_STATUS"
+  | "ELECTION"
+  | "CLAIM"
   | "FIXING_PROXIMITY"
   | "FIXING_MISSING"
   | "RECONCILIATION";
@@ -163,7 +162,6 @@ export interface SettlementKpis {
   heldSeries: number;
   heldWithin30d: number;
   projectedAccount: number | null;
-  projectedReference: number;
   realized: number | null;
   realizedCount: number;
   reconMatched: number;
@@ -176,9 +174,7 @@ export interface SettlementCenter {
   nowMs: number;
   accountConnected: boolean;
   accountPositions: number;
-  referencePositions: number;
   families: CalendarFamily[];
-  holidays: readonly MarketHoliday[];
   boundaries: ScheduleBoundary[];
   observations: ObservationGroup[];
   payouts: PayoutRow[];

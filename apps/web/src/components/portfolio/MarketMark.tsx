@@ -73,7 +73,7 @@ export function WithMark({
   );
 }
 
-/** Collateral and settlement amounts are USDC-denominated (sUSD on the devnet mirrors it). */
+/** Collateral and settlement amounts are USDC-denominated (the local chain's settlement token mirrors it). */
 export function CollateralMark({ size = 14, className = "" }: { size?: number; className?: string }) {
   return <AssetIcon symbol="USDC" size={size} className={className} />;
 }

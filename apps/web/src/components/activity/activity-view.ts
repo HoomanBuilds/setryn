@@ -10,7 +10,6 @@ export type OrderFilter = "ALL" | "OPEN" | "FILLED" | "CLOSED";
 export const ATTEMPT_FILTERS: Array<{ id: AttemptFilter; label: string }> = [
   { id: "ALL", label: "All attempts" },
   { id: "TERMINAL", label: "Terminal" },
-  { id: "SIMULATED", label: "Simulation" },
   { id: "UNKNOWN", label: "Unknown" },
 ];
 
@@ -37,7 +36,7 @@ export function matchesOrderFilter(order: RestingPackageOrder, filter: OrderFilt
 
 export const RESULT_LABEL: Record<ActivityResultState, string> = {
   COMPLETE: "Complete",
-  SIMULATED: "Simulated",
+  SIMULATED: "Not onchain",
   FAILED: "Failed",
   UNKNOWN: "Unknown",
 };

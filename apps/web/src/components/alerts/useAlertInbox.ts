@@ -3,7 +3,7 @@
 import { useEffect, useMemo } from "react";
 import { useGatewaySnapshot } from "@/components/gateway/InternalGatewayProvider";
 import { useWallClock } from "@/components/home/kit";
-import { usePreviewBoard } from "@/components/terminal/PreviewMarketProvider";
+import { useChainNow, useMarketBoard } from "@/components/market-data/MarketDataProvider";
 import {
   ALERT_LEDGER_KEY,
   ALERT_RULES_KEY,
@@ -28,7 +28,7 @@ export function useAlertLedger() {
 }
 
 /**
- * The viewer's live alert inbox: gateway snapshot, shared preview board, per-viewer rules and ledger. Rule
+ * The viewer's live alert inbox: gateway snapshot, the market-data board, per-viewer rules and ledger. Rule
  * conditions that start holding are latched into the ledger here, so a price alert stays listed after the mark
  * moves back. Mount it once per surface; every instance shares the same stored ledger.
  */
@@ -40,14 +40,15 @@ export function useAlertInbox(): AlertInbox & {
   nowMs: number;
 } {
   const snapshot = useGatewaySnapshot();
-  const { markets, previewEpochSeconds } = usePreviewBoard();
+  const { markets, snapshot: live } = useMarketBoard();
+  const nowSeconds = useChainNow();
   const nowMs = useWallClock();
   const [rules, setRules] = useAlertRules();
   const [ledger, setLedger] = useAlertLedger();
 
   const inbox = useMemo(
-    () => alertInbox({ snapshot, markets, previewEpochSeconds, nowMs, rules, ledger }),
-    [snapshot, markets, previewEpochSeconds, nowMs, rules, ledger],
+    () => alertInbox({ snapshot, markets, live, nowSeconds, nowMs, rules, ledger }),
+    [snapshot, markets, live, nowSeconds, nowMs, rules, ledger],
   );
 
   const { latches } = inbox;

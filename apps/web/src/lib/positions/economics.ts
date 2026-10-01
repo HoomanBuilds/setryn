@@ -1,19 +1,20 @@
+import type { OnchainMarketEconomics, OnchainPositionLifecycle } from "@/lib/internal-gateway/types";
+import type { LiveMarketData, MarkSource } from "@/lib/market-data/types";
 import {
-  buildPreview,
-  executableAction,
-  protectedPrice,
-  routePrice,
-  DEFAULT_SLIPPAGE_BPS,
-  type EconomicsPreview,
-  type TicketState,
-} from "@/lib/terminal/economics";
-import { MARKETS, tradeHref } from "@/lib/terminal/markets";
-import type { PackageMarket, Provenance, RouteQuote } from "@/lib/terminal/types";
-import { fixingSchedule } from "@/lib/settlements/calendar";
+  clampToRange,
+  closeTouch,
+  deltaUnits,
+  forwardPnl,
+  markOf,
+  markProvenance,
+  maxLossPerLot,
+  rangeTerms,
+  type RangeTerms,
+} from "@/lib/portfolio/forward";
+import { seriesSchedule, type SeriesSchedule } from "@/lib/settlements/calendar";
+import { tradeHref } from "@/lib/terminal/markets";
+import type { BookRow, PackageMarket, PositionSide, Provenance } from "@/lib/terminal/types";
 import type { PositionDossier } from "./dossier";
-
-/** Maintenance floor as a share of posted collateral, the portfolio runtime's rule. */
-export const MAINTENANCE_SHARE = 0.75;
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
@@ -21,71 +22,77 @@ function round2(value: number): number {
 
 export interface PositionMetrics {
   direction: 1 | -1;
-  /** Package mark from the shared preview board. */
-  mark: number;
-  /** Executable price that closes the position now: bid for a long, ask for a short. */
-  closeTouch: number;
-  /** USDC per 1.00 of package price across the open lots. */
+  terms: RangeTerms;
+  /** Live forward level from the market-data feed; null while the market has no quote, fill or reference. */
+  mark: number | null;
+  markSource: MarkSource;
+  /** Executable price that closes the position now: the best bid for a long, the best ask for a short. */
+  closeTouch: number | null;
+  /** USDC per 1.00 of forward level across the open lots, signed for the holder. */
   perPoint: number;
+  /** Underlying units the position moves with: lots x lot size inside the range, zero outside. */
+  deltaUnits: number;
+  /** USD value of the underlying units at the mark (entry while unmarked). */
   notional: number;
   pricePnl: number;
   totalPnl: number;
-  touchPnl: number;
+  /** PnL if closed at the touch, less fees paid; null without a resting touch. */
+  touchPnl: number | null;
+  /** Collateral plus price PnL: what the position returns if the fixing prints at the mark. */
   equity: number;
-  maintenance: number;
-  buffer: number;
-  bufferShare: number;
-  liquidationPrice: number | null;
-  /** Provenance of the position record the figures are derived from. */
+  /** Collateral still at risk to the adverse payoff bound. */
+  atRisk: number;
+  /** Most the position gains if the fixing prints at its favourable bound; null without published bounds. */
+  maxGain: number | null;
+  /** Adverse payoff bound: the floor for a long, the cap for a short. */
+  boundLevel: number | null;
   recordProvenance: Provenance;
-  /** Derived figures inherit the weakest input: a modeled record makes them modeled. */
-  derivedProvenance: Provenance;
+  markProvenance: Provenance;
+  schedule: SeriesSchedule;
   fixingMs: number;
   windowOpensMs: number;
   msToFixing: number;
 }
 
-export function positionMetrics(dossier: PositionDossier, market: PackageMarket, nowMs: number): PositionMetrics {
+export function positionMetrics(
+  dossier: PositionDossier,
+  market: PackageMarket,
+  live: LiveMarketData | null,
+  nowMs: number,
+  lifecycle: OnchainPositionLifecycle | null = null,
+): PositionMetrics {
   const direction = dossier.side === "LONG" ? 1 : -1;
+  const terms = rangeTerms(market);
   const lots = dossier.lots;
-  const perPoint = lots * market.contractMultiplier;
-  const mark = market.netPrice;
-  const closeTouch = dossier.side === "LONG" ? market.bestBid : market.bestAsk;
-  const pricePnl = round2((mark - dossier.entryPrice) * perPoint * direction);
+  const mark = markOf(live);
+  const touch = closeTouch(live, dossier.side);
+  const pricePnl = mark.price === null ? 0 : round2(forwardPnl(dossier.side, lots, dossier.entryPrice, mark.price, terms));
   const totalPnl = round2(pricePnl - dossier.fees);
-  const touchPnl = round2((closeTouch - dossier.entryPrice) * perPoint * direction - dossier.fees);
-  const equity = round2(dossier.collateral + totalPnl);
-  const reference = dossier.reference;
-  /* A reference record carries its own liquidation distance, which the lifecycle console shows,
-     so the buffer is read from it rather than re-derived and contradicted. */
-  const bufferShare =
-    reference !== null
-      ? reference.liquidationDistance / 100
-      : equity === 0
-        ? 0
-        : (equity - dossier.collateral * MAINTENANCE_SHARE) / equity;
-  const buffer = round2(equity * bufferShare);
-  const maintenance = round2(equity - buffer);
-  const bufferPoints = perPoint === 0 ? 0 : buffer / perPoint;
-  const liquidation = round2(mark - direction * bufferPoints);
-  const schedule = fixingSchedule(market);
-  const recordProvenance: Provenance = dossier.origin === "ACCOUNT" ? "OBSERVED" : "MODELED";
+  const touchPnl = touch === null ? null : round2(forwardPnl(dossier.side, lots, dossier.entryPrice, touch, terms) - dossier.fees);
+  const equity = round2(dossier.collateral + pricePnl);
+  const level = mark.price ?? dossier.entryPrice;
+  const favourable = dossier.side === "LONG" ? terms.cap : terms.floor;
+  const schedule = seriesSchedule(market, lifecycle?.schedule);
   return {
     direction,
-    mark,
-    closeTouch,
-    perPoint,
-    notional: lots * market.notionalPerLot,
+    terms,
+    mark: mark.price,
+    markSource: mark.source,
+    closeTouch: touch,
+    perPoint: direction * lots * terms.lotSize,
+    deltaUnits: deltaUnits(dossier.side, lots, terms, mark.price),
+    notional: round2(lots * terms.lotSize * Math.abs(level)),
     pricePnl,
     totalPnl,
     touchPnl,
     equity,
-    maintenance,
-    buffer,
-    bufferShare,
-    liquidationPrice: dossier.lots > 0 && liquidation > 0 ? liquidation : null,
-    recordProvenance,
-    derivedProvenance: dossier.origin === "ACCOUNT" ? "ESTIMATED" : "MODELED",
+    atRisk: Math.max(0, equity),
+    maxGain:
+      favourable === null ? null : round2(forwardPnl(dossier.side, lots, dossier.entryPrice, favourable, terms)),
+    boundLevel: dossier.side === "LONG" ? terms.floor : terms.cap,
+    recordProvenance: "OBSERVED",
+    markProvenance: markProvenance(mark.source),
+    schedule,
     fixingMs: schedule.fixingMs,
     windowOpensMs: schedule.windowOpensMs,
     msToFixing: schedule.fixingMs - nowMs,
@@ -93,90 +100,127 @@ export function positionMetrics(dossier: PositionDossier, market: PackageMarket,
 }
 
 /* ------------------------------------------------------------------ */
-/* Terminal preflight                                                  */
+/* Book execution                                                      */
 /* ------------------------------------------------------------------ */
 
-/**
- * The best route the terminal would offer for this action, skipping private
- * routes (they need an RFQ) and routes without the capacity.
- */
-export function indicativeRoute(market: PackageMarket, action: "BUY" | "SELL", lots: number): RouteQuote | null {
-  const candidates = market.routes.filter((route) => !route.requiresPrivate);
-  const sized = candidates.filter((route) => route.availableLots >= lots);
-  const pool = sized.length > 0 ? sized : candidates;
-  if (pool.length === 0) return null;
-  return [...pool].sort((left, right) =>
-    action === "BUY" ? routePrice(left, action) - routePrice(right, action) : routePrice(right, action) - routePrice(left, action),
-  )[0];
+export interface BookFill {
+  /** Lots the resting book can fill now, at most the size asked. */
+  lots: number;
+  /** Volume-weighted price across the levels taken; null when nothing rests. */
+  averagePrice: number | null;
+  /** Deepest level the fill reaches; the limit that takes it. */
+  worstPrice: number | null;
 }
 
-function ticket(
+/**
+ * Walks the resting public book for a taker: a sell takes bids from the best down, a buy takes asks from the best up.
+ * Only executable rows count.
+ */
+export function walkBook(book: readonly BookRow[], action: "BUY" | "SELL", lots: number): BookFill {
+  const side = action === "BUY" ? "ASK" : "BID";
+  const rows = book
+    .filter((row) => row.side === side && row.executable && row.lots > 0)
+    .sort((left, right) => (action === "BUY" ? left.price - right.price : right.price - left.price));
+  let left = lots;
+  let notional = 0;
+  let worst: number | null = null;
+  for (const row of rows) {
+    if (left <= 0) break;
+    const take = Math.min(left, row.lots);
+    notional += take * row.price;
+    left -= take;
+    worst = row.price;
+  }
+  const filled = lots - left;
+  return { lots: filled, averagePrice: filled > 0 ? notional / filled : null, worstPrice: worst };
+}
+
+/** Taker fee for a fill: the active schedule's rate on the consideration (lots x lot size x (price - floor)) plus any flat charge. */
+export function takerFee(
   market: PackageMarket,
-  intent: TicketState["intent"],
-  side: TicketState["side"],
+  economics: OnchainMarketEconomics | null,
   lots: number,
-  route: RouteQuote | null,
-  closePositionId: string | null,
-): TicketState {
-  const action = executableAction(intent, side);
-  const reference = route ? routePrice(route, action) : action === "BUY" ? market.bestAsk : market.bestBid;
-  return {
-    intent,
-    side,
-    orderType: "MARKETABLE_LIMIT",
-    lotsInput: String(lots),
-    limitInput: protectedPrice(reference, action, DEFAULT_SLIPPAGE_BPS, market).toFixed(market.priceDecimals),
-    /* A lifecycle exit runs fill-or-kill so a partial close cannot strand a hedge leg. */
-    tif: intent === "EXIT" ? "FOK" : "GTC",
-    expiresAt: null,
-    privateRfq: false,
-    routeId: route?.id ?? null,
-    closePositionId,
-  };
+  price: number,
+): number | null {
+  if (!economics) return null;
+  const terms = rangeTerms(market);
+  const consideration = lots * terms.lotSize * Math.abs(price - (terms.floor ?? 0));
+  return round2((consideration * economics.takerFeeBps) / 10_000 + (lots > 0 ? economics.takerFlatFeeUsd : 0));
+}
+
+function tradingBlockers(
+  market: PackageMarket,
+  live: LiveMarketData | null,
+  economics: OnchainMarketEconomics | null,
+  schedule: SeriesSchedule,
+  nowMs: number,
+): string[] {
+  const blockers: string[] = [];
+  if (nowMs >= schedule.lastTradingMs) {
+    blockers.push(`Trading in ${market.code} closed at its last trade time. The position settles in cash at the fixing.`);
+  } else if (live && live.seriesStatus !== "ACTIVE" && live.seriesStatus !== "UNKNOWN") {
+    blockers.push(`${market.code} is ${live.seriesStatus.toLowerCase()} onchain; the book accepts no new fills.`);
+  }
+  if (economics && !economics.tradable) {
+    blockers.push("The market's fee schedule is changing over; nothing clears until the new version is active.");
+  }
+  return blockers;
 }
 
 export interface ClosePreview {
   lots: number;
   remainingLots: number;
-  route: RouteQuote | null;
-  preview: EconomicsPreview;
-  /** Executable route price for the close. */
-  price: number;
-  fees: number;
-  realizedPnl: number;
+  /** Lots the resting book fills now. */
+  fillableLots: number;
+  /** Average close price across the book levels taken; null when nothing rests on the closing side. */
+  price: number | null;
+  /** Fee at the active schedule; null until the onchain fee schedule is read. */
+  fees: number | null;
+  realizedPnl: number | null;
   collateralRelease: number;
-  /** Terminal preflight conditions, verbatim from the ticket economics. */
+  /** Terminal preflight conditions this page can see before the handoff. */
   blockers: string[];
-  /** Conditions this page knows the terminal will add, stated before the handoff. */
   notices: string[];
 }
 
-export function closePreview(dossier: PositionDossier, market: PackageMarket, lots: number): ClosePreview {
+export function closePreview(
+  dossier: PositionDossier,
+  market: PackageMarket,
+  live: LiveMarketData | null,
+  economics: OnchainMarketEconomics | null,
+  lots: number,
+  nowMs: number,
+  schedule: SeriesSchedule = seriesSchedule(market),
+): ClosePreview {
   const size = Math.max(0, Math.min(lots, dossier.lots));
-  const action = executableAction("EXIT", dossier.side);
-  const route = indicativeRoute(market, action, size);
-  const preview = buildPreview(market, ticket(market, "EXIT", dossier.side, size, route, dossier.id), route, {
-    lots: dossier.lots,
-    side: dossier.side,
-  });
-  const direction = dossier.side === "LONG" ? 1 : -1;
-  const realizedGross = (preview.routePrice - dossier.entryPrice) * size * market.contractMultiplier * direction;
-  const notices: string[] = [];
-  if (dossier.origin === "REFERENCE") {
-    notices.push(
-      "Reference record, not held by the connected account. The terminal opens with this request and blocks authorization until an account position is selected.",
+  const action = dossier.side === "LONG" ? "SELL" : "BUY";
+  const fill = walkBook(live?.book ?? [], action, size);
+  const fees = fill.averagePrice === null ? null : takerFee(market, economics, size, fill.averagePrice);
+  const realizedGross =
+    fill.averagePrice === null ? null : forwardPnl(dossier.side, size, dossier.entryPrice, fill.averagePrice, rangeTerms(market));
+  const blockers = tradingBlockers(market, live, economics, schedule, nowMs);
+  if (size <= 0) blockers.push("Enter a quantity above zero.");
+  if (fill.lots === 0) {
+    blockers.push(
+      `No resting ${action === "SELL" ? "bid" : "offer"} on the ${market.code} book. Rest a limit in the terminal or request quotes privately.`,
     );
+  } else if (fill.lots < size) {
+    blockers.push(`The book holds ${fill.lots} of the ${size} lots at executable prices. Reduce the size or rest the remainder.`);
   }
+  if (market.maxOrderLots != null && size > market.maxOrderLots) {
+    blockers.push(`This market accepts at most ${market.maxOrderLots} lots per order.`);
+  }
+  const notices: string[] = [];
+  if (!economics) notices.push("Fees show once the onchain fee schedule is read.");
   return {
     lots: size,
     remainingLots: dossier.lots - size,
-    route,
-    preview,
-    price: preview.routePrice,
-    fees: round2(preview.totalFees),
-    realizedPnl: round2(realizedGross - preview.totalFees),
+    fillableLots: fill.lots,
+    price: fill.averagePrice,
+    fees,
+    realizedPnl: realizedGross === null ? null : round2(realizedGross - (fees ?? 0)),
     collateralRelease: dossier.lots === 0 ? 0 : round2((dossier.collateral * size) / dossier.lots),
-    blockers: preview.blockers,
+    blockers,
     notices,
   };
 }
@@ -185,12 +229,12 @@ export function closePreview(dossier: PositionDossier, market: PackageMarket, lo
 /* Roll                                                                */
 /* ------------------------------------------------------------------ */
 
-/** Later maturities of the same package family, nearest first. */
+/** Later maturities of the same underlying and family, nearest first. */
 export function rollTargets(market: PackageMarket, markets: readonly PackageMarket[]): PackageMarket[] {
   return markets
     .filter(
       (candidate) =>
-        candidate.name === market.name &&
+        candidate.underlying === market.underlying &&
         candidate.strategyKind === market.strategyKind &&
         candidate.expiryIso > market.expiryIso,
     )
@@ -201,57 +245,95 @@ export interface RollPreview {
   target: PackageMarket;
   lots: number;
   close: ClosePreview;
-  openRoute: RouteQuote | null;
-  openPreview: EconomicsPreview;
-  openPrice: number;
-  /** Target entry less current exit, in package price units. */
-  rollSpread: number;
-  /** USDC paid crossing from each mark to its executable touch, both tickets together. */
-  crossingCost: number;
-  fees: number;
+  /** Average opening price across the target book; null when nothing rests on the opening side. */
+  openPrice: number | null;
+  openFillableLots: number;
+  /** Target entry less current exit, in price units. */
+  rollSpread: number | null;
+  /** USDC paid crossing from each mark to its executable fill, both tickets together. */
+  crossingCost: number | null;
+  fees: number | null;
   collateralRelease: number;
-  collateralRequired: number;
-  netCollateral: number;
+  /** Collateral the new position locks: the long pays the consideration, the short locks the range less what it receives. */
+  collateralRequired: number | null;
+  netCollateral: number | null;
   extensionDays: number;
   openBlockers: string[];
+}
+
+function openingCollateral(side: PositionSide, lots: number, price: number, terms: RangeTerms): number | null {
+  const loss = maxLossPerLot(side, price, terms);
+  return loss === null ? null : round2(lots * loss);
 }
 
 export function rollPreview(
   dossier: PositionDossier,
   current: PackageMarket,
+  currentLive: LiveMarketData | null,
   target: PackageMarket,
+  targetLive: LiveMarketData | null,
+  economics: { current: OnchainMarketEconomics | null; target: OnchainMarketEconomics | null },
   lots: number,
+  nowMs: number,
+  schedule: SeriesSchedule = seriesSchedule(current),
 ): RollPreview {
-  const close = closePreview(dossier, current, lots);
-  const openAction = executableAction("ENTER", dossier.side);
-  const openRoute = indicativeRoute(target, openAction, close.lots);
-  const openPreview = buildPreview(target, ticket(target, "ENTER", dossier.side, close.lots, openRoute, null), openRoute);
+  const close = closePreview(dossier, current, currentLive, economics.current, lots, nowMs, schedule);
+  const openAction = dossier.side === "LONG" ? "BUY" : "SELL";
+  const open = walkBook(targetLive?.book ?? [], openAction, close.lots);
+  const targetTerms = rangeTerms(target);
+  const openFees = open.averagePrice === null ? null : takerFee(target, economics.target, close.lots, open.averagePrice);
+  const currentMark = markOf(currentLive).price;
+  const targetMark = markOf(targetLive).price;
   const direction = dossier.side === "LONG" ? 1 : -1;
-  const rollSpread = openPreview.routePrice - close.price;
-  const closeCross = (current.netPrice - close.price) * direction * close.lots * current.contractMultiplier;
-  const openCross = (openPreview.routePrice - target.netPrice) * direction * close.lots * target.contractMultiplier;
-  const crossingCost = round2(closeCross + openCross);
-  /* The open ticket is margined exactly as the terminal will margin it, whatever basis the source record used. */
-  const collateralRequired = round2(openPreview.totalCollateral);
-  const extensionDays = Math.round(
-    (Date.parse(`${target.expiryIso}T16:00:00Z`) - Date.parse(`${current.expiryIso}T16:00:00Z`)) / 86_400_000,
-  );
+  const closeCross =
+    close.price === null || currentMark === null
+      ? null
+      : (currentMark - close.price) * direction * close.lots * rangeTerms(current).lotSize;
+  const openCross =
+    open.averagePrice === null || targetMark === null
+      ? null
+      : (open.averagePrice - targetMark) * direction * close.lots * targetTerms.lotSize;
+  const collateralRequired =
+    open.averagePrice === null ? null : openingCollateral(dossier.side, close.lots, open.averagePrice, targetTerms);
+  const openBlockers = tradingBlockers(target, targetLive, economics.target, seriesSchedule(target), nowMs);
+  if (open.lots === 0) {
+    openBlockers.push(
+      `No resting ${openAction === "BUY" ? "offer" : "bid"} on the ${target.code} book. Rest a limit in the terminal or request quotes privately.`,
+    );
+  } else if (open.lots < close.lots) {
+    openBlockers.push(`The ${target.code} book holds ${open.lots} of the ${close.lots} lots at executable prices.`);
+  }
+  const fees = close.fees === null || openFees === null ? null : round2(close.fees + openFees);
   return {
     target,
     lots: close.lots,
     close,
-    openRoute,
-    openPreview,
-    openPrice: openPreview.routePrice,
-    rollSpread,
-    crossingCost,
-    fees: round2(close.fees + openPreview.totalFees),
+    openPrice: open.averagePrice,
+    openFillableLots: open.lots,
+    rollSpread: open.averagePrice === null || close.price === null ? null : open.averagePrice - close.price,
+    crossingCost: closeCross === null || openCross === null ? null : round2(closeCross + openCross),
+    fees,
     collateralRelease: close.collateralRelease,
     collateralRequired,
-    netCollateral: round2(collateralRequired - close.collateralRelease),
-    extensionDays,
-    openBlockers: openPreview.blockers,
+    netCollateral: collateralRequired === null ? null : round2(collateralRequired - close.collateralRelease),
+    extensionDays: Math.round((seriesSchedule(target).fixingMs - schedule.fixingMs) / 86_400_000),
+    openBlockers,
   };
+}
+
+/** PnL of the open lots if the fixing prints at `level`: lots x lot size x (clamp(level) - entry), signed. */
+export function settlementPnlAt(dossier: PositionDossier, market: PackageMarket, level: number): number {
+  const terms = rangeTerms(market);
+  return round2(forwardPnl(dossier.side, dossier.lots, dossier.entryPrice, clampToRange(level, terms), terms));
+}
+
+/** Cash the open lots receive at a fixing: the long the payoff, the short the range less the payoff. */
+export function settlementCashAt(dossier: PositionDossier, market: PackageMarket, level: number): number | null {
+  const terms = rangeTerms(market);
+  if (terms.floor === null || terms.cap === null) return null;
+  const payoff = terms.lotSize * (clampToRange(level, terms) - terms.floor);
+  const perLot = dossier.side === "LONG" ? payoff : terms.lotSize * (terms.cap - terms.floor) - payoff;
+  return round2(dossier.lots * perLot);
 }
 
 /* ------------------------------------------------------------------ */
@@ -260,8 +342,8 @@ export function rollPreview(
 
 const SOURCE = { source: "positions", sourceLabel: "Position" } as const;
 
-/** Close or reduce through the package terminal. The terminal re-quotes and owns authorization. */
-export function closeHandoffHref(dossier: PositionDossier, market: PackageMarket, lots: number, maxCloseCost?: number): string {
+/** Close or reduce through the terminal. The terminal re-quotes and owns authorization. */
+export function closeHandoffHref(dossier: PositionDossier, market: PackageMarket, lots: number, maxCloseCost?: number | null): string {
   const params = new URLSearchParams({
     ...SOURCE,
     lifecycle: dossier.id,
@@ -270,7 +352,7 @@ export function closeHandoffHref(dossier: PositionDossier, market: PackageMarket
     lots: String(lots),
     guarantee: dossier.guarantee.toLowerCase(),
   });
-  if (maxCloseCost !== undefined && maxCloseCost > 0) params.set("maxCloseCost", maxCloseCost.toFixed(2));
+  if (maxCloseCost !== undefined && maxCloseCost !== null && maxCloseCost > 0) params.set("maxCloseCost", maxCloseCost.toFixed(2));
   return `${tradeHref(market)}?${params.toString()}`;
 }
 
@@ -287,5 +369,5 @@ export function rollOpenHandoffHref(dossier: PositionDossier, target: PackageMar
 }
 
 export function marketFor(marketId: string, markets: readonly PackageMarket[]): PackageMarket | null {
-  return markets.find((market) => market.id === marketId) ?? MARKETS.find((market) => market.id === marketId) ?? null;
+  return markets.find((market) => market.id === marketId) ?? null;
 }

@@ -62,18 +62,21 @@ function Tile({
 
 /**
  * The account at a glance: the equity figure in the landing serif, the open
- * book repriced along this session's index path, and the balances behind it.
+ * book's PnL through its fills and marks, and the balances behind it.
  */
 export function AccountHero({ read }: { read: PortfolioRead }) {
-  const { snapshot, portfolio, tick, previewEpochSeconds } = read;
+  const { snapshot, portfolio, board } = read;
   const { account, runtimePnl, runtimePositions } = portfolio;
   const asset = snapshot.account.collateralAsset;
   const loading = snapshot.wallet.status === "CONNECTING";
   const [series, setSeries] = useState<Series>("pnl");
+  const feed = board.snapshot;
+  /* History is rebuilt per feed snapshot; between snapshots the clock only extends the last point. */
+  const asOf = feed?.asOf ?? 0;
 
   const path = useMemo(
-    () => sessionSeries(runtimePositions, tick, previewEpochSeconds),
-    [runtimePositions, tick, previewEpochSeconds],
+    () => sessionSeries(runtimePositions, snapshot.receipts, feed, Math.max(asOf, 0)),
+    [runtimePositions, snapshot.receipts, feed, asOf],
   );
   const points = useMemo(
     () =>
@@ -87,7 +90,10 @@ export function AccountHero({ read }: { read: PortfolioRead }) {
   const marked = account.equity + runtimePnl.total;
   const pnlShare = account.equity === 0 ? 0 : runtimePnl.total / account.equity;
   const [whole, fraction] = formatNumber(account.equity, 2).split(".");
-  const empty = runtimePositions.length === 0;
+  const empty = runtimePositions.length === 0 || points.length < 2;
+  const feedLabel =
+    board.status === "LIVE" ? "Live marks" : board.status === "STALE" ? "Marks stale" : board.status === "ERROR" ? "Marks unavailable" : "Loading marks";
+  const unmarked = portfolio.unmarked;
   const usage = Math.min(1, account.marginUsage);
 
   return (
@@ -127,7 +133,11 @@ export function AccountHero({ read }: { read: PortfolioRead }) {
                     <span className="ml-1.5 text-off">{`${runtimePnl.total >= 0 ? "+" : "-"}${formatShare(Math.abs(pnlShare), 2)}`}</span>
                   </span>
                 }
-                title="Open packages marked against the coherent index feed. Not oracle settlement values."
+                title={
+                  unmarked > 0
+                    ? `${unmarked} position${unmarked === 1 ? " has" : "s have"} no live mark yet and count at entry. Marks are not settlement values.`
+                    : "Open positions marked at the book mid, last fill or Chainlink reference. Not settlement values."
+                }
               />
               <Line label="Marked value" value={formatNumber(marked, 2)} />
               <Line label="Available" value={`${formatNumber(account.available, 2)} ${asset}`} />
@@ -164,12 +174,12 @@ export function AccountHero({ read }: { read: PortfolioRead }) {
               <span className="flex items-center gap-1.5">
                 <Chip
                   tone="muted"
-                  title="The open book repriced along this session's index path. Only the price term moves; fees stay as booked."
+                  title="Each position from its opening fill, marked at every onchain fill of its market and then at the live mark. Fees are booked at the fill."
                 >
-                  Session
+                  Fills and marks
                 </Chip>
-                <Chip tone="neutral" title="Marks come from the coherent local index feed.">
-                  Index marks
+                <Chip tone="neutral" title="Marks come from the onchain book, onchain fills and Chainlink references at one block.">
+                  {feedLabel}
                 </Chip>
               </span>
             </div>
@@ -183,12 +193,14 @@ export function AccountHero({ read }: { read: PortfolioRead }) {
                     ? `${formatNumber(value / 1000, 1)}k`
                     : formatNumber(value, Math.abs(value) >= 100 ? 0 : 2)
                 }
-                label={`${series === "pnl" ? "Open book profit and loss" : "Marked account value"} over this session, repriced on the index feed.`}
+                label={`${series === "pnl" ? "Open book profit and loss" : "Marked account value"} through its fills and marks.`}
                 empty={
                   empty ? (
                     <span className="rounded-md bg-panel px-3 py-1 text-center text-xs text-faint">
-                      No open packages.
-                      <span className="block text-off">The curve starts with the first fill.</span>
+                      {runtimePositions.length === 0 ? "No open positions." : "No marks since the opening fill yet."}
+                      <span className="block text-off">
+                        {runtimePositions.length === 0 ? "The curve starts with the first fill." : "The curve moves with the next fill or mark."}
+                      </span>
                     </span>
                   ) : undefined
                 }
@@ -207,7 +219,7 @@ export function AccountHero({ read }: { read: PortfolioRead }) {
         <Tile
           label="Eligible collateral"
           value={formatNumber(account.eligible, 2)}
-          note={`${asset}, no haircut in runtime`}
+          note={`${asset}, no haircut`}
           loading={loading}
           mark
         />
@@ -246,17 +258,18 @@ export function AccountHero({ read }: { read: PortfolioRead }) {
           loading={loading}
         />
         <Tile
-          label="Maintenance health"
-          value={account.maintenanceMargin === 0 ? "No requirement" : formatMultiple(account.healthFactor)}
+          label="Collateral cover"
+          value={account.maintenanceMargin === 0 ? "Nothing locked" : formatMultiple(account.healthFactor)}
           valueTone={account.maintenanceMargin === 0 ? "text-dim" : "text-ink"}
-          note={account.maintenanceMargin === 0 ? "no active margin" : `${formatNumber(account.maintenanceMargin, 0)} maintenance`}
+          note={account.maintenanceMargin === 0 ? "no bounded liability" : `${formatNumber(account.maintenanceMargin, 0)} locked, fully collateralized`}
           loading={loading}
+          title="Marked collateral equity over the collateral positions and orders lock. Every position is fully collateralized, so nothing can be liquidated."
         />
         <Tile
           label="Account PnL"
           value={formatSignedUsd(runtimePnl.total, 0)}
           valueTone={tone(runtimePnl.total)}
-          note="index feed marks"
+          note={unmarked > 0 ? `${unmarked} unmarked` : "at live marks"}
           loading={loading}
         />
       </section>

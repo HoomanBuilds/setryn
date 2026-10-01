@@ -1,26 +1,28 @@
-import type { GatewaySnapshot, ExecutionPosition } from "@/lib/internal-gateway/types";
-import { daysToExpiry, formatExpiry } from "@/lib/terminal/format";
+import type { ExecutionPosition, GatewaySnapshot, OnchainPositionLifecycle } from "@/lib/internal-gateway/types";
+import type { MarketDataSnapshot } from "@/lib/market-data/types";
+import { daysToExpiryAt, formatUtcSession, seriesSchedule } from "@/lib/settlements/calendar";
+import { platformNow } from "@/lib/terminal/clock";
 import { packageLabel, tradeHref } from "@/lib/terminal/markets";
-import type { PackageMarket, StrategyRecord } from "@/lib/terminal/types";
+import type { PackageMarket, PositionState, StrategyRecord } from "@/lib/terminal/types";
+import { deltaUnits, direction, forwardPnl, liveIndex, markOf, rangeTerms } from "./forward";
 import {
-  ACCOUNT_SUMMARY,
-  BINDING_SCENARIO,
-  EXPIRY_LADDER,
-  EXPOSURE_BY_DOMAIN,
-  EXPOSURE_BY_UNDERLYING,
-  GROSS_EXPOSURE,
-  NET_EXPOSURE,
-  PORTFOLIO_PNL,
-  SCENARIO_RESULTS,
-  DOMAIN_LABEL,
+  domainOf,
+  expiryLadder,
+  exposureByDomain,
+  exposureByUnderlying,
+  groupPositions,
+  scenarioResults,
 } from "./model";
 import type {
   AccountSummary,
   CollateralLine,
+  ExposureGroup,
   GroupBy,
+  LadderRung,
   PnlBreakdown,
   Position,
   PositionGroup,
+  ScenarioResult,
 } from "./types";
 
 function round(value: number): number {
@@ -33,21 +35,6 @@ function sum(values: number[]): number {
 
 function emptyPnl(): PnlBreakdown {
   return { price: 0, carry: 0, funding: 0, fees: 0, residual: 0, total: 0 };
-}
-
-function runtimeRecord(position: ExecutionPosition, fees: number): StrategyRecord {
-  return {
-    id: position.id,
-    marketId: position.marketId,
-    side: position.side,
-    lots: position.lots,
-    entryPrice: position.entryPrice,
-    initialMargin: position.collateral,
-    maintenanceMargin: round(position.collateral * 0.75),
-    attribution: { carry: 0, funding: 0, fees: -fees, residual: 0 },
-    nextEvent: "Lifecycle monitoring is configured in the package terminal.",
-    state: position.state,
-  };
 }
 
 function resolveRuntimeMarket(markets: readonly PackageMarket[], marketId: string): PackageMarket {
@@ -70,21 +57,56 @@ function runtimeExitHref(baseHref: string, positionId: string, lots: number): st
   return `${baseHref}${separator}${params.toString()}`;
 }
 
+/** The next dated event of a held position, from its onchain lifecycle when read, else its series schedule. */
+function nextEvent(market: PackageMarket, lifecycle: OnchainPositionLifecycle | null, nowMs: number): string {
+  const schedule = seriesSchedule(market, lifecycle?.schedule);
+  if (lifecycle) {
+    if (lifecycle.phase === "FIXED_AWAITING_ELECTION") return `Fixing accepted. Election closes ${formatUtcSession(schedule.electionClosesMs)}.`;
+    if (lifecycle.phase === "CLAIM_AVAILABLE") return "A settlement claim is open for this account.";
+    if (lifecycle.phase === "EXERCISED") return `Exercised. Settlement due by ${formatUtcSession(schedule.settlementDeadlineMs)}.`;
+    if (lifecycle.phase === "AWAITING_FIXING") return `Awaiting the final fixing. Evidence due ${formatUtcSession(schedule.evidenceDeadlineMs)}.`;
+    if (lifecycle.phase === "SETTLED" || lifecycle.phase === "LAPSED") return "Terminal settlement recorded onchain.";
+  }
+  if (nowMs < schedule.lastTradingMs) return `Last trade ${formatUtcSession(schedule.lastTradingMs)}; fixing window opens ${formatUtcSession(schedule.windowOpensMs)}.`;
+  if (nowMs < schedule.windowOpensMs) return `Trading closed. Fixing window opens ${formatUtcSession(schedule.windowOpensMs)}.`;
+  if (nowMs < schedule.fixingMs) return `Fixing window open until ${formatUtcSession(schedule.fixingMs)}.`;
+  return `Fixing printed ${formatUtcSession(schedule.fixingMs)}; settlement due by ${formatUtcSession(schedule.settlementDeadlineMs)}.`;
+}
+
+function positionState(market: PackageMarket, lifecycle: OnchainPositionLifecycle | null, nowMs: number): PositionState {
+  if (lifecycle && lifecycle.phase !== "LIVE") return "FIXING_WINDOW";
+  return nowMs >= seriesSchedule(market, lifecycle?.schedule).windowOpensMs ? "FIXING_WINDOW" : "ACTIVE";
+}
+
+function runtimeRecord(position: ExecutionPosition, fees: number, state: PositionState, event: string): StrategyRecord {
+  return {
+    id: position.id,
+    marketId: position.marketId,
+    side: position.side,
+    lots: position.lots,
+    entryPrice: position.entryPrice,
+    initialMargin: position.collateral,
+    maintenanceMargin: position.collateral,
+    attribution: { carry: 0, funding: 0, fees: -fees, residual: 0 },
+    nextEvent: event,
+    state,
+  };
+}
+
 function runtimePosition(
   execution: ExecutionPosition,
   snapshot: GatewaySnapshot,
   markets: readonly PackageMarket[],
+  live: ReturnType<typeof liveIndex>,
+  nowMs: number,
 ): Position {
   const market = resolveRuntimeMarket(markets, execution.marketId);
   const openingReceipt = snapshot.executions.find(
-    (candidate) =>
-      candidate.result.outcome === "OPENED" && candidate.result.position?.id === execution.id,
+    (candidate) => candidate.result.outcome === "OPENED" && candidate.result.position?.id === execution.id,
   )?.result.receipt;
   const receipt =
     openingReceipt ??
-    snapshot.executions.find(
-      (candidate) => candidate.result.position?.id === execution.id,
-    )?.result.receipt ??
+    snapshot.executions.find((candidate) => candidate.result.position?.id === execution.id)?.result.receipt ??
     snapshot.receipts.find(
       (candidate) =>
         candidate.marketId === execution.marketId &&
@@ -92,53 +114,45 @@ function runtimePosition(
         candidate.price === execution.entryPrice,
     );
   const fee = receipt?.fees ?? 0;
-  const direction = execution.side === "LONG" ? 1 : -1;
-  const price = round(
-    (market.netPrice - execution.entryPrice) * execution.lots * market.contractMultiplier * direction,
-  );
-  const pnl: PnlBreakdown = {
-    ...emptyPnl(),
-    price,
-    fees: -fee,
-    total: round(price - fee),
-  };
-  const equity = round(execution.collateral + pnl.total);
-  const maintenanceMargin = round(execution.collateral * 0.75);
-  const bufferUsdc = round(equity - maintenanceMargin);
-  const bufferPoints = round(bufferUsdc / (execution.lots * market.contractMultiplier));
-  const liquidationPrice = round(market.netPrice - direction * bufferPoints);
+  const terms = rangeTerms(market);
+  const mark = markOf(live.get(market.id));
+  const sign = direction(execution.side);
+  const price = mark.price === null ? 0 : round(forwardPnl(execution.side, execution.lots, execution.entryPrice, mark.price, terms));
+  const pnl: PnlBreakdown = { ...emptyPnl(), price, fees: -fee, total: round(price - fee) };
+  const level = mark.price ?? execution.entryPrice;
+  const units = deltaUnits(execution.side, execution.lots, terms, mark.price);
+  const gross = round(execution.lots * terms.lotSize * Math.abs(level));
+  const equity = round(execution.collateral + price);
+  const lifecycle = snapshot.lifecycles[execution.id.toLowerCase()] ?? null;
+  const state = positionState(market, lifecycle, nowMs);
+  const event = nextEvent(market, lifecycle, nowMs);
   const href = tradeHref(market);
 
   return {
     id: execution.id,
-    record: runtimeRecord(execution, fee),
+    record: runtimeRecord(execution, fee, state, event),
     market,
     label: packageLabel(market),
     side: execution.side,
-    state: execution.state,
+    state,
     lots: execution.lots,
-    signedLots: execution.lots * direction,
+    signedLots: execution.lots * sign,
+    signedUnits: units,
     entryPrice: execution.entryPrice,
-    markPrice: market.netPrice,
-    signedNotional: execution.lots * market.notionalPerLot * direction,
-    grossNotional: execution.lots * market.notionalPerLot,
+    markPrice: mark.price,
+    markSource: mark.source,
+    signedNotional: round(gross * sign),
+    grossNotional: gross,
     collateral: execution.collateral,
     initialMargin: execution.collateral,
-    maintenanceMargin,
+    maintenanceMargin: execution.collateral,
     pnl,
     equity,
-    bufferUsdc,
-    bufferShare: equity === 0 ? 0 : bufferUsdc / equity,
-    bufferPoints,
-    liquidationPrice: liquidationPrice > 0 ? liquidationPrice : null,
-    domain:
-      market.strategyKind === "DATED_BASIS"
-        ? "CRYPTO_BASIS"
-        : market.strategyKind === "DELIVERABLE_FORWARD"
-          ? "MACRO_FORWARD"
-          : "CRYPTO_CARRY",
-    daysToExpiry: daysToExpiry(market.expiryIso),
-    nextEvent: "Lifecycle monitoring is configured in the package terminal.",
+    atRisk: Math.max(0, equity),
+    boundLevel: execution.side === "LONG" ? terms.floor : terms.cap,
+    domain: domainOf(market),
+    daysToExpiry: daysToExpiryAt(market, nowMs),
+    nextEvent: event,
     href,
     exitHref: runtimeExitHref(href, execution.id, execution.lots),
     source: "ONCHAIN_RUNTIME",
@@ -162,43 +176,64 @@ export interface RuntimePortfolio {
   account: AccountSummary;
   accountLabel: string;
   runtimePositions: Position[];
-  referencePositions: Position[];
   positions: Position[];
   runtimePnl: PnlBreakdown;
-  referencePnl: PnlBreakdown;
   collateralLines: CollateralLine[];
   runtimeGross: number;
   runtimeNet: number;
-  reference: {
-    account: AccountSummary;
-    gross: number;
-    net: number;
-    exposuresByDomain: typeof EXPOSURE_BY_DOMAIN;
-    exposuresByUnderlying: typeof EXPOSURE_BY_UNDERLYING;
-    expiryLadder: typeof EXPIRY_LADDER;
-    scenarios: typeof SCENARIO_RESULTS;
-    binding: typeof BINDING_SCENARIO;
+  /** Positions whose market has no live mark yet; their price PnL reads zero until one arrives. */
+  unmarked: number;
+  risk: {
+    exposuresByDomain: ExposureGroup[];
+    exposuresByUnderlying: ExposureGroup[];
+    expiryLadder: LadderRung[];
+    scenarios: ScenarioResult[];
+    binding: ScenarioResult;
   };
 }
 
-export function portfolioRuntime(snapshot: GatewaySnapshot, markets: readonly PackageMarket[]): RuntimePortfolio {
-  const runtimePositions = snapshot.positions.map((position) => runtimePosition(position, snapshot, markets));
+export interface PortfolioRuntimeOptions {
+  /** One market-data snapshot, so every position is marked at the same block. */
+  live?: MarketDataSnapshot | null;
+  /** Platform clock in milliseconds; defaults to `platformNow()`. */
+  nowMs?: number;
+}
+
+export function portfolioRuntime(
+  snapshot: GatewaySnapshot,
+  markets: readonly PackageMarket[],
+  options: PortfolioRuntimeOptions = {},
+): RuntimePortfolio {
+  const nowMs = options.nowMs ?? platformNow();
+  const live = liveIndex(options.live);
+  const runtimePositions = snapshot.positions
+    .map((position) => runtimePosition(position, snapshot, markets, live, nowMs))
+    .sort((a, b) => b.grossNotional - a.grossNotional);
   const positions = runtimePositions;
-  const maintenanceMargin = sum(runtimePositions.map((position) => position.maintenanceMargin));
-  const initialMargin = sum(runtimePositions.map((position) => position.initialMargin));
-  const account: AccountSummary = {
+  /* Fully collateralized: what the positions and resting orders lock is the whole bounded liability. */
+  const locked = snapshot.account.reserved;
+  const pnl = runtimePnl(runtimePositions);
+  const baseAccount: AccountSummary = {
     equity: snapshot.account.equity,
     postedValue: snapshot.account.posted,
     eligible: snapshot.account.eligible,
     reserved: snapshot.account.reserved,
     available: snapshot.account.available,
-    initialMargin,
-    maintenanceMargin,
-    healthFactor: maintenanceMargin === 0 ? 0 : snapshot.account.equity / maintenanceMargin,
+    initialMargin: locked,
+    maintenanceMargin: locked,
+    healthFactor: locked === 0 ? 0 : (snapshot.account.equity + pnl.price) / locked,
     marginUsage: snapshot.account.eligible === 0 ? 0 : snapshot.account.reserved / snapshot.account.eligible,
     stressHeadroom: 0,
     stressHealthFactor: 0,
-    bindingLabel: "Reference scenario only",
+    bindingLabel: "No scenario",
+  };
+  const scenarios = scenarioResults(runtimePositions, baseAccount, pnl.price);
+  const binding = scenarios.find((result) => result.binding) ?? scenarios[0];
+  const account: AccountSummary = {
+    ...baseAccount,
+    stressHeadroom: binding.headroom,
+    stressHealthFactor: binding.healthFactor,
+    bindingLabel: binding.scenario.label,
   };
   const collateralLines: CollateralLine[] = [
     {
@@ -222,78 +257,30 @@ export function portfolioRuntime(snapshot: GatewaySnapshot, markets: readonly Pa
     account,
     accountLabel: `${snapshot.account.label} / ${snapshot.account.riskDomain}`,
     runtimePositions,
-    referencePositions: [],
     positions,
-    runtimePnl: runtimePnl(runtimePositions),
-    referencePnl: PORTFOLIO_PNL,
+    runtimePnl: pnl,
     collateralLines,
     runtimeGross: sum(runtimePositions.map((position) => position.grossNotional)),
     runtimeNet: sum(runtimePositions.map((position) => position.signedNotional)),
-    reference: {
-      account: ACCOUNT_SUMMARY,
-      gross: GROSS_EXPOSURE,
-      net: NET_EXPOSURE,
-      exposuresByDomain: EXPOSURE_BY_DOMAIN,
-      exposuresByUnderlying: EXPOSURE_BY_UNDERLYING,
-      expiryLadder: EXPIRY_LADDER,
-      scenarios: SCENARIO_RESULTS,
-      binding: BINDING_SCENARIO,
+    unmarked: runtimePositions.filter((position) => position.markPrice === null).length,
+    risk: {
+      exposuresByDomain: exposureByDomain(runtimePositions),
+      exposuresByUnderlying: exposureByUnderlying(runtimePositions),
+      expiryLadder: expiryLadder(runtimePositions, snapshot.account.available),
+      scenarios,
+      binding,
     },
   };
 }
 
 export function positionOrigin(position: Position): string {
-  return position.source === "ONCHAIN_RUNTIME" ? "Onchain account" : "Reference observation";
+  return position.source === "ONCHAIN_RUNTIME" ? "Onchain account" : "Account";
 }
 
 export function runtimeObservationLabel(snapshot: GatewaySnapshot): string {
-  return `${snapshot.environment.label} / ${snapshot.environment.evidence.toLowerCase()} evidence / onchain account state`;
+  return `${snapshot.environment.label} / onchain account state`;
 }
 
 export function groupPortfolioPositions(positions: Position[], by: GroupBy): PositionGroup[] {
-  const labels: Record<GroupBy, (position: Position) => { id: string; label: string; detail: string }> = {
-    STRATEGY: (position) => ({
-      id: position.market.strategyKind,
-      label: position.market.strategyLabel,
-      detail: position.source === "ONCHAIN_RUNTIME" ? "account package" : "reference observation",
-    }),
-    UNDERLYING: (position) => ({
-      id: position.market.underlying,
-      label: position.market.underlying,
-      detail: DOMAIN_LABEL[position.domain],
-    }),
-    EXPIRY: (position) => ({
-      id: position.market.expiryIso,
-      label: formatExpiry(position.market.expiryIso),
-      detail: `${position.daysToExpiry}d to fixing`,
-    }),
-    DOMAIN: (position) => ({
-      id: position.domain,
-      label: DOMAIN_LABEL[position.domain],
-      detail: position.market.settlementAsset,
-    }),
-  };
-  const groups = new Map<string, PositionGroup>();
-  positions.forEach((position) => {
-    const { id, label, detail } = labels[by](position);
-    const group = groups.get(id) ?? {
-      id,
-      label,
-      detail,
-      positions: [],
-      gross: 0,
-      net: 0,
-      collateral: 0,
-      pnl: 0,
-    };
-    group.positions.push(position);
-    group.gross += position.grossNotional;
-    group.net += position.signedNotional;
-    group.collateral += position.collateral;
-    group.pnl += position.pnl.total;
-    groups.set(id, group);
-  });
-  return [...groups.values()].sort((first, second) =>
-    by === "EXPIRY" ? first.id.localeCompare(second.id) : second.gross - first.gross,
-  );
+  return groupPositions(positions, by);
 }

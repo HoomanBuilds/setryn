@@ -7,11 +7,9 @@ import { motion } from "@/components/markets/ui";
 import { NUM, StateTag, TABLE, TD, TH } from "@/components/portfolio/panels";
 import { tone } from "@/components/terminal/primitives";
 import {
-  daysToExpiry,
   formatCompactUsd,
   formatExpiry,
   formatPrice,
-  formatShare,
   formatSigned,
   formatSignedUsd,
   formatUsd,
@@ -30,7 +28,7 @@ const COLUMNS = [
   { label: "Mark", numeric: true, className: "w-[84px]" },
   { label: "PnL", numeric: true, className: "w-[104px]" },
   { label: "Collateral", numeric: true, className: "w-[96px]" },
-  { label: "Liq / buffer", numeric: true, className: "w-[100px]" },
+  { label: "At risk", numeric: true, className: "w-[100px]" },
   { label: "State", numeric: false, className: "w-[112px]" },
   { label: "Next event", numeric: false, className: "", wide: true },
 ];
@@ -47,13 +45,18 @@ function price(position: Position, value: number): string {
   return formatPrice(value, position.market);
 }
 
+function markText(position: Position): string {
+  return position.markPrice === null ? "—" : price(position, position.markPrice);
+}
+
+/** What the position can still lose before its adverse payoff bound; fully collateralized, so never more. */
 function buffer(position: Position): { level: string; detail: string } {
   return {
-    level:
-      position.liquidationPrice === null
-        ? "No quote level"
-        : price(position, position.liquidationPrice),
-    detail: `${formatShare(position.bufferShare, 0)} buffer`,
+    level: formatCompactUsd(position.atRisk),
+    detail:
+      position.boundLevel === null
+        ? "bounded by collateral"
+        : `to ${position.side === "LONG" ? "floor" : "cap"} ${price(position, position.boundLevel)}`,
   };
 }
 
@@ -107,9 +110,9 @@ export function PositionsTable({
   return (
     <table className={`${TABLE} min-w-[900px] table-fixed`}>
       <caption className="sr-only">
-        Open package positions with entry, mark, profit and loss attribution total, posted
-        collateral, risk buffer, and the next lifecycle event. Press a package name to open its
-        detail.
+        Open positions with entry, mark, profit and loss, locked collateral, the amount still at
+        risk to the adverse payoff bound, and the next lifecycle event. Press a market name to open
+        its detail.
       </caption>
       <thead>
         <tr>
@@ -206,7 +209,7 @@ export function PositionsTable({
 
                 <td className={NUM}>
                   <Stack
-                    top={<span className="text-dim">{formatExpiry(position.market.expiryIso)}</span>}
+                    top={<span className="text-dim">{formatExpiry(position.market.expiryIso.slice(0, 10))}</span>}
                     bottom={`${position.daysToExpiry}d`}
                   />
                 </td>
@@ -218,7 +221,7 @@ export function PositionsTable({
                 <td className={`${NUM} text-dim`}>{price(position, position.entryPrice)}</td>
 
                 <td className={`${NUM} text-ink`}>
-                  <Stack top={price(position, position.markPrice)} bottom={unitOf(position)} />
+                  <Stack top={markText(position)} bottom={position.markPrice === null ? "no quote" : unitOf(position)} />
                 </td>
 
                 <td className={`${NUM} ${tone(position.pnl.total)}`}>{formatSignedUsd(position.pnl.total, 0)}</td>
@@ -308,16 +311,16 @@ export function PositionsList({
                           <span className={position.side === "LONG" ? "text-up" : "text-down"}>
                             {`${formatSigned(position.signedLots, 0)} lots`}
                           </span>
-                          {` / ${price(position, position.markPrice)} ${unitOf(position)}`}
+                          {` / ${markText(position)} ${unitOf(position)}`}
                         </span>
                         <span className="tnum shrink-0 font-mono text-[11px] text-dim">
-                          {`${formatShare(position.bufferShare, 0)} buffer`}
+                          {`${formatCompactUsd(position.atRisk)} at risk`}
                         </span>
                       </span>
                       <span className="flex items-baseline justify-between gap-3">
                         <StateTag state={position.state} />
                         <span className="tnum shrink-0 font-mono text-[11px] text-off">
-                          {`${formatExpiry(position.market.expiryIso)} / ${daysToExpiry(position.market.expiryIso)}d`}
+                          {`${formatExpiry(position.market.expiryIso.slice(0, 10))} / ${position.daysToExpiry}d`}
                         </span>
                       </span>
                       <span className="truncate text-[11px] text-off">{positionOrigin(position)}</span>

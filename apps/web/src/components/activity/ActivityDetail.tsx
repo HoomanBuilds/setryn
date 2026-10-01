@@ -68,15 +68,15 @@ export function DataNotes() {
       <div className="space-y-2.5 px-4 pb-3 text-[11px] leading-relaxed text-faint">
         <p>
           <span className="text-dim">Data boundary. </span>
-          Attempts currently come from the first-party browser runtime. An indexed contract projection can supply the
-          same typed ledger rows later, with source, evidence, freshness, and result state preserved.
+          Attempts are the connected account&apos;s executions, read from chain state with their fills, receipts, and
+          transaction references. Each row keeps its source, evidence, freshness, and result state.
         </p>
         <ul className="space-y-1">
           <li>
             <span className="text-up">Complete</span> has terminal evidence.
           </li>
           <li>
-            <span className="text-brand">Simulated</span> stays local and is never an explorer claim.
+            <span className="text-brand">Not onchain</span> has no transaction reference and is never an explorer claim.
           </li>
           <li>
             <span className="text-dim">Unknown</span> remains visible until a reconciler resolves it.
@@ -97,7 +97,7 @@ export function EmptyDetail({ children }: { children: ReactNode }) {
 }
 
 export function AttemptDetail({ attempt }: { attempt: ActivityAttemptView }) {
-  const referenceLabel = attempt.result === "SIMULATED" ? "Runtime reference" : "Transaction reference";
+  const referenceLabel = attempt.result === "SIMULATED" ? "Attempt reference" : "Transaction reference";
   const side = sideLabel(attempt.packageSide);
   const partial = attempt.cancelledLots > 1e-9;
   const steps: TimelineStep[] = attempt.steps.map((step, index) => ({
@@ -105,7 +105,7 @@ export function AttemptDetail({ attempt }: { attempt: ActivityAttemptView }) {
     label: step.label,
     detail: step.detail,
     hash: step.transactionReference,
-    hashLabel: "Runtime reference",
+    hashLabel: "Attempt reference",
     meta: index === attempt.steps.length - 1 ? formatUtcTime(step.occurredAt) : String(index + 1).padStart(2, "0"),
     state: attempt.result === "FAILED" && index === attempt.steps.length - 1 ? "failed" : "done",
   }));
@@ -162,15 +162,15 @@ export function AttemptDetail({ attempt }: { attempt: ActivityAttemptView }) {
 
         {attempt.receipt ? (
           <div className="border-b border-line px-4 py-3">
-            <SectionHead right={attempt.result === "SIMULATED" ? "not onchain" : "dev chain"}>{referenceLabel}</SectionHead>
+            <SectionHead right={attempt.result === "SIMULATED" ? "not onchain" : "onchain"}>{referenceLabel}</SectionHead>
             <span className="mt-1 flex min-w-0 items-center gap-1.5">
               {attempt.result === "SIMULATED" ? null : <TxChainMark size={13} />}
               <Hash value={attempt.receipt.transactionReference} label={referenceLabel.toLowerCase()} head={14} tail={10} />
             </span>
             <p className="mt-1.5 text-[11px] leading-relaxed text-faint">
               {attempt.result === "SIMULATED"
-                ? "This identifier belongs to a local simulation and is not an onchain transaction."
-                : "This is the transaction reference emitted by the connected development chain."}
+                ? "This identifier names an attempt that never reached the chain; it is not an onchain transaction."
+                : "This is the transaction reference recorded by the settlement chain."}
             </p>
             <Link href={attempt.receipt.href} className={`${BUTTON_QUIET} mt-2.5 h-9 w-full`}>
               <FileCheck2 size={13} aria-hidden="true" />
@@ -182,7 +182,7 @@ export function AttemptDetail({ attempt }: { attempt: ActivityAttemptView }) {
         <div className="px-4 py-3">
           <SectionHead right={`${attempt.steps.length} recorded steps`}>Execution chronology</SectionHead>
           {steps.length === 0 ? (
-            <p className="mt-2 text-xs text-faint">No runtime steps were retained for this attempt.</p>
+            <p className="mt-2 text-xs text-faint">No execution steps were retained for this attempt.</p>
           ) : (
             <StepTimeline steps={steps} className="mt-3" dense />
           )}

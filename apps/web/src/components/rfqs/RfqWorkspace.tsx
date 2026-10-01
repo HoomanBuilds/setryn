@@ -33,7 +33,7 @@ function BlotterEmpty({ tab }: { tab: BlotterTab }) {
         <Lock size={18} aria-hidden="true" className="text-faint" />
         <p className="mt-3 text-sm text-ink">Connect a wallet to load your private RFQs.</p>
         <p className="mt-1 max-w-md text-xs leading-relaxed text-faint">
-          Requests are read from the local production-parity chain for the connected taker only.
+          Requests are read from the PrivateRfqBook onchain for the connected taker only.
         </p>
         <div className="mt-4 flex gap-2">
           <button type="button" onClick={wallet.connect} disabled={wallet.connecting} className={BUTTON_INK}>
@@ -108,8 +108,8 @@ function DetailPlaceholder() {
       </ol>
       <div className="mt-auto flex items-start gap-2 rounded-md border border-line bg-inset px-3 py-2.5 text-[11px] leading-relaxed text-faint">
         <ShieldCheck size={13} aria-hidden="true" className="mt-0.5 shrink-0 text-dim" />
-        Requests and selected quotes are committed to the local production-parity chain. Nothing on this page submits
-        to Arbitrum Sepolia or mainnet.
+        Requests and selected quotes are committed to the PrivateRfqBook onchain. Mainnet writes stay disabled until they
+        are authorized.
       </div>
     </div>
   );

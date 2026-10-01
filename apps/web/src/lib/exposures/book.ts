@@ -1,7 +1,10 @@
-import { exposureToPackageDirection, horizonDays } from "@/lib/hedges/engine";
+import { exposureToPackageDirection } from "@/lib/hedges/engine";
 import type { HedgeDirection } from "@/lib/hedges/types";
 import type { ExecutionPosition } from "@/lib/internal-gateway/types";
-import { daysToExpiry } from "@/lib/terminal/format";
+import type { ReferenceQuote } from "@/lib/market-data/types";
+import { deltaUnits, finite, rangeTerms, referenceFor } from "@/lib/portfolio/forward";
+import { daysToExpiryAt } from "@/lib/settlements/calendar";
+import { platformNow } from "@/lib/terminal/clock";
 import { packageLabel, tradeHref } from "@/lib/terminal/markets";
 import type { PackageMarket } from "@/lib/terminal/types";
 import type {
@@ -54,6 +57,28 @@ export function assetBase(underlying: string): string {
   return underlying.split("/")[0].trim().toUpperCase();
 }
 
+/** Whole days from now to an exposure date; null when the date is malformed. */
+function horizonFrom(iso: string, nowMs: number): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  const ms = Date.parse(`${iso}T00:00:00Z`);
+  return Number.isFinite(ms) ? Math.round((ms - nowMs) / 86_400_000) : null;
+}
+
+/**
+ * USD value a position offsets in its underlying: its delta (lots x lot size inside the payoff range, zero outside)
+ * at the Chainlink reference, else at the live mark. Null while neither is known.
+ */
+export function protectiveNotional(
+  position: Pick<ExecutionPosition, "side" | "lots">,
+  market: PackageMarket,
+  references?: Record<string, ReferenceQuote> | null,
+): number | null {
+  const reference = referenceFor(market, references);
+  const level = reference?.price ?? (finite(market.netPrice) ? market.netPrice : null);
+  if (level === null) return null;
+  return Math.abs(deltaUnits(position.side, position.lots, rangeTerms(market), level)) * level;
+}
+
 function dayNumber(iso: string): number {
   const ms = Date.parse(`${iso}T00:00:00Z`);
   return Number.isFinite(ms) ? Math.round(ms / 86_400_000) : 0;
@@ -85,23 +110,33 @@ interface ProtectiveLot {
   notional: number;
 }
 
+export interface ExposureBookOptions {
+  /** Chainlink references keyed by underlying, from `useReferencePrices()`; positions are valued at them. */
+  references?: Record<string, ReferenceQuote> | null;
+  /** Platform clock in milliseconds; defaults to `platformNow()`. */
+  nowMs?: number;
+}
+
 /**
  * Nets same-asset exposures, then covers what is left with the connected account's positions. Netting pairs
- * opposite exposures in date order inside the window. Coverage allocates each protective position (a short package
- * against a long exposure, a long package against a short one) to the residual exposure closest to its expiry.
+ * opposite exposures in date order inside the window. Coverage allocates each protective position (a short forward
+ * against a long exposure, a long one against a short) to the residual exposure closest to its expiry, at the USD
+ * value of its delta: lots x lot size at the reference, inside the payoff range.
  */
 export function buildExposureBook(
   records: readonly ExposureRecord[],
   positions: readonly ExecutionPosition[],
   markets: readonly PackageMarket[],
+  options: ExposureBookOptions = {},
 ): ExposureBook {
+  const nowMs = options.nowMs ?? platformNow();
   const working: Working[] = records.map((record) => {
     const sign: 1 | -1 = record.direction === "RECEIVABLE" ? 1 : -1;
     return {
       view: {
         record,
         sign,
-        horizonDays: horizonDays(record.exposureDateIso),
+        horizonDays: horizonFrom(record.exposureDateIso, nowMs),
         netted: 0,
         nettedWith: [],
         protectedAmount: 0,
@@ -140,13 +175,15 @@ export function buildExposureBook(
   for (const position of positions) {
     const market = markets.find((candidate) => candidate.id === position.marketId);
     if (!market) continue;
+    const notional = protectiveNotional(position, market, options.references);
+    if (notional === null) continue;
     protective.push({
       position,
       market,
       asset: assetBase(market.underlying),
-      // A short package protects a long exposure; a long package protects a short one.
+      // A short forward protects a long exposure; a long forward protects a short one.
       sign: position.side === exposureToPackageDirection("RECEIVABLE") ? 1 : -1,
-      notional: position.lots * market.notionalPerLot,
+      notional,
     });
   }
   protective.sort((a, b) => a.market.expiryIso.localeCompare(b.market.expiryIso) || a.position.id.localeCompare(b.position.id));
@@ -154,7 +191,7 @@ export function buildExposureBook(
   const allocatedByLot = new Map<string, number>();
   for (const lot of protective) {
     let left = lot.notional;
-    const expiryDays = daysToExpiry(lot.market.expiryIso);
+    const expiryDays = daysToExpiryAt(lot.market, nowMs);
     const candidates = working
       .filter((item) => item.view.record.referenceAssetId === lot.asset && item.view.sign === lot.sign && item.remaining > 0)
       .sort(

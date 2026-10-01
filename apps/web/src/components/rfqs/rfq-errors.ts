@@ -8,14 +8,13 @@ const COPY: Record<string, string> = {
   WRONG_NETWORK: "Switch the wallet to the Setryn network and try again.",
   WALLET_UNAVAILABLE: "The wallet prompt could not open. Reload the page, then connect.",
   WALLET_CONNECTION_REJECTED: "The wallet did not share an account. Approve the connection to continue.",
-  RUNTIME_UNAVAILABLE:
-    "The local Setryn runtime is not running, so nothing can be signed. Start the local chain and deployment, then retry.",
+  RUNTIME_UNAVAILABLE: "The Setryn deployment could not be reached, so nothing can be signed. Retry in a moment.",
   MARKET_NOT_ONCHAIN_ENABLED: "This market is not open for trading right now.",
   UNSUPPORTED_ONCHAIN_MARKET: "This market is not open for trading right now.",
   RECIPIENT_MISMATCH: "The recipient does not match the connected wallet.",
   ACCOUNT_MISMATCH: "The trading account does not match the connected wallet. Reconnect and retry.",
-  INVALID_LOTS: "The local runtime authorizes 1 to 10 whole lots per order.",
-  INVALID_LIMIT_PRICE: "Enter a valid package-price limit.",
+  INVALID_LOTS: "Enter whole lots within the market's per-order maximum.",
+  INVALID_LIMIT_PRICE: "Enter a valid price limit.",
   ORDER_NOT_MARKETABLE: "The limit no longer crosses the indicative solver price. Refresh the limit and retry.",
   INVALID_GTD_EXPIRY: "The quote window ended before signing. Choose the window again.",
   CLOSE_POSITION_NOT_FOUND: "The position to close is no longer active in this account.",
@@ -44,6 +43,13 @@ const COPY: Record<string, string> = {
   RFQ_SELECTION_FAILED: "The selection did not submit onchain. The quote was not locked.",
   RFQ_EXECUTION_FAILED: "Clearing did not complete. No fill is claimed; the request remains selected.",
   MAINNET_WRITE_DISABLED: "Mainnet writes are disabled in this environment.",
+  INSUFFICIENT_WALLET_BALANCE: "The wallet does not hold enough USDC for this. Fund the wallet, deposit, and retry.",
+  COUNTERPARTY_CONSENT_REQUIRED: "The counterparty's consent is required for this lifecycle action. Nothing was submitted.",
+  MAKER_SIGNER_UNCONFIGURED: "No designated maker is configured on this network, so no house quote can answer. The request stays open for other makers.",
+  OPERATOR_SIGNER_UNCONFIGURED: "The operator signer is not configured on this network, so risk admission cannot sign. Nothing was requested.",
+  REFERENCE_UNAVAILABLE: "The Chainlink reference could not be read, so the maker cannot price this request. Retry in a moment.",
+  QUOTE_OUTSIDE_MAKER_PRICE: "Your limit is outside the price the maker will quote. Widen the limit or wait for other makers.",
+  NOT_AVAILABLE_ON_NETWORK: "This action is not available on the connected network.",
 };
 
 export function gatewayErrorCopy(error: unknown): string {

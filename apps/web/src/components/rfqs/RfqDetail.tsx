@@ -55,7 +55,7 @@ function QuoteRow({ entry, view, now, index }: { entry: RankedQuote; view: RfqVi
         <span className="min-w-0 flex-1 truncate text-xs text-ink">{quote.solverLabel}</span>
         {entry.isSelected ? <Chip tone="up">Selected</Chip> : null}
         {entry.isBest && !entry.isSelected ? <Chip tone="brand">Best</Chip> : null}
-        {quote.provenance === "DEVNET_MAKER" ? (
+        {quote.provenance === "DESIGNATED_MAKER" ? (
           <Chip tone="muted" title="Quote from the Setryn market maker">
             Firm
           </Chip>
@@ -255,7 +255,7 @@ export function RfqDetail({ view, now }: { view: RfqView; now: number }) {
           </div>
         ) : null}
         <p className="text-[11px] leading-snug text-faint">
-          Committed to the local production-parity chain. Nothing here submits to Arbitrum Sepolia or mainnet.
+          Committed to the PrivateRfqBook onchain. Mainnet writes stay disabled until they are authorized.
         </p>
       </div>
     </div>

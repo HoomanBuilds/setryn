@@ -4,9 +4,10 @@ import Link from "next/link";
 import { ConnectWalletButton, Empty, ProvenanceChip } from "@/components/home/kit";
 import { Chip, Panel, PanelHead, TH, TH_NUM } from "@/components/strategies/desk/Desk";
 import { formatExpiry, formatNumber, formatShare } from "@/lib/terminal/format";
-import { NETTING_WINDOW_DAYS, assetBase } from "@/lib/exposures/book";
+import { NETTING_WINDOW_DAYS, assetBase, protectiveNotional } from "@/lib/exposures/book";
 import type { ExposureBook } from "@/lib/exposures/types";
 import type { ExecutionPosition } from "@/lib/internal-gateway/types";
+import type { ReferenceQuote } from "@/lib/market-data/types";
 import { packageLabel, tradeHref } from "@/lib/terminal/markets";
 import type { PackageMarket } from "@/lib/terminal/types";
 import { amountText } from "./ExposureTable";
@@ -142,22 +143,25 @@ export function CoverageSources({
   connected,
   positions,
   markets,
+  references,
   allocated,
 }: {
   connected: boolean;
   positions: readonly ExecutionPosition[];
   markets: readonly PackageMarket[];
+  /** Chainlink references keyed by underlying; positions are valued at their delta there. */
+  references: Record<string, ReferenceQuote>;
   allocated: ReadonlyMap<string, number>;
 }) {
   return (
     <Panel label="Protection from account positions" delay={120}>
       <PanelHead title="Account hedges" tools={<ProvenanceChip kind="OBSERVED" title="Positions read from the connected onchain account." />} />
       {!connected ? (
-        <Empty title="No account connected" detail="Connect a wallet to count your open packages as protection against these exposures.">
+        <Empty title="No account connected" detail="Connect a wallet to count your open positions as protection against these exposures.">
           <ConnectWalletButton />
         </Empty>
       ) : positions.length === 0 ? (
-        <Empty title="No open packages" detail="Protect an exposure to open a package; it is matched back here by asset, side, and tenor.">
+        <Empty title="No positions yet" detail="Protect an exposure to open a position; it is matched back here by asset, side, and tenor.">
           <Link
             href="/hedges"
             className="focus-ring inline-flex h-11 items-center rounded-md border border-line-strong bg-raised px-3 text-xs text-ink transition-colors hover:border-brand-edge lg:h-8"
@@ -170,7 +174,7 @@ export function CoverageSources({
           {positions.map((position) => {
             const market = markets.find((candidate) => candidate.id === position.marketId);
             if (!market) return null;
-            const notional = position.lots * market.notionalPerLot;
+            const notional = protectiveNotional(position, market, references);
             const used = allocated.get(position.id) ?? 0;
             return (
               <li key={position.id} className="border-b border-line-soft px-3 py-2 last:border-b-0">
@@ -178,11 +182,15 @@ export function CoverageSources({
                   <MarketMark underlying={market.underlying} size={16} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-xs text-ink">{packageLabel(market)}</span>
-                    <span className="tnum block font-mono text-[11px] text-faint">{`${position.side} ${formatNumber(position.lots, 0)} lots / ${assetBase(market.underlying)} / ${formatExpiry(market.expiryIso)}`}</span>
+                    <span className="tnum block font-mono text-[11px] text-faint">{`${position.side} ${formatNumber(position.lots, 0)} lots / ${assetBase(market.underlying)} / ${formatExpiry(market.expiryIso.slice(0, 10))}`}</span>
                   </span>
                   <span className="shrink-0 text-right">
-                    <span className="tnum block font-mono text-xs text-ink">{amountText(notional)}</span>
-                    <span className="tnum block font-mono text-[11px] text-faint">{`${formatShare(notional > 0 ? used / notional : 0, 0)} allocated`}</span>
+                    <span className={`tnum block font-mono text-xs ${notional === null ? "text-faint" : "text-ink"}`}>
+                      {notional === null ? "No price" : amountText(notional)}
+                    </span>
+                    <span className="tnum block font-mono text-[11px] text-faint">
+                      {notional === null ? "awaiting reference" : `${formatShare(notional > 0 ? used / notional : 0, 0)} allocated`}
+                    </span>
                   </span>
                 </Link>
               </li>

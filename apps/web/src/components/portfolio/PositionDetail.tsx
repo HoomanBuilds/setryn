@@ -10,12 +10,12 @@ import {
   formatCompactUsd,
   formatExpiry,
   formatNumber,
-  formatShare,
   formatSigned,
   formatSignedUsd,
   formatUsd,
   priceUnitSuffix,
 } from "@/lib/terminal/format";
+import { MARK_SOURCE_LABEL, longPayoffPerLot, rangeTerms } from "@/lib/portfolio/forward";
 import { positionScenarioImpact } from "@/lib/portfolio/model";
 import { positionOrigin } from "@/lib/portfolio/runtime";
 import type { PnlBreakdown, Position, ScenarioResult } from "@/lib/portfolio/types";
@@ -23,10 +23,7 @@ import { MarketMark } from "@/components/portfolio/MarketMark";
 
 const COMPONENTS: { key: keyof Omit<PnlBreakdown, "total">; label: string }[] = [
   { key: "price", label: "Price" },
-  { key: "carry", label: "Carry" },
-  { key: "funding", label: "Funding" },
   { key: "fees", label: "Fees" },
-  { key: "residual", label: "Residual" },
 ];
 
 function Heading({ children }: { children: ReactNode }) {
@@ -59,7 +56,7 @@ function Attribution({
   return (
     <table className={TABLE}>
       <caption className="sr-only">
-        {`Profit and loss attribution for ${label} against the whole book. Estimated from the index snapshot.`}
+        {`Profit and loss attribution for ${label} against the whole book, at live marks.`}
       </caption>
       <thead>
         <tr className="border-b border-line">
@@ -116,40 +113,30 @@ function Attribution({
   );
 }
 
-function Legs({ position }: { position: Position }) {
+/** The series' contract terms: what one lot pays and where its payoff is bounded. */
+function Terms({ position }: { position: Position }) {
+  const terms = rangeTerms(position.market);
+  const decimals = position.market.priceDecimals;
+  const unit = priceUnitSuffix(position.market.priceUnit);
+  const maxPayoff = terms.cap === null ? null : longPayoffPerLot(terms.cap, terms);
+  const rows: { label: string; value: string }[] = [
+    { label: "Underlying", value: position.market.underlying },
+    { label: "Lot size", value: `${formatNumber(terms.lotSize, terms.lotSize < 1 ? 4 : 0)} ${position.market.underlying.split("/")[0]}` },
+    { label: "Floor", value: terms.floor === null ? "Not published" : `${formatNumber(terms.floor, decimals)} ${unit}` },
+    { label: "Cap", value: terms.cap === null ? "Not published" : `${formatNumber(terms.cap, decimals)} ${unit}` },
+    { label: "Long payoff per lot", value: maxPayoff === null ? "Lot x (fixing - floor)" : `0 to ${formatUsd(maxPayoff, 0)}` },
+    { label: "Settlement", value: `${position.market.settlementAsset}, cash at the fixing` },
+  ];
   return (
     <table className={TABLE}>
-      <caption className="sr-only">{`Legs of ${position.label}, filled as one package.`}</caption>
-      <thead>
-        <tr className="border-b border-line">
-          <th scope="col" className="h-7 text-left text-xs font-normal text-faint">
-            Leg
-          </th>
-          <th scope="col" className="h-7 text-right text-xs font-normal text-faint">
-            Ratio
-          </th>
-          <th scope="col" className="h-7 text-right text-xs font-normal text-faint">
-            Mark
-          </th>
-        </tr>
-      </thead>
+      <caption className="sr-only">{`Contract terms of ${position.label}.`}</caption>
       <tbody className="divide-y divide-line-soft">
-        {position.market.legs.map((leg) => (
-          <tr key={leg.id}>
-            <th scope="row" className="min-w-0 py-1.5 text-left font-normal">
-              <span className="block truncate text-xs text-ink">{leg.instrument}</span>
-              <span className="block truncate text-xs text-faint">
-                {`${leg.side === "BUY" ? "Buy" : "Sell"} / ${
-                  leg.venueClass === "NATIVE_BOOK" ? "native leg book" : "implied component"
-                }`}
-              </span>
+        {rows.map((row) => (
+          <tr key={row.label}>
+            <th scope="row" className="py-1.5 text-left text-xs font-normal text-faint">
+              {row.label}
             </th>
-            <td className="tnum py-1.5 pl-2 text-right font-mono text-xs text-dim">
-              {`${formatNumber(leg.ratio, 2)}x`}
-            </td>
-            <td className="tnum py-1.5 pl-2 text-right font-mono text-xs text-dim">
-              {`${formatNumber(leg.mark, leg.markUnit === "USD" ? (leg.mark < 10 ? 4 : 2) : 1)} ${priceUnitSuffix(leg.markUnit)}`}
-            </td>
+            <td className="tnum py-1.5 pl-2 text-right font-mono text-xs text-dim">{row.value}</td>
           </tr>
         ))}
       </tbody>
@@ -199,7 +186,7 @@ export function PositionDetail({
           <Chip tone="muted">{position.market.strategyLabel}</Chip>
           <Chip tone="muted">{positionOrigin(position)}</Chip>
           <Chip tone="muted">
-            <span className="tnum font-mono">{`${formatExpiry(position.market.expiryIso)}, ${position.daysToExpiry}d`}</span>
+            <span className="tnum font-mono">{`${formatExpiry(position.market.expiryIso.slice(0, 10))}, ${position.daysToExpiry}d`}</span>
           </Chip>
         </div>
 
@@ -242,40 +229,36 @@ export function PositionDetail({
         />
         <Figure label="Gross notional" value={formatCompactUsd(position.grossNotional)} />
         <Figure label="Entry" value={`${formatNumber(position.entryPrice, decimals)} ${unit}`} />
-        <Figure label="Mark" value={`${formatNumber(position.markPrice, decimals)} ${unit}`} />
-        <Figure label="Collateral" value={formatUsd(position.collateral, 0)} />
-        <Figure label="Position equity" value={formatUsd(position.equity, 0)} />
-        <Figure label="Initial margin" value={formatUsd(position.initialMargin, 0)} />
-        <Figure label="Maintenance margin" value={formatUsd(position.maintenanceMargin, 0)} />
         <Figure
-          label="Risk buffer"
-          value={`${formatUsd(position.bufferUsdc, 0)}, ${formatShare(position.bufferShare, 0)}`}
+          label="Mark"
+          value={position.markPrice === null ? "No quote yet" : `${formatNumber(position.markPrice, decimals)} ${unit}`}
+          valueTone={position.markPrice === null ? "text-faint" : "text-ink"}
+        />
+        <Figure label="Collateral locked" value={formatUsd(position.collateral, 0)} />
+        <Figure label="Value at the mark" value={formatUsd(position.equity, 0)} />
+        <Figure
+          label="Exposure"
+          value={`${formatSigned(position.signedUnits, rangeTerms(position.market).lotSize < 1 ? 2 : 0)} ${position.market.underlying.split("/")[0]}`}
         />
         <Figure
-          label="Liquidation"
-          value={
-            position.liquidationPrice === null
-              ? "No quote level"
-              : `${formatNumber(position.liquidationPrice, decimals)} ${unit}`
-          }
+          label="At risk"
+          value={formatUsd(position.atRisk, 0)}
+        />
+        <Figure
+          label={position.side === "LONG" ? "Floor" : "Cap"}
+          value={position.boundLevel === null ? "Not published" : `${formatNumber(position.boundLevel, decimals)} ${unit}`}
         />
         <Figure
           label={`${binding.scenario.label} impact`}
           value={formatSignedUsd(stress, 0)}
           valueTone={tone(stress)}
         />
-        <Figure
-          label="Buffer move"
-          value={`${formatNumber(position.bufferPoints, decimals)} ${unit}`}
-        />
       </div>
 
       <div className="min-w-0">
         <div className="flex items-baseline justify-between gap-3">
           <Heading>PnL attribution</Heading>
-          <Chip tone="muted">
-            {position.source === "ONCHAIN_RUNTIME" ? "Development feed mark" : "Reference observation"}
-          </Chip>
+          <Chip tone="muted">{MARK_SOURCE_LABEL[position.markSource]}</Chip>
         </div>
         <div className="mt-1">
           <Attribution selected={position.pnl} portfolio={portfolioPnl} label={position.label} />
@@ -284,13 +267,11 @@ export function PositionDetail({
 
       <div className="min-w-0">
         <div className="flex items-baseline justify-between gap-3">
-          <Heading>Leg decomposition</Heading>
-          <span className="truncate text-[11px] text-off">
-            {`${position.market.legs.length} legs, one package`}
-          </span>
+          <Heading>Contract terms</Heading>
+          <span className="truncate text-[11px] text-off">dated range forward</span>
         </div>
         <div className="mt-1">
-          <Legs position={position} />
+          <Terms position={position} />
         </div>
       </div>
 

@@ -26,34 +26,36 @@ export function RiskView() {
   const { snapshot, portfolio } = usePortfolio();
   const [dimension, setDimension] = useState<Dimension>("UNDERLYING");
   const byDomain = dimension === "DOMAIN";
-  const groups = byDomain
-    ? portfolio.reference.exposuresByDomain
-    : portfolio.reference.exposuresByUnderlying;
-  const binding = portfolio.reference.binding;
+  const groups = byDomain ? portfolio.risk.exposuresByDomain : portfolio.risk.exposuresByUnderlying;
+  const binding = portfolio.risk.binding;
+  const count = portfolio.runtimePositions.length;
   const asset = snapshot.account.collateralAsset;
 
   const figures: { label: string; value: string; tone?: string }[] = [
-    { label: "Runtime gross", value: formatCompactUsd(portfolio.runtimeGross) },
+    { label: "Gross exposure", value: formatCompactUsd(portfolio.runtimeGross) },
     {
-      label: "Runtime net",
+      label: "Net exposure",
       value: formatSignedCompactUsd(portfolio.runtimeNet),
       tone: tone(portfolio.runtimeNet),
     },
     { label: `Reserved ${asset}`, value: formatNumber(portfolio.account.reserved, 0) },
     { label: "Reservation use", value: formatShare(portfolio.account.marginUsage) },
     { label: "Binding scenario", value: binding.scenario.label },
-    { label: "Reference headroom", value: `${formatCompactUsd(binding.headroom)} at ${formatMultiple(binding.healthFactor)}` },
+    {
+      label: "Stressed headroom",
+      value: count === 0 ? "No positions" : `${formatCompactUsd(binding.headroom)} at ${formatMultiple(binding.healthFactor)}`,
+    },
   ];
 
   return (
     <div className="flex min-w-0 flex-col">
-      <ControlRow note={`${portfolio.runtimePositions.length} runtime packages`}>
+      <ControlRow note={`${count} open position${count === 1 ? "" : "s"}`}>
         <span className="hidden shrink-0 lg:block">
           <Segmented
             options={DIMENSIONS}
             value={dimension}
             onChange={setDimension}
-            label="Reference concentration dimension"
+            label="Concentration dimension"
             size="sm"
           />
         </span>
@@ -82,26 +84,28 @@ export function RiskView() {
       <div className="grid grid-cols-1 lg:grid-cols-2 lg:divide-x lg:divide-line-soft">
         <ExposurePanel
           groups={groups}
-          gross={portfolio.reference.gross}
-          net={portfolio.reference.net}
-          label={`${byDomain ? "Risk domain" : "Underlying"} reference`}
+          gross={portfolio.runtimeGross}
+          net={portfolio.runtimeNet}
+          label={byDomain ? "Risk domain" : "Underlying"}
         />
         <div className="border-t border-line-soft lg:border-t-0">
-          <ScenarioMatrix results={portfolio.reference.scenarios} />
+          <ScenarioMatrix results={count === 0 ? [] : portfolio.risk.scenarios} />
         </div>
       </div>
       <div className="border-t border-line-soft">
-        <ExpiryLadderPanel rungs={portfolio.reference.expiryLadder} />
+        <ExpiryLadderPanel rungs={portfolio.risk.expiryLadder} />
       </div>
       <PlaneNote
         chips={
           <>
-            <Chip tone="muted">Runtime: observable</Chip>
-            <Chip tone="muted">Concentration and scenarios: modeled</Chip>
+            <Chip tone="muted">Positions and collateral: onchain</Chip>
+            <Chip tone="muted">Scenarios: modeled</Chip>
           </>
         }
       >
-        {`Runtime reservation is observable in ${snapshot.environment.label}. ${binding.scenario.label} leaves ${formatCompactUsd(binding.headroom)} reference headroom at ${formatMultiple(binding.healthFactor)}. Concentration, scenarios, and expiry cash remain modeled reference observations, not live risk limits.`}
+        {count === 0
+          ? `No open positions on ${snapshot.environment.label}. Concentration, scenarios and the expiry ladder fill in with the first fill.`
+          : `Positions and reservations are read onchain from ${snapshot.environment.label} and marked live. Every position is fully collateralized, so a loss never exceeds the collateral it locks. ${binding.scenario.label} leaves ${formatCompactUsd(binding.headroom)} headroom at ${formatMultiple(binding.healthFactor)} cover; scenarios are modeled shocks to the forward level, not limits.`}
       </PlaneNote>
     </div>
   );

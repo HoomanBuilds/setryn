@@ -1,11 +1,6 @@
+import type { OnchainPositionLifecycle } from "@/lib/internal-gateway/types";
+import { formatUtcSession, SCHEDULE_SOURCE_LABEL } from "@/lib/settlements/calendar";
 import type { PackageMarket, Provenance } from "@/lib/terminal/types";
-import {
-  FIXING_WINDOW_MINUTES,
-  fixingSchedule,
-  formatUtcDate,
-  formatUtcSession,
-  parseBoundaryTiming,
-} from "@/lib/settlements/calendar";
 import type { PositionDossier } from "./dossier";
 import type { PositionMetrics } from "./economics";
 
@@ -16,7 +11,6 @@ export type StepKind =
   | "EXIT"
   | "WORKING"
   | "BOUNDARY"
-  | "ADJUSTMENT"
   | "WINDOW"
   | "FIXING"
   | "EXPIRY"
@@ -40,8 +34,8 @@ export interface LifecycleStep {
   transactionHash?: string;
 }
 
-function timeStatus(atMs: number, nowMs: number, windowMs = 0): StepStatus {
-  if (nowMs >= atMs + windowMs) return "DONE";
+function timeStatus(atMs: number, nowMs: number, untilMs = atMs): StepStatus {
+  if (nowMs >= untilMs) return "DONE";
   if (nowMs >= atMs) return "CURRENT";
   return "UPCOMING";
 }
@@ -69,33 +63,26 @@ function usd(value: number, decimals = 0): string {
 
 /**
  * The position's life as one ordered record: observed fills first, working
- * exits, scheduled boundaries from the series terms, then the dated settlement
- * stages. Past entries are evidence; future entries are schedule and say so.
+ * exits, then the series schedule and its terminal stages. Past entries are
+ * evidence; future entries are schedule and say so. Once the position's
+ * onchain lifecycle is read, its fixing, election and settlement records
+ * replace the schedule's expectations.
  */
 export function positionTimeline(
   dossier: PositionDossier,
   market: PackageMarket,
   metrics: PositionMetrics,
   nowMs: number,
+  lifecycle: OnchainPositionLifecycle | null = null,
 ): LifecycleStep[] {
   const steps: LifecycleStep[] = [];
   const unit = market.priceUnit === "BP" ? "bp" : market.priceUnit === "PTS" ? "pts" : "USD";
-  const schedule = fixingSchedule(market);
+  const schedule = metrics.schedule;
+  const scheduled: Provenance = schedule.source === "POSITION" ? "OBSERVED" : "MODELED";
 
   /* Opening. */
   const opening = dossier.fills.find((fill) => fill.kind === "OPEN") ?? null;
-  if (dossier.origin === "REFERENCE") {
-    steps.push({
-      id: "open",
-      kind: "OPEN",
-      label: "Position opened",
-      detail: `${dossier.openedLots} lots ${dossier.side.toLowerCase()} at ${priceText(dossier.entryPrice, market)} ${unit}. Reference record from the lifecycle preview; no fill evidence exists.`,
-      atMs: null,
-      atLabel: "Not recorded",
-      status: "DONE",
-      provenance: "MODELED",
-    });
-  } else if (opening) {
+  if (opening) {
     const at = isoMs(opening.receipt.createdAt);
     steps.push({
       id: `open-${opening.id}`,
@@ -186,103 +173,114 @@ export function positionTimeline(
     });
   }
 
-  /* Lifecycle boundaries a reference record schedules ahead of its fixing. */
-  for (const boundary of dossier.reference?.boundaries ?? []) {
-    if (boundary.kind === "FIXING" || boundary.kind === "EXPIRY") continue;
-    const at = parseBoundaryTiming(boundary.timing, nowMs);
-    steps.push({
-      id: `boundary-${boundary.id}`,
-      kind: "BOUNDARY",
-      label: boundary.label,
-      detail: `${boundary.source}. ${boundary.state === "WINDOW_OPEN" ? `Window open, ${boundary.dueLabel}.` : `Due ${boundary.dueLabel}.`}`,
-      atMs: at,
-      atLabel: boundary.timing,
-      status: boundary.state === "WINDOW_OPEN" ? "CURRENT" : at !== null ? timeStatus(at, nowMs) : "UPCOMING",
-      provenance: "MODELED",
-      attention: boundary.state === "WINDOW_OPEN",
-    });
-  }
-
-  /* Business-day adjustment ahead of the session. */
-  if (schedule.adjustment) {
-    steps.push({
-      id: "adjustment",
-      kind: "ADJUSTMENT",
-      label: "Fixing date falls on a closed session",
-      detail: `${formatUtcDate(schedule.adjustment.scheduled)}: ${schedule.adjustment.reason}. ${schedule.adjustment.rule} would move the session to ${formatUtcDate(schedule.adjustment.adjusted)}. Series terms decide; the scheduled date is shown until they do.`,
-      atMs: schedule.fixingMs,
-      atLabel: formatUtcDate(schedule.adjustment.scheduled),
-      status: "UPCOMING",
-      provenance: "MODELED",
-      attention: true,
-    });
-  }
-
-  /* Dated settlement. */
-  const windowStatus = timeStatus(schedule.windowOpensMs, nowMs, FIXING_WINDOW_MINUTES * 60_000);
+  /* Series schedule. */
+  const source = SCHEDULE_SOURCE_LABEL[schedule.source];
+  steps.push({
+    id: "last-trade",
+    kind: "BOUNDARY",
+    label: "Last trade",
+    detail: `The ${market.code} book stops clearing. Close or roll before this, or hold to cash settlement. ${source}.`,
+    atMs: schedule.lastTradingMs,
+    atLabel: formatUtcSession(schedule.lastTradingMs),
+    status: timeStatus(schedule.lastTradingMs, nowMs),
+    provenance: scheduled,
+    attention: nowMs < schedule.lastTradingMs && schedule.lastTradingMs - nowMs < 86_400_000,
+  });
   steps.push({
     id: "window",
     kind: "WINDOW",
-    label: "Fixing observation window",
-    detail: `${FIXING_WINDOW_MINUTES}-minute observation window ahead of the ${market.fixingSource} print.`,
+    label: "Fixing window",
+    detail: `${schedule.windowMinutes}-minute observation window for the ${market.fixingSource} fixing.`,
     atMs: schedule.windowOpensMs,
     atLabel: formatUtcSession(schedule.windowOpensMs),
-    status: windowStatus,
-    provenance: "MODELED",
+    status: timeStatus(schedule.windowOpensMs, nowMs, schedule.fixingMs),
+    provenance: scheduled,
   });
+
+  const fixing = lifecycle?.fixing ?? null;
+  const finalized = fixing?.status === "FINALIZED" && fixing.value !== null;
   const fixingPassed = nowMs >= schedule.fixingMs;
   steps.push({
     id: "fixing",
     kind: "FIXING",
-    label: "Fixing observation",
-    detail: fixingPassed
-      ? `Awaiting the committed ${market.fixingSource} record. No fixing value is shown until it is observed.`
-      : `${market.fixingSource}. No value is observed before the print.`,
+    label: finalized ? "Final fixing accepted" : "Fixing observation",
+    detail: finalized
+      ? `${market.fixingSource} fixed at ${priceText(fixing.value as number, market)} ${unit}${fixing.resolution === "FALLBACK_FINAL" ? " through the fallback path" : ""}.`
+      : fixing && fixing.status !== "PENDING"
+        ? `Fixing ${fixing.status.toLowerCase()}${fixing.value !== null ? ` at ${priceText(fixing.value, market)} ${unit}` : ""}; evidence closes ${formatUtcSession(schedule.evidenceDeadlineMs)}.`
+        : fixingPassed
+          ? `Awaiting the committed ${market.fixingSource} record. No fixing value is shown until it is observed.`
+          : `${market.fixingSource}. No value is observed before the window closes.`,
     atMs: schedule.fixingMs,
     atLabel: formatUtcSession(schedule.fixingMs),
-    status: fixingPassed ? "CURRENT" : "UPCOMING",
-    provenance: "MODELED",
+    status: finalized ? "DONE" : fixingPassed ? "CURRENT" : "UPCOMING",
+    provenance: finalized || (fixing && fixing.status !== "PENDING") ? "OBSERVED" : scheduled,
   });
+
+  const elected = lifecycle?.phase === "EXERCISED" || lifecycle?.phase === "SETTLED" || lifecycle?.phase === "LAPSED" || lifecycle?.phase === "CLAIM_AVAILABLE";
+  const electionStatus: StepStatus = elected
+    ? "DONE"
+    : lifecycle?.phase === "FIXED_AWAITING_ELECTION"
+      ? "CURRENT"
+      : timeStatus(schedule.electionOpensMs, nowMs, schedule.electionClosesMs);
   steps.push({
-    id: "expiry",
+    id: "election",
     kind: "EXPIRY",
-    label: "Series expiry",
-    detail: `${market.code} expires after the final fixing. Positions still open settle in ${market.settlementAsset}.`,
-    atMs: schedule.fixingMs,
-    atLabel: `after ${formatUtcDate(market.expiryIso)} fixing`,
-    status: "UPCOMING",
-    provenance: "MODELED",
+    label: "Holder election",
+    detail:
+      lifecycle?.holdsElection === false
+        ? "The long side elects between the window's open and close; this account's side follows its outcome."
+        : `Exercise the open lots before ${formatUtcSession(schedule.electionClosesMs)}, or the series' exercise policy applies.`,
+    atMs: schedule.electionOpensMs,
+    atLabel: formatUtcSession(schedule.electionOpensMs),
+    status: electionStatus,
+    provenance: elected ? "OBSERVED" : scheduled,
+    attention: lifecycle?.phase === "FIXED_AWAITING_ELECTION" && lifecycle.holdsElection,
   });
+
+  const projected = lifecycle?.projectedPnlUsd ?? null;
   steps.push({
     id: "payout",
     kind: "PAYOUT",
     label: "Payout computed",
-    detail: `Lots x multiplier x (fixing - entry). At the current mark this is ${usd(metrics.pricePnl)}; the fixing sets the actual amount.`,
-    atMs: null,
-    atLabel: "after fixing",
-    status: "UPCOMING",
-    provenance: metrics.derivedProvenance,
+    detail:
+      projected !== null
+        ? `The payoff module projects ${usd(projected)} for the open lots at the accepted fixing.`
+        : metrics.mark !== null
+          ? `Lots x lot size x (fixing - entry), clamped to the range. At the current mark this is ${usd(metrics.pricePnl)}; the fixing sets the actual amount.`
+          : "Lots x lot size x (fixing - entry), clamped to the range. The fixing sets the amount.",
+    atMs: schedule.finalResolutionMs,
+    atLabel: formatUtcSession(schedule.finalResolutionMs),
+    status: projected !== null ? "DONE" : timeStatus(schedule.finalResolutionMs, nowMs),
+    provenance: projected !== null ? "OBSERVED" : metrics.mark !== null ? metrics.markProvenance : "MODELED",
   });
+
+  const settlement = lifecycle?.settlement ?? null;
   steps.push({
     id: "settlement",
     kind: "SETTLEMENT",
-    label: "Settlement included and reconciled",
-    detail:
-      "Terminal settlement follows the committed fixing and has a permissionless completion path, so it never waits on the holder.",
-    atMs: null,
-    atLabel: "after payout",
-    status: "UPCOMING",
-    provenance: "MODELED",
+    label: "Settlement recorded",
+    detail: settlement
+      ? `${settlement.mode === "LAPSED" ? "Lapsed" : "Settled"} with a ${usd(settlement.transferUsd, 2)} transfer and ${usd(settlement.releasedUsd, 2)} collateral released.`
+      : `Terminal settlement follows the accepted fixing and has a permissionless completion path, due by ${formatUtcSession(schedule.settlementDeadlineMs)}.`,
+    atMs: settlement ? isoMs(settlement.finalizedAt) : schedule.settlementDeadlineMs,
+    atLabel: settlement ? formatUtcSession(isoMs(settlement.finalizedAt) ?? schedule.settlementDeadlineMs) : formatUtcSession(schedule.settlementDeadlineMs),
+    status: settlement ? "DONE" : nowMs >= schedule.finalResolutionMs ? "CURRENT" : "UPCOMING",
+    provenance: settlement ? "OBSERVED" : scheduled,
+    transactionHash: settlement?.transactionHash ?? undefined,
   });
   steps.push({
     id: "receipt",
     kind: "RECEIPT",
-    label: "Settlement receipt",
-    detail: "Fixing record, payout record and transaction reference are linked here once reconciled.",
+    label: "Settlement claim",
+    detail: settlement?.claim
+      ? `${settlement.claim.status === "FULFILLED" ? "Claim paid" : "Claim open"}: ${usd(settlement.claim.amountUsd, 2)}${settlement.claim.receivable ? " to this account" : ""}.`
+      : "Any claim the settlement opens for this account is listed here once recorded.",
     atMs: null,
-    atLabel: "after reconciliation",
-    status: "UPCOMING",
-    provenance: "MODELED",
+    atLabel: settlement?.claim ? "recorded" : "after settlement",
+    status: settlement?.claim ? (settlement.claim.status === "FULFILLED" ? "DONE" : "CURRENT") : "UPCOMING",
+    provenance: settlement?.claim ? "OBSERVED" : "MODELED",
+    transactionHash: settlement?.claim?.transactionHash ?? undefined,
   });
   return steps;
 }

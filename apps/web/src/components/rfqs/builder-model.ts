@@ -26,8 +26,10 @@ import type { ExecutionPosition } from "@/lib/internal-gateway/types";
 
 export const SOLVER_ROUTE_ID = "SOLVER_RFQ";
 
-/** The local runtime authorizes whole lots from one to ten per order. */
-export const DEVNET_MAX_LOTS = 10;
+/** The most lots one order may carry: the onchain market's limit, else the listing's. Null when neither is known. */
+export function maxLotsFor(market: PackageMarket, snapshot: GatewaySnapshot): number | null {
+  return snapshot.onchainMarkets[market.id]?.maxOrderLots ?? market.maxOrderLots ?? null;
+}
 
 /** The authorization deadline the gateway signs for GTC and FOK orders. */
 export const AUTHORIZATION_LIFETIME_SECONDS = 240;
@@ -86,7 +88,9 @@ export interface DerivedOrder {
   ticket: TicketState;
   preview: EconomicsPreview;
   limit: number;
+  /** The price the request is anchored to: the book touch for the action, else the live mark; NaN without either. */
   expectedPrice: number;
+  expectedSource: "BOOK" | "MARK" | "NONE";
 }
 
 export function timeInForce(draft: BuilderDraft): TimeInForce {
@@ -100,10 +104,15 @@ export function deriveOrder(draft: BuilderDraft, market: PackageMarket, position
     draft.intent === "EXIT" ? (positions.find((position) => position.id === draft.closePositionId && position.marketId === market.id) ?? null) : null;
   const packageSide: PackageSide = closePosition ? closePosition.side : draft.side;
   const action = executableAction(draft.intent, packageSide);
-  const expectedPrice = route ? routePrice(route, action) : bestReferencePrice(market, action);
-  const tracked = protectedPrice(expectedPrice, action, draft.slippageBps, market);
+  /* A private RFQ has no price until makers quote, so the request anchors on the book touch, else the live mark. */
+  const quoted = route ? routePrice(route, action) : Number.NaN;
+  const touch = bestReferencePrice(market, action);
+  const expectedSource: DerivedOrder["expectedSource"] =
+    Number.isFinite(quoted) || Number.isFinite(touch) ? "BOOK" : Number.isFinite(market.netPrice) ? "MARK" : "NONE";
+  const expectedPrice = Number.isFinite(quoted) ? quoted : Number.isFinite(touch) ? touch : market.netPrice;
+  const tracked = Number.isFinite(expectedPrice) ? protectedPrice(expectedPrice, action, draft.slippageBps, market) : Number.NaN;
   const fixed = Number.parseFloat(draft.fixedLimit);
-  const limit = draft.limitMode === "TRACK" ? tracked : Number.isFinite(fixed) ? fixed : 0;
+  const limit = draft.limitMode === "TRACK" ? (Number.isFinite(tracked) ? tracked : 0) : Number.isFinite(fixed) ? fixed : 0;
   const tif = timeInForce(draft);
   const ticket: TicketState = {
     intent: draft.intent,
@@ -118,7 +127,7 @@ export function deriveOrder(draft: BuilderDraft, market: PackageMarket, position
     closePositionId: draft.intent === "EXIT" ? draft.closePositionId : null,
   };
   const preview = buildPreview(market, ticket, route, closePosition);
-  return { market, route, action, packageSide, closePosition, tif, ticket, preview, limit, expectedPrice };
+  return { market, route, action, packageSide, closePosition, tif, ticket, preview, limit, expectedPrice, expectedSource };
 }
 
 /* ------------------------------------------------------------------ */
@@ -182,8 +191,8 @@ export function preflight(
           label: "Reference market",
           state: "block",
           detail: onchainMarket
-            ? `${market.code} is quoted from the Setryn index feed but not open for trading. ${onchainMarket.code} accepts requests.`
-            : `${market.code} is quoted from the Setryn index feed but not open for trading.`,
+            ? `${market.code} is listed but not open onchain in this deployment. ${onchainMarket.code} accepts requests.`
+            : `${market.code} is listed but not open onchain in this deployment.`,
           fix: onchainMarket ? { kind: "MARKET", marketId: onchainMarket.id, label: `Switch to ${onchainMarket.code}` } : undefined,
         },
   );
@@ -200,9 +209,9 @@ export function preflight(
     route
       ? {
           id: "route",
-          label: "Solver firm route available",
+          label: "Private RFQ route open",
           state: "pass",
-          detail: `${route.availableLots} lots of bonded solver capacity on screen. ${route.etaLabel}.`,
+          detail: `Qualified makers answer with firm, reserved capacity. ${route.etaLabel}.`,
         }
       : {
           id: "route",
@@ -212,16 +221,16 @@ export function preflight(
         },
   );
 
-  const maxLots = snapshot.onchainMarkets[market.id]?.maxOrderLots ?? DEVNET_MAX_LOTS;
+  const maxLots = maxLotsFor(market, snapshot);
   const wholeLots = Number.isInteger(draft.lots) && draft.lots >= 1;
   if (!wholeLots) {
     checks.push({ id: "size", label: "Size", state: "block", detail: "Enter a whole number of lots." });
-  } else if (onchain && draft.lots > maxLots) {
+  } else if (maxLots !== null && draft.lots > maxLots) {
     checks.push({
       id: "size",
-      label: "Size above runtime limit",
+      label: "Size above the market limit",
       state: "block",
-      detail: `The local runtime authorizes 1 to ${maxLots} whole lots per order.`,
+      detail: `This market authorizes 1 to ${maxLots} whole lots per order.`,
       fix: { kind: "LOTS", lots: maxLots, label: `Set ${maxLots} lots` },
     });
   } else {
@@ -229,25 +238,34 @@ export function preflight(
       id: "size",
       label: "Size within limits",
       state: "pass",
-      detail: `${draft.lots} lots, ${Math.round(preview.notional).toLocaleString("en-US")} USDC notional.`,
+      detail: Number.isFinite(preview.notional)
+        ? `${draft.lots} lots, ${Math.round(preview.notional).toLocaleString("en-US")} USDC consideration.`
+        : `${draft.lots} lots.`,
     });
   }
 
   if (preview.blockers.length > 0) {
     checks.push({ id: "order", label: "Order terms", state: "block", detail: preview.blockers.join(" ") });
-  } else if (!preview.marketable) {
+  } else if (order.expectedSource === "NONE") {
     checks.push({
       id: "order",
-      label: "Limit inside the expected quote",
+      label: "No live price to anchor on",
       state: "warn",
-      detail: "Your limit is better than the solver price on screen. Makers may decline to quote inside it.",
+      detail: "The book is empty and the market has no mark yet. Makers quote against your limit alone.",
+    });
+  } else if (order.action === "BUY" ? order.limit < order.expectedPrice : order.limit > order.expectedPrice) {
+    checks.push({
+      id: "order",
+      label: "Limit inside the live price",
+      state: "warn",
+      detail: `Your limit is better than the ${order.expectedSource === "BOOK" ? "book touch" : "live mark"}. Makers may decline to quote inside it.`,
     });
   } else {
     checks.push({
       id: "order",
-      label: "Limit crosses the expected quote",
+      label: "Limit crosses the live price",
       state: "pass",
-      detail: "The limit leaves room for the solver price on screen, so firm quotes can fill.",
+      detail: `The limit leaves room around the ${order.expectedSource === "BOOK" ? "book touch" : "live mark"}, so firm quotes can fill.`,
     });
   }
 
@@ -263,7 +281,8 @@ export function preflight(
   if (wallet !== "CONNECTED") {
     checks.push({ id: "collateral", label: "Collateral", state: "pending", detail: "Checked against your account once the wallet connects." });
   } else {
-    const required = (draft.intent === "EXIT" ? 0 : preview.totalCollateral) + preview.totalFees;
+    const fees = Number.isFinite(preview.totalFees) ? preview.totalFees : 0;
+    const required = (draft.intent === "EXIT" ? 0 : preview.totalCollateral) + fees;
     const available = snapshot.account.available;
     checks.push(
       available >= required
@@ -289,14 +308,14 @@ export function preflight(
           id: "invitation",
           label: "Qualified maker set",
           state: "pass",
-          detail: "The request commits the runtime's eligible maker set. Only qualified makers can answer.",
+          detail: "The request commits the deployment's eligible maker set. Only qualified makers can answer.",
         }
       : {
           id: "invitation",
           label: "Directed set not registered",
           state: "block",
           detail:
-            "A chosen maker set needs its own eligible-maker commitment, and this runtime registers only the qualified set. Sending it would reach every qualified maker, not just your choice.",
+            "A chosen maker set needs its own eligible-maker commitment, and this deployment registers only the qualified set. Sending it would reach every qualified maker, not just your choice.",
           fix: { kind: "INVITATION" },
         },
   );
@@ -308,7 +327,7 @@ export function preflight(
           id: "disclosure",
           label: "Named disclosure not registered",
           state: "block",
-          detail: "The runtime registers only the blind qualified disclosure policy, so a named request cannot be committed.",
+          detail: "The deployment registers only the blind qualified disclosure policy, so a named request cannot be committed.",
           fix: { kind: "DISCLOSURE" },
         },
   );

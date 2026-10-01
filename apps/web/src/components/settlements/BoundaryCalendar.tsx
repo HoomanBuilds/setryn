@@ -2,17 +2,11 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { ArrowUpRight, CalendarClock } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 import { BUTTON_QUIET } from "@/components/activity/ledger-ui";
 import { Panel, PanelHead } from "@/components/strategies/desk/Desk";
 import { positionHref } from "@/lib/positions/dossier";
-import {
-  FIXING_WINDOW_MINUTES,
-  formatCountdownMs,
-  formatUtcDate,
-  formatUtcSession,
-  monthLabel,
-} from "@/lib/settlements/calendar";
+import { formatCountdownMs, formatUtcSession, monthLabel } from "@/lib/settlements/calendar";
 import type { ScheduleBoundary, SettlementCenter } from "@/lib/settlements/types";
 import { formatLots } from "@/lib/terminal/format";
 import { tradeHref } from "@/lib/terminal/markets";
@@ -49,7 +43,7 @@ function Marker({
   const fixing = boundary.kind === "FIXING";
   const label = `${boundary.market.code}, ${boundary.label}, ${boundary.timingLabel}${
     held ? `, ${formatLots(heldLots(boundary))} lots held` : ""
-  }${boundary.adjustment ? `, ${boundary.adjustment.reason}` : ""}${conditional ? `, ${boundary.market.qualification.toLowerCase()}` : ""}`;
+  }${conditional ? `, ${boundary.market.qualification.toLowerCase()}` : ""}`;
   return (
     <button
       type="button"
@@ -80,9 +74,6 @@ function Marker({
           } ${selected ? "ring-2 ring-ink ring-offset-2 ring-offset-panel" : ""}`}
         />
       )}
-      {boundary.adjustment ? (
-        <span className="pointer-events-none absolute -bottom-1 left-1/2 h-0 w-0 -translate-x-1/2 border-x-[3.5px] border-b-[5px] border-x-transparent border-b-brand" />
-      ) : null}
     </button>
   );
 }
@@ -112,15 +103,11 @@ function Detail({ boundary, nowMs }: { boundary: ScheduleBoundary; nowMs: number
         </p>
         <p className="mt-1 text-xs leading-relaxed text-faint">
           {boundary.kind === "FIXING"
-            ? `${market.fixingSource}. ${FIXING_WINDOW_MINUTES}-minute observation window opens ${boundary.windowOpensMs !== null ? formatUtcSession(boundary.windowOpensMs) : "ahead of the print"}. Settles in ${market.settlementAsset}${market.settlementClass === "CASH_USDC_NDF" ? " as an NDF" : ""}.`
-            : boundary.source}
+            ? `${market.fixingSource}. The fixing window opens ${boundary.windowOpensMs !== null ? formatUtcSession(boundary.windowOpensMs) : "ahead of expiry"} and closes at expiry. Settles in cash ${market.settlementAsset}.`
+            : boundary.kind === "LAST_TRADE"
+              ? `The ${market.code} book stops clearing. ${boundary.source}.`
+              : `The long elects on its fixed lots in this window. ${boundary.source}.`}
         </p>
-        {boundary.adjustment ? (
-          <p className="mt-1.5 flex items-start gap-1.5 text-xs leading-snug text-brand">
-            <CalendarClock size={13} aria-hidden="true" className="mt-[1px] shrink-0" />
-            {`${formatUtcDate(boundary.adjustment.scheduled)} is ${boundary.adjustment.reason}. ${boundary.adjustment.rule} would move it to ${formatUtcDate(boundary.adjustment.adjusted)} (modeled).`}
-          </p>
-        ) : null}
       </div>
       <div className="min-w-0">
         <p className="text-[11px] font-medium tracking-[0.08em] text-faint uppercase">Held exposure</p>
@@ -155,9 +142,9 @@ function Detail({ boundary, nowMs }: { boundary: ScheduleBoundary; nowMs: number
 }
 
 /**
- * Every listed maturity on one time axis, one row per package family. Held
- * series are ringed with their size, closed London sessions are flagged under
- * the marker, and the feed clock runs as the vertical rule.
+ * Every listed maturity on one time axis, one row per underlying family. Held
+ * series are ringed with their size and carry their last trade and election
+ * boundaries, and the platform clock runs as the vertical rule.
  */
 export type CalendarHorizon = "3M" | "6M" | "ALL";
 
@@ -187,10 +174,6 @@ export function BoundaryCalendar({
   const at = (ms: number) => `${((ms - startMs) / span) * 100}%`;
   const months: number[] = [];
   for (let cursor = startMs; cursor < endMs; cursor = addMonths(cursor, 1)) months.push(cursor);
-  const holidays = center.holidays.filter((holiday) => {
-    const ms = Date.parse(`${holiday.iso}T00:00:00Z`);
-    return ms >= startMs && ms < endMs;
-  });
   const selected =
     center.boundaries.find((boundary) => boundary.id === selectedId) ??
     center.kpis.nextHeldFixing ??
@@ -212,8 +195,8 @@ export function BoundaryCalendar({
               conditional
             </span>
             <span className="hidden items-center gap-1.5 md:inline-flex">
-              <span className="h-0 w-0 border-x-[3.5px] border-b-[5px] border-x-transparent border-b-brand" aria-hidden="true" />
-              closed session
+              <span className="h-[7px] w-[7px] rotate-45 rounded-[1px] border border-faint" aria-hidden="true" />
+              last trade, election
             </span>
             <span role="radiogroup" aria-label="Calendar horizon" className="flex rounded-md border border-line bg-inset p-0.5">
               {(Object.keys(HORIZON_MONTHS) as CalendarHorizon[]).map((option) => (
@@ -261,7 +244,6 @@ export function BoundaryCalendar({
                   </span>
                 </div>
               ))}
-              <div className="flex h-7 items-center border-t border-line-soft text-[10.5px] text-faint">LDN holidays</div>
             </div>
             <div className="relative">
               {months.map((month) => (
@@ -283,18 +265,6 @@ export function BoundaryCalendar({
                     ))}
                 </div>
               ))}
-              <div className="relative h-7 border-t border-line-soft">
-                {holidays.map((holiday) => (
-                  <span
-                    key={holiday.iso}
-                    title={`${formatUtcDate(holiday.iso)}, ${holiday.name}`}
-                    className="absolute top-1/2 h-3 w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-[1px] bg-line-strong"
-                    style={{ left: at(Date.parse(`${holiday.iso}T12:00:00Z`)) }}
-                  >
-                    <span className="sr-only">{`${formatUtcDate(holiday.iso)}, ${holiday.name}`}</span>
-                  </span>
-                ))}
-              </div>
               <span aria-hidden="true" className="absolute inset-y-0 z-[1] w-px bg-brand/70" style={{ left: at(nowMs) }} />
               <span
                 className="tnum absolute -bottom-[18px] z-[1] -translate-x-1/2 rounded-[3px] bg-brand px-1 font-mono text-[9.5px] leading-[14px] font-medium text-app"

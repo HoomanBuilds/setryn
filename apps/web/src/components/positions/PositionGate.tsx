@@ -1,53 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowUpRight, FileSearch, Wallet } from "lucide-react";
+import { FileSearch, Wallet } from "lucide-react";
 import { BUTTON_INK, BUTTON_QUIET, useWalletPrompt } from "@/components/activity/ledger-ui";
 import { useGatewaySnapshot } from "@/components/gateway/InternalGatewayProvider";
 import { Panel } from "@/components/strategies/desk/Desk";
-import { OriginChip } from "@/components/settlements/trust";
-import { LIFECYCLE_STRATEGIES } from "@/lib/lifecycle/fixtures";
-import { positionHref } from "@/lib/positions/dossier";
-import { formatLots } from "@/lib/terminal/format";
-import { SideTag, shortId } from "./parts";
-import { MarketMark } from "@/components/portfolio/MarketMark";
-
-function ReferenceList() {
-  return (
-    <div className="border-t border-line">
-      <div className="flex items-center justify-between gap-3 px-6 pt-4 pb-2 sm:px-8">
-        <h2 className="text-[11px] font-medium tracking-[0.08em] text-faint uppercase">Reference positions</h2>
-        <span className="hidden text-[11px] text-off sm:inline">reference lifecycle, not account evidence</span>
-      </div>
-      <ul className="px-3 pb-3 sm:px-5">
-        {LIFECYCLE_STRATEGIES.map((strategy) => (
-          <li key={strategy.id}>
-            <Link
-              href={positionHref(strategy.id)}
-              className="focus-ring group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-raised/60"
-            >
-              <span className="min-w-0">
-                <span className="flex items-center gap-2">
-                  <span className="truncate text-sm text-ink">{strategy.label}</span>
-                  <OriginChip origin="REFERENCE" />
-                </span>
-                <span className="mt-0.5 flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-faint">
-                  <MarketMark underlying={strategy.market.underlying} size={13} />
-                  <span className="truncate">{strategy.market.code}</span>
-                </span>
-              </span>
-              <span className="flex items-center gap-2">
-                <span className="tnum font-mono text-xs text-dim">{`${formatLots(strategy.lots)} lots`}</span>
-                <SideTag side={strategy.side} />
-                <ArrowUpRight size={13} aria-hidden="true" className="text-faint transition-colors group-hover:text-ink" />
-              </span>
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
+import { shortId } from "./parts";
 
 /**
  * The route's non-position states. A disconnected wallet cannot rule out an
@@ -82,7 +40,7 @@ export function PositionGate({ kind, positionId }: { kind: "connect" | "missing"
                 ? `Positions are read from ${snapshot.environment.label} chain state for the connected account. Connect the wallet that holds this position to load its lifecycle, fills and receipts.`
                 : snapshot.wallet.status === "CONNECTED"
                   ? `The connected account on ${snapshot.environment.label} holds no position under this ID, open or closed. Closed positions stay addressable here through their linked fills.`
-                  : "This ID is not a Setryn position identifier. Account positions use their onchain position ID; reference positions use their lifecycle record ID."}
+                  : "This ID is not a Setryn position identifier. Positions are addressed by their onchain position ID."}
             </p>
             <div className="mt-6 flex flex-wrap gap-2">
               {connect ? (
@@ -106,7 +64,6 @@ export function PositionGate({ kind, positionId }: { kind: "connect" | "missing"
             </div>
             {wallet.error ? <p className="mt-3 text-xs text-down">{wallet.error}</p> : null}
           </div>
-          <ReferenceList />
         </Panel>
       </div>
     </main>

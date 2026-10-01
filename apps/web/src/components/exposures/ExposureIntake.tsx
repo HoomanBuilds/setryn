@@ -10,7 +10,7 @@ import { REFERENCE_ASSETS, RISK_OBJECTIVES, horizonDays, stableExposureId, valid
 import type { RiskObjective } from "@/lib/hedges/types";
 import { EXPOSURE_TYPES, directionForType } from "@/lib/exposures/book";
 import {
-  EXAMPLE_EXPOSURE_CSV,
+  EXPOSURE_CSV_HEADER,
   createExposure,
   exposureInput,
   hedgeBuilderHref,
@@ -267,8 +267,12 @@ export function ExposureIntake({
               <span className="text-[11px] text-faint">
                 <span className="tnum font-mono text-dim">type, asset, amount, date, certainty, label</span>
               </span>
-              <button type="button" onClick={() => setCsv(EXAMPLE_EXPOSURE_CSV)} className={BUTTON_SMALL}>
-                Paste example
+              <button
+                type="button"
+                onClick={() => setCsv((current) => (current.trim().toLowerCase().startsWith("type,") ? current : `${EXPOSURE_CSV_HEADER}\n${current}`))}
+                className={BUTTON_SMALL}
+              >
+                Insert header
               </button>
             </div>
             <label className="block">

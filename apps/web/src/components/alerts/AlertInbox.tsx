@@ -37,7 +37,7 @@ export function AlertInbox({
     return (
       <Empty
         title={emptyTitle}
-        detail="Rules on the right watch the live board and your account. Operator alerts from the recorded runtime fixture appear under System."
+        detail="Rules on the right watch live market data and your account. Wallet and settlement alerts appear as they are raised onchain."
       />
     );
   }

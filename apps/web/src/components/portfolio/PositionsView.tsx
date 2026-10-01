@@ -42,7 +42,7 @@ export function PositionsView() {
 
   return (
     <div className="flex min-w-0 flex-col">
-      <ControlRow note={`${count} active account package${count === 1 ? "" : "s"}`}>
+      <ControlRow note={`${count} open position${count === 1 ? "" : "s"}`}>
         <span className="hidden shrink-0 lg:block">
           <Segmented
             options={GROUP_OPTIONS}
@@ -64,7 +64,7 @@ export function PositionsView() {
       </ControlRow>
 
       {portfolio.positions.length === 0 ? (
-        <EmptyBook title="No open package positions">
+        <EmptyBook title="No positions yet">
           <Link
             href="/markets"
             className="focus-ring flex h-11 items-center rounded-md border border-line-strong bg-raised px-3 text-[13px] text-ink transition-colors hover:border-brand-edge lg:h-8 lg:text-xs"
@@ -98,7 +98,7 @@ export function PositionsView() {
                   <PositionDetail
                     position={position}
                     portfolioPnl={portfolio.runtimePnl}
-                    binding={portfolio.reference.binding}
+                    binding={portfolio.risk.binding}
                     variant="inline"
                   />
                 )}
@@ -127,7 +127,7 @@ export function PositionsView() {
               <PositionDetail
                 position={selected}
                 portfolioPnl={portfolio.runtimePnl}
-                binding={portfolio.reference.binding}
+                binding={portfolio.risk.binding}
               />
             </aside>
           ) : null}

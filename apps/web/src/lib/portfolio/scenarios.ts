@@ -1,44 +1,44 @@
 import type { StressScenario } from "./types";
 
 /**
- * Shocks are relative moves of the package price inside a risk domain, so one
- * scenario applies to every tenor a desk holds without restating a level.
+ * Stress moves are relative moves of each market's forward level inside a risk domain, applied to the account's real
+ * positions at their live marks and clamped into each series' payoff range. They are modeled shocks, not forecasts.
  */
 export const SCENARIOS: StressScenario[] = [
   {
-    id: "carry-compression",
-    label: "Carry compression",
-    narrative: "Dated carry collapses toward spot.",
-    moves: { CRYPTO_CARRY: -0.6, CRYPTO_BASIS: -0.25, MACRO_FORWARD: -0.08 },
+    id: "crypto-drawdown",
+    label: "Crypto drawdown",
+    narrative: "BTC and ETH fall 20%, ARB 30%.",
+    moves: { CRYPTO_CARRY: -0.2, CRYPTO_BASIS: -0.3, MACRO_FORWARD: 0 },
   },
   {
-    id: "funding-spike",
-    label: "Funding spike",
-    narrative: "Funding gaps higher and drags the dated strip.",
-    moves: { CRYPTO_CARRY: 0.45, CRYPTO_BASIS: 0.3, MACRO_FORWARD: 0.05 },
+    id: "crypto-rally",
+    label: "Crypto rally",
+    narrative: "BTC and ETH rise 20%, ARB 30%.",
+    moves: { CRYPTO_CARRY: 0.2, CRYPTO_BASIS: 0.3, MACRO_FORWARD: 0 },
   },
   {
-    id: "benchmark-dislocation",
-    label: "Benchmark dislocation",
-    narrative: "A thin benchmark window widens basis.",
-    moves: { CRYPTO_CARRY: -0.15, CRYPTO_BASIS: 0.9, MACRO_FORWARD: -0.25 },
+    id: "dollar-strength",
+    label: "Dollar strength",
+    narrative: "EUR and gold fall 4% against USD; crypto 5%.",
+    moves: { CRYPTO_CARRY: -0.05, CRYPTO_BASIS: -0.05, MACRO_FORWARD: -0.04 },
   },
   {
-    id: "macro-repricing",
-    label: "Macro rate gap",
-    narrative: "Rate differentials gap, forward points reprice.",
-    moves: { CRYPTO_CARRY: -0.12, CRYPTO_BASIS: -0.1, MACRO_FORWARD: -0.65 },
+    id: "dollar-weakness",
+    label: "Dollar weakness",
+    narrative: "EUR and gold rise 4% against USD; crypto 5%.",
+    moves: { CRYPTO_CARRY: 0.05, CRYPTO_BASIS: 0.05, MACRO_FORWARD: 0.04 },
   },
   {
     id: "correlated-risk-off",
     label: "Correlated risk-off",
-    narrative: "Every domain sells off together.",
-    moves: { CRYPTO_CARRY: -0.55, CRYPTO_BASIS: -0.7, MACRO_FORWARD: -0.5 },
+    narrative: "Crypto falls 35%, ARB 45%, macro forwards 6%.",
+    moves: { CRYPTO_CARRY: -0.35, CRYPTO_BASIS: -0.45, MACRO_FORWARD: -0.06 },
   },
   {
-    id: "fixing-gap",
-    label: "Fixing session gap",
-    narrative: "A near fixing prints away from the mark.",
-    moves: { CRYPTO_CARRY: -0.35, CRYPTO_BASIS: -0.2, MACRO_FORWARD: -0.15 },
+    id: "squeeze",
+    label: "Short squeeze",
+    narrative: "Crypto rises 35%, ARB 45%, macro forwards 6%.",
+    moves: { CRYPTO_CARRY: 0.35, CRYPTO_BASIS: 0.45, MACRO_FORWARD: 0.06 },
   },
 ];

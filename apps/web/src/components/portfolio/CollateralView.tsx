@@ -13,6 +13,7 @@ import { useConfirmationPrefs } from "@/lib/settings/preferences";
 import { useConfirmStep } from "@/components/terminal/confirm-step";
 import { ChainBadge, chainKeyOf } from "@/components/icons/AssetIcon";
 import { CollateralMark } from "@/components/portfolio/MarketMark";
+import { FundingAction } from "@/components/wallet/FundingAction";
 
 type Kind = "DEPOSIT" | "WITHDRAW";
 
@@ -27,7 +28,7 @@ export function CollateralView() {
   const asset = snapshot.account.collateralAsset;
   const figures = [
     { label: "Posted", value: formatNumber(account.postedValue, 2), note: `onchain ${asset}` },
-    { label: "Eligible", value: formatNumber(account.eligible, 2), note: "no haircut in local runtime" },
+    { label: "Eligible", value: formatNumber(account.eligible, 2), note: "no haircut" },
     { label: "Reserved", value: formatNumber(account.reserved, 2), note: `${formatShare(account.marginUsage)} of eligible` },
     { label: "Available", value: formatNumber(account.available, 2), note: "free for package intents" },
   ];
@@ -158,7 +159,11 @@ function TransferCard() {
               ? "That withdrawal exceeds available collateral."
               : error instanceof Error && error.message === "MAINNET_WRITE_DISABLED"
                 ? "Mainnet writes are disabled by the current Setryn environment."
-                : "Enter a valid collateral amount and try again.",
+                : error instanceof Error && error.message === "INSUFFICIENT_WALLET_BALANCE"
+                  ? `The wallet does not hold enough ${asset} for this deposit. Fund the wallet first, then deposit.`
+                  : error instanceof Error && error.message === "NOT_AVAILABLE_ON_NETWORK"
+                    ? "This action is not available on the connected network."
+                    : "Enter a valid collateral amount and try again.",
         ok: false,
       });
     } finally {
@@ -251,9 +256,11 @@ function TransferCard() {
         </p>
       ) : null}
 
+      {kind === "DEPOSIT" ? <FundingAction className="border-t border-line-soft pt-3" /> : null}
+
       <p className="text-[11px] leading-snug text-off">
         Each transfer is a wallet transaction against the onchain vault. Withdrawals are limited to
-        available collateral; reserved collateral stays pledged to open packages.
+        available collateral; reserved collateral stays pledged to open positions and orders.
       </p>
     </section>
   );

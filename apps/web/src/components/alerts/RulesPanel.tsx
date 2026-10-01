@@ -11,6 +11,7 @@ import {
   describeRule,
   formatHours,
   hoursToFixing,
+  liveMark,
   newRuleId,
   ruleAlertPrefix,
   type AlertLedger,
@@ -19,6 +20,7 @@ import {
   type AlertSeverity,
 } from "@/lib/alerts";
 import { formatMultiple, formatNumber, priceUnitSuffix } from "@/lib/terminal/format";
+import type { MarketDataSnapshot } from "@/lib/market-data/types";
 import type { PackageMarket } from "@/lib/terminal/types";
 import { MarketMark } from "@/components/portfolio/MarketMark";
 
@@ -27,7 +29,7 @@ const FIELD =
 
 const KINDS: { value: AlertRuleKind; label: string }[] = [
   { value: "PRICE_CROSS", label: "Price" },
-  { value: "HEALTH_BELOW", label: "Health" },
+  { value: "HEALTH_BELOW", label: "Cover" },
   { value: "FIXING_WITHIN", label: "Fixing" },
   { value: "RFQ_QUOTE", label: "RFQ" },
 ];
@@ -40,14 +42,17 @@ const SEVERITIES: { value: AlertSeverity; label: string }[] = [
 
 export function NewRulePanel({
   markets,
-  previewEpochSeconds,
+  live,
+  nowSeconds,
   health,
   heldMarketIds,
   onCreate,
 }: {
   markets: readonly PackageMarket[];
-  previewEpochSeconds: number;
-  /** Current maintenance health, or null when no margin is in use. */
+  live: MarketDataSnapshot | null;
+  /** Platform clock, unix seconds. */
+  nowSeconds: number;
+  /** Current collateral cover, or null when nothing is locked. */
   health: number | null;
   heldMarketIds: readonly string[];
   onCreate: (rule: AlertRule) => void;
@@ -62,20 +67,21 @@ export function NewRulePanel({
   const [notice, setNotice] = useState<string | null>(null);
 
   const market = markets.find((candidate) => candidate.id === marketId) ?? markets[0];
-  // Until the viewer types a level, it tracks five ticks above the live mark.
-  const suggested = market ? (market.netPrice + market.tickSize * 5).toFixed(market.priceDecimals) : "";
+  const mark = market ? liveMark(market, live) : null;
+  // Until the viewer types a level, it tracks five ticks above the live mark; without a mark the viewer sets one.
+  const suggested = market && mark !== null ? (mark + market.tickSize * 5).toFixed(market.priceDecimals) : "";
   const levelText = levelInput ?? suggested;
   const level = Number(levelText);
   const levelValid = market !== undefined && Number.isFinite(level) && levelText.trim() !== "";
-  const direction: "ABOVE" | "BELOW" = market && level < market.netPrice ? "BELOW" : "ABOVE";
+  const direction: "ABOVE" | "BELOW" = mark !== null && level < mark ? "BELOW" : "ABOVE";
 
   const fixingCandidates = markets.filter((candidate) => (scope === "HELD" ? heldMarketIds.includes(candidate.id) : true));
   const fixingNow = fixingCandidates.filter((candidate) => {
-    const left = hoursToFixing(candidate, previewEpochSeconds);
+    const left = hoursToFixing(candidate, nowSeconds);
     return left > 0 && left <= hours;
   });
   const nearest = [...fixingCandidates]
-    .map((candidate) => ({ candidate, left: hoursToFixing(candidate, previewEpochSeconds) }))
+    .map((candidate) => ({ candidate, left: hoursToFixing(candidate, nowSeconds) }))
     .filter((entry) => entry.left > 0)
     .sort((a, b) => a.left - b.left)[0];
 
@@ -130,9 +136,13 @@ export function NewRulePanel({
             <div className="flex items-baseline justify-between rounded-md bg-inset px-2.5 py-2 text-xs">
               <span className="text-faint">Live mark</span>
               <span className="flex items-baseline gap-1">
-                <Flash value={market.netPrice} className="tnum px-0.5 font-mono text-ink">
-                  {formatNumber(market.netPrice, market.priceDecimals)}
-                </Flash>
+                {mark === null ? (
+                  <span className="tnum px-0.5 font-mono text-faint">No quote yet</span>
+                ) : (
+                  <Flash value={mark} className="tnum px-0.5 font-mono text-ink">
+                    {formatNumber(mark, market.priceDecimals)}
+                  </Flash>
+                )}
                 <span className="text-[10px] text-off">{priceUnitSuffix(market.priceUnit)}</span>
               </span>
             </div>
@@ -160,12 +170,12 @@ export function NewRulePanel({
 
         {kind === "HEALTH_BELOW" ? (
           <div className="space-y-2">
-            <span className="block text-[11px] text-faint">Maintenance health threshold</span>
-            <Stepper value={threshold} onChange={setThreshold} min={1.05} max={5} step={0.05} decimals={2} label="Health threshold" suffix="x" />
+            <span className="block text-[11px] text-faint">Collateral cover threshold</span>
+            <Stepper value={threshold} onChange={setThreshold} min={1.05} max={5} step={0.05} decimals={2} label="Cover threshold" suffix="x" />
             <p className="text-[11px] leading-snug text-faint">
               {health === null
-                ? "No maintenance margin is in use, so this rule waits for the first open package."
-                : `Health is ${formatMultiple(health)} now: equity over maintenance margin, marked on the index feed.`}
+                ? "No collateral is locked, so this rule waits for the first open position."
+                : `Cover is ${formatMultiple(health)} now: marked collateral equity over the collateral positions and orders lock.`}
             </p>
           </div>
         ) : null}
@@ -183,7 +193,7 @@ export function NewRulePanel({
               size="sm"
             />
             <div>
-              <span className="block text-[11px] text-faint">Hours before the 16:00 UTC fixing</span>
+              <span className="block text-[11px] text-faint">Hours before the fixing</span>
               <Stepper value={hours} onChange={setHours} min={1} max={720} step={12} label="Hours before fixing" suffix="h" className="mt-1" />
             </div>
             <p className="text-[11px] leading-snug text-faint">

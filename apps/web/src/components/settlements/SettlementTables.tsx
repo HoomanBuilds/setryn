@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ArrowUpRight, CalendarClock, Check, FileSearch, Minus, Wallet, X } from "lucide-react";
+import { ArrowUpRight, Check, FileSearch, Minus, Wallet, X } from "lucide-react";
 import { BUTTON_INK, BUTTON_QUIET, CopyButton, formatUtcTime, middleTruncate } from "@/components/activity/ledger-ui";
 import { TH, TH_NUM } from "@/components/strategies/desk/Desk";
 import { positionHref, receiptHref } from "@/lib/positions/dossier";
-import { formatCountdownMs, formatUtcDate, formatUtcShort } from "@/lib/settlements/calendar";
+import { formatCountdownMs, formatUtcShort } from "@/lib/settlements/calendar";
+import { MARK_SOURCE_LABEL, markProvenance } from "@/lib/portfolio/forward";
 import { STAGE_COPY } from "@/lib/settlements/stages";
 import type {
   HeldExposure,
@@ -134,11 +135,11 @@ function HeldCell({ held }: { held: HeldExposure[] }) {
 
 const KIND_LABEL: Record<ScheduleBoundary["kind"], string> = {
   FIXING: "Fixing",
-  FUNDING: "Funding",
-  REBALANCE: "Lifecycle",
+  LAST_TRADE: "Last trade",
+  ELECTION: "Election",
 };
 
-/** Rows in the feed clock's year read "25 Sep 16:00"; later years carry the year. */
+/** Rows in the current year read "25 Sep 08:00"; later years carry the year. */
 function rowDate(ms: number, nowMs: number): string {
   const short = formatUtcShort(ms);
   const year = new Date(ms).getUTCFullYear();
@@ -159,7 +160,7 @@ function whenCell(row: ScheduleBoundary, nowMs: number): { primary: string; seco
 
 export function UpcomingTable({ rows, nowMs, selectedId, onSelect }: { rows: ScheduleBoundary[]; nowMs: number; selectedId: string | null; onSelect: (id: string) => void }) {
   if (rows.length === 0) {
-    return <EmptyTab title="No boundary in this view">Held series appear here with their fixing, funding and lifecycle boundaries.</EmptyTab>;
+    return <EmptyTab title="No boundary in this view">Held series appear here with their last trade, fixing and election boundaries.</EmptyTab>;
   }
   return (
     <>
@@ -211,12 +212,6 @@ export function UpcomingTable({ rows, nowMs, selectedId, onSelect }: { rows: Sch
                   <td className="px-3">
                     <span className="flex items-center gap-2">
                       <span className="text-xs text-dim">{KIND_LABEL[row.kind]}</span>
-                      {row.adjustment ? (
-                        <span title={`${row.adjustment.reason}. ${row.adjustment.rule} would move it to ${formatUtcDate(row.adjustment.adjusted)}.`} className="inline-flex items-center gap-1 text-[11px] text-brand">
-                          <CalendarClock size={12} aria-hidden="true" />
-                          closed session
-                        </span>
-                      ) : null}
                       {row.market.qualification !== "QUALIFIED" && row.kind === "FIXING" ? (
                         <span className="rounded-[3px] border border-line-strong px-1 font-mono text-[9.5px] tracking-[0.05em] text-dim uppercase">
                           {row.market.qualification.toLowerCase()}
@@ -259,7 +254,6 @@ export function UpcomingTable({ rows, nowMs, selectedId, onSelect }: { rows: Sch
               <div className="flex items-center justify-between gap-2">
                 <HeldCell held={row.held} />
                 <span className="flex items-center gap-1.5">
-                  {row.adjustment ? <CalendarClock size={12} aria-label="Closed London session" className="text-brand" /> : null}
                   <ProvenanceChip provenance={row.provenance} source={row.source} compact />
                 </span>
               </div>
@@ -279,19 +273,29 @@ const FIXING_STATE: Record<ObservationGroup["fixingState"], string> = {
   PENDING: "Not observed",
   WINDOW_OPEN: "Window open",
   AWAITING_RECORD: "Awaiting record",
+  PROPOSED: "Proposed",
+  DISPUTED: "Disputed",
+  FINALIZED: "Final",
 };
+
+function ageText(seconds: number | null): string {
+  if (seconds === null) return "—";
+  if (seconds < 120) return `${seconds}s`;
+  if (seconds < 7_200) return `${Math.floor(seconds / 60)}m`;
+  return `${Math.floor(seconds / 3_600)}h`;
+}
 
 export function ObservationsTable({ groups, nowMs }: { groups: ObservationGroup[]; nowMs: number }) {
   if (groups.length === 0) {
-    return <EmptyTab title="No series in this view">Switch to all listed series to inspect every reference observation.</EmptyTab>;
+    return <EmptyTab title="No series in this view">Switch to all listed series to inspect every live input.</EmptyTab>;
   }
   return (
     <div className="overflow-x-auto">
       <table className="relative w-full min-w-[820px] border-collapse text-left">
-        <caption className="sr-only">Reference observations feeding each series fixing, grouped by series.</caption>
+        <caption className="sr-only">Live inputs behind each series&apos; mark and fixing, grouped by series.</caption>
         <thead>
           <tr className="border-b border-line">
-            <th scope="col" className={TH}>Series / leg</th>
+            <th scope="col" className={TH}>Series / input</th>
             <th scope="col" className={TH}>Role</th>
             <th scope="col" className={TH_NUM}>Value</th>
             <th scope="col" className={TH_NUM}>Age</th>
@@ -317,43 +321,54 @@ export function ObservationsTable({ groups, nowMs }: { groups: ObservationGroup[
                 </th>
                 <td className="px-3 text-[11px] text-faint">Fixing record</td>
                 <td className="tnum px-3 text-right font-mono text-xs text-faint">
-                  <span title="No fixing value is shown before it is observed.">{FIXING_STATE[group.fixingState]}</span>
+                  {group.fixingValue !== null ? (
+                    <span className="text-ink">{priceText(group.fixingValue, group.market, false)}</span>
+                  ) : (
+                    <span title="No fixing value is shown before it is recorded onchain.">{FIXING_STATE[group.fixingState]}</span>
+                  )}
                 </td>
                 <td className="tnum px-3 text-right font-mono text-[11px] whitespace-nowrap text-dim">
                   {remaining > 0 ? `print in ${formatCountdownMs(remaining)}` : "print passed"}
                 </td>
                 <td className="px-3 text-[11px] text-faint">{group.market.fixingSource}</td>
                 <td className="px-3">
-                  <ProvenanceChip provenance="MODELED" source="Print time from series terms; no value observed" compact />
+                  <ProvenanceChip
+                    provenance={group.fixingValue !== null ? "OBSERVED" : "MODELED"}
+                    source={group.fixingValue !== null ? "Fixing engine record on the held position" : "Print time from the series schedule; no value recorded"}
+                    compact
+                  />
                 </td>
               </tr>
               <tr className={ROW}>
-                <td className="px-3 py-1.5 pl-6 text-xs text-dim">Package mark</td>
+                <td className="px-3 py-1.5 pl-6 text-xs text-dim">Mark</td>
                 <td className="px-3 text-[11px] text-faint">Mark to market</td>
-                <td className="tnum px-3 text-right font-mono text-xs text-ink">{priceText(group.packageMark, group.market)}</td>
-                <td className="tnum px-3 text-right font-mono text-[11px] text-dim">{`${group.market.snapshotAgeSeconds}s`}</td>
-                <td className="px-3 text-[11px] text-faint">Shared board</td>
+                <td className={`tnum px-3 text-right font-mono text-xs ${group.packageMark === null ? "text-faint" : "text-ink"}`}>
+                  {group.packageMark === null ? "No quote" : priceText(group.packageMark, group.market)}
+                </td>
+                <td className="tnum px-3 text-right font-mono text-[11px] text-dim">{group.packageMark === null ? "—" : ageText(group.markAgeSeconds)}</td>
+                <td className="px-3 text-[11px] text-faint">{MARK_SOURCE_LABEL[group.markSource]}</td>
                 <td className="px-3">
-                  <ProvenanceChip provenance="ESTIMATED" source="Derived from the executable package book" compact />
+                  {group.packageMark === null ? null : (
+                    <ProvenanceChip provenance={markProvenance(group.markSource)} source={MARK_SOURCE_LABEL[group.markSource]} compact />
+                  )}
                 </td>
               </tr>
-              {group.legs.map((leg) => {
-                const decimals = leg.unit === "USD" ? (Math.abs(leg.value) < 10 ? 4 : 2) : 1;
-                return (
-                  <tr key={leg.id} className={ROW}>
-                    <td className="px-3 py-1.5 pl-6">
-                      <span className="block text-xs text-dim">{leg.instrument}</span>
-                    </td>
-                    <td className="px-3 text-[11px] whitespace-nowrap text-faint">{`${leg.side === "BUY" ? "Buy" : "Sell"} ${formatNumber(leg.ratio, 2)}x · ${leg.family.replace("_", " ").toLowerCase()}`}</td>
-                    <td className="tnum px-3 text-right font-mono text-xs whitespace-nowrap text-ink">{`${formatNumber(leg.value, decimals)} ${priceUnitSuffix(leg.unit)}`}</td>
-                    <td className="tnum px-3 text-right font-mono text-[11px] text-dim">{`${leg.ageSeconds}s`}</td>
-                    <td className="px-3 text-[11px] text-faint">{leg.source}</td>
-                    <td className="px-3">
-                      <ProvenanceChip provenance={leg.provenance} source={leg.source} compact />
-                    </td>
-                  </tr>
-                );
-              })}
+              {group.inputs.map((input) => (
+                <tr key={input.id} className={ROW}>
+                  <td className="px-3 py-1.5 pl-6">
+                    <span className="block text-xs text-dim">{input.label}</span>
+                  </td>
+                  <td className="px-3 text-[11px] whitespace-nowrap text-faint">{input.role}</td>
+                  <td className={`tnum px-3 text-right font-mono text-xs whitespace-nowrap ${input.value === null ? "text-faint" : "text-ink"}`}>
+                    {input.value === null ? "—" : `${formatNumber(input.value, input.decimals)} ${input.unit}`}
+                  </td>
+                  <td className="tnum px-3 text-right font-mono text-[11px] text-dim">{ageText(input.ageSeconds)}</td>
+                  <td className="px-3 text-[11px] text-faint">{input.source}</td>
+                  <td className="px-3">
+                    {input.value === null ? null : <ProvenanceChip provenance={input.provenance} source={input.source} compact />}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           );
         })}
@@ -397,12 +412,12 @@ export function PayoutsTable({ rows, nowMs }: { rows: PayoutRow[]; nowMs: number
               {`${row.side === "LONG" ? "+" : "-"}${formatLots(row.lots)}`}
             </td>
             <td className="tnum px-3 text-right font-mono text-xs text-dim">{priceText(row.entryPrice, row.market, false)}</td>
-            <td className="tnum px-3 text-right font-mono text-xs text-ink">
-              {priceText(row.referencePrice, row.market, false)}
+            <td className={`tnum px-3 text-right font-mono text-xs ${row.referencePrice === null ? "text-faint" : "text-ink"}`}>
+              {row.referencePrice === null ? "—" : priceText(row.referencePrice, row.market, false)}
               <span className="block text-[10.5px] text-faint">{row.referenceLabel.toLowerCase()}</span>
             </td>
             <td className={`tnum px-3 text-right font-mono text-xs ${tone(row.amount)}`}>{`${signed(row.amount, row.kind === "REALIZED" ? 2 : 0)}`}</td>
-            <td className="tnum px-3 text-right font-mono text-[11px] text-dim">{formatNumber(row.perPoint, 1)}</td>
+            <td className="tnum px-3 text-right font-mono text-[11px] text-dim">{formatNumber(row.perPoint, row.perPoint < 10 ? 2 : 1)}</td>
             <td className="tnum px-3 text-right font-mono text-xs text-dim">{formatNumber(row.collateral, 0)}</td>
             <td className="px-3 text-[11px] whitespace-nowrap">
               {row.kind === "REALIZED" ? (
@@ -426,7 +441,7 @@ export function PayoutsTable({ rows, nowMs }: { rows: PayoutRow[]; nowMs: number
             <td className="px-3">
               <ProvenanceChip
                 provenance={row.provenance}
-                source={row.kind === "REALIZED" ? "Exit receipt" : row.origin === "ACCOUNT" ? "Entry against the package mark" : "Reference record against the package mark"}
+                source={row.kind === "REALIZED" ? "Exit receipt" : `Entry against the ${row.referenceLabel.toLowerCase()}`}
                 compact
               />
             </td>
@@ -453,7 +468,7 @@ export function PayoutsTable({ rows, nowMs }: { rows: PayoutRow[]; nowMs: number
               </div>
               <div className="flex items-center justify-between gap-2 text-[11px] text-faint">
                 <span className="tnum font-mono">
-                  {`${row.side === "LONG" ? "+" : "-"}${formatLots(row.lots)} lots · ${priceText(row.entryPrice, row.market, false)} → ${priceText(row.referencePrice, row.market, false)}`}
+                  {`${row.side === "LONG" ? "+" : "-"}${formatLots(row.lots)} lots · ${priceText(row.entryPrice, row.market, false)} → ${row.referencePrice === null ? "—" : priceText(row.referencePrice, row.market, false)}`}
                 </span>
                 <span className="tnum shrink-0 font-mono">
                   {row.kind === "REALIZED" ? "realized" : row.fixingMs > nowMs ? `fix in ${formatCountdownMs(row.fixingMs - nowMs)}` : "print passed"}
@@ -489,13 +504,13 @@ export function PayoutsTable({ rows, nowMs }: { rows: PayoutRow[]; nowMs: number
                   Payout, USDC
                 </span>
               </th>
-              <th scope="col" className={TH_NUM} title="USDC per 1.0 move in the settlement reference">Per 1.0 move</th>
+              <th scope="col" className={TH_NUM} title="USDC per 1.00 move in the fixing, inside the payoff range">Per 1.0 move</th>
               <th scope="col" className={TH_NUM}>Collateral</th>
               <th scope="col" className={TH}>Stage</th>
               <th scope="col" className={TH}>Class</th>
             </tr>
           </thead>
-          {section("Projected at fixing", "price term at the current mark; the fixing sets the amount", projected)}
+          {section("Projected at fixing", "price term at the live mark or the final fixing; the fixing sets the amount", projected)}
           {section("Realized", "exits recorded onchain", realized)}
         </table>
       </div>
@@ -630,7 +645,7 @@ export function ReconciliationTable({ rows }: { rows: ReconciliationRow[] }) {
 
 export function ExceptionsList({ rows, nowMs }: { rows: SettlementException[]; nowMs: number }) {
   if (rows.length === 0) {
-    return <EmptyTab title="No exception in this view">Missing fixings, closed sessions, qualification changes and reconciliation breaks land here.</EmptyTab>;
+    return <EmptyTab title="No exception in this view">Missing fixings, open elections and claims, paused series and reconciliation breaks land here.</EmptyTab>;
   }
   return (
     <ul className="divide-y divide-line-soft">

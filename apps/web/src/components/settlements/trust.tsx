@@ -96,19 +96,13 @@ export function ProvenanceChip({
 }
 
 export function OriginChip({ origin, className = "" }: { origin: PositionOrigin; className?: string }) {
-  return origin === "ACCOUNT" ? (
+  return (
     <span
       title="Held by the connected account. Read from chain state."
+      data-origin={origin}
       className={`inline-flex h-[18px] shrink-0 items-center gap-1 rounded-[4px] border border-brand-edge/60 bg-brand-soft px-1.5 font-mono text-[10px] leading-none tracking-[0.05em] text-brand uppercase ${className}`}
     >
       Account
-    </span>
-  ) : (
-    <span
-      title="Reference lifecycle record. Not held by any account and not evidence."
-      className={`inline-flex h-[18px] shrink-0 items-center gap-1 rounded-[4px] border border-dashed border-line-strong px-1.5 font-mono text-[10px] leading-none tracking-[0.05em] text-faint uppercase ${className}`}
-    >
-      Reference
     </span>
   );
 }

@@ -27,17 +27,20 @@ import {
   formatSignedUsd,
   priceUnitSuffix,
 } from "@/lib/terminal/format";
+import { MARK_SOURCE_LABEL } from "@/lib/portfolio/forward";
 import { positionOrigin } from "@/lib/portfolio/runtime";
 import type { PnlBreakdown, Position } from "@/lib/portfolio/types";
 import { MarketMark } from "@/components/portfolio/MarketMark";
 
+/* A dated range forward's PnL is its price term against the mark and the fees paid at the fill. */
 const COMPONENTS: { key: keyof Omit<PnlBreakdown, "total">; label: string }[] = [
   { key: "price", label: "Mark to market" },
-  { key: "carry", label: "Carry" },
-  { key: "funding", label: "Funding" },
   { key: "fees", label: "Fees" },
-  { key: "residual", label: "Residual" },
 ];
+
+function markText(position: Position): string {
+  return position.markPrice === null ? "—" : formatPrice(position.markPrice, position.market);
+}
 
 const ACTION =
   "focus-ring flex h-11 items-center gap-1.5 rounded-md border px-3 text-[13px] transition-colors duration-150 lg:h-8 lg:text-xs";
@@ -45,7 +48,7 @@ const ACTION =
 function PositionRows({ positions }: { positions: Position[] }) {
   if (positions.length === 0) {
     return (
-      <EmptyBook title="No open packages in this account">
+      <EmptyBook title="No positions yet">
         <Link href="/markets" className={`${ACTION} border-line-strong bg-raised text-ink hover:border-brand-edge`}>
           Browse markets
         </Link>
@@ -59,7 +62,7 @@ function PositionRows({ positions }: { positions: Position[] }) {
   return (
     <>
       <table className={`${TABLE} hidden min-w-[640px] md:table`}>
-        <caption className="sr-only">Active account packages with size, entry, mark, and profit and loss.</caption>
+        <caption className="sr-only">Open account positions with size, entry, mark, and profit and loss.</caption>
         <thead>
           <tr>
             <th scope="col" className={`${TH} ${STICKY_HEAD}`}>Package</th>
@@ -86,8 +89,8 @@ function PositionRows({ positions }: { positions: Position[] }) {
                 {`${formatSigned(position.signedLots, 0)} lots`}
               </td>
               <td className={`${NUM} text-dim`}>{formatPrice(position.entryPrice, position.market)}</td>
-              <td className={`${NUM} text-ink`}>
-                {formatPrice(position.markPrice, position.market)}
+              <td className={`${NUM} ${position.markPrice === null ? "text-faint" : "text-ink"}`} title={MARK_SOURCE_LABEL[position.markSource]}>
+                {markText(position)}
                 <span className="ml-1 text-[10px] text-off">{priceUnitSuffix(position.market.priceUnit)}</span>
               </td>
               <td className={`${NUM} ${tone(position.pnl.total)}`}>{formatSignedUsd(position.pnl.total, 0)}</td>
@@ -118,7 +121,7 @@ function PositionRows({ positions }: { positions: Position[] }) {
                   {formatSignedUsd(position.pnl.total, 0)}
                 </span>
                 <span className="tnum font-mono text-[11px] text-faint">
-                  {`${formatPrice(position.entryPrice, position.market)} → ${formatPrice(position.markPrice, position.market)}`}
+                  {`${formatPrice(position.entryPrice, position.market)} → ${markText(position)}`}
                 </span>
               </span>
             </Link>
@@ -133,7 +136,7 @@ function Attribution({ pnl }: { pnl: PnlBreakdown }) {
   const scale = Math.max(...COMPONENTS.map((component) => Math.abs(pnl[component.key])), 1);
   return (
     <table className={TABLE}>
-      <caption className="sr-only">Account profit and loss by component, marked against the index feed.</caption>
+      <caption className="sr-only">Account profit and loss by component, at live marks.</caption>
       <tbody>
         {COMPONENTS.map((component) => {
           const value = pnl[component.key];
@@ -164,8 +167,8 @@ export function OverviewView() {
     <div className="flex min-w-0 flex-col">
       <div className="grid min-w-0 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px]">
         <Panel
-          title="Active packages"
-          note="Reconstructed from the connected account"
+          title="Open positions"
+          note="Read from the connected account onchain"
           aside={
             <Link
               href="/portfolio/positions"
@@ -181,7 +184,7 @@ export function OverviewView() {
         <div className="border-t border-line lg:border-t-0 lg:border-l">
           <Panel
             title="PnL attribution"
-            note={<Chip tone="muted">Index marks</Chip>}
+            note={<Chip tone="muted">Live marks</Chip>}
             delay={40}
           >
             <Attribution pnl={portfolio.runtimePnl} />
@@ -205,12 +208,13 @@ export function OverviewView() {
         chips={
           <>
             <Chip tone="muted">Onchain balances</Chip>
-            <Chip tone="muted">Index marks</Chip>
+            <Chip tone="muted">Live marks</Chip>
           </>
         }
       >
-        Balances and reservations are read from the onchain account. Position marks use the
-        current index feed and are not oracle settlement values.
+        Balances and reservations are read from the onchain account. Positions are marked at the
+        book mid, else the last onchain fill, else the Chainlink reference. Marks are not settlement
+        values: each series settles against its fixing.
       </PlaneNote>
     </div>
   );

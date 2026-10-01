@@ -25,7 +25,7 @@ export function EmbedGenerator({ partners }: { partners: PartnerDeployment[] }) 
   const [measured, setMeasured] = useState<{ src: string; height: number } | null>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
 
-  // The preview answers the same resize messages embed.js listens for.
+  // The rendered widget answers the same resize messages embed.js listens for.
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       const data = event.data as { type?: string; height?: number } | null;
@@ -139,14 +139,14 @@ export function EmbedGenerator({ partners }: { partners: PartnerDeployment[] }) 
           </p>
         </div>
       </Panel>
-      <Panel label="Live widget preview">
-        <PanelHead title="Live preview" tools={<Chip tone="dim">Not counted</Chip>} />
+      <Panel label="Rendered widget">
+        <PanelHead title="Rendered widget" tools={<Chip tone="dim">Not counted</Chip>} />
         <div className={`p-3 ${theme === "light" ? "bg-[#e9e7e2]" : "bg-app"}`}>
           <iframe
             key={src}
             ref={frameRef}
             src={src}
-            title={`Preview of the ${widget} widget`}
+            title={`The ${widget} widget as it renders`}
             className="block w-full border-0"
             style={{ height: measured?.src === src ? measured.height : DEFAULT_HEIGHT[widget] }}
           />

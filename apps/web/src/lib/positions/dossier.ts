@@ -5,17 +5,14 @@ import type {
   RestingPackageOrder,
   RfqRequest,
 } from "@/lib/internal-gateway/types";
-import type { LifecycleStrategy } from "@/lib/lifecycle/types";
 import type { Guarantee, PackageMarket, PositionSide } from "@/lib/terminal/types";
 
 /**
- * One position as every lifecycle surface reads it. Account positions come
- * from the gateway snapshot (chain records). Reference positions are the
- * static lifecycle preview records, which keep their own origin so no page can
- * present them as account evidence.
+ * One position as every lifecycle surface reads it: the connected account's
+ * chain records from the gateway snapshot, open or since closed.
  */
 
-export type PositionOrigin = "ACCOUNT" | "REFERENCE";
+export type PositionOrigin = "ACCOUNT";
 
 export type PositionPhase = "ACTIVE" | "CLOSED";
 
@@ -43,7 +40,7 @@ export interface PositionDossier {
   openedLots: number;
   entryPrice: number;
   collateral: number;
-  /** Fees on linked fills (account) or none for a reference record. */
+  /** Fees on linked fills. */
   fees: number;
   openedAt: string | null;
   closedAt: string | null;
@@ -51,7 +48,6 @@ export interface PositionDossier {
   environmentLabel: string;
   evidenceLabel: string;
   sourceLabel: string;
-  reference: LifecycleStrategy | null;
   fills: LinkedFill[];
   orders: RestingPackageOrder[];
   rfqs: RfqRequest[];
@@ -142,8 +138,9 @@ function linkedRfqs(snapshot: GatewaySnapshot, positionId: string): RfqRequest[]
     .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
 }
 
-function guaranteeFor(market: PackageMarket | undefined): Guarantee {
-  return market?.routes[0]?.guarantee ?? "PACKAGE_ATOMIC";
+/** Every onchain fill clears atomically: the public book and private RFQs settle one leg in one transaction. */
+function guaranteeFor(): Guarantee {
+  return "PACKAGE_ATOMIC";
 }
 
 function accountSource(snapshot: GatewaySnapshot): string {
@@ -184,11 +181,10 @@ function activeDossier(
     fees: Math.round(fills.reduce((total, fill) => total + (fill.receipt.fees ?? 0), 0) * 100) / 100,
     openedAt: opening?.receipt.createdAt ?? position.createdAt,
     closedAt: null,
-    guarantee: guaranteeFor(market),
+    guarantee: guaranteeFor(),
     environmentLabel: snapshot.environment.label,
     evidenceLabel: snapshot.environment.evidence,
     sourceLabel: accountSource(snapshot),
-    reference: null,
     fills,
     orders: linkedOrders(snapshot, position.id),
     rfqs: linkedRfqs(snapshot, position.id),
@@ -225,11 +221,10 @@ function closedDossier(
     fees: Math.round(fills.reduce((total, fill) => total + (fill.receipt.fees ?? 0), 0) * 100) / 100,
     openedAt: opening?.receipt.createdAt ?? null,
     closedAt: lastExit?.receipt.createdAt ?? null,
-    guarantee: guaranteeFor(market),
+    guarantee: guaranteeFor(),
     environmentLabel: snapshot.environment.label,
     evidenceLabel: snapshot.environment.evidence,
     sourceLabel: accountSource(snapshot),
-    reference: null,
     fills,
     orders: linkedOrders(snapshot, positionId),
     rfqs: linkedRfqs(snapshot, positionId),
@@ -238,36 +233,8 @@ function closedDossier(
   };
 }
 
-export function referenceDossier(strategy: LifecycleStrategy): PositionDossier {
-  return {
-    id: strategy.id,
-    origin: "REFERENCE",
-    phase: "ACTIVE",
-    marketId: strategy.market.id,
-    label: strategy.label,
-    side: strategy.side,
-    lots: strategy.lots,
-    openedLots: strategy.lots,
-    entryPrice: strategy.entryPrice,
-    collateral: strategy.collateral,
-    fees: 0,
-    openedAt: strategy.createdAt,
-    closedAt: null,
-    guarantee: strategy.guarantee,
-    environmentLabel: strategy.environmentLabel,
-    evidenceLabel: strategy.evidenceLabel,
-    sourceLabel: "Static lifecycle preview record",
-    reference: strategy,
-    fills: [],
-    orders: [],
-    rfqs: [],
-    realizedPnl: null,
-    collateralReleased: null,
-  };
-}
-
 /**
- * Resolves a route id against the account first, then the static references.
+ * Resolves a route id against the connected account's open and closed positions.
  * A disconnected wallet cannot rule out an account position, so a
  * chain-shaped id asks for a connection instead of reporting not found.
  */
@@ -275,11 +242,7 @@ export function resolvePosition(
   id: string,
   snapshot: GatewaySnapshot,
   markets: readonly PackageMarket[],
-  references: readonly LifecycleStrategy[],
 ): PositionResolution {
-  const reference = references.find((strategy) => strategy.id === id);
-  if (reference) return { status: "FOUND", dossier: referenceDossier(reference) };
-
   const status = snapshot.wallet.status;
   if (status === "CONNECTED") {
     const active = activeDossier(snapshot, markets, id);
@@ -293,19 +256,12 @@ export function resolvePosition(
   return { status: "CONNECT" };
 }
 
-/** Every position the settlement center tracks: account positions first, then references. */
-export function trackedDossiers(
-  snapshot: GatewaySnapshot,
-  markets: readonly PackageMarket[],
-  references: readonly LifecycleStrategy[],
-): PositionDossier[] {
-  const account =
-    snapshot.wallet.status === "CONNECTED"
-      ? snapshot.positions
-          .map((position) => activeDossier(snapshot, markets, position.id))
-          .filter((dossier): dossier is PositionDossier => dossier !== null)
-      : [];
-  return [...account, ...references.map(referenceDossier)];
+/** Every open position the settlement center tracks, from the connected account. */
+export function trackedDossiers(snapshot: GatewaySnapshot, markets: readonly PackageMarket[]): PositionDossier[] {
+  if (snapshot.wallet.status !== "CONNECTED") return [];
+  return snapshot.positions
+    .map((position) => activeDossier(snapshot, markets, position.id))
+    .filter((dossier): dossier is PositionDossier => dossier !== null);
 }
 
 export function positionHref(id: string): string {

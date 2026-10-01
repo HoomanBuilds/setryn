@@ -1,21 +1,22 @@
-import type { GatewaySnapshot } from "@/lib/internal-gateway/types";
-import type { LifecycleStrategy } from "@/lib/lifecycle/types";
+import type { GatewaySnapshot, OnchainPositionLifecycle } from "@/lib/internal-gateway/types";
+import type { LiveMarketData, MarketDataSnapshot } from "@/lib/market-data/types";
+import { MARK_SOURCE_LABEL, finite, forwardPnl, liveIndex, markOf, markProvenance, rangeTerms } from "@/lib/portfolio/forward";
 import { positionHref, trackedDossiers, type PositionDossier } from "@/lib/positions/dossier";
 import { tradeHref } from "@/lib/terminal/markets";
 import type { PackageMarket } from "@/lib/terminal/types";
 import {
-  FIXING_WINDOW_MINUTES,
-  LONDON_HOLIDAYS,
-  fixingSchedule,
+  SCHEDULE_SOURCE_LABEL,
   formatCountdownMs,
-  formatUtcDate,
   formatUtcSession,
-  parseBoundaryTiming,
+  seriesSchedule,
+  type SeriesSchedule,
 } from "./calendar";
 import type {
   CalendarFamily,
   ExceptionSeverity,
+  FixingRecordState,
   HeldExposure,
+  InputObservation,
   ObservationGroup,
   PayoutRow,
   ReconciliationRow,
@@ -62,39 +63,82 @@ function heldFor(dossier: PositionDossier): HeldExposure {
   };
 }
 
-/** Where an open position sits on the dated settlement state machine at the feed clock. */
-export function settlementStage(market: PackageMarket, nowMs: number): SettlementStage {
-  const schedule = fixingSchedule(market);
+function lifecycleFor(snapshot: GatewaySnapshot, positionId: string): OnchainPositionLifecycle | null {
+  return snapshot.lifecycles[positionId.toLowerCase()] ?? null;
+}
+
+/** A held series' onchain lifecycle, read from the first open position in it. */
+function marketLifecycle(
+  snapshot: GatewaySnapshot,
+  dossiers: readonly PositionDossier[],
+  marketId: string,
+): OnchainPositionLifecycle | null {
+  for (const dossier of dossiers) {
+    if (dossier.marketId !== marketId) continue;
+    const lifecycle = lifecycleFor(snapshot, dossier.id);
+    if (lifecycle) return lifecycle;
+  }
+  return null;
+}
+
+/**
+ * Where an open position sits on the dated settlement state machine. The position's onchain lifecycle decides once it
+ * is read; before that the series schedule does, on the platform clock.
+ */
+export function settlementStage(
+  market: PackageMarket,
+  nowMs: number,
+  lifecycle: OnchainPositionLifecycle | null = null,
+): SettlementStage {
+  const schedule = seriesSchedule(market, lifecycle?.schedule);
+  if (lifecycle) {
+    if (lifecycle.phase === "SETTLED" || lifecycle.phase === "LAPSED") return "RECONCILED";
+    if (lifecycle.phase === "CLAIM_AVAILABLE") return "INCLUDED";
+    if (lifecycle.phase === "EXERCISED") return "PAYOUT_COMPUTED";
+    if (lifecycle.fixing.status === "DISPUTED") return "CHALLENGE_OR_FALLBACK";
+    if (lifecycle.phase === "FIXED_AWAITING_ELECTION" || lifecycle.fixing.status === "FINALIZED") return "FIXING_OBSERVED";
+    if (lifecycle.fixing.status === "PROPOSED") return "FIXING_OBSERVED";
+  }
   if (nowMs < schedule.windowOpensMs) return "LIVE";
-  if (nowMs < schedule.fixingMs) return "FIXING_WINDOW";
-  /* No fixing record source is connected, so a passed print is unavailable to this interface. */
+  if (nowMs < schedule.evidenceDeadlineMs) return "FIXING_WINDOW";
+  /* The evidence deadline passed without a committed record; the series fallback applies. */
   return "FIXING_UNAVAILABLE";
 }
 
 function families(markets: readonly PackageMarket[]): CalendarFamily[] {
   const seen = new Map<string, CalendarFamily>();
   for (const market of markets) {
-    const id = `${market.name}:${market.strategyKind}`;
+    const id = familyId(market);
     if (!seen.has(id)) seen.set(id, { id, label: market.name, underlying: market.underlying });
   }
   return [...seen.values()];
 }
 
 function familyId(market: PackageMarket): string {
-  return `${market.name}:${market.strategyKind}`;
+  return `${market.underlying}:${market.strategyKind}`;
+}
+
+function scheduleProvenance(schedule: SeriesSchedule) {
+  return schedule.source === "EXPIRY_RULE" ? ("MODELED" as const) : ("OBSERVED" as const);
+}
+
+function boundaryState(atMs: number, untilMs: number, nowMs: number): ScheduleBoundary["state"] {
+  return nowMs >= untilMs ? "PASSED" : nowMs >= atMs ? "WINDOW_OPEN" : "UPCOMING";
 }
 
 function boundaries(
+  snapshot: GatewaySnapshot,
   markets: readonly PackageMarket[],
   dossiers: readonly PositionDossier[],
   nowMs: number,
 ): ScheduleBoundary[] {
-  const rows: ScheduleBoundary[] = markets.map((market) => {
-    const schedule = fixingSchedule(market);
+  const rows: ScheduleBoundary[] = [];
+  for (const market of markets) {
     const held = dossiers.filter((dossier) => dossier.marketId === market.id && dossier.lots > 0).map(heldFor);
-    const state: ScheduleBoundary["state"] =
-      nowMs >= schedule.fixingMs ? "PASSED" : nowMs >= schedule.windowOpensMs ? "WINDOW_OPEN" : "UPCOMING";
-    return {
+    const schedule = seriesSchedule(market, marketLifecycle(snapshot, dossiers, market.id)?.schedule);
+    const provenance = scheduleProvenance(schedule);
+    const source = SCHEDULE_SOURCE_LABEL[schedule.source];
+    rows.push({
       id: `fixing-${market.id}`,
       kind: "FIXING",
       market,
@@ -103,73 +147,134 @@ function boundaries(
       atMs: schedule.fixingMs,
       timingLabel: formatUtcSession(schedule.fixingMs),
       windowOpensMs: schedule.windowOpensMs,
-      state,
+      state: boundaryState(schedule.windowOpensMs, schedule.fixingMs, nowMs),
       held,
-      adjustment: schedule.adjustment,
-      provenance: "MODELED",
-      source: `${market.fixingSource}, scheduled from series terms`,
-    };
-  });
-
-  for (const dossier of dossiers) {
-    const reference = dossier.reference;
-    if (!reference) continue;
-    const market = markets.find((candidate) => candidate.id === dossier.marketId) ?? reference.market;
-    for (const boundary of reference.boundaries) {
-      if (boundary.kind !== "FUNDING" && boundary.kind !== "REBALANCE") continue;
-      const atMs = parseBoundaryTiming(boundary.timing, nowMs);
-      rows.push({
-        id: `${dossier.id}-${boundary.id}`,
-        kind: boundary.kind,
-        market,
-        family: familyId(market),
-        label: boundary.label,
-        atMs,
-        timingLabel: boundary.timing,
-        windowOpensMs: null,
-        state: boundary.state === "WINDOW_OPEN" ? "WINDOW_OPEN" : atMs !== null && atMs <= nowMs ? "PASSED" : "UPCOMING",
-        held: [heldFor(dossier)],
-        adjustment: null,
-        provenance: "MODELED",
-        source: boundary.source,
-      });
-    }
+      provenance,
+      source: `${market.fixingSource}, ${source.toLowerCase()}`,
+    });
+    if (held.length === 0) continue;
+    rows.push({
+      id: `last-trade-${market.id}`,
+      kind: "LAST_TRADE",
+      market,
+      family: familyId(market),
+      label: "Last trade",
+      atMs: schedule.lastTradingMs,
+      timingLabel: formatUtcSession(schedule.lastTradingMs),
+      windowOpensMs: null,
+      state: boundaryState(schedule.lastTradingMs, schedule.lastTradingMs, nowMs),
+      held,
+      provenance,
+      source,
+    });
+    rows.push({
+      id: `election-${market.id}`,
+      kind: "ELECTION",
+      market,
+      family: familyId(market),
+      label: "Holder election",
+      atMs: schedule.electionOpensMs,
+      timingLabel: formatUtcSession(schedule.electionOpensMs),
+      windowOpensMs: schedule.electionOpensMs,
+      state: boundaryState(schedule.electionOpensMs, schedule.electionClosesMs, nowMs),
+      held,
+      provenance,
+      source,
+    });
   }
-
   const order = (row: ScheduleBoundary) => (row.state === "WINDOW_OPEN" ? -Infinity : (row.atMs ?? Infinity));
   return rows.sort((left, right) => order(left) - order(right));
 }
 
+function fixingState(lifecycle: OnchainPositionLifecycle | null, schedule: SeriesSchedule, nowMs: number): FixingRecordState {
+  const status = lifecycle?.fixing.status;
+  if (status === "FINALIZED" || status === "PROPOSED" || status === "DISPUTED") return status;
+  if (nowMs >= schedule.fixingMs) return "AWAITING_RECORD";
+  if (nowMs >= schedule.windowOpensMs) return "WINDOW_OPEN";
+  return "PENDING";
+}
+
+function inputs(market: PackageMarket, live: LiveMarketData | null, feed: MarketDataSnapshot | null, nowMs: number): InputObservation[] {
+  const unit = "USD";
+  const decimals = market.priceDecimals;
+  const nowSeconds = Math.floor(nowMs / 1000);
+  const snapshotAge = feed ? Math.max(0, nowSeconds - feed.asOf) : null;
+  const reference = feed?.references[market.underlying] ?? null;
+  const last = live?.trades[0] ?? null;
+  const rows: InputObservation[] = [
+    {
+      id: `${market.id}-reference`,
+      label: `${market.underlying} reference`,
+      role: "Underlying spot",
+      value: reference && finite(reference.price) ? reference.price : null,
+      unit,
+      decimals,
+      ageSeconds: reference ? Math.max(0, nowSeconds - reference.updatedAt) : null,
+      provenance: "OBSERVED",
+      source: reference ? `Chainlink aggregator, chain ${reference.chainId}` : "Chainlink reference not read",
+    },
+    {
+      id: `${market.id}-bid`,
+      label: "Best bid",
+      role: "Book touch",
+      value: live && finite(live.bestBid) ? live.bestBid : null,
+      unit,
+      decimals,
+      ageSeconds: live && finite(live.bestBid) ? snapshotAge : null,
+      provenance: "EXECUTABLE",
+      source: "Onchain public book",
+    },
+    {
+      id: `${market.id}-ask`,
+      label: "Best ask",
+      role: "Book touch",
+      value: live && finite(live.bestAsk) ? live.bestAsk : null,
+      unit,
+      decimals,
+      ageSeconds: live && finite(live.bestAsk) ? snapshotAge : null,
+      provenance: "EXECUTABLE",
+      source: "Onchain public book",
+    },
+    {
+      id: `${market.id}-last`,
+      label: "Last fill",
+      role: last ? `${last.lots} lots, ${last.side === "BUY" ? "buyer" : "seller"} aggressor` : "No fill yet",
+      value: last ? last.price : null,
+      unit,
+      decimals,
+      ageSeconds: last ? Math.max(0, nowSeconds - last.time) : null,
+      provenance: "OBSERVED",
+      source: "Clearing engine fills",
+    },
+  ];
+  return rows;
+}
+
 function observationGroups(
+  snapshot: GatewaySnapshot,
   markets: readonly PackageMarket[],
   dossiers: readonly PositionDossier[],
+  feed: MarketDataSnapshot | null,
   nowMs: number,
 ): ObservationGroup[] {
+  const live = liveIndex(feed);
   return markets
     .map((market) => {
-      const schedule = fixingSchedule(market);
-      const fixingState: ObservationGroup["fixingState"] =
-        nowMs >= schedule.fixingMs ? "AWAITING_RECORD" : nowMs >= schedule.windowOpensMs ? "WINDOW_OPEN" : "PENDING";
+      const lifecycle = marketLifecycle(snapshot, dossiers, market.id);
+      const schedule = seriesSchedule(market, lifecycle?.schedule);
+      const marketLive = live.get(market.id) ?? null;
+      const mark = markOf(marketLive);
       return {
         market,
         held: dossiers.filter((dossier) => dossier.marketId === market.id && dossier.lots > 0).map(heldFor),
         fixingMs: schedule.fixingMs,
         windowOpensMs: schedule.windowOpensMs,
-        fixingState,
-        packageMark: market.netPrice,
-        legs: market.legs.map((leg) => ({
-          id: `${market.id}-${leg.id}`,
-          instrument: leg.instrument,
-          family: leg.family,
-          side: leg.side,
-          ratio: leg.ratio,
-          value: leg.mark,
-          unit: leg.markUnit,
-          ageSeconds: market.snapshotAgeSeconds,
-          provenance: leg.venueClass === "NATIVE_BOOK" ? ("EXECUTABLE" as const) : ("OBSERVED" as const),
-          source: leg.venueClass === "NATIVE_BOOK" ? "Setryn package book" : "Qualified component observation",
-          qualification: leg.qualification,
-        })),
+        fixingState: fixingState(lifecycle, schedule, nowMs),
+        fixingValue: lifecycle && lifecycle.fixing.status !== "PENDING" ? lifecycle.fixing.value : null,
+        packageMark: mark.price,
+        markSource: mark.source,
+        markAgeSeconds: feed ? Math.max(0, Math.floor(nowMs / 1000) - feed.asOf) : null,
+        inputs: inputs(market, marketLive, feed, nowMs),
       };
     })
     .sort((left, right) => left.fixingMs - right.fixingMs);
@@ -179,16 +284,24 @@ function payouts(
   snapshot: GatewaySnapshot,
   markets: readonly PackageMarket[],
   dossiers: readonly PositionDossier[],
+  feed: MarketDataSnapshot | null,
   nowMs: number,
 ): PayoutRow[] {
+  const live = liveIndex(feed);
   const projected: PayoutRow[] = dossiers
     .filter((dossier) => dossier.lots > 0)
     .map((dossier) => {
-      const market = markets.find((candidate) => candidate.id === dossier.marketId) ?? dossier.reference?.market;
+      const market = markets.find((candidate) => candidate.id === dossier.marketId);
       if (!market) return null;
-      const direction = dossier.side === "LONG" ? 1 : -1;
-      const perPoint = dossier.lots * market.contractMultiplier;
-      const schedule = fixingSchedule(market);
+      const lifecycle = lifecycleFor(snapshot, dossier.id);
+      const terms = rangeTerms(market);
+      const perPoint = dossier.lots * terms.lotSize;
+      const schedule = seriesSchedule(market, lifecycle?.schedule);
+      const fixed = lifecycle?.fixing.status === "FINALIZED" && lifecycle.fixing.value !== null ? lifecycle.fixing.value : null;
+      const mark = markOf(live.get(market.id));
+      const level = fixed ?? mark.price;
+      const amount =
+        lifecycle?.projectedPnlUsd ?? (level === null ? 0 : forwardPnl(dossier.side, dossier.lots, dossier.entryPrice, level, terms));
       return {
         id: `projected-${dossier.id}`,
         positionId: dossier.id,
@@ -198,16 +311,16 @@ function payouts(
         side: dossier.side,
         lots: dossier.lots,
         entryPrice: dossier.entryPrice,
-        referencePrice: market.netPrice,
-        referenceLabel: "Mark",
-        amount: round2((market.netPrice - dossier.entryPrice) * perPoint * direction),
+        referencePrice: level,
+        referenceLabel: fixed !== null ? "Final fixing" : mark.price !== null ? MARK_SOURCE_LABEL[mark.source] : "No mark",
+        amount: round2(amount),
         perPoint,
         collateral: dossier.collateral,
         fees: dossier.fees,
         kind: "PROJECTED" as const,
-        stage: settlementStage(market, nowMs),
+        stage: settlementStage(market, nowMs, lifecycle),
         fixingMs: schedule.fixingMs,
-        provenance: dossier.origin === "ACCOUNT" ? ("ESTIMATED" as const) : ("MODELED" as const),
+        provenance: fixed !== null || lifecycle?.projectedPnlUsd != null ? ("OBSERVED" as const) : level === null ? ("MODELED" as const) : markProvenance(mark.source),
         atMs: schedule.fixingMs,
         receiptId: null,
       };
@@ -236,12 +349,12 @@ function payouts(
               referencePrice: receipt.price,
               referenceLabel: "Close fill",
               amount: round2(receipt.realizedPnlUsd ?? 0),
-              perPoint: lots * market.contractMultiplier,
+              perPoint: lots * rangeTerms(market).lotSize,
               collateral: receipt.collateralReleasedUsd ?? 0,
               fees: receipt.fees,
               kind: "REALIZED" as const,
               stage: null,
-              fixingMs: fixingSchedule(market).fixingMs,
+              fixingMs: seriesSchedule(market).fixingMs,
               provenance: "OBSERVED" as const,
               atMs: isoMs(receipt.createdAt),
               receiptId: receipt.id,
@@ -259,7 +372,7 @@ function reconciliation(snapshot: GatewaySnapshot, dossiers: readonly PositionDo
   const receiptIds = new Set(snapshot.receipts.map((receipt) => receipt.id.toLowerCase()));
   const rows: ReconciliationRow[] = [];
 
-  for (const dossier of dossiers.filter((candidate) => candidate.origin === "ACCOUNT")) {
+  for (const dossier of dossiers) {
     const opening = dossier.fills.find((fill) => fill.kind === "OPEN") ?? null;
     const checks = [
       { label: "Opening fill linked", ok: opening !== null },
@@ -365,120 +478,125 @@ function reconciliation(snapshot: GatewaySnapshot, dossiers: readonly PositionDo
 }
 
 function exceptions(
-  boundaryRows: readonly ScheduleBoundary[],
+  snapshot: GatewaySnapshot,
   markets: readonly PackageMarket[],
   dossiers: readonly PositionDossier[],
   recon: readonly ReconciliationRow[],
+  feed: MarketDataSnapshot | null,
   nowMs: number,
 ): SettlementException[] {
   const rows: SettlementException[] = [];
-
-  for (const boundary of boundaryRows) {
-    if (boundary.kind !== "FIXING" || !boundary.adjustment || boundary.state === "PASSED") continue;
-    const held = boundary.held.length > 0;
-    rows.push({
-      id: `calendar-${boundary.market.id}`,
-      severity: held ? "ACTION" : "NOTICE",
-      kind: "CALENDAR",
-      title: `${boundary.market.code} fixes on a closed London session`,
-      detail: `${formatUtcDate(boundary.adjustment.scheduled)} is ${boundary.adjustment.reason}. ${boundary.adjustment.rule} would move the print to ${formatUtcDate(boundary.adjustment.adjusted)}. The scheduled date stands until the series terms publish an adjustment.`,
-      nextAction: held
-        ? `Plan any roll or close to finish before ${formatUtcDate(boundary.adjustment.adjusted)}, 15:30 UTC, in case the session moves earlier.`
-        : "No position is held. Check the series terms before trading this maturity into its fixing.",
-      market: boundary.market,
-      positionId: held ? boundary.held[0].positionId : null,
-      origin: held ? boundary.held[0].origin : null,
-      provenance: "MODELED",
-      source: "LDN business calendar v1 (modeled)",
-      href: held ? positionHref(boundary.held[0].positionId) : tradeHref(boundary.market),
-      hrefLabel: held ? "Open position" : "Open market",
-      atMs: boundary.atMs,
-    });
-  }
+  const live = liveIndex(feed);
 
   for (const market of markets) {
-    if (market.qualification === "QUALIFIED") continue;
+    const status = live.get(market.id)?.seriesStatus;
+    if (!status || status === "ACTIVE" || status === "UNKNOWN") continue;
     const held = dossiers.filter((dossier) => dossier.marketId === market.id && dossier.lots > 0);
     rows.push({
-      id: `qualification-${market.id}`,
-      severity: market.qualification === "SUSPENDED" ? "CRITICAL" : held.length > 0 ? "ACTION" : "NOTICE",
-      kind: "QUALIFICATION",
-      title: `${market.code} is ${market.qualification.toLowerCase()}`,
-      detail: market.qualificationNote,
-      nextAction:
-        market.qualification === "SUSPENDED"
-          ? "Entry is closed. Existing positions keep a permissionless path to terminal settlement."
-          : held.length > 0
-            ? "Position size is capped at this tenor. Confirm the benchmark attestation before adding risk or rolling into it."
-            : "Entry is allowed with a size cap. Confirm the benchmark attestation before rolling into this tenor.",
+      id: `series-${market.id}`,
+      severity: status === "PAUSED" ? (held.length > 0 ? "ACTION" : "NOTICE") : held.length > 0 ? "ACTION" : "NOTICE",
+      kind: "SERIES_STATUS",
+      title: `${market.code} is ${status.toLowerCase()} onchain`,
+      detail:
+        status === "PAUSED"
+          ? "The series accepts no new fills while paused. Held positions keep their permissionless path to terminal settlement."
+          : status === "EXPIRED"
+            ? "The series has expired; held positions settle against the fixing."
+            : "The series is deprecated; its book takes no new risk.",
+      nextAction: held.length > 0 ? "Hold to settlement or close once the series resumes." : "No position is held in this series.",
       market,
       positionId: held[0]?.id ?? null,
       origin: held[0]?.origin ?? null,
       provenance: "OBSERVED",
-      source: "Series qualification in the preview market feed",
-      href: tradeHref(market),
-      hrefLabel: "Open market",
-      atMs: fixingSchedule(market).fixingMs,
+      source: "Series registry, onchain",
+      href: held[0] ? positionHref(held[0].id) : tradeHref(market),
+      hrefLabel: held[0] ? "Open position" : "Open market",
+      atMs: null,
     });
   }
 
   for (const dossier of dossiers.filter((candidate) => candidate.lots > 0)) {
     const market = markets.find((candidate) => candidate.id === dossier.marketId);
     if (!market) continue;
-    const schedule = fixingSchedule(market);
-    const toWindow = schedule.windowOpensMs - nowMs;
-    if (nowMs >= schedule.fixingMs) {
+    const lifecycle = lifecycleFor(snapshot, dossier.id);
+    const schedule = seriesSchedule(market, lifecycle?.schedule);
+    const source = SCHEDULE_SOURCE_LABEL[schedule.source];
+    const provenance = scheduleProvenance(schedule);
+    if (lifecycle?.phase === "FIXED_AWAITING_ELECTION" && lifecycle.holdsElection) {
+      rows.push({
+        id: `election-${dossier.id}`,
+        severity: "ACTION",
+        kind: "ELECTION",
+        title: `Elect on ${dossier.label} before ${formatUtcSession(schedule.electionClosesMs)}`,
+        detail: `The final fixing is on the position. ${lifecycle.remainingLots} lots await the holder's election.`,
+        nextAction: "Open the position and exercise, or let the series' exercise policy apply at the cutoff.",
+        market,
+        positionId: dossier.id,
+        origin: dossier.origin,
+        provenance: "OBSERVED",
+        source: "Position engine, onchain",
+        href: `${positionHref(dossier.id)}?action=settle`,
+        hrefLabel: "Open election",
+        atMs: schedule.electionClosesMs,
+      });
+      continue;
+    }
+    if (lifecycle?.phase === "CLAIM_AVAILABLE") {
+      rows.push({
+        id: `claim-${dossier.id}`,
+        severity: "ACTION",
+        kind: "CLAIM",
+        title: `A settlement claim is open on ${dossier.label}`,
+        detail: lifecycle.settlement?.claim
+          ? `${round2(lifecycle.settlement.claim.amountUsd).toLocaleString("en-US")} USDC is claimable.`
+          : "The settlement opened a claim for this account.",
+        nextAction: "Open the position and take the claim; anyone can complete it.",
+        market,
+        positionId: dossier.id,
+        origin: dossier.origin,
+        provenance: "OBSERVED",
+        source: "Settlement coordinator, onchain",
+        href: `${positionHref(dossier.id)}?action=settle`,
+        hrefLabel: "Open claim",
+        atMs: null,
+      });
+      continue;
+    }
+    const finalized = lifecycle?.fixing.status === "FINALIZED";
+    const toLastTrade = schedule.lastTradingMs - nowMs;
+    if (!finalized && nowMs >= schedule.evidenceDeadlineMs) {
       rows.push({
         id: `missing-${dossier.id}`,
         severity: "CRITICAL",
         kind: "FIXING_MISSING",
         title: `No fixing record for ${market.code}`,
-        detail: `The scheduled print at ${formatUtcSession(schedule.fixingMs)} has passed and no committed fixing record is available to this interface.`,
-        nextAction: "Terminal settlement completes permissionlessly once the fixing is committed. Inspect the series oracle state from operations.",
+        detail: `The evidence deadline at ${formatUtcSession(schedule.evidenceDeadlineMs)} has passed and no committed fixing record is on the position.`,
+        nextAction: "Terminal settlement completes permissionlessly once the fixing is committed, or through the series fallback.",
         market,
         positionId: dossier.id,
         origin: dossier.origin,
-        provenance: "OBSERVED",
+        provenance: lifecycle ? "OBSERVED" : provenance,
         source: market.fixingSource,
         href: positionHref(dossier.id),
         hrefLabel: "Open position",
-        atMs: schedule.fixingMs,
+        atMs: schedule.evidenceDeadlineMs,
       });
-    } else if (toWindow <= 7 * DAY_MS) {
+    } else if (toLastTrade > 0 && toLastTrade <= 7 * DAY_MS) {
       rows.push({
         id: `proximity-${dossier.id}`,
         severity: "ACTION",
         kind: "FIXING_PROXIMITY",
-        title: `${dossier.label} enters its fixing window in ${formatCountdownMs(toWindow)}`,
-        detail: `${dossier.lots} lots ${dossier.side.toLowerCase()} settle in cash at ${market.fixingSource}. The ${FIXING_WINDOW_MINUTES}-minute observation window opens ${formatUtcSession(schedule.windowOpensMs)}.`,
-        nextAction: "Roll to the next maturity or close before the window opens, or hold to cash settlement.",
+        title: `${dossier.label} stops trading in ${formatCountdownMs(toLastTrade)}`,
+        detail: `${dossier.lots} lots ${dossier.side.toLowerCase()} settle in cash at ${market.fixingSource}. The ${schedule.windowMinutes}-minute fixing window opens ${formatUtcSession(schedule.windowOpensMs)}.`,
+        nextAction: "Roll to the next maturity or close before the last trade, or hold to cash settlement.",
         market,
         positionId: dossier.id,
         origin: dossier.origin,
-        provenance: "MODELED",
-        source: "Series terms schedule",
+        provenance,
+        source,
         href: `${positionHref(dossier.id)}?action=roll`,
         hrefLabel: "Review roll",
-        atMs: schedule.windowOpensMs,
-      });
-    }
-    for (const boundary of dossier.reference?.boundaries ?? []) {
-      if (boundary.state !== "WINDOW_OPEN") continue;
-      rows.push({
-        id: `window-${dossier.id}-${boundary.id}`,
-        severity: "ACTION",
-        kind: "WINDOW",
-        title: `${boundary.label} open on ${dossier.label}`,
-        detail: `${boundary.source}. Window ${boundary.dueLabel}, ${boundary.timing}.`,
-        nextAction: dossier.reference?.healthDetail ?? "Review the position before the window closes.",
-        market,
-        positionId: dossier.id,
-        origin: dossier.origin,
-        provenance: "MODELED",
-        source: boundary.source,
-        href: positionHref(dossier.id),
-        hrefLabel: "Open position",
-        atMs: parseBoundaryTiming(boundary.timing, nowMs),
+        atMs: schedule.lastTradingMs,
       });
     }
   }
@@ -515,26 +633,27 @@ function exceptions(
 export function settlementCenter({
   snapshot,
   markets,
-  references,
+  feed,
   nowMs,
 }: {
   snapshot: GatewaySnapshot;
   markets: readonly PackageMarket[];
-  references: readonly LifecycleStrategy[];
+  /** One market-data snapshot, so marks, books and references agree. */
+  feed: MarketDataSnapshot | null;
   nowMs: number;
 }): SettlementCenter {
-  const dossiers = trackedDossiers(snapshot, markets, references);
-  const boundaryRows = boundaries(markets, dossiers, nowMs);
-  const payoutRows = payouts(snapshot, markets, dossiers, nowMs);
+  const dossiers = trackedDossiers(snapshot, markets);
+  const boundaryRows = boundaries(snapshot, markets, dossiers, nowMs);
+  const payoutRows = payouts(snapshot, markets, dossiers, feed, nowMs);
   const reconRows = reconciliation(snapshot, dossiers);
-  const exceptionRows = exceptions(boundaryRows, markets, dossiers, reconRows, nowMs);
+  const exceptionRows = exceptions(snapshot, markets, dossiers, reconRows, feed, nowMs);
 
   const stages = Object.fromEntries(SETTLEMENT_STAGES.map((stage) => [stage, 0])) as Record<SettlementStage, number>;
   for (const row of payoutRows) if (row.kind === "PROJECTED" && row.stage) stages[row.stage] += 1;
 
   const upcomingFixings = boundaryRows.filter((row) => row.kind === "FIXING" && row.state !== "PASSED");
   const heldFixings = upcomingFixings.filter((row) => row.held.length > 0);
-  const projectedAccount = payoutRows.filter((row) => row.kind === "PROJECTED" && row.origin === "ACCOUNT");
+  const projectedAccount = payoutRows.filter((row) => row.kind === "PROJECTED");
   const realizedRows = payoutRows.filter((row) => row.kind === "REALIZED");
   const exceptionCounts: Record<ExceptionSeverity, number> = { CRITICAL: 0, ACTION: 0, NOTICE: 0 };
   for (const row of exceptionRows) exceptionCounts[row.severity] += 1;
@@ -543,12 +662,10 @@ export function settlementCenter({
   return {
     nowMs,
     accountConnected,
-    accountPositions: dossiers.filter((dossier) => dossier.origin === "ACCOUNT").length,
-    referencePositions: dossiers.filter((dossier) => dossier.origin === "REFERENCE").length,
+    accountPositions: dossiers.length,
     families: families(markets),
-    holidays: LONDON_HOLIDAYS,
     boundaries: boundaryRows,
-    observations: observationGroups(markets, dossiers, nowMs),
+    observations: observationGroups(snapshot, markets, dossiers, feed, nowMs),
     payouts: payoutRows,
     reconciliation: reconRows,
     exceptions: exceptionRows,
@@ -559,11 +676,6 @@ export function settlementCenter({
       heldSeries: heldFixings.length,
       heldWithin30d: heldFixings.filter((row) => (row.atMs ?? Infinity) - nowMs <= 30 * DAY_MS).length,
       projectedAccount: accountConnected ? round2(projectedAccount.reduce((total, row) => total + row.amount, 0)) : null,
-      projectedReference: round2(
-        payoutRows
-          .filter((row) => row.kind === "PROJECTED" && row.origin === "REFERENCE")
-          .reduce((total, row) => total + row.amount, 0),
-      ),
       realized: accountConnected ? round2(realizedRows.reduce((total, row) => total + row.amount, 0)) : null,
       realizedCount: realizedRows.length,
       reconMatched: reconRows.filter((row) => row.status === "MATCHED").length,

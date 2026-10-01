@@ -15,7 +15,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { useGatewaySnapshot, useInternalGateway } from "@/components/gateway/InternalGatewayProvider";
-import { usePreviewBoard } from "@/components/terminal/PreviewMarketProvider";
+import { useMarketBoard } from "@/components/market-data/MarketDataProvider";
 import { SourceMark } from "@/components/terminal/primitives";
 import {
   BUTTON_INK,
@@ -32,20 +32,20 @@ import {
 import { StepTimeline, type TimelineStep } from "@/components/activity/StepTimeline";
 import { ProvenanceChip } from "@/components/auctions/board-kit";
 import { Flash, Row, Stepper } from "@/components/strategies/desk/Desk";
-import { PARTICIPANTS } from "@/lib/solver/roster";
 import { GUARANTEE_COPY, RECOVERY_COPY, SLIPPAGE_PRESETS_BPS, routePrice } from "@/lib/terminal/economics";
 import { formatLots, formatNumber, formatUsd, priceUnitSuffix } from "@/lib/terminal/format";
 import { parseHandoff } from "@/lib/terminal/handoff";
 import { MARKETS, packageLabel, tradeHref } from "@/lib/terminal/markets";
 import type { PackageMarket } from "@/lib/terminal/types";
+import { rangeTerms } from "@/lib/portfolio/forward";
 import { RfqStages } from "./RfqStages";
 import {
   AUTHORIZATION_LIFETIME_SECONDS,
-  DEVNET_MAX_LOTS,
   WINDOW_OPTIONS,
   blockingChecks,
   deriveOrder,
   initialDraft,
+  maxLotsFor,
   preflight,
   type BuilderDraft,
   type CheckFix,
@@ -167,10 +167,17 @@ function unit(market: PackageMarket): string {
 }
 
 function price(value: number, market: PackageMarket): string {
-  return formatNumber(value, market.priceDecimals);
+  return Number.isFinite(value) ? formatNumber(value, market.priceDecimals) : "—";
+}
+
+/** Consideration a fill at `level` exchanges: lots x lot size x (level - floor). */
+function consideration(level: number, lots: number, market: PackageMarket): number {
+  const terms = rangeTerms(market);
+  return Math.abs(level - (terms.floor ?? 0)) * terms.lotSize * lots;
 }
 
 function signed(value: number, market: PackageMarket): string {
+  if (!Number.isFinite(value)) return "—";
   const rounded = Number(value.toFixed(market.priceDecimals));
   return `${rounded > 0 ? "+" : rounded < 0 ? "-" : "±"}${formatNumber(Math.abs(rounded), market.priceDecimals)}`;
 }
@@ -234,7 +241,7 @@ function PackagePicker({
         {visible.length === 0 ? <p className="px-3 py-6 text-center text-xs text-faint">No package matches.</p> : null}
         {visible.map((market) => {
           const selected = market.id === selectedId;
-          const route = market.routes.find((candidate) => candidate.id === "SOLVER_RFQ") ?? null;
+          const resting = Number.isFinite(market.bestBid) || Number.isFinite(market.bestAsk);
           const onchain = onchainMarketIds.has(market.id);
           return (
             <button
@@ -259,18 +266,18 @@ function PackagePicker({
                 <span className="ml-1 text-[10px] text-faint">{unit(market)}</span>
               </span>
               <span className="tnum hidden text-right font-mono text-[11px] text-dim sm:block">
-                {route ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    <SourceMark source="SOLVER_FIRM" />
-                    {`${price(route.exitPrice, market)} / ${price(route.enterPrice, market)}`}
+                {resting ? (
+                  <span className="inline-flex items-center gap-1.5" title="Best bid / best offer on the public book">
+                    <SourceMark source="DIRECT" />
+                    {`${price(market.bestBid, market)} / ${price(market.bestAsk, market)}`}
                   </span>
                 ) : (
-                  <span className="text-faint">No solver route</span>
+                  <span className="text-faint">No resting orders</span>
                 )}
               </span>
               <span className="col-span-2 flex flex-wrap items-center gap-1 sm:col-span-1 sm:justify-end">
                 <Chip tone={onchain ? "up" : "muted"} dot>
-                  {onchain ? "Onchain" : "Reference"}
+                  {onchain ? "Onchain" : "Not listed"}
                 </Chip>
                 {market.qualification !== "QUALIFIED" ? (
                   <Chip tone={market.qualification === "SUSPENDED" ? "down" : "neutral"}>
@@ -286,20 +293,32 @@ function PackagePicker({
   );
 }
 
+/** The range forward's contract terms, from the listing. */
+function summaryTerms(market: PackageMarket): { label: string; value: string }[] {
+  const terms = rangeTerms(market);
+  const base = market.underlying.split("/")[0];
+  return [
+    { label: "Lot size", value: `${formatNumber(terms.lotSize, terms.lotSize < 1 ? 4 : 0)} ${base}` },
+    {
+      label: "Payoff floor / cap",
+      value: terms.floor === null || terms.cap === null ? "Not published" : `${price(terms.floor, market)} / ${price(terms.cap, market)} ${unit(market)}`,
+    },
+    { label: "Tick", value: `${formatNumber(market.tickSize, market.priceDecimals)} ${unit(market)}` },
+  ];
+}
+
 function PackageSummary({ market }: { market: PackageMarket }) {
   return (
     <div className={`grid gap-2 rounded-md border border-line bg-inset px-3 py-2.5 ${motion.fade}`} key={market.id}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <span className="text-xs text-ink">{market.strategyLabel}</span>
-        <span className="tnum font-mono text-[11px] text-faint">{`Expires ${market.expiryIso} · ${market.settlementClass === "CASH_USDC_NDF" ? "NDF cash" : "Cash"} ${market.settlementAsset}`}</span>
+        <span className="tnum font-mono text-[11px] text-faint">{`Expires ${market.expiryIso.slice(0, 10)} · Cash ${market.settlementAsset}`}</span>
       </div>
       <ul className="grid gap-1">
-        {market.legs.map((leg) => (
-          <li key={leg.id} className="grid grid-cols-[40px_22px_minmax(0,1fr)_auto] items-center gap-2 text-[11px]">
-            <span className={leg.side === "BUY" ? "text-up" : "text-down"}>{leg.side === "BUY" ? "Buy" : "Sell"}</span>
-            <span className="tnum font-mono text-faint">{`${leg.ratio}x`}</span>
-            <span className="truncate text-dim">{leg.instrument}</span>
-            <span className="tnum font-mono text-faint">{`${formatNumber(leg.mark, leg.markUnit === "USD" ? 2 : 1)} ${leg.markUnit === "BP" ? "bp" : leg.markUnit === "PTS" ? "pts" : "USD"}`}</span>
+        {summaryTerms(market).map((row) => (
+          <li key={row.label} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 text-[11px]">
+            <span className="truncate text-dim">{row.label}</span>
+            <span className="tnum font-mono text-faint">{row.value}</span>
           </li>
         ))}
       </ul>
@@ -384,43 +403,50 @@ function Economics({
   available: number;
   connected: boolean;
 }) {
-  const { market, preview, route, action, limit, expectedPrice } = order;
+  const { market, preview, route, action, limit, expectedPrice, expectedSource } = order;
   const isExit = draft.intent === "EXIT";
   const headroom = action === "BUY" ? limit - expectedPrice : expectedPrice - limit;
-  const bound = (isExit ? 0 : preview.totalCollateral) + preview.totalFees;
+  const anchorLabel =
+    expectedSource === "BOOK"
+      ? `Book ${action === "BUY" ? "offer" : "bid"}, onchain`
+      : expectedSource === "MARK"
+        ? market.markSource === "REFERENCE"
+          ? "Chainlink reference mark"
+          : "Live mark"
+        : "No quote yet";
+  const bound = (isExit ? 0 : preview.totalCollateral) + (Number.isFinite(preview.totalFees) ? preview.totalFees : 0);
   const alternatives = market.routes.filter((candidate) => candidate.id !== "SOLVER_RFQ");
   const solverFee = preview.counterpartyFee;
   return (
     <Panel className={motion.mount} label="Live economics">
-      <PanelHeader right={<ProvenanceChip value="ESTIMATED" title="Calculated from the shared index feed and the terminal's fee and collateral rules. Makers quote their own prices." />}>
+      <PanelHeader right={<ProvenanceChip value="ESTIMATED" title="Calculated from live market data and the terminal's fee and collateral rules. Makers quote their own prices." />}>
         <PanelTitle>Economics</PanelTitle>
       </PanelHeader>
       <div className="grid grid-cols-2 gap-3 border-b border-line px-4 py-3">
         <div className="min-w-0">
-          <div className="text-[11px] text-faint">Expected quote</div>
+          <div className="text-[11px] text-faint">Live price</div>
           <div className="mt-0.5 flex items-baseline gap-1.5">
             <span className="tnum font-serif text-[26px] leading-8 text-ink">
               <Flash value={expectedPrice}>{price(expectedPrice, market)}</Flash>
             </span>
             <span className="text-xs text-faint">{unit(market)}</span>
           </div>
-          <div className="mt-0.5 text-[11px] text-faint">{route ? "Solver firm row, index feed" : "Touch, no solver route"}</div>
+          <div className="mt-0.5 text-[11px] text-faint">{anchorLabel}</div>
         </div>
         <div className="min-w-0 text-right">
           <div className="text-[11px] text-faint">Your limit</div>
           <div className="tnum mt-0.5 font-serif text-[26px] leading-8 text-ink">{limit > 0 ? price(limit, market) : "—"}</div>
-          <div className={`tnum mt-0.5 font-mono text-[11px] ${headroom >= 0 ? "text-dim" : "text-down"}`}>
-            {limit > 0 ? `${signed(headroom, market)} ${unit(market)} headroom` : "Enter a limit"}
+          <div className={`tnum mt-0.5 font-mono text-[11px] ${!Number.isFinite(headroom) || headroom >= 0 ? "text-dim" : "text-down"}`}>
+            {limit > 0 ? (Number.isFinite(headroom) ? `${signed(headroom, market)} ${unit(market)} headroom` : "No live price to compare") : "Enter a limit"}
           </div>
         </div>
       </div>
       <div className="px-4 py-2">
         <Row label="Direction" value={`${action === "BUY" ? "Buy" : "Sell"} ${formatLots(preview.requestedLots)} lots`} tone={action === "BUY" ? "up" : "down"} />
-        <Row label="Notional" value={formatUsd(preview.notional, 0)} />
-        <Row label="Package value at limit" value={limit > 0 ? formatUsd(limit * market.contractMultiplier * preview.requestedLots, 2) : "—"} />
-        <Row label="Protocol fee" value={formatUsd(preview.protocolFee, 2)} />
-        <Row label={preview.counterpartyFeeLabel} value={formatUsd(solverFee, 2)} />
-        <Row label="Fee cap signed" value={formatUsd(preview.totalFees, 2)} />
+        <Row label="Consideration at limit" value={limit > 0 ? formatUsd(consideration(limit, preview.requestedLots, market), 2) : "—"} />
+        <Row label="Protocol fee" value={Number.isFinite(preview.protocolFee) ? formatUsd(preview.protocolFee, 2) : "Fee schedule not read"} />
+        <Row label={preview.counterpartyFeeLabel} value={Number.isFinite(solverFee) ? formatUsd(solverFee, 2) : "—"} />
+        <Row label="Fee cap signed" value={Number.isFinite(preview.totalFees) ? formatUsd(preview.totalFees, 2) : "—"} />
         <Row label="Collateral bound" value={isExit ? "None, exit" : formatUsd(preview.totalCollateral, 2)} />
         <Row label="Total reserved" value={formatUsd(bound, 2)} tone="neutral" className="border-t border-line pt-1" />
         <Row
@@ -440,9 +466,10 @@ function Economics({
           <ul className="mt-1.5 grid gap-1.5">
             {alternatives.map((candidate) => {
               const alternativePrice = routePrice(candidate, action);
-              const diff = action === "BUY" ? alternativePrice - expectedPrice : expectedPrice - alternativePrice;
-              const dollars = diff * market.contractMultiplier * preview.requestedLots;
-              const short = candidate.availableLots < preview.requestedLots;
+              const capacity = (action === "BUY" ? candidate.enterLots : candidate.exitLots) ?? candidate.availableLots;
+              const diff = limit > 0 ? (action === "BUY" ? alternativePrice - limit : limit - alternativePrice) : Number.NaN;
+              const dollars = diff * rangeTerms(market).lotSize * preview.requestedLots;
+              const short = capacity < preview.requestedLots;
               return (
                 <li key={candidate.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 text-[11px]">
                   <span className="flex min-w-0 items-center gap-1.5 text-dim">
@@ -451,9 +478,15 @@ function Economics({
                   </span>
                   <span className="tnum text-right font-mono text-ink">{`${price(alternativePrice, market)} ${unit(market)}`}</span>
                   <span className="col-span-2 flex justify-between text-faint">
-                    <span>{short ? `Only ${candidate.availableLots} lots executable` : GUARANTEE_COPY[candidate.guarantee].label}</span>
+                    <span>
+                      {!Number.isFinite(alternativePrice)
+                        ? "No resting orders on this side"
+                        : short
+                          ? `Only ${capacity} lots executable`
+                          : GUARANTEE_COPY[candidate.guarantee].label}
+                    </span>
                     <span className={`tnum font-mono ${dollars > 0 ? "text-up" : dollars < 0 ? "text-down" : ""}`}>
-                      {route ? `${dollars >= 0 ? "RFQ saves" : "RFQ costs"} ${formatUsd(Math.abs(dollars), 2)}` : ""}
+                      {route && Number.isFinite(dollars) ? `${dollars >= 0 ? "Limit beats book by" : "Book beats limit by"} ${formatUsd(Math.abs(dollars), 2)}` : ""}
                     </span>
                   </span>
                 </li>
@@ -488,7 +521,7 @@ function BuilderContent() {
   const searchParams = useSearchParams();
   const gateway = useInternalGateway();
   const snapshot = useGatewaySnapshot();
-  const { markets } = usePreviewBoard();
+  const { markets } = useMarketBoard();
   const nowMs = useNow();
   const handoff = useMemo(() => parseHandoff(searchParams), [searchParams]);
   const marketParam = searchParams.get("market");
@@ -652,7 +685,6 @@ function BuilderContent() {
   const orderValid = !checks.some((check) => ["route", "size", "fill", "order", "position", "qualification"].includes(check.id) && check.state === "block");
   const inviteValid = draft.invitation === "QUALIFIED_SET" && draft.disclosure === "ANONYMOUS";
   const handoffShown = handoff.present || marketParam !== null;
-  const directedMakers = PARTICIPANTS.filter((participantEntry) => participantEntry.source === "MODELED");
 
   return (
     <main className="scroll-thin min-h-0 flex-1 overflow-y-auto bg-app p-1 pb-24 lg:pb-1">
@@ -674,10 +706,6 @@ function BuilderContent() {
               <EnvironmentChip />
               <Link href="/rfqs" className={BUTTON_QUIET}>
                 RFQ ledger
-              </Link>
-              <Link href="/rfqs/sample" className={BUTTON_QUIET}>
-                See a walkthrough
-                <ArrowUpRight size={12} aria-hidden="true" />
               </Link>
             </div>
           </div>
@@ -774,7 +802,11 @@ function BuilderContent() {
                 )}
                 <Field
                   label="Size"
-                  hint={onchainMarketIds.has(market.id) ? `Runtime authorizes 1 to ${snapshot.onchainMarkets[market.id]?.maxOrderLots ?? DEVNET_MAX_LOTS} lots` : `${formatUsd(market.notionalPerLot, 0)} per lot`}
+                  hint={(() => {
+                    const maxLots = maxLotsFor(market, snapshot);
+                    const perLot = Number.isFinite(market.notionalPerLot) ? `${formatUsd(market.notionalPerLot, 0)} underlying per lot` : null;
+                    return maxLots !== null ? `1 to ${maxLots} lots per order${perLot ? ` · ${perLot}` : ""}` : (perLot ?? "Whole lots");
+                  })()}
                 >
                   <div className="flex gap-2">
                     <Stepper
@@ -851,17 +883,27 @@ function BuilderContent() {
                         suffix={unit(market)}
                         className="w-48"
                       />
-                      <button type="button" onClick={() => patch({ fixedLimit: order.expectedPrice.toFixed(market.priceDecimals) })} className={`${BUTTON_QUIET} h-7 px-2 text-[11px]`}>
-                        Solver price
+                      <button
+                        type="button"
+                        disabled={!Number.isFinite(order.expectedPrice)}
+                        onClick={() => patch({ fixedLimit: order.expectedPrice.toFixed(market.priceDecimals) })}
+                        className={`${BUTTON_QUIET} h-7 px-2 text-[11px]`}
+                      >
+                        Live price
                       </button>
-                      <button type="button" onClick={() => patch({ fixedLimit: market.netPrice.toFixed(market.priceDecimals) })} className={`${BUTTON_QUIET} h-7 px-2 text-[11px]`}>
+                      <button
+                        type="button"
+                        disabled={!Number.isFinite(market.netPrice)}
+                        onClick={() => patch({ fixedLimit: market.netPrice.toFixed(market.priceDecimals) })}
+                        className={`${BUTTON_QUIET} h-7 px-2 text-[11px]`}
+                      >
                         Mark
                       </button>
                     </div>
                   )}
                   <div className="tnum mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-faint">
                     <span>
-                      {"Solver "}
+                      {"Live "}
                       <span className="text-dim">
                         <Flash value={order.expectedPrice}>{price(order.expectedPrice, market)}</Flash>
                       </span>
@@ -876,7 +918,7 @@ function BuilderContent() {
                         <Flash value={market.netPrice}>{price(market.netPrice, market)}</Flash>
                       </span>
                     </span>
-                    <span className="font-sans">Index feed</span>
+                    <span className="font-sans">Onchain book and fills</span>
                   </div>
                 </div>
                 <Field label="Firmness requirement" hint="Every quote must be firm and capacity-backed">
@@ -928,7 +970,7 @@ function BuilderContent() {
                     selected={draft.invitation === "QUALIFIED_SET"}
                     onSelect={() => patch({ invitation: "QUALIFIED_SET" })}
                     title="All qualified makers"
-                    detail="The runtime's committed eligible-maker set. It currently holds one maker, Setryn MM."
+                    detail="The deployment's committed eligible-maker set. Every qualified maker can answer."
                     badge={<Chip tone="up">Registered</Chip>}
                   />
                   <OptionCard
@@ -939,36 +981,9 @@ function BuilderContent() {
                     badge={<Chip tone="muted">Not registered</Chip>}
                   />
                   {draft.invitation === "DIRECTED" ? (
-                    <div className={`mt-1 rounded-md border border-line ${motion.fade}`}>
-                      <div className="flex items-center justify-between gap-2 border-b border-line px-2.5 py-1.5">
-                        <span className="text-[11px] text-faint">{`${draft.directed.length} selected`}</span>
-                        <ProvenanceChip value="MODELED" title="Maker roster modeled from the market fixtures; not a registered maker set." />
-                      </div>
-                      <ul className="scroll-thin max-h-44 overflow-y-auto">
-                        {directedMakers.map((maker) => {
-                          const checked = draft.directed.includes(maker.id);
-                          return (
-                            <li key={maker.id}>
-                              <label className="flex cursor-pointer items-center gap-2 px-2.5 py-1.5 text-xs hover:bg-raised/40">
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={() =>
-                                    patch({
-                                      directed: checked ? draft.directed.filter((id) => id !== maker.id) : [...draft.directed, maker.id],
-                                    })
-                                  }
-                                  className="accent-[var(--color-brand)]"
-                                />
-                                <span className="min-w-0 flex-1 truncate text-ink">{maker.label}</span>
-                                <span className="shrink-0 text-[10px] text-faint">{maker.kind === "SOLVER" ? "Solver" : "Maker"}</span>
-                                {maker.qualification === "CONDITIONAL" ? <span className="shrink-0 text-[10px] text-brand">Conditional</span> : null}
-                              </label>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
+                    <p className={`mt-1 rounded-md border border-line px-2.5 py-2 text-[11px] leading-snug text-faint ${motion.fade}`}>
+                      No other maker set is registered in this deployment, so a chosen set cannot be committed yet.
+                    </p>
                   ) : null}
                 </div>
                 <div className="grid content-start gap-1.5">

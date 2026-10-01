@@ -1,4 +1,5 @@
 import type { CollateralAsset } from "@/lib/terminal/account";
+import type { MarkSource } from "@/lib/market-data/types";
 import type {
   PackageMarket,
   PnlAttribution,
@@ -11,7 +12,7 @@ export type RiskDomainId = "CRYPTO_CARRY" | "CRYPTO_BASIS" | "MACRO_FORWARD";
 
 export type GroupBy = "STRATEGY" | "UNDERLYING" | "EXPIRY" | "DOMAIN";
 
-/** The authored components plus the price term derived from entry against mark. */
+/** The fee and carry components plus the price term derived from entry against mark. */
 export interface PnlBreakdown extends PnlAttribution {
   price: number;
   total: number;
@@ -24,34 +25,38 @@ export interface Position {
   label: string;
   side: PositionSide;
   state: PositionState;
-  /** Authored magnitude. Direction lives in `side` and in `signedLots`. */
+  /** Lot count. Direction lives in `side` and in `signedLots`. */
   lots: number;
-  /** Negative for a short book, so every size reads with its own sign. */
+  /** Negative for a short, so every size reads with its own sign. */
   signedLots: number;
+  /** Underlying units the position moves with (lots x lot size), signed; zero outside the payoff range. */
+  signedUnits: number;
+  /** Forward level the position opened at, in USD. */
   entryPrice: number;
-  markPrice: number;
-  /** Short books carry the sign, so net and gross exposure differ. */
+  /** Live forward level from the market-data feed; null while the market has no quote, fill or reference. */
+  markPrice: number | null;
+  markSource: MarkSource;
+  /** USD value of the underlying units at the mark (entry while unmarked), signed by side. */
   signedNotional: number;
   grossNotional: number;
+  /** Collateral the position locks onchain: its bounded terminal liability. */
   collateral: number;
   initialMargin: number;
   maintenanceMargin: number;
   pnl: PnlBreakdown;
-  /** Collateral plus profit and loss, which is what the buffer is measured on. */
+  /** Collateral plus price PnL: what the position returns if the fixing prints at the mark. */
   equity: number;
-  bufferUsdc: number;
-  bufferShare: number;
-  /** Adverse package-price move absorbed before the maintenance floor breaks. */
-  bufferPoints: number;
-  /** Null when that move runs through zero, so no quoted level can trigger it. */
-  liquidationPrice: number | null;
+  /** What the position can still lose if the fixing prints at its adverse bound, never below zero. */
+  atRisk: number;
+  /** Adverse payoff bound (the floor for a long, the cap for a short); null when the listing omits it. */
+  boundLevel: number | null;
   domain: RiskDomainId;
   daysToExpiry: number;
   nextEvent: string;
   href: string;
   /** Terminal handoff for exiting an active account position. */
   exitHref?: string;
-  source?: "ONCHAIN_RUNTIME" | "REFERENCE_OBSERVATION";
+  source?: "ONCHAIN_RUNTIME";
   provenance?: string;
   receiptId?: string;
 }
@@ -83,6 +88,7 @@ export interface LadderRung {
   positions: Position[];
   lots: number;
   collateralRelease: number;
+  /** Price PnL settled at the fixing if it prints at today's marks. */
   residualCash: number;
   netCash: number;
   availableAfter: number;
@@ -93,7 +99,7 @@ export interface StressScenario {
   id: string;
   label: string;
   narrative: string;
-  /** Relative move applied to the package price of every market in the domain. */
+  /** Relative move applied to the forward level of every market in the domain. */
   moves: Record<RiskDomainId, number>;
 }
 
@@ -121,8 +127,10 @@ export interface AccountSummary {
   eligible: number;
   reserved: number;
   available: number;
+  /** Collateral the account's positions and resting orders lock: their bounded terminal liability. */
   initialMargin: number;
   maintenanceMargin: number;
+  /** Collateral equity over the locked liability; 0 when nothing is locked. */
   healthFactor: number;
   marginUsage: number;
   stressHeadroom: number;

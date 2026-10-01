@@ -58,7 +58,7 @@ export function SettlementPipeline({ center, className = "" }: { center: Settlem
       </ol>
       <div className="mt-auto border-t border-line px-3 py-2.5 lg:px-4">
         <p className="text-[11px] leading-relaxed text-faint">
-          Counts cover open positions, account and reference. Success is claimed only at Reconciled, never at signature or broadcast.
+          Counts cover the account&apos;s open positions. Success is claimed only at Reconciled, never at signature or broadcast.
         </p>
         <ProvenanceLegend className="mt-2" />
       </div>

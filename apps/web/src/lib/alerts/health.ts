@@ -1,12 +1,12 @@
 import type { GatewaySnapshot } from "@/lib/internal-gateway/types";
-import { OPERATIONS_FIXTURE } from "@/lib/operations/fixture";
-import type { DependencyHealth, HealthState, OperationsSnapshot } from "@/lib/operations/types";
+import type { MarketDataSnapshot, MarketFeedStatus } from "@/lib/market-data/types";
+import { platformNow } from "@/lib/terminal/clock";
 import { formatNumber } from "@/lib/terminal/format";
 import type { AlertProvenance } from "./types";
 
-/** Body of `GET /api/internal/devnet/status` when the local runtime answers. */
-export interface DevnetProbe {
-  environment: "LOCAL_DEVNET";
+/** Body of `GET /api/internal/operator/status` when the network runtime answers. */
+export interface OperatorProbe {
+  environment: string;
   chainId: number;
   blockNumber: string;
   checkedAt: string;
@@ -15,7 +15,13 @@ export interface DevnetProbe {
 }
 
 /** PENDING before the first probe returns; UNREACHABLE when the probe failed. */
-export type DevnetReading = { state: "PENDING" } | { state: "UNREACHABLE"; checkedAt: number } | { state: "OK"; probe: DevnetProbe };
+export type OperatorReading =
+  | { state: "PENDING" }
+  | { state: "UNREACHABLE"; checkedAt: number }
+  | { state: "OK"; probe: OperatorProbe };
+
+/** The status probe route. */
+export const OPERATOR_STATUS_PATH = "/api/internal/operator/status";
 
 export type HealthTone = "HEALTHY" | "DEGRADED" | "UNAVAILABLE" | "CHECKING";
 
@@ -31,58 +37,104 @@ export interface HealthRow {
   href: string | null;
 }
 
-function fromState(state: HealthState): HealthTone {
-  return state;
+/** The market-data feed as `useMarketBoard()` reports it. */
+export interface FeedReading {
+  status: MarketFeedStatus;
+  snapshot: MarketDataSnapshot | null;
 }
 
-function dependency(operations: OperationsSnapshot, id: string): DependencyHealth | undefined {
-  return operations.dependencies.find((item) => item.id === id);
+/** A Chainlink round older than this reads as degraded; aggregators heartbeat within a day. */
+const REFERENCE_STALE_SECONDS = 26 * 3_600;
+
+function ageLabel(seconds: number): string {
+  if (seconds < 120) return `${Math.max(0, Math.round(seconds))}s`;
+  if (seconds < 7_200) return `${Math.round(seconds / 60)}m`;
+  return `${Math.round(seconds / 3_600)}h`;
 }
 
-function recorded(
-  id: HealthRow["id"],
-  label: string,
-  item: DependencyHealth | undefined,
-  fallback: string,
-): HealthRow {
-  if (!item) {
-    return { id, label, state: "UNAVAILABLE", value: "Not recorded", detail: fallback, provenance: "RECORDED_FIXTURE", freshness: null, href: "/operations" };
+function oracleRow(feed: FeedReading | undefined, nowSeconds: number): HealthRow {
+  const references = Object.values(feed?.snapshot?.references ?? {});
+  if (!feed || feed.status === "LOADING") {
+    return { id: "oracle", label: "Oracle", state: "CHECKING", value: "Reading", detail: "Reading Chainlink references through the market-data feed.", provenance: "OBSERVED", freshness: null, href: null };
   }
+  if (references.length === 0) {
+    return {
+      id: "oracle",
+      label: "Oracle",
+      state: "UNAVAILABLE",
+      value: "Not read",
+      detail: "The market-data feed returned no Chainlink reference. Marks fall back to the book and fills.",
+      provenance: "OBSERVED",
+      freshness: null,
+      href: null,
+    };
+  }
+  const oldest = references.reduce((worst, quote) => (quote.updatedAt < worst.updatedAt ? quote : worst));
+  const age = nowSeconds - oldest.updatedAt;
   return {
-    id,
-    label,
-    state: fromState(item.state),
-    value: item.checkpoint,
-    detail: `${item.label}: ${item.detail}`,
-    provenance: "RECORDED_FIXTURE",
-    freshness: `${item.freshness.ageLabel} / ${item.freshness.thresholdLabel}`,
-    href: "/operations",
+    id: "oracle",
+    label: "Oracle",
+    state: age > REFERENCE_STALE_SECONDS ? "DEGRADED" : "HEALTHY",
+    value: `${references.length} Chainlink feed${references.length === 1 ? "" : "s"}`,
+    detail: `Oldest round: ${oldest.underlying} at ${formatNumber(oldest.price, oldest.price < 10 ? 4 : 2)}, chain ${oldest.chainId}.`,
+    provenance: "OBSERVED",
+    freshness: `${ageLabel(age)} / ${ageLabel(REFERENCE_STALE_SECONDS)}`,
+    href: null,
+  };
+}
+
+function feedRow(feed: FeedReading | undefined, nowSeconds: number): HealthRow {
+  if (!feed || feed.status === "LOADING") {
+    return { id: "indexer", label: "Market data", state: "CHECKING", value: "Loading", detail: "Reading books, fills and references at one block.", provenance: "OBSERVED", freshness: null, href: null };
+  }
+  if (!feed.snapshot) {
+    return {
+      id: "indexer",
+      label: "Market data",
+      state: "UNAVAILABLE",
+      value: "Unavailable",
+      detail: "The market-data feed did not answer. Marks, books and charts wait for it.",
+      provenance: "OBSERVED",
+      freshness: null,
+      href: null,
+    };
+  }
+  const age = nowSeconds - feed.snapshot.asOf;
+  return {
+    id: "indexer",
+    label: "Market data",
+    state: feed.status === "LIVE" ? "HEALTHY" : "DEGRADED",
+    value: `Block ${formatNumber(feed.snapshot.blockNumber, 0)}`,
+    detail: `${feed.snapshot.markets.length} markets read at one block on chain ${feed.snapshot.chainId}${feed.status === "STALE" ? "; the last refresh failed" : ""}.`,
+    provenance: "OBSERVED",
+    freshness: `${ageLabel(age)} old`,
+    href: null,
   };
 }
 
 /**
- * Dependency health for the home page and the system strip. Chain and wallet are observed live from the local
- * runtime probe and the gateway; oracle, sequencer, private execution, and indexer rows come from the operator
- * runtime evidence, which is a recorded fixture until the operator ports are wired.
+ * Dependency health for the home page and the system strip, every row observed live: the chain from the operator
+ * status probe, the wallet from the gateway, and the oracle and market data from the market-data feed.
  */
 export function systemHealth(
   snapshot: GatewaySnapshot,
-  devnet: DevnetReading,
-  operations: OperationsSnapshot = OPERATIONS_FIXTURE,
+  reading: OperatorReading,
+  feed?: FeedReading,
+  nowSeconds: number = Math.floor(platformNow() / 1000),
 ): HealthRow[] {
   const chain: HealthRow =
-    devnet.state === "OK"
+    reading.state === "OK"
       ? {
           id: "chain",
           label: "Chain",
-          state: devnet.probe.healthy ? "HEALTHY" : "DEGRADED",
-          value: `Block ${formatNumber(Number(devnet.probe.blockNumber), 0)}`,
-          detail: `${snapshot.environment.label}, chain ${devnet.probe.chainId}. ${devnet.probe.contracts.filter((contract) => contract.healthy).length} of ${devnet.probe.contracts.length} protocol contracts have code.`,
+          state: reading.probe.healthy ? "HEALTHY" : "DEGRADED",
+          value: `Block ${formatNumber(Number(reading.probe.blockNumber), 0)}`,
+          detail: `${snapshot.environment.label}, chain ${reading.probe.chainId}. ${reading.probe.contracts.filter((contract) => contract.healthy).length} of ${reading.probe.contracts.length} protocol contracts have code.`,
           provenance: "OBSERVED",
-          freshness: `checked ${devnet.probe.checkedAt.slice(11, 19)} UTC`,
-          href: "/operations",
+          freshness: `checked ${reading.probe.checkedAt.slice(11, 19)} UTC`,
+          href: null,
         }
-      : devnet.state === "PENDING"
+      : reading.state === "PENDING"
         ? {
             id: "chain",
             label: "Chain",
@@ -98,10 +150,10 @@ export function systemHealth(
             label: "Chain",
             state: "UNAVAILABLE",
             value: "RPC unreachable",
-            detail: `The ${snapshot.environment.label} runtime did not answer. Market data keeps streaming from the preview feed; onchain actions wait for the chain.`,
+            detail: `The ${snapshot.environment.label} RPC did not answer. Onchain actions wait for the chain.`,
             provenance: "OBSERVED",
             freshness: null,
-            href: "/operations",
+            href: null,
           };
 
   const walletStatus = snapshot.wallet.status;
@@ -126,31 +178,5 @@ export function systemHealth(
     href: null,
   };
 
-  const streams = operations.indexerStreams;
-  const worst = [...streams].sort((a, b) => b.lagBlocks / b.allowedLagBlocks - a.lagBlocks / a.allowedLagBlocks)[0];
-  const indexer: HealthRow = worst
-    ? {
-        id: "indexer",
-        label: "Indexer",
-        state: streams.some((stream) => stream.state === "UNAVAILABLE")
-          ? "UNAVAILABLE"
-          : streams.some((stream) => stream.state === "DEGRADED")
-            ? "DEGRADED"
-            : "HEALTHY",
-        value: `${worst.lagBlocks} / ${worst.allowedLagBlocks} blk lag`,
-        detail: `Worst stream: ${worst.label}, projected through block ${formatNumber(worst.projectedBlock, 0)}.`,
-        provenance: "RECORDED_FIXTURE",
-        freshness: `${worst.freshness.ageLabel} / ${worst.freshness.thresholdLabel}`,
-        href: "/operations",
-      }
-    : { id: "indexer", label: "Indexer", state: "UNAVAILABLE", value: "Not recorded", detail: "No indexer stream is recorded.", provenance: "RECORDED_FIXTURE", freshness: null, href: "/operations" };
-
-  return [
-    chain,
-    wallet,
-    recorded("oracle", "Oracle", dependency(operations, "pyth-verifier"), "No oracle verification record."),
-    recorded("sequencer", "Sequencer", dependency(operations, "chain-reader"), "No sequencer or chain reader record."),
-    recorded("private-execution", "Private execution", dependency(operations, "solver-gateway"), "No firm quote gateway record."),
-    indexer,
-  ];
+  return [chain, wallet, oracleRow(feed, nowSeconds), feedRow(feed, nowSeconds)];
 }

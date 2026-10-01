@@ -19,7 +19,7 @@ function stateLabel(status: OrderExecutionProgress["status"]): string {
   if (status === "CONNECTING") return "Connecting wallet";
   if (status === "AUTHORIZING") return "Authorizing package";
   if (status === "SUBMITTING") return "Clearing package";
-  if (status === "RESTING") return "Working locally";
+  if (status === "RESTING") return "Resting on the book";
   if (status === "COMPLETED") return "Execution complete";
   if (status === "FAILED") return "Execution not completed";
   return "Awaiting authorization";
@@ -70,11 +70,11 @@ export function ExecutionTimeline({ progress }: { progress: OrderExecutionProgre
     const total = restingOrder?.lots ?? 0;
     return (
       <div className={`overflow-hidden rounded-md border border-line-strong bg-raised ${motion.fade}`}>
-        <Header status={partial ? "Partially filled" : "Working locally"} tone="text-brand" done={0} total={0} />
+        <Header status={partial ? "Partially filled" : "Resting on the book"} tone="text-brand" done={0} total={0} />
         <div className="px-3 py-2.5 text-xs leading-snug text-dim">
           <p className="flex items-center gap-2">
             <span aria-hidden="true" className={`inline-block h-[6px] w-[6px] shrink-0 rounded-full bg-brand text-brand ${motion.live}`} />
-            <span className="min-w-0">{`Resting order ${orderId} is working locally.`}</span>
+            <span className="min-w-0">{`Resting order ${orderId} is working on the book.`}</span>
           </p>
           {partial && filled !== null && remaining !== null ? (
             <>
@@ -144,7 +144,7 @@ export function ExecutionTimeline({ progress }: { progress: OrderExecutionProgre
           <LoaderCircle size={14} aria-hidden="true" className="mt-0.5 shrink-0 animate-spin text-brand" />
           <span>
             {progress.status === "CONNECTING"
-              ? "Preparing the local wallet session for this test environment."
+              ? "Preparing the wallet session."
               : "Binding the selected package, route, limit, and collateral cap to one signed authorization."}
           </span>
         </div>

@@ -22,7 +22,7 @@ interface ConsoleData {
 
 const EMPTY: ConsoleData = { partners: [], usage: [], subscriptions: [], cursor: null, revenue: null };
 
-/** Partner console (interface route 23): deployments, embeds, webhooks, usage and revenue on local devnet data. */
+/** Partner console (interface route 23): deployments, embeds, webhooks, usage and revenue from the configured network. */
 export function PartnersConsole() {
   const [view, setView] = useState<ViewId>("deployments");
   const [data, setData] = useState<ConsoleData>(EMPTY);
