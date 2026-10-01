@@ -52,7 +52,15 @@ interface UsageFile { version: number; rows: UsageRow[] }
 
 const FILES = { partners: "partners.json", usage: "usage.json" };
 const MAX_USAGE_ROWS = 20_000;
-const SETRYN_ORIGINS = new Set(["http://localhost:3100", "http://127.0.0.1:3100"]);
+/** Setryn's own origins: the local dev server plus every public origin the deployment is served from (SETRYN_PUBLIC_ORIGIN). */
+const SETRYN_ORIGINS = new Set([
+  "http://localhost:3100",
+  "http://127.0.0.1:3100",
+  ...(process.env.SETRYN_PUBLIC_ORIGIN ?? "")
+    .split(",")
+    .map((origin) => origin.trim().replace(/\/+$/, ""))
+    .filter(Boolean),
+]);
 
 function dir(): string {
   return setrynDataDirectory("partners");

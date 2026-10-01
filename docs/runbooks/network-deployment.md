@@ -8,6 +8,17 @@ The local devnet (`bash scripts/local-deploy-reset.sh`) runs the same listing ge
 Arbitrum One stays disabled: `DeploySetryn`, `BootstrapSetrynMarkets` and `PublishSessionDays` revert on chain 42161,
 and nothing here writes to it. The only Arbitrum One access is read-only `eth_call` of Chainlink aggregators.
 
+## Environment files
+
+| File | Use |
+| --- | --- |
+| `.env.arbitrum-sepolia.example` | Deployment, market bootstrap and operator worker inputs. Copy to `.env.arbitrum-sepolia`, fill it in, `set -a; source .env.arbitrum-sepolia; set +a`. |
+| `apps/web/.env.arbitrum-sepolia.example` | The web app pointed at the Sepolia deployment. Copy to `apps/web/.env.local` or set on the host. |
+| `apps/web/.env.example` | Every web variable with its meaning and default. |
+| `.env.example` | Local chain and local operator worker. |
+
+Filled copies hold private keys and are gitignored; only the `.example` files are committed.
+
 ## What gets deployed
 
 | Step | Script | Sender | Result |
