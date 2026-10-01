@@ -20,7 +20,8 @@ import {
   type DisclosurePrefs,
   type SizeUnit,
 } from "@/lib/settings/preferences";
-import { WRITE_POLICY, shortHex } from "@/lib/settings/organization";
+import { shortHex } from "@/lib/settings/organization";
+import { useOrganizationControl } from "@/lib/settings/useOrganizationControl";
 import { ChainIcon } from "@/components/icons/AssetIcon";
 
 function Setting({
@@ -279,6 +280,8 @@ export function SecuritySection() {
   const present = useSyncExternalStore(subscribeStorage, storedKeys, () => "");
   const stored = new Set(present.split("|").filter(Boolean));
   const connected = snapshot.wallet.status === "CONNECTED" && snapshot.wallet.address;
+  const organization = useOrganizationControl();
+  const write = organization.state?.write ?? null;
   const reset = () => {
     setUnit(DEFAULT_SIZE_UNIT);
     setConfirmations(DEFAULT_CONFIRMATIONS);
@@ -316,21 +319,25 @@ export function SecuritySection() {
       </Panel>
 
       <Panel label="Environment write policy" delay={40}>
-        <PanelHead title="Environment write policy" tools={<Chip tone="neutral" title="Mirrors OrganizationControlWritePolicy in the organization-control service">Control policy</Chip>} />
-        <ul>
-          {WRITE_POLICY.map((item) => (
-            <li key={item.environment} className="flex min-h-[48px] items-center justify-between gap-4 border-b border-line-soft px-3 py-2 last:border-b-0">
-              <span className="flex min-w-0 items-center gap-2.5">
-                {item.allowed ? <Lock size={13} aria-hidden="true" className="shrink-0 text-dim" /> : <ShieldOff size={13} aria-hidden="true" className="shrink-0 text-down" />}
-                <span className="min-w-0">
-                  <span className="block text-xs text-ink">{item.label}</span>
-                  <span className="block text-[11px] text-faint">{item.reason}</span>
-                </span>
+        <PanelHead title="Environment write policy" tools={<ProvenanceChip kind="OBSERVED" title="Reported by the organization control service for this network." />} />
+        <div className="flex min-h-[48px] items-center justify-between gap-4 px-3 py-2">
+          <span className="flex min-w-0 items-center gap-2.5">
+            {write && !write.allowed ? <ShieldOff size={13} aria-hidden="true" className="shrink-0 text-down" /> : <Lock size={13} aria-hidden="true" className="shrink-0 text-dim" />}
+            <span className="min-w-0">
+              <span className="block text-xs text-ink">{organization.state?.networkLabel ?? snapshot.environment.label}</span>
+              <span className="block text-[11px] text-faint">
+                {write === null
+                  ? organization.error ?? "Reading the write policy for this network."
+                  : write.allowed
+                    ? "Organization changes are signed by each member's wallet and recorded by the control service."
+                    : write.reason ?? "Organization changes are disabled on this network."}
               </span>
-              <span className={`shrink-0 text-xs ${item.allowed ? "text-dim" : "text-down"}`}>{item.allowed ? "Writes permitted" : "Writes disabled"}</span>
-            </li>
-          ))}
-        </ul>
+            </span>
+          </span>
+          <span className={`shrink-0 text-xs ${write && !write.allowed ? "text-down" : "text-dim"}`}>
+            {write === null ? "-" : write.allowed ? "Writes permitted" : "Writes disabled"}
+          </span>
+        </div>
       </Panel>
 
       <Panel label="Data in this browser" delay={80}>

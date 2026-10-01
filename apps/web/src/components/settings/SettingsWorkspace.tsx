@@ -5,8 +5,16 @@ import { Building2, KeyRound, ListChecks, Network, ShieldCheck, SlidersHorizonta
 import { useGatewaySnapshot } from "@/components/gateway/InternalGatewayProvider";
 import { PageFrame, PageHeader, WalletBadge } from "@/components/home/kit";
 import { Chip, TabBody, deskMotion } from "@/components/strategies/desk/Desk";
-import { ORGANIZATION_CONTROL_FIXTURE } from "@/lib/settings/organization";
-import { ApprovalsSection, FixtureNote, OrganizationSection, RolesSection, SubaccountsSection } from "./OrgSections";
+import {
+  ApprovalsSection,
+  OrganizationSection,
+  OrgStatusNote,
+  RolesSection,
+  SubaccountsSection,
+  pendingApprovalCount,
+  useControlClock,
+  useOrgWorkspace,
+} from "./OrgSections";
 import { PrivacySection, SecuritySection, TradingSection } from "./PreferenceSections";
 import { ChainIcon } from "@/components/icons/AssetIcon";
 
@@ -46,8 +54,10 @@ function useSection(): SectionId {
 export function SettingsWorkspace() {
   const snapshot = useGatewaySnapshot();
   const section = useSection();
-  const pending = ORGANIZATION_CONTROL_FIXTURE.proposals.filter((proposal) => proposal.status === "pending").length;
-  const organization = ORGANIZATION_CONTROL_FIXTURE.organizations[0];
+  const workspace = useOrgWorkspace();
+  const now = useControlClock();
+  const pending = pendingApprovalCount(workspace.records, now);
+  const organization = workspace.records?.organization ?? null;
 
   return (
     <PageFrame label="Settings">
@@ -98,11 +108,11 @@ export function SettingsWorkspace() {
         </nav>
 
         <TabBody key={section} idBase="settings" className="flex min-w-0 flex-col gap-1 2xl:max-w-[1240px]">
-          {ORG_SECTIONS.includes(section) ? <FixtureNote /> : null}
-          {section === "organization" ? <OrganizationSection /> : null}
-          {section === "subaccounts" ? <SubaccountsSection /> : null}
-          {section === "roles" ? <RolesSection /> : null}
-          {section === "approvals" ? <ApprovalsSection /> : null}
+          {ORG_SECTIONS.includes(section) && workspace.connected ? <OrgStatusNote workspace={workspace} /> : null}
+          {section === "organization" ? <OrganizationSection workspace={workspace} /> : null}
+          {section === "subaccounts" ? <SubaccountsSection workspace={workspace} /> : null}
+          {section === "roles" ? <RolesSection workspace={workspace} /> : null}
+          {section === "approvals" ? <ApprovalsSection workspace={workspace} /> : null}
           {section === "trading" ? <TradingSection /> : null}
           {section === "privacy" ? <PrivacySection /> : null}
           {section === "security" ? <SecuritySection /> : null}

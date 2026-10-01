@@ -10,7 +10,7 @@ import {
   type OrganizationMember,
   type PolicyVersion,
   type StrategyAccount,
-} from "./types.ts";
+} from "./types";
 
 export type ControlIdPrefix = "org" | "proposal" | "journal" | "execution";
 

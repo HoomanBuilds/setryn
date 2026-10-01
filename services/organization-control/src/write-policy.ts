@@ -1,4 +1,4 @@
-import type { ControlEnvironment } from "./types.ts";
+import type { ControlEnvironment } from "./types";
 
 export interface ControlWriteDecision {
   readonly allowed: boolean;

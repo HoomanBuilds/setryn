@@ -8,21 +8,23 @@ import {
   type ExecutionLegInput,
   type JournalEntry,
   type JournalExport,
-} from "./types.ts";
+} from "./types";
 
-const SCALE = 1000000000000000000n;
+// BigInt() rather than literals: the web app compiles this module for an ES2017 target.
+const ZERO = BigInt(0);
+const SCALE = BigInt("1000000000000000000");
 const AMOUNT_PATTERN = /^(\d+)(?:\.(\d{1,18}))?$/;
 
 export function parseScaledAmount(amount: string): bigint {
   const match = AMOUNT_PATTERN.exec(amount);
   if (match === null) throw new TypeError(`amount ${amount} must be a non-negative decimal with up to 18 places`);
   const scaled = BigInt(match[1]) * SCALE + BigInt((match[2] ?? "").padEnd(18, "0"));
-  if (scaled <= 0n) throw new RangeError("amount must be greater than zero");
+  if (scaled <= ZERO) throw new RangeError("amount must be greater than zero");
   return scaled;
 }
 
 export function formatScaledAmount(scaled: bigint): string {
-  if (scaled <= 0n) throw new RangeError("scaled amount must be greater than zero");
+  if (scaled <= ZERO) throw new RangeError("scaled amount must be greater than zero");
   const whole = scaled / SCALE;
   const fraction = (scaled % SCALE).toString().padStart(18, "0").replace(/0+$/, "");
   return fraction.length === 0 ? whole.toString() : `${whole.toString()}.${fraction}`;
@@ -105,8 +107,8 @@ function validatedEntry(
   }
   assertNonEmpty(leg.currency, "currency");
   const scaled = parseScaledAmount(leg.amount);
-  debits.set(leg.currency, (debits.get(leg.currency) ?? 0n) + scaled);
-  credits.set(leg.currency, (credits.get(leg.currency) ?? 0n) + scaled);
+  debits.set(leg.currency, (debits.get(leg.currency) ?? ZERO) + scaled);
+  credits.set(leg.currency, (credits.get(leg.currency) ?? ZERO) + scaled);
   return {
     entryId: `${journalId}:${leg.legId}`,
     journalId,
@@ -128,7 +130,7 @@ function validatedEntry(
 function assertBalanced(debits: Map<string, bigint>, credits: Map<string, bigint>): void {
   const currencies = new Set([...debits.keys(), ...credits.keys()]);
   for (const currency of currencies) {
-    if ((debits.get(currency) ?? 0n) !== (credits.get(currency) ?? 0n)) {
+    if ((debits.get(currency) ?? ZERO) !== (credits.get(currency) ?? ZERO)) {
       throw new Error(`journal is unbalanced in ${currency}`);
     }
   }

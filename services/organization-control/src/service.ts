@@ -1,4 +1,4 @@
-import { buildAccountingJournal, exportAccountingJournal } from "./accounting.ts";
+import { buildAccountingJournal, exportAccountingJournal } from "./accounting";
 import {
   cancelApproval,
   executeApproval,
@@ -6,9 +6,9 @@ import {
   recordApprovalDecision,
   sha256Hex,
   submitForApproval,
-} from "./approvals.ts";
-import { evaluatePolicyAction, validateConstraints } from "./policy.ts";
-import type { ControlClock, ControlIdSource, OrganizationControlStorePort } from "./repository.ts";
+} from "./approvals";
+import { evaluatePolicyAction, validateConstraints } from "./policy";
+import type { ControlClock, ControlIdSource, OrganizationControlStorePort } from "./repository";
 import {
   ORGANIZATION_ROLES,
   assertBytes32,
@@ -37,8 +37,8 @@ import {
   type SettlementClass,
   type StrategyAccount,
   type StrategyAccountStatus,
-} from "./types.ts";
-import { OrganizationControlWritePolicy, type ControlWriteDecision } from "./write-policy.ts";
+} from "./types";
+import { OrganizationControlWritePolicy, type ControlWriteDecision } from "./write-policy";
 
 export interface OrganizationControlServiceConfig {
   readonly store: OrganizationControlStorePort;
@@ -103,6 +103,13 @@ export class InternalOrganizationControlService {
     assertNonEmpty(grantedBy, "grantedBy");
     if (!(ORGANIZATION_ROLES as readonly string[]).includes(role)) throw new TypeError(`role ${role} is unsupported`);
     this.#requireActiveAdmin(organizationId, grantedBy);
+    const existing = this.#store.getMember(organizationId, memberId);
+    if (existing && existing.status === "active" && existing.role === "admin" && role !== "admin") {
+      const activeAdmins = this.#store
+        .listMembers(organizationId)
+        .filter((member) => member.role === "admin" && member.status === "active");
+      if (activeAdmins.length <= 1) throw new Error("cannot demote the last active admin");
+    }
     const now = this.#clock.now().toISOString();
     const member: OrganizationMember = {
       organizationId: organization.id,

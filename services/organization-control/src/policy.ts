@@ -1,4 +1,4 @@
-import { parseScaledAmount } from "./accounting.ts";
+import { parseScaledAmount } from "./accounting";
 import {
   ACTION_KINDS,
   ORGANIZATION_ROLES,
@@ -19,7 +19,7 @@ import {
   type ScopeAllowlist,
   type SettlementClass,
   type StrategyAccountStatus,
-} from "./types.ts";
+} from "./types";
 
 export interface PolicyEvaluationContext {
   readonly actorStatus: MemberStatus | null;
