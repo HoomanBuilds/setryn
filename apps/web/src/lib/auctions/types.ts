@@ -349,50 +349,25 @@ export interface SourceRouteReservation {
 /* Board projection                                                    */
 /* ------------------------------------------------------------------ */
 
-/**
- * Where a record came from. `MODELED` records are deterministic schedules built
- * from the market fixtures and the shared preview clock; they are never read
- * from a chain and never count as execution evidence.
- */
-export type RecordSource = "MODELED" | "OBSERVED";
-
-/** Deadlines the model assumes keepers act on; the contract only moves when called. */
-export interface KeeperSchedule {
-  /** When `clearAuction` is assumed to run, after reveal closes. */
-  clearAt: number;
-  /** When settlement is assumed to complete, unless the settlement fails. */
-  settleAt: number;
-  /** When `failExpiredSettlement` is assumed to run for a failed settlement. */
-  failAt: number;
-}
-
+/** One committed bid as the auction house stores it. */
 export interface BidView {
   id: Bytes32;
   record: BidRecord;
-  /** Participant label from the roster. The bidder address is public from commitment onward. */
-  bidderLabel: string;
-  bidderId: string;
-  committedAt: number;
-  /** Null when the bidder never reveals. */
-  revealedAt: number | null;
+  /** The revealed solver route, for solver-route auctions. */
   route: SolverRouteRecord | null;
+  /** Block of the BidCommitted event. */
+  committedBlock: number;
+  transactionHash: string;
 }
 
+/** One auction version read from the SealedAuctionHouse, with its bids and clearing result. */
 export interface AuctionRecord {
   id: Bytes32;
-  /** Human reference such as "BATCH BTC-YC-24DEC26 #412". */
-  label: string;
-  family: string;
-  round: number;
-  marketId: string;
-  source: RecordSource;
   version: AuctionVersion;
+  /** Catalog market the auction's series trades as, or null for a package or an unlisted series. */
+  marketId: string | null;
   bids: BidView[];
   result: AuctionClearingResult | null;
-  batchHeader: BatchExecutionHeader | null;
-  keeper: KeeperSchedule;
-  /** Reference package price, in ticks, at commit open. */
-  referenceTicks: number;
-  /** Whether the modeled settlement fails and needs the permissionless failure path. */
-  settlementFails: boolean;
+  scheduledBlock: number;
+  transactionHash: string;
 }

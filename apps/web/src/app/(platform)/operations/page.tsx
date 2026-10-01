@@ -3,7 +3,7 @@ import { OperationsConsole } from "@/components/operations/OperationsConsole";
 
 export const metadata: Metadata = {
   title: "Operations / Setryn",
-  description: "First-party operator control and observability console over explicit development fixture evidence.",
+  description: "Deployment, chain, contract evidence, series schedules, signer status and fee schedule for the connected network.",
 };
 
 export default function OperationsPage() {

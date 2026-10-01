@@ -1,19 +1,14 @@
 "use client";
 
 import type { ReactNode } from "react";
-import {
-  AlertTriangle,
-  Boxes,
-  Cpu,
-  Database,
-  LifeBuoy,
-  ListOrdered,
-  LockKeyhole,
-  Power,
-} from "lucide-react";
+import { AlertTriangle, Boxes, CalendarClock, Cpu, FileCheck2, KeyRound, LockKeyhole, Percent } from "lucide-react";
 import { Flash, LiveDot, Meter, deskMotion } from "@/components/strategies/desk/Desk";
-import type { EnvironmentWritePolicy, OperationsSnapshot } from "@/lib/operations/types";
-import type { DevnetStatus, ViewId } from "./ops-model";
+import type { MarketFeeSchedule } from "@/lib/market-data/types";
+import { NETWORK_OPERATOR_LABEL, SERIES_EVENT_LABEL, type DeploymentEvidence, type OperatorStatus, type SeriesEvent } from "@/lib/operations/deployment";
+import type { SeriesRow } from "@/lib/operations/model";
+import type { DependencyHealth, EnvironmentWritePolicy, OperationalAlert } from "@/lib/operations/types";
+import { formatNumber } from "@/lib/terminal/format";
+import { countdown, type ViewId } from "./ops-model";
 
 function Tile({
   icon,
@@ -55,158 +50,147 @@ function Tile({
     );
   }
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`${className} focus-ring group transition-colors duration-150 hover:bg-raised`}
-      style={style}
-    >
+    <button type="button" onClick={onClick} className={`${className} focus-ring group transition-colors duration-150 hover:bg-raised`} style={style}>
       {body}
     </button>
   );
 }
 
 export function OpsTiles({
-  snapshot,
   status,
+  evidence,
+  dependencies,
+  rows,
+  nextEvent,
+  alerts,
+  fees,
   policy,
+  now,
   onView,
 }: {
-  snapshot: OperationsSnapshot;
-  status: DevnetStatus | null;
+  status: OperatorStatus | null;
+  evidence: DeploymentEvidence | null;
+  dependencies: DependencyHealth[];
+  rows: SeriesRow[];
+  nextEvent: SeriesEvent | null;
+  alerts: OperationalAlert[];
+  fees: MarketFeeSchedule | null;
   policy: EnvironmentWritePolicy;
+  now: number;
   onView: (view: ViewId) => void;
 }) {
-  const healthyDeps = snapshot.dependencies.filter((item) => item.state === "HEALTHY").length;
-  const degraded = snapshot.dependencies.filter((item) => item.state !== "HEALTHY");
-  const worstStream = [...snapshot.indexerStreams].sort(
-    (a, b) => b.lagBlocks / b.allowedLagBlocks - a.lagBlocks / a.allowedLagBlocks,
-  )[0];
-  const queued = snapshot.jobQueues.reduce((sum, queue) => sum + queue.queued, 0);
-  const leased = snapshot.jobQueues.reduce((sum, queue) => sum + queue.leased, 0);
-  const delayed = snapshot.jobQueues.reduce((sum, queue) => sum + queue.delayed, 0);
-  const queueTotal = Math.max(1, queued + leased + delayed);
-  const openAlerts = snapshot.alerts.filter((alert) => alert.state === "OPEN").length;
-  const ackAlerts = snapshot.alerts.filter((alert) => alert.state === "ACKNOWLEDGED").length;
-  const openCases = snapshot.recoveryCases.filter((item) => item.state !== "RESOLVED");
-  const armed = snapshot.killSwitches.filter((item) => item.state === "ARMED").length;
-  const contractsHealthy = status ? status.contracts.filter((item) => item.healthy).length : 0;
-  const block = status ? Number(status.blockNumber) : null;
+  const healthy = dependencies.filter((item) => item.state === "HEALTHY").length;
+  const degraded = dependencies.filter((item) => item.state !== "HEALTHY");
+  const contractsOk = status ? status.contracts.filter((item) => item.healthy).length : 0;
+  const matches = evidence ? evidence.contracts.filter((item) => item.state === "MATCHES").length : 0;
+  const active = rows.filter((row) => row.status === "ACTIVE").length;
+  const paused = rows.filter((row) => row.status === "PAUSED").length;
+  const open = alerts.filter((alert) => alert.state === "OPEN");
+  const critical = open.filter((alert) => alert.severity === "CRITICAL").length;
+  const signersOk = status ? [status.operator.available, status.maker.available].filter((value) => value === true).length : 0;
 
   return (
-    <section
-      aria-label="Operational status"
-      className="grid shrink-0 grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-4 2xl:grid-cols-8"
-    >
+    <section aria-label="Operational status" className="grid shrink-0 grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-4 2xl:grid-cols-8">
       <Tile
         delay={0}
         icon={<Cpu size={12} aria-hidden="true" />}
-        label="Runtime"
+        label="Chain"
         value={
-          status ? (
+          status && status.blockNumber !== null ? (
             <span className="flex items-center gap-2">
-              <LiveDot tone={status.healthy ? "up" : "down"} live={status.healthy} />
-              <Flash value={block ?? 0}>{`#${status.blockNumber}`}</Flash>
+              <LiveDot tone={status.healthy ? "up" : "down"} live={status.healthy === true} />
+              <Flash value={status.blockNumber}>{`#${status.blockNumber.toLocaleString("en-US")}`}</Flash>
             </span>
+          ) : status?.chainUnavailable ? (
+            "Not answering"
           ) : (
             "Connecting"
           )
         }
         tone={status ? (status.healthy ? "text-ink" : "text-down") : "text-faint"}
-        note={status ? `Local ${status.chainId} / ${contractsHealthy}/${status.contracts.length} contracts / live RPC` : "Waiting for local runtime"}
+        note={status?.network ? `${NETWORK_OPERATOR_LABEL[status.network]} / ${status.chainId ?? "-"} / ${contractsOk}/${status.contracts.length} contracts` : "Waiting for the operator status"}
+        onClick={() => onView("OVERVIEW")}
       />
       <Tile
         delay={20}
         icon={<Boxes size={12} aria-hidden="true" />}
         label="Dependencies"
-        value={`${healthyDeps}/${snapshot.dependencies.length}`}
+        value={`${healthy}/${dependencies.length}`}
         tone={degraded.length > 0 ? "text-brand" : "text-up"}
-        note={degraded.length > 0 ? `${degraded.map((item) => item.label).join(", ")} degraded` : "All healthy"}
+        note={degraded.length > 0 ? `${degraded.map((item) => item.label).join(", ")}` : "All healthy"}
         onClick={() => onView("OVERVIEW")}
       >
-        <Meter value={healthyDeps / snapshot.dependencies.length} tone={degraded.length > 0 ? "brand" : "up"} label="Healthy dependencies" />
+        <Meter value={dependencies.length > 0 ? healthy / dependencies.length : 0} tone={degraded.length > 0 ? "brand" : "up"} label="Healthy dependencies" />
       </Tile>
       <Tile
         delay={40}
-        icon={<Database size={12} aria-hidden="true" />}
-        label="Worst indexer lag"
-        value={worstStream ? `${worstStream.lagBlocks} / ${worstStream.allowedLagBlocks} blk` : "-"}
-        tone={worstStream && worstStream.lagBlocks > worstStream.allowedLagBlocks ? "text-down" : "text-ink"}
-        note={worstStream ? worstStream.label : "No streams"}
-        onClick={() => onView("OVERVIEW")}
+        icon={<FileCheck2 size={12} aria-hidden="true" />}
+        label="Code evidence"
+        value={evidence ? `${matches}/${evidence.contracts.length}` : "-"}
+        tone={evidence ? (matches === evidence.contracts.length ? "text-up" : "text-down") : "text-faint"}
+        note={evidence ? "Live code hashes matching the manifest" : "No manifest for this network"}
+        onClick={() => onView("CONTRACTS")}
       >
-        {worstStream ? (
-          <Meter
-            value={worstStream.lagBlocks / (Math.max(worstStream.lagBlocks, worstStream.allowedLagBlocks) * 1.2)}
-            limit={worstStream.allowedLagBlocks / (Math.max(worstStream.lagBlocks, worstStream.allowedLagBlocks) * 1.2)}
-            tone={worstStream.lagBlocks > worstStream.allowedLagBlocks ? "down" : "up"}
-            label="Worst indexer lag against allowance"
-          />
+        {evidence && evidence.contracts.length > 0 ? (
+          <Meter value={matches / evidence.contracts.length} tone={matches === evidence.contracts.length ? "up" : "down"} label="Matching code hashes" />
         ) : null}
       </Tile>
       <Tile
         delay={60}
-        icon={<ListOrdered size={12} aria-hidden="true" />}
-        label="Job queues"
+        icon={<CalendarClock size={12} aria-hidden="true" />}
+        label="Series"
         value={
           <>
-            {queued}
-            <span className="text-faint"> / </span>
-            <span className="text-up">{leased}</span>
-            <span className="text-faint"> / </span>
-            <span className={delayed > 0 ? "text-brand" : "text-dim"}>{delayed}</span>
+            <span className="text-up">{active}</span>
+            <span className="text-faint"> / {rows.length}</span>
           </>
         }
-        note="Queued / leased / delayed"
-        onClick={() => onView("QUEUES")}
-      >
-        <span className="flex h-1 w-full gap-0.5 overflow-hidden rounded-full" aria-hidden="true">
-          <span className="bg-dim/70" style={{ flexGrow: queued / queueTotal, flexBasis: 0 }} />
-          <span className="bg-up" style={{ flexGrow: leased / queueTotal, flexBasis: 0 }} />
-          <span className="bg-brand" style={{ flexGrow: delayed / queueTotal, flexBasis: 0 }} />
-        </span>
-      </Tile>
+        note={paused > 0 ? `${paused} paused` : "Active / listed"}
+        onClick={() => onView("SERIES")}
+      />
       <Tile
         delay={80}
-        icon={<AlertTriangle size={12} aria-hidden="true" />}
-        label="Alerts"
-        value={
-          <>
-            <span className={openAlerts > 0 ? "text-down" : "text-dim"}>{openAlerts}</span>
-            <span className="text-faint"> open / </span>
-            <span className={ackAlerts > 0 ? "text-brand" : "text-dim"}>{ackAlerts}</span>
-            <span className="text-faint"> ack</span>
-          </>
-        }
-        note={`${snapshot.alerts.length} in window`}
-        onClick={() => onView("ALERTS")}
+        icon={<CalendarClock size={12} aria-hidden="true" />}
+        label="Next keeper event"
+        value={nextEvent ? countdown(nextEvent.at - now) : "-"}
+        tone={nextEvent && nextEvent.at - now < 86_400 ? "text-brand" : "text-ink"}
+        note={nextEvent ? `${nextEvent.marketKey} ${SERIES_EVENT_LABEL[nextEvent.kind].toLowerCase()}` : "None scheduled"}
+        onClick={() => onView("SCHEDULE")}
       />
       <Tile
         delay={100}
-        icon={<LifeBuoy size={12} aria-hidden="true" />}
-        label="Recovery cases"
-        value={`${openCases.length} active`}
-        tone={openCases.some((item) => item.newRiskBlocked) ? "text-brand" : "text-ink"}
-        note={openCases[0] ? `${openCases[0].id} deadline ${openCases[0].deadline}` : "None open"}
-        onClick={() => onView("RECOVERY")}
+        icon={<KeyRound size={12} aria-hidden="true" />}
+        label="Signers"
+        value={status ? `${signersOk}/2` : "-"}
+        tone={status?.operator.available === false ? "text-down" : signersOk === 2 ? "text-up" : "text-brand"}
+        note={
+          status
+            ? `Operator ${status.operator.available ? "ready" : status.operator.available === false ? "missing" : "?"} / maker ${status.maker.available ? "ready" : status.maker.available === false ? "off" : "?"}`
+            : "Not reported"
+        }
+        onClick={() => onView("POLICY")}
       />
       <Tile
         delay={120}
-        icon={<Power size={12} aria-hidden="true" />}
-        label="Kill switches"
-        value={`${armed}/${snapshot.killSwitches.length} armed`}
-        tone={armed === snapshot.killSwitches.length ? "text-up" : "text-down"}
-        note={armed === snapshot.killSwitches.length ? "New risk admitted" : "Staged stop in effect"}
+        icon={<Percent size={12} aria-hidden="true" />}
+        label="Fee schedule"
+        value={fees ? `${formatNumber(fees.makerFeeBps, 1)} / ${formatNumber(fees.takerFeeBps, 1)} bp` : "-"}
+        tone={fees && !fees.active ? "text-down" : "text-ink"}
+        note={fees ? `Maker / taker, v${fees.version}${fees.active ? "" : " inactive"}` : "Not read"}
         onClick={() => onView("POLICY")}
       />
       <Tile
         delay={140}
-        icon={<LockKeyhole size={12} aria-hidden="true" />}
-        label="Write boundary"
-        value={policy.writesAllowed ? "Testnet only" : "Writes off"}
-        tone={policy.writesAllowed ? "text-brand" : "text-down"}
+        icon={open.length > 0 ? <AlertTriangle size={12} aria-hidden="true" /> : <LockKeyhole size={12} aria-hidden="true" />}
+        label="Alerts / boundary"
+        value={
+          <>
+            <span className={critical > 0 ? "text-down" : open.length > 0 ? "text-brand" : "text-up"}>{open.length}</span>
+            <span className="text-faint"> open</span>
+          </>
+        }
         note={policy.policyLabel}
-        onClick={() => onView("POLICY")}
+        onClick={() => onView("ALERTS")}
       />
     </section>
   );

@@ -3,7 +3,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import { Chip as DeskChip } from "@/components/strategies/desk/Desk";
 import { Chip, formatCountdown, type ChipTone } from "@/components/activity/ledger-ui";
-import { ticksToPrice } from "@/lib/auctions/feed";
 import type { AuctionRecord, AuctionStatus, BidStatus } from "@/lib/auctions/types";
 import { formatNumber, priceUnitSuffix } from "@/lib/terminal/format";
 import type { PackageMarket, Provenance } from "@/lib/terminal/types";
@@ -93,6 +92,12 @@ export const BID_STATUS_COPY: Record<BidStatus, { label: string; className: stri
 /* Numbers and time                                                    */
 /* ------------------------------------------------------------------ */
 
+/** Onchain price ticks to the quoted forward level: the range floor plus ticks times the tick size. */
+export function ticksToPrice(ticks: number, market: Pick<PackageMarket, "priceOffset" | "tickSize" | "priceDecimals">): number {
+  const offset = Number.isFinite(market.priceOffset) ? market.priceOffset : 0;
+  return Number((offset + ticks * market.tickSize).toFixed(market.priceDecimals));
+}
+
 export function ticksText(ticks: number, market: PackageMarket, withUnit = false): string {
   const text = formatNumber(ticksToPrice(ticks, market), market.priceDecimals);
   return withUnit ? `${text} ${priceUnitSuffix(market.priceUnit)}` : text;
@@ -163,20 +168,20 @@ interface Segment {
   end: number;
 }
 
+/** The windows the auction definition commits to: commit, reveal, the clear deadline and the settlement deadline. */
 export function phaseSegments(record: AuctionRecord): Segment[] {
   const definition = record.version.definition;
-  const settleEnd = record.settlementFails ? Math.max(record.keeper.failAt, definition.settlementDeadline) : record.keeper.settleAt;
   return [
     { id: "commit", label: "Commit", start: definition.commitOpensAt, end: definition.commitClosesAt },
     { id: "reveal", label: "Reveal", start: definition.commitClosesAt, end: definition.revealClosesAt },
-    { id: "clear", label: "Clear", start: definition.revealClosesAt, end: record.keeper.clearAt },
-    { id: "settle", label: "Settle", start: record.keeper.clearAt, end: settleEnd },
+    { id: "clear", label: "Clear", start: definition.revealClosesAt, end: Math.max(definition.revealClosesAt + 1, definition.clearDeadline) },
+    { id: "settle", label: "Settle", start: Math.max(definition.revealClosesAt + 1, definition.clearDeadline), end: Math.max(definition.clearDeadline + 1, definition.settlementDeadline) },
   ];
 }
 
 /**
  * The round as one horizontal clock: commit, reveal, clear and settle in
- * proportion, elapsed time filled, and a marker at the market clock.
+ * proportion, elapsed time filled, and a marker at the chain clock.
  */
 export function PhaseClock({
   record,

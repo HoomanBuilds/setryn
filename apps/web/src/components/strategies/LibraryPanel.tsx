@@ -21,8 +21,8 @@ function dotTone(qualification: Qualification): string {
 }
 
 /**
- * Listed package templates with marks from the shared preview board, so the
- * library, the studio header and the terminal read the same feed.
+ * Listed markets with marks from the market-data feed, so the library, the
+ * studio header and the terminal read the same snapshot.
  */
 export function LibraryPanel({
   templates,
@@ -118,7 +118,11 @@ export function LibraryPanel({
                 </span>
                 <span className="text-right">
                   <span className="tnum block font-mono text-xs text-ink">{formatPrice(market.netPrice, market)}</span>
-                  <Delta value={changePercent(market.netPrice, market.priorNetPrice)} className="text-[11px]" />
+                  {Number.isFinite(market.netPrice) && Number.isFinite(market.priorNetPrice) ? (
+                    <Delta value={changePercent(market.netPrice, market.priorNetPrice)} className="text-[11px]" />
+                  ) : (
+                    <span className="text-[11px] text-faint">no mark</span>
+                  )}
                 </span>
               </button>
             </li>

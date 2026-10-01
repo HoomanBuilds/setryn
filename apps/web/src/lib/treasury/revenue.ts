@@ -38,7 +38,7 @@ import {
  */
 
 const ENTRY_LIMIT = 2_000;
-const CACHE_KEY = Symbol.for("setryn.treasury.projection");
+const CACHE_KEY = Symbol.for("setryn.treasury.ledger");
 const BLOCK_TIME_KEY = Symbol.for("setryn.treasury.block-times");
 
 const clearingEventsAbi = parseAbi([
@@ -151,12 +151,13 @@ async function readAccount(client: PublicClient, setryn: SetrynRuntime): Promise
 async function feeControl(client: PublicClient, setryn: SetrynRuntime, registry: Address): Promise<TreasuryProjection["feeControl"]> {
   const operator = setryn.operator;
   const governance = {
-    mode: "GOVERNANCE" as const,
+    mode: "GOVERNANCE_TIMELOCK" as const,
     operator,
-    reason: "Fee schedule versions are registered and activated through the governance timelock on Arbitrum One.",
+    reason: "Fee schedule versions are registered and activated through the governance timelock on this network.",
   };
+  // Only the local chain lets the operator change fees directly; every network goes through governance.
   const chainId = await client.getChainId().catch(() => null);
-  if (setryn.chainId !== 31337 || chainId !== 31337) return governance;
+  if ((setryn.network !== undefined && setryn.network !== "local") || setryn.chainId !== 31337 || chainId !== 31337) return governance;
   try {
     const [qualifierRole, statusRole] = await Promise.all([
       client.readContract({ address: registry, abi: feeScheduleRegistryAbi, functionName: "FEE_SCHEDULE_QUALIFIER_ROLE" }),
@@ -167,7 +168,7 @@ async function feeControl(client: PublicClient, setryn: SetrynRuntime, registry:
       client.readContract({ address: registry, abi: feeScheduleRegistryAbi, functionName: "hasRole", args: [statusRole, operator] }),
     ]);
     if (qualifies && manages) {
-      return { mode: "DEVNET_OPERATOR", operator, reason: "The operator holds the fee schedule qualifier and status roles on this network." };
+      return { mode: "OPERATOR", operator, reason: "The operator holds the fee schedule qualifier and status roles on this network." };
     }
   } catch {
     return governance;
@@ -175,9 +176,23 @@ async function feeControl(client: PublicClient, setryn: SetrynRuntime, registry:
   return governance;
 }
 
-async function buildProjection(client: PublicClient, setryn: SetrynRuntime, headBlock: bigint): Promise<TreasuryProjection> {
+/** Fees one trading account paid, net of rebates, rebuilt from the fee ledger. */
+interface AccountFees {
+  charged: bigint;
+  rebated: bigint;
+  actions: Set<string>;
+  fills: Set<string>;
+}
+
+interface LedgerBuild {
+  projection: TreasuryProjection;
+  /** Keyed by lowercase account id. */
+  accounts: Map<string, AccountFees>;
+}
+
+async function buildProjection(client: PublicClient, setryn: SetrynRuntime, headBlock: bigint): Promise<LedgerBuild> {
   const registry = await resolveFeeScheduleRegistry(client, setryn);
-  const range = { fromBlock: BigInt(0), toBlock: headBlock } as const;
+  const range = { fromBlock: BigInt(setryn.deploymentBlock ?? 0), toBlock: headBlock } as const;
   const [account, active, control, ledgerLogs, consumedLogs, fillLogs, registeredLogs, statusLogs, activeLogs] = await Promise.all([
     readAccount(client, setryn),
     readActiveFeeSchedule(setryn, { client, maxAgeMs: 0 }),
@@ -231,6 +246,16 @@ async function buildProjection(client: PublicClient, setryn: SetrynRuntime, head
   let treasuryBudgetDebits = BigInt(0);
   const treasuryAccount = setryn.feeRecipientAccountId.toLowerCase();
   const consumptionIds = new Set<string>();
+  const accounts = new Map<string, AccountFees>();
+  const accountFees = (accountId: string): AccountFees => {
+    const key = accountId.toLowerCase();
+    let entry = accounts.get(key);
+    if (!entry) {
+      entry = { charged: BigInt(0), rebated: BigInt(0), actions: new Set(), fills: new Set() };
+      accounts.set(key, entry);
+    }
+    return entry;
+  };
 
   for (const log of ledgerLogs) {
     const { consumptionId, kind: rawKind, actionId, accountId, amountMinor } = log.args;
@@ -256,8 +281,17 @@ async function buildProjection(client: PublicClient, setryn: SetrynRuntime, head
     kindTotals.amount += amountMinor;
     kinds.set(kind, kindTotals);
 
-    if (kind === "CHARGE_DEBIT") grossCharged += -amountMinor;
-    if (kind === "REBATE_CREDIT") rebatesPaid += amountMinor;
+    if (kind === "CHARGE_DEBIT") {
+      grossCharged += -amountMinor;
+      const payer = accountFees(accountId);
+      payer.charged += -amountMinor;
+      payer.actions.add(consumptionId.toLowerCase());
+      if (fill && consumption) payer.fills.add(consumption.parentActionId.toLowerCase());
+    }
+    if (kind === "REBATE_CREDIT") {
+      rebatesPaid += amountMinor;
+      accountFees(accountId).rebated += amountMinor;
+    }
     if (kind === "BUDGET_DEBIT" && accountId.toLowerCase() === treasuryAccount) treasuryBudgetDebits += -amountMinor;
     if (kind === "CHARGE_CREDIT") {
       revenue += amountMinor;
@@ -380,7 +414,7 @@ async function buildProjection(client: PublicClient, setryn: SetrynRuntime, head
     amountMinor: (kinds.get(kind)?.amount ?? BigInt(0)).toString(),
   }));
 
-  return {
+  const projection: TreasuryProjection = {
     chainId: setryn.chainId,
     headBlock: headBlock.toString(),
     checkedAt: new Date().toISOString(),
@@ -409,20 +443,117 @@ async function buildProjection(client: PublicClient, setryn: SetrynRuntime, head
       entriesTruncated: entries.length > ENTRY_LIMIT,
     },
   };
+  return { projection, accounts };
 }
 
-/** The treasury projection at the chain head, memoized per head block so polling viewers share one scan. */
-export async function readTreasury(setryn: SetrynRuntime): Promise<TreasuryProjection> {
+/** The ledger build at the chain head, memoized per head block so polling viewers share one scan. */
+async function readLedger(setryn: SetrynRuntime): Promise<LedgerBuild & { headBlock: bigint }> {
   const client = clientFor(setryn.rpcUrl);
   const headBlock = await client.getBlockNumber({ cacheTime: 0 });
-  const holder = globalThis as unknown as Record<symbol, { key: string; value: Promise<TreasuryProjection> } | undefined>;
+  const holder = globalThis as unknown as Record<symbol, { key: string; value: Promise<LedgerBuild> } | undefined>;
   const key = `${setryn.fundedFeeEngine}:${setryn.feeScheduleId}:${headBlock}`;
   const hit = holder[CACHE_KEY];
-  if (hit && hit.key === key) return hit.value;
+  if (hit && hit.key === key) return { ...(await hit.value), headBlock };
   const value = buildProjection(client, setryn, headBlock).catch((error: unknown) => {
     if (holder[CACHE_KEY]?.value === value) holder[CACHE_KEY] = undefined;
     throw error;
   });
   holder[CACHE_KEY] = { key, value };
-  return value;
+  return { ...(await value), headBlock };
+}
+
+/** The treasury projection at the chain head. */
+export async function readTreasury(setryn: SetrynRuntime): Promise<TreasuryProjection> {
+  return (await readLedger(setryn)).projection;
+}
+
+/* ------------------------------------------------------------------ */
+/* Partner fee share                                                   */
+/* ------------------------------------------------------------------ */
+
+/** The partner terms the accrual needs; a partner deployment (lib/webhooks/partners.ts) satisfies it. */
+export interface PartnerShareTerms {
+  code: string;
+  name: string;
+  /** Share of the attributed accounts' net protocol fees, in basis points. */
+  revShareBps: number;
+  /** bytes32 trading account ids attributed to the partner. */
+  attributedAccounts: readonly string[];
+}
+
+export interface PartnerAccrualRow {
+  partner: string;
+  name: string;
+  revShareBps: number;
+  attributedAccounts: number;
+  /** Fee actions the attributed accounts paid (maker or taker legs). */
+  feeActions: number;
+  fills: number;
+  /** Charges debited from the attributed accounts minus rebates credited to them, USDC minor units. */
+  netFeesMinor: string;
+  /** netFees x revShareBps / 10,000, rounded down, USDC minor units. */
+  accruedMinor: string;
+  /** No partner payout exists onchain yet, so nothing has been paid. */
+  paidMinor: "0";
+  status: "ACCRUED_UNPAID";
+}
+
+export interface PartnerAccrualReport {
+  chainId: number;
+  headBlock: string;
+  checkedAt: string;
+  /** Every figure is rebuilt from FundedFeeEngine ledger entries; nothing is modeled. */
+  basis: "FUNDED_FEE_ENGINE_LEDGER";
+  rows: PartnerAccrualRow[];
+  totals: { netFeesMinor: string; accruedMinor: string; paidMinor: "0" };
+}
+
+/**
+ * Fees attributed to each partner from the fee ledger: every charge debited from, and rebate credited to, an account the
+ * partner attributes, times the partner's share. The share accrues and stays unpaid: no payout contract exists yet.
+ */
+export async function readPartnerAccruals(setryn: SetrynRuntime, partners: readonly PartnerShareTerms[]): Promise<PartnerAccrualReport> {
+  const { accounts, headBlock } = await readLedger(setryn);
+  let totalFees = BigInt(0);
+  let totalAccrued = BigInt(0);
+  const rows = partners.map((partner): PartnerAccrualRow => {
+    let charged = BigInt(0);
+    let rebated = BigInt(0);
+    const actions = new Set<string>();
+    const fills = new Set<string>();
+    const attributed = new Set(partner.attributedAccounts.map((account) => account.toLowerCase()));
+    for (const account of attributed) {
+      const fees = accounts.get(account);
+      if (!fees) continue;
+      charged += fees.charged;
+      rebated += fees.rebated;
+      fees.actions.forEach((id) => actions.add(id));
+      fees.fills.forEach((id) => fills.add(id));
+    }
+    const net = charged > rebated ? charged - rebated : BigInt(0);
+    const bps = Number.isInteger(partner.revShareBps) && partner.revShareBps > 0 ? BigInt(partner.revShareBps) : BigInt(0);
+    const accrued = (net * bps) / BigInt(10_000);
+    totalFees += net;
+    totalAccrued += accrued;
+    return {
+      partner: partner.code,
+      name: partner.name,
+      revShareBps: partner.revShareBps,
+      attributedAccounts: attributed.size,
+      feeActions: actions.size,
+      fills: fills.size,
+      netFeesMinor: net.toString(),
+      accruedMinor: accrued.toString(),
+      paidMinor: "0",
+      status: "ACCRUED_UNPAID",
+    };
+  });
+  return {
+    chainId: setryn.chainId,
+    headBlock: headBlock.toString(),
+    checkedAt: new Date().toISOString(),
+    basis: "FUNDED_FEE_ENGINE_LEDGER",
+    rows,
+    totals: { netFeesMinor: totalFees.toString(), accruedMinor: totalAccrued.toString(), paidMinor: "0" },
+  };
 }

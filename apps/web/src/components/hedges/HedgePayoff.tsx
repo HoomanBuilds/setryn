@@ -12,6 +12,7 @@ import {
 import { PayoffPlot, breakevens, valueAt } from "@/components/strategies/desk/PayoffPlot";
 import { formatMove, formatTick } from "@/components/strategies/studio-model";
 import { formatNumber } from "@/lib/terminal/format";
+import { packageValueAt, unhedgedValueAt } from "@/lib/hedges/engine";
 import type { ExposureInput, HedgeCandidate } from "@/lib/hedges/types";
 
 export interface HedgeCurves {
@@ -22,30 +23,38 @@ export interface HedgeCurves {
   moveMax: number;
 }
 
+/** Moves of the reference, in percent, the chart spans: both range kinks plus a margin, at least +/-20%. */
+function moveRange(candidate: HedgeCandidate): number {
+  if (!candidate.terms || candidate.reference === null || candidate.reference <= 0) return 20;
+  const reach = Math.max(Math.abs(candidate.terms.floor / candidate.reference - 1), Math.abs(candidate.terms.cap / candidate.reference - 1));
+  return Math.max(20, Math.min(95, Math.ceil(reach * 110)));
+}
+
 /**
- * Continuous version of the engine's scenario rows: the same sign conventions,
- * sampled on the listed payoff grid so the chart and the table agree.
+ * The engine's scenario rows as continuous curves: the bare cash flow, the package's payoff at each fixing (bending at
+ * the range's floor and cap), and their sum, sampled so the chart and the table agree.
  */
 export function hedgeCurves(candidate: HedgeCandidate, exposure: ExposureInput): HedgeCurves {
-  const sign = candidate.packageDirection === "LONG" ? 1 : -1;
+  const range = moveRange(candidate);
+  const moves = new Set<number>();
+  for (let index = 0; index <= 60; index += 1) moves.add(Number((-range + (2 * range * index) / 60).toFixed(3)));
+  if (candidate.terms && candidate.reference !== null && candidate.reference > 0) {
+    for (const bound of [candidate.terms.floor, candidate.terms.cap]) {
+      const move = Number(((bound / candidate.reference - 1) * 100).toFixed(3));
+      if (move > -range && move < range) moves.add(move);
+    }
+  }
   const unhedged: { x: number; y: number }[] = [];
   const pkg: { x: number; y: number }[] = [];
   const net: { x: number; y: number }[] = [];
-  for (const point of candidate.market.payoff) {
-    const moveFrac = point.move / 100;
-    const bare = exposure.direction === "RECEIVABLE" ? exposure.amount * moveFrac : -exposure.amount * moveFrac;
-    const modeled = point.value * candidate.lots * sign;
-    unhedged.push({ x: point.move, y: bare });
-    pkg.push({ x: point.move, y: modeled });
-    net.push({ x: point.move, y: bare + modeled });
+  for (const move of [...moves].sort((left, right) => left - right)) {
+    const bare = unhedgedValueAt(exposure, move);
+    const value = packageValueAt(candidate, move);
+    unhedged.push({ x: move, y: bare });
+    pkg.push({ x: move, y: value });
+    net.push({ x: move, y: bare + value });
   }
-  return {
-    unhedged,
-    pkg,
-    net,
-    moveMin: candidate.market.payoff[0]?.move ?? -20,
-    moveMax: candidate.market.payoff[candidate.market.payoff.length - 1]?.move ?? 20,
-  };
+  return { unhedged, pkg, net, moveMin: -range, moveMax: range };
 }
 
 function signed(value: number): string {
@@ -114,14 +123,14 @@ export function HedgePayoff({
                 </span>
               ))}
             </span>
-            <Chip title="Model output at expiry">Modeled</Chip>
+            <Chip title="The contract's payoff at each fixing, at the hedge's entry level">At expiry</Chip>
           </>
         }
       />
 
       {!candidate || !curves ? (
         <p className="px-3 py-12 text-center text-xs text-faint">
-          Resolve the exposure and select a candidate to model the hedged outcome.
+          Resolve the exposure and select a candidate to see the hedged outcome.
         </p>
       ) : (
         <>

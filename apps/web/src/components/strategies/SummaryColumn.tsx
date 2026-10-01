@@ -86,13 +86,15 @@ export function SummaryColumn({
           </div>
           <p className="mt-1 text-[11px] leading-snug text-faint">
             {compiled.executable
-              ? `${formatLots(compiled.firmDepthLots)} lots currently qualified at available sources`
-              : "Reference-series model. Request an executable quote before signing."}
+              ? Number.isFinite(allInPrice)
+                ? `${formatLots(compiled.firmDepthLots)} lots resting on this side of the book`
+                : "Nothing rests on this side of the book. Rest a limit order or request a quote."
+              : "Graph model only. Request an executable quote before signing."}
           </p>
         </div>
         <div className="border-t border-line-soft px-3 py-1.5">
           <Row label="Initial collateral" value={formatCompactUsd(compiled.collateral)} />
-          <Row label="Max terminal residual" value={formatCompactUsd(compiled.maxResidual)} />
+          <Row label="Max loss at fixing" value={Number.isFinite(summary.maxLoss) ? formatCompactUsd(summary.maxLoss) : "-"} />
           <Row label="Package notional" value={formatCompactUsd(notional)} />
           <Row label="Modelled ratio scale" value={formatShare(compiled.graphScale)} />
           <div className="pt-1.5 pb-1">

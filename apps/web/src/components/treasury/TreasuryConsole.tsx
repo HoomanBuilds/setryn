@@ -538,7 +538,7 @@ function FeeScheduleCard({ data, onChanged }: { data: TreasuryProjection; onChan
   const [stage, setStage] = useState<ChangeStage>({ kind: "IDLE" });
   // Only the local chain lets the platform change fees itself; every network goes through the governance timelock.
   const network = useGatewaySnapshot().environment.network;
-  const operatorControl = network === "local" && data.feeControl.mode === "DEVNET_OPERATOR";
+  const operatorControl = network === "local" && data.feeControl.mode === "OPERATOR";
   const ceiling = active.maxChargeRatePpm;
 
   const settle = useCallback(

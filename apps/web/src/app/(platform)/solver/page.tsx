@@ -3,7 +3,7 @@ import { SolverCockpit } from "@/components/solver/SolverCockpit";
 
 export const metadata: Metadata = {
   title: "Solver / Setryn",
-  description: "Solver opportunities, hedge routes and implied liquidity, reserved capacity, performance, and recovery cases.",
+  description: "Your private requests and their firm quotes, compared with the public book, with request history and recovery.",
 };
 
 export default function SolverPage() {

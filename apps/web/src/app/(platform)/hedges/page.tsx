@@ -5,7 +5,7 @@ import { HedgeWorkspace, HedgeWorkspaceFromQuery } from "@/components/hedges/Hed
 export const metadata: Metadata = {
   title: "Hedge builder / Setryn",
   description:
-    "Goal-first package hedge workspace. Size a dated cash-flow exposure against listed package templates, compare modeled outcomes, then hand off to Strategy Studio or Trade.",
+    "Size a dated cash-flow exposure or your positions' delta against the listed range forwards at the live reference, compare outcomes at expiry, then hand off to Strategy Studio or Trade.",
 };
 
 export default function HedgesPage() {

@@ -3,7 +3,7 @@ import { AuctionBoard } from "@/components/auctions/AuctionBoard";
 
 export const metadata: Metadata = {
   title: "Auctions / Setryn",
-  description: "Sealed-bid package auctions and uniform-price batch clearing rounds, with commit and reveal windows and clearing history.",
+  description: "Sealed-bid package auctions read from the deployment's auction house, with commit and reveal windows, bids and clearing.",
 };
 
 export default function AuctionsPage() {

@@ -42,12 +42,14 @@ export function HedgeSummary({ candidate, curves }: { candidate: HedgeCandidate 
       />
       <div className="px-3 pt-3 pb-2">
         <div className="flex items-baseline justify-between gap-2">
-          <span className="text-[11px] text-faint">Executable price</span>
-          <Chip tone="up">Executable</Chip>
+          <span className="text-[11px] text-faint">{candidate.forwardSource === "TOUCH" ? "Executable price" : "Entry level"}</span>
+          <Chip tone={candidate.forwardSource === "TOUCH" ? "up" : "brand"}>
+            {candidate.forwardSource === "TOUCH" ? "Resting" : candidate.forwardSource === "MARK" ? "Mark only" : "No price"}
+          </Chip>
         </div>
         <div className="mt-1 flex items-baseline gap-2">
           <span className="tnum font-mono text-[26px] leading-8 text-ink">
-            {formatNumber(candidate.executablePrice, candidate.market.priceDecimals)}
+            {formatNumber(candidate.forwardLevel, candidate.market.priceDecimals)}
           </span>
           <span className="text-sm text-faint">{priceUnitSuffix(candidate.market.priceUnit)}</span>
           <span className={`ml-auto text-xs ${candidate.packageDirection === "LONG" ? "text-up" : "text-down"}`}>
@@ -88,8 +90,12 @@ export function HedgeSummary({ candidate, curves }: { candidate: HedgeCandidate 
         <Metric label="Carry at 0%" value={compact(valueAt(curves.net, 0), true)} tone={signTone(valueAt(curves.net, 0))} note="Net, unchanged reference" />
         <Metric label="Worst hedged" value={compact(worstNet, true)} tone={signTone(worstNet)} note="Across modeled range" />
         <Metric label="Worst unhedged" value={compact(worstBare, true)} tone={signTone(worstBare)} note="Bare cash-flow move" />
-        <Metric label="Est. collateral" value={compact(candidate.collateralEstimate)} note="Modeled, USDC" />
-        <Metric label="Residual" value={compact(candidate.residualEstimate)} note="Modeled, USDC" />
+        <Metric label="Collateral" value={compact(candidate.collateralEstimate)} note="At entry, USDC" />
+        <Metric
+          label="Exposure units"
+          value={candidate.exposureUnits !== null ? formatNumber(candidate.exposureUnits, candidate.exposureUnits < 10 ? 3 : 0) : "-"}
+          note={`${candidate.market.underlying.split("/")[0]} at the reference`}
+        />
       </div>
     </Panel>
   );

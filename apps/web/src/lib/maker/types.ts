@@ -1,131 +1,64 @@
-export type MakerEnvironment = "ARBITRUM_SEPOLIA" | "LOCAL";
+import type { ExecutionPosition, ExecutionReceipt, RestingPackageOrder } from "@/lib/internal-gateway/types";
+import type { PackageMarket } from "@/lib/terminal/types";
+import type { LiveQuote, RangeTerms } from "@/lib/strategies/range";
 
-export type DataOrigin = "SIMULATED" | "OBSERVED" | "PROJECTED";
+/*
+ * The maker desk reads the connected wallet's own state from the gateway (resting public-book orders, fills, positions,
+ * RFQ requests) and every market number from the market-data feed. Nothing is modeled.
+ */
 
-export type CapacityKind = "FIRM" | "INDICATIVE" | "RESERVED";
+export type QuoteAction = "BUY" | "SELL";
 
-export type ConnectivityState = "HEALTHY" | "DEGRADED" | "OFFLINE";
-
-export type QuoteSessionState = "QUOTING" | "PAUSED" | "RISK_PAUSED";
-
-export interface Freshness {
-  observedAt: string;
-  ageMs: number;
-  source: string;
-  origin: DataOrigin;
+/** A working quote: one of the wallet's resting public-book orders. */
+export interface WorkingQuote {
+  order: RestingPackageOrder;
+  action: QuoteAction;
 }
 
-export interface MakerSeries {
-  id: string;
-  displayName: string;
-  template: string;
-  underlying: string;
-  settlementAsset: string;
-  expiry: string;
-  quoteConvention: string;
-  quoteCurrency: string;
-  quoteUnit: string;
-  venueScope: string;
-  status: "QUALIFIED" | "CONDITIONAL" | "SUSPENDED";
+/** The wallet's own resting lots at one book price. */
+export interface OwnLevel {
+  action: QuoteAction;
+  price: number;
+  lots: number;
+  orders: number;
 }
 
-export interface QuoteLevel {
-  sizeLabel: string;
-  notionalUsd: number;
-  bid: number;
-  ask: number;
-  spreadBps: number;
-  firmCapacityUsd: number;
-  indicativeCapacityUsd: number;
-  expirySeconds: number;
-  expectedHedgeCostBps: number;
-  fillProbability: number;
-  toxicityScore: number;
-  expectedEdgeBps: number;
-  capacityOrigin: Freshness;
+/** A price level of the public book with the wallet's own share of it. */
+export interface LadderLevel {
+  price: number;
+  bidLots: number;
+  askLots: number;
+  ownBidLots: number;
+  ownAskLots: number;
 }
 
-export interface MarketRisk {
-  seriesId: string;
-  grossNotionalUsd: number;
-  netDeltaUsd: number;
-  expectedHedgeCostBps: number;
-  stressLossUsd: number;
-  quoteLimitUsd: number;
-  utilization: number;
-  state: "WITHIN_LIMIT" | "WATCH" | "PAUSED";
+export interface MarketInventory {
+  marketId: string;
+  longLots: number;
+  shortLots: number;
+  /** Long minus short lots. */
+  netLots: number;
+  /** Lot-weighted entry of the net side; null when flat. */
+  averageEntry: number | null;
+  collateral: number;
+  positions: ExecutionPosition[];
 }
 
-export interface InventoryPosition {
-  id: string;
-  seriesId: string;
-  label: string;
-  netPackageQuantity: number;
-  deltaUsd: number;
-  vegaUsd: number;
-  fundingExposureUsd: number;
-  hedgeVenue: string;
-  hedgeStatus: "COVERED" | "PENDING" | "UNHEDGED";
-  closeCostBps: number;
-  freshness: Freshness;
+/** One listed market with the wallet's activity on it. */
+export interface MakerMarket {
+  market: PackageMarket;
+  quote: LiveQuote;
+  terms: RangeTerms | null;
+  working: WorkingQuote[];
+  bidLots: number;
+  askLots: number;
+  inventory: MarketInventory | null;
+  fills: ExecutionReceipt[];
 }
 
-export interface RfqRequest {
-  id: string;
-  seriesId: string;
-  side: "BUY" | "SELL";
-  sizeLabel: string;
-  requestedNotionalUsd: number;
-  requestedAt: string;
-  expiresInSeconds: number;
-  counterpartyScope: string;
-  eligibility: "ELIGIBLE" | "CAPACITY_LIMITED" | "RISK_BLOCKED";
-  modeledHedgeCostBps: number;
-  modeledEdgeBps: number;
-  source: Freshness;
-}
-
-export interface CapitalBucket {
-  label: string;
-  amountUsd: number;
-  description: string;
-  state: "AVAILABLE" | "RESERVED" | "WITHDRAWAL_DELAY" | "RECOVERY";
-}
-
-export interface SessionCheck {
-  id: string;
-  label: string;
-  state: ConnectivityState;
-  latencyMs: number | null;
-  lastUpdate: string;
-  source: string;
-}
-
-export interface KillSwitchScope {
-  id: string;
-  label: string;
-  description: string;
-  active: boolean;
-  protectedNotionalUsd: number;
-}
-
-export interface MakerCockpitSnapshot {
-  environment: MakerEnvironment;
-  snapshot: Freshness;
-  session: {
-    id: string;
-    state: QuoteSessionState;
-    quoteCount: number;
-    hitRate: number;
-    realizedPnlUsd: number;
-    expectedPnlUsd: number;
-  };
-  series: MakerSeries[];
-  quoteLevels: Record<string, QuoteLevel[]>;
-  marketRisk: MarketRisk[];
-  inventory: InventoryPosition[];
-  rfqs: RfqRequest[];
-  capital: CapitalBucket[];
-  health: SessionCheck[];
-  killSwitches: KillSwitchScope[];
+/** A two-sided quote the composer is about to sign. */
+export interface QuoteDraft {
+  bid: number | null;
+  ask: number | null;
+  lots: number;
 }

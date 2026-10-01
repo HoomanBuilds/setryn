@@ -1,154 +1,91 @@
-import type {
-  AuctionRecord,
-  Bytes32,
-  LiquidityProvenance,
-  SourceRouteReservation,
-} from "@/lib/auctions/types";
-import type { Provenance } from "@/lib/terminal/types";
+import type { FirmRfqQuote, RfqRequest } from "@/lib/internal-gateway/types";
 
-export type OpportunitySource = "SEALED_AUCTION" | "BATCH_ROUND" | "PRIVATE_RFQ";
+/*
+ * Solver read model: the private requests the connected account can see (its own, from the PrivateRfqBook through the
+ * gateway), the firm quotes on them, and what hedging each one on the public book would cost at the feed's block.
+ */
 
-/** Which clock a deadline is measured on: the shared preview clock, or wall time for chain objects. */
-export type DeadlineClock = "PREVIEW" | "WALL";
-
-export type OwnBidState = "NOT_COMMITTED" | "COMMITTED" | "REVEAL_DUE" | "REVEALED" | "SCHEDULED" | "QUOTE_IN_MAKER_DESK";
-
-export type Eligibility = "ELIGIBLE" | "SIZE_CAPPED" | "DEPTH_SHORT" | "CAPACITY_LIMITED" | "BLOCKED";
+export type OpportunityState = "OPEN" | "SELECTED" | "EXECUTED" | "CANCELLED" | "EXPIRED";
 
 export interface RoutePlanFill {
-  provenance: LiquidityProvenance;
   price: number;
   lots: number;
-  /** Component markets for implied rows, solver handle for firm rows. */
-  origin: string | null;
-  firm: boolean;
-  /** Implied and solver sources must be reserved before a route can rely on them. */
-  reservation: "NOT_REQUIRED" | "RESERVE_ON_COMMIT";
-  invalidation: string;
+  /** Book row id (the resting order). */
+  orderId: string;
 }
 
-export interface RoutePlanExclusion {
-  reason: "SELF_MATCH" | "INDICATIVE";
-  provenance: LiquidityProvenance;
-  price: number;
-  lots: number;
-  origin: string | null;
-}
-
+/** What it costs to take `requestedLots` from the public book on one side, at the feed's block. */
 export interface RoutePlan {
   marketId: string;
-  /** What the solver must do in the market to hedge the fill: buy the package, or sell it. */
+  /** What the hedger does on the book: buy lifts offers, sell hits bids. */
   hedgeAction: "BUY" | "SELL";
   requestedLots: number;
   fillableLots: number;
   fills: RoutePlanFill[];
-  exclusions: RoutePlanExclusion[];
-  byClass: { provenance: LiquidityProvenance; lots: number; share: number }[];
-  touch: number;
+  /** Lots resting from the connected account itself, left out so the plan never matches its own orders. */
+  excludedOwnLots: number;
+  touch: number | null;
   vwap: number | null;
   worst: number | null;
+  /** Taker fee on the filled consideration, USDC. */
   feesUsd: number;
-  /** Price-equivalent of fees, per package unit. */
+  /** Fees expressed per unit of price, so they can be added to a level. */
   feePrice: number;
-  /** The package price at which filling the auction exactly pays for the hedge and fees. */
+  /** The level at which a fill exactly pays for the book hedge and its fees. */
   breakEven: number | null;
-  /** Notional exposed between the first and last leg print on sequenced implied routes. */
-  sequencedExposureUsd: number;
-  collateralUsd: number;
 }
 
 export interface SolverOpportunity {
   id: string;
-  source: OpportunitySource;
-  provenance: Provenance;
-  label: string;
+  request: RfqRequest;
   marketId: string;
-  auction: AuctionRecord | null;
-  requestId: string | null;
-  /** The initiator's side. The solver takes the other side of the package. */
-  initiatorSide: "BUY" | "SELL";
+  /** The taker's action. */
+  takerAction: "BUY" | "SELL";
   lots: number;
+  limitPrice: number;
+  /** Unix seconds. */
   deadline: number;
-  clock: DeadlineClock;
-  deadlineLabel: string;
-  bidders: number;
-  ownState: OwnBidState;
-  eligibility: Eligibility;
-  eligibilityNote: string;
-  bondUsd: number;
-  plan: RoutePlan;
-  /** Modeled: edge per the live touch versus the break-even price, in USDC for the full size. */
-  edgeUsd: number | null;
-  capacityRequiredUsd: number;
+  state: OpportunityState;
+  quotes: FirmRfqQuote[];
+  bestQuote: FirmRfqQuote | null;
+  /** Taking the same size from the book in the taker's direction, for comparison. */
+  plan: RoutePlan | null;
+  /** Best quote against the book for the full size, USDC; positive means the quote beats the book. */
+  improvementUsd: number | null;
+  collateralRequired: number;
 }
 
-export interface CapacityBucket {
-  id: "AVAILABLE" | "BOND_LOCKS" | "ROUTE_RESERVATIONS" | "WITHDRAWAL_DELAYED" | "RECOVERY_RESERVE";
-  label: string;
-  amountUsd: number;
-  description: string;
-}
-
-export interface BondLock {
-  bidId: Bytes32;
-  auction: AuctionRecord;
-  amountUsd: number;
-  state: "LOCKED" | "RELEASE_DUE";
-  releasesAt: number;
-  detail: string;
-}
-
-export interface RouteReservationView {
-  reservation: SourceRouteReservation;
-  auction: AuctionRecord;
-  collateralUsd: number;
-}
-
-export interface CapacityLedger {
-  totalUsd: number;
-  buckets: CapacityBucket[];
-  bondLocks: BondLock[];
-  reservations: RouteReservationView[];
-}
-
-export interface MarketPerformance {
+export interface MarketRequestStats {
   marketId: string;
-  bids: number;
-  wins: number;
-  allocatedLots: number;
-  bidLots: number;
-  edgeUsd: number;
+  requests: number;
+  quoted: number;
+  executed: number;
+  lots: number;
+  executedLots: number;
 }
 
-export type RejectReason = "LOST_ON_PRICE" | "LOST_ON_TIE_BREAK" | "SIZE_RULE" | "UNREVEALED" | "NO_CLEAR";
-
-export interface SolverPerformance {
-  windowSeconds: number;
-  bids: number;
-  revealed: number;
-  wins: number;
-  winRate: number;
-  fillRate: number;
-  edgeUsd: number;
-  edgePerWinUsd: number;
-  responseSeconds: number;
-  rejects: Record<RejectReason, number>;
-  byMarket: MarketPerformance[];
-  /** Newest first, one entry per round the solver bid in. */
-  recent: { auction: AuctionRecord; outcome: "WON" | RejectReason | "PENDING"; edgeUsd: number | null }[];
+export interface RequestStats {
+  total: number;
+  open: number;
+  quoted: number;
+  executed: number;
+  cancelled: number;
+  expired: number;
+  quotesReceived: number;
+  executedLots: number;
+  quoteRate: number;
+  executionRate: number;
+  byMarket: MarketRequestStats[];
 }
 
-export type RecoveryKind = "SETTLEMENT_EXPIRED" | "SETTLEMENT_WATCH" | "BOND_SLASHED" | "BOND_RELEASE_DUE";
+export type RecoveryKind = "EXPIRED_OPEN" | "SELECTION_EXPIRED";
 
-export interface RecoveryCase {
+export interface RecoveryItem {
   id: string;
   kind: RecoveryKind;
-  state: "WATCH" | "ACTIONABLE" | "RESOLVED";
-  auction: AuctionRecord;
-  amountUsd: number;
+  request: RfqRequest;
   title: string;
   detail: string;
-  /** The permissionless completion path and when it becomes callable. */
-  call: string | null;
-  callableAt: number | null;
+  /** The call that closes it; anyone may expire a lapsed request. */
+  call: string;
 }

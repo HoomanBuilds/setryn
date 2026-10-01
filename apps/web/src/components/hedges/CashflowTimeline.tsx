@@ -1,13 +1,15 @@
 "use client";
 
 import { Panel, PanelHead, deskMotion } from "@/components/strategies/desk/Desk";
-import { SCENARIO_CLOCK_ISO, daysToExpiry, formatExpiry } from "@/lib/terminal/format";
+import { formatExpiry, formatUtcStamp } from "@/lib/terminal/format";
 import type { ExposureInput, HedgeCandidate } from "@/lib/hedges/types";
 
 interface CashflowTimelineProps {
   exposure: ExposureInput;
   candidate: HedgeCandidate | null;
   horizonDays: number | null;
+  /** Platform clock, unix seconds. */
+  nowSeconds: number;
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -31,16 +33,18 @@ function anchor(position: number): string {
   return "-translate-x-1/2";
 }
 
-export function CashflowTimeline({ exposure, candidate, horizonDays }: CashflowTimelineProps) {
-  const expiryDays = candidate ? daysToExpiry(candidate.market.expiryIso) : null;
+export function CashflowTimeline({ exposure, candidate, horizonDays, nowSeconds }: CashflowTimelineProps) {
+  const clockMs = nowSeconds * 1000;
+  const today = new Date(clockMs).toISOString().slice(0, 10);
+  const expiryDays =
+    candidate && Number.isFinite(candidate.market.expiryAt) ? Math.max(0, Math.round((candidate.market.expiryAt * 1000 - clockMs) / DAY_MS)) : null;
   const gap = candidate ? candidate.tenorGapDays : null;
-  // The track runs from the scenario clock to a little past the later of flow and fixing.
+  // The track runs from today to a little past the later of flow and fixing.
   const span = Math.max(horizonDays ?? 0, expiryDays ?? 0, 1) * 1.08;
   const toPos = (days: number) => Math.min(100, Math.max(0, (days / span) * 100));
   const flowPos = horizonDays === null ? null : toPos(horizonDays);
   const expiryPos = expiryDays === null ? null : toPos(expiryDays);
 
-  const clockMs = Date.parse(SCENARIO_CLOCK_ISO);
   const ticks: { pos: number; label: string }[] = [];
   const start = new Date(clockMs);
   const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
@@ -129,21 +133,19 @@ export function CashflowTimeline({ exposure, candidate, horizonDays }: CashflowT
               <span className="tnum ml-1.5 font-mono text-[11px] text-ink">{formatExpiry(candidate.market.expiryIso)}</span>
             </div>
           ) : null}
-          <span className="absolute top-[56px] left-0 font-mono text-[10px] text-faint">
-            {`T0 ${SCENARIO_CLOCK_ISO.slice(0, 10)}`}
-          </span>
+          <span className="absolute top-[56px] left-0 font-mono text-[10px] text-faint">{`Today ${today}`}</span>
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-px overflow-hidden rounded-b-lg border-t border-line bg-line sm:grid-cols-4">
-        <Cell label="Scenario clock" value={SCENARIO_CLOCK_ISO.slice(0, 10)} tone="text-dim" />
+        <Cell label="Today" value={today} tone="text-dim" />
         <Cell label="Cash flow" value={`${exposure.exposureDateIso || "-"} / ${exposure.direction.toLowerCase()}`} />
         <Cell label="Fixing" value={candidate ? candidate.market.fixingSource : "Select a package"} tone="text-dim" />
         <Cell
           label="Settlement"
           value={
             candidate
-              ? `${candidate.settlementClass === "CASH_USDC_NDF" ? "NDF cash" : "Cash USDC"} / ${formatExpiry(candidate.market.expiryIso)}`
+              ? `${candidate.settlementClass === "CASH_USDC_NDF" ? "NDF cash" : "Cash USDC"} / ${Number.isFinite(candidate.market.expiryAt) ? `${formatUtcStamp(candidate.market.expiryAt)} UTC` : formatExpiry(candidate.market.expiryIso)}`
               : "-"
           }
           tone="text-dim"

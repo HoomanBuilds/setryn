@@ -193,7 +193,7 @@ const CHIP_TONE: Record<Tone, string> = {
   down: "border-down/25 bg-down-soft text-down",
 };
 
-/** Small provenance or state chip, e.g. SIMULATED, MODELED, browser fixture. */
+/** Small provenance or state chip, e.g. LIVE, MODELED, ONCHAIN. */
 export function Chip({
   children,
   tone = "neutral",

@@ -1,5 +1,6 @@
 import { findMarket, MARKETS } from "@/lib/terminal/markets";
 import type { PackageLeg, PackageMarket, Qualification } from "@/lib/terminal/types";
+import { collateralPerLot, rangeTerms } from "./range";
 import type {
   CompiledDraftLeg,
   CompiledPackageDraft,
@@ -20,7 +21,7 @@ function inferredAsset(instrument: string, market: PackageMarket): string {
   return instrument.split(" ")[0] || market.underlying;
 }
 
-/** The graph catalog is derived from the same listed fixture that powers trade. */
+/** The graph catalog is derived from the listed markets that trade, with leg marks from the market-data feed. */
 export function instrumentCatalog(markets: PackageMarket[] = MARKETS): InstrumentOption[] {
   const options = new Map<string, InstrumentOption>();
 
@@ -114,11 +115,16 @@ function graphScale(legs: CompiledDraftLeg[], market: PackageMarket): number {
   return baseline > 0 ? Math.max(0.25, actual / baseline) : 1;
 }
 
+/** A listed market clears atomically on its public book; anything else needs a solver's firm quote. */
 function guaranteeFor(match: PackageMarket | null, qualification: Qualification) {
   if (!match || qualification === "SUSPENDED") return "SOLVER_BONDED" as const;
-  return match.routes.some((route) => route.guarantee === "PACKAGE_ATOMIC")
-    ? ("PACKAGE_ATOMIC" as const)
-    : ("SOLVER_BONDED" as const);
+  return "PACKAGE_ATOMIC" as const;
+}
+
+/** Executable lots resting on the side a draft takes: offers for a long, bids for a short. */
+function sideDepth(market: PackageMarket, direction: PackageDraft["direction"]): number {
+  const side = direction === "LONG" ? "ASK" : "BID";
+  return market.book.reduce((total, row) => total + (row.side === side && row.executable && Number.isFinite(row.lots) ? row.lots : 0), 0);
 }
 
 export function compilePackageDraft(
@@ -144,7 +150,7 @@ export function compilePackageDraft(
   });
 
   if (legs.length < 2) validation.push("Add at least two typed legs to construct a package.");
-  if (legs.length > 6) validation.push("A package is capped at six legs in this preview environment.");
+  if (legs.length > 6) validation.push("A package is capped at six legs.");
   if (nonPricingLegs.length === 0) validation.push("Add a forward, basis, or funding leg to define price risk.");
   if (hasDuplicate) validation.push("Each instrument and side may appear once in a canonical package.");
   if (legs.some((leg) => leg.instrument.settlementClass !== settlementClass)) {
@@ -166,9 +172,16 @@ export function compilePackageDraft(
     0,
   );
   const priceMarket = match ?? market;
-  const allInPrice =
-    draft.direction === "LONG" ? priceMarket.bestAsk * scale : priceMarket.bestBid * scale;
+  const touch = draft.direction === "LONG" ? priceMarket.bestAsk : priceMarket.bestBid;
+  const allInPrice = Number.isFinite(touch) ? touch * scale : Number.NaN;
   const executable = match !== null && qualification !== "SUSPENDED" && validation.length === 0;
+  // Collateral is the most this side can lose: the long pays down to the floor, the short up to the cap.
+  const terms = rangeTerms(priceMarket);
+  const level = Number.isFinite(touch) ? touch : priceMarket.netPrice;
+  const collateral =
+    terms && Number.isFinite(level)
+      ? collateralPerLot(terms, level, draft.direction) * draft.lots * scale
+      : priceMarket.collateralPerLot * draft.lots * scale;
   const canonicalPayload = legs
     .map(
       (leg) =>
@@ -194,11 +207,12 @@ export function compilePackageDraft(
     executableMarketId: match?.id ?? null,
     graphScale: scale,
     netDelta,
-    collateral: Math.round(priceMarket.collateralPerLot * draft.lots * scale),
-    maxResidual: Math.round(priceMarket.residualPerLot * draft.lots * scale * 100) / 100,
+    collateral: Math.round(collateral * 100) / 100,
+    // Fully collateralized: no residual can remain after the terminal transfer.
+    maxResidual: 0,
     allInPrice,
-    allInPriceLabel: executable ? "EXECUTABLE" : "MODELED",
-    firmDepthLots: executable ? Math.floor(priceMarket.firmDepthLots / scale) : 0,
+    allInPriceLabel: executable && Number.isFinite(allInPrice) ? "EXECUTABLE" : "MODELED",
+    firmDepthLots: executable ? Math.floor(sideDepth(priceMarket, draft.direction) / scale) : 0,
     validation,
   };
 }

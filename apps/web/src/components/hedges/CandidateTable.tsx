@@ -57,8 +57,8 @@ export function CandidateTable({ candidates, selectedId, onSelect }: CandidateTa
               <th scope="col" className={TH}>Package</th>
               <th scope="col" className={TH_NUM}>Exec. price</th>
               <th scope="col" className={TH_NUM}>Coverage</th>
-              <th scope="col" className={TH_NUM}>Est. collateral</th>
-              <th scope="col" className={TH_NUM}>Residual</th>
+              <th scope="col" className={TH_NUM}>Collateral</th>
+              <th scope="col" className={TH_NUM}>Covered range</th>
               <th scope="col" className={TH}>Qualification</th>
               <th scope="col" className={TH_NUM}>Tenor gap</th>
             </tr>
@@ -98,8 +98,12 @@ export function CandidateTable({ candidates, selectedId, onSelect }: CandidateTa
                     </button>
                   </td>
                   <td className="tnum px-3 py-2 text-right font-mono text-ink">
-                    {`${formatNumber(candidate.executablePrice, candidate.market.priceDecimals)} ${priceUnitSuffix(candidate.market.priceUnit)}`}
-                    <span className="block text-[10px] text-faint">executable</span>
+                    {Number.isFinite(candidate.executablePrice)
+                      ? `${formatNumber(candidate.executablePrice, candidate.market.priceDecimals)} ${priceUnitSuffix(candidate.market.priceUnit)}`
+                      : "-"}
+                    <span className="block text-[10px] text-faint">
+                      {Number.isFinite(candidate.executablePrice) ? "resting" : candidate.forwardSource === "MARK" ? "no order, mark used" : "no price"}
+                    </span>
                   </td>
                   <td className="tnum px-3 py-2 text-right font-mono text-dim">
                     {formatShare(candidate.coverageRatio, 0)}
@@ -107,11 +111,13 @@ export function CandidateTable({ candidates, selectedId, onSelect }: CandidateTa
                   </td>
                   <td className="tnum px-3 py-2 text-right font-mono text-dim">
                     {formatCompactUsd(candidate.collateralEstimate)}
-                    <span className="block text-[10px] text-faint">modeled</span>
+                    <span className="block text-[10px] text-faint">at entry</span>
                   </td>
                   <td className="tnum px-3 py-2 text-right font-mono text-dim">
-                    {formatCompactUsd(candidate.residualEstimate)}
-                    <span className="block text-[10px] text-faint">modeled</span>
+                    {candidate.terms
+                      ? `${formatNumber(candidate.terms.floor, candidate.market.priceDecimals)}–${formatNumber(candidate.terms.cap, candidate.market.priceDecimals)}`
+                      : "-"}
+                    <span className="block text-[10px] text-faint">{candidate.ordersNeeded > 1 ? `${candidate.ordersNeeded} orders` : "one order"}</span>
                   </td>
                   <td className="px-3 py-2">
                     <span className={`inline-flex items-center gap-1.5 ${qualificationTone(candidate.qualification)}`}>
@@ -164,8 +170,8 @@ export function CandidateTable({ candidates, selectedId, onSelect }: CandidateTa
           ))}
         </ul>
         <p className="border-t border-line-soft px-3 py-2 text-[11px] leading-snug text-faint">
-          Executable price, qualification, and settlement are listed market data. Collateral and
-          residual are modeled estimates for the sized lots.
+          Lots size the exposure at the live reference. The hedge offsets the move only between the range&apos;s floor and
+          cap; collateral is the most the side can lose from its entry level.
         </p>
       </div>
     </Panel>

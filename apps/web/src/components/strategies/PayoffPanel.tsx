@@ -75,7 +75,11 @@ export function PayoffPanel({
         }
       />
 
-      {tab === "PAYOFF" ? (
+      {summary.points.length === 0 ? (
+        <p className="px-3 py-12 text-center text-xs text-faint">
+          No mark or reference has been read for this market yet. The payoff draws as soon as the feed reports one.
+        </p>
+      ) : tab === "PAYOFF" ? (
         <TabBody idBase="studio-payoff" className="flex min-h-0 flex-1 flex-col">
           <div className="grid grid-cols-2 border-b border-line sm:grid-cols-4">
             <div className="min-w-0 border-r border-line px-3 py-2">

@@ -16,8 +16,9 @@ export interface PayoffSummary {
 }
 
 /**
- * The listed payoff profile scaled to the draft: lots, the graph ratio scale
- * and the package direction. Everything here is a model output at expiry.
+ * The listed payoff profile (computed from the live mark and reference) scaled
+ * to the draft: lots, the graph ratio scale and the package direction. Every
+ * value is the contract's payoff at expiry for a given fixing.
  */
 export function payoffSummary(
   market: PackageMarket,
@@ -28,8 +29,9 @@ export function payoffSummary(
   const factor = Math.max(1, lots) * scale * (direction === "LONG" ? 1 : -1);
   const points = market.payoff.map((point) => ({ x: point.move, y: point.value * factor }));
   const ys = points.map((point) => point.y);
-  const maxGain = Math.max(...ys);
-  const maxLoss = Math.min(...ys);
+  // Without a mark and a reference there is no payoff to draw; the panels say so instead of plotting a stand-in.
+  const maxGain = ys.length > 0 ? Math.max(...ys) : 0;
+  const maxLoss = ys.length > 0 ? Math.min(...ys) : 0;
   return {
     points,
     maxGain,

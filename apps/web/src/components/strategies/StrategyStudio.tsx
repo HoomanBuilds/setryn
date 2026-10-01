@@ -3,7 +3,7 @@
 import { Suspense, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { ChevronDown, CornerDownRight } from "lucide-react";
-import { usePreviewBoard } from "@/components/terminal/PreviewMarketProvider";
+import { useChainNow, useMarketBoard } from "@/components/market-data/MarketDataProvider";
 import { Segmented } from "@/components/terminal/primitives";
 import { Chip, Flash, LiveDot, deskMotion } from "@/components/strategies/desk/Desk";
 import { LegsPanel } from "@/components/strategies/LegsPanel";
@@ -18,6 +18,8 @@ import {
   marketTemplates,
 } from "@/lib/strategies/catalog";
 import { parseStudioHandoff, type StudioHandoffContext } from "@/lib/strategies/handoff";
+import { MARK_SOURCE_LABEL, impliedCarryPct } from "@/lib/strategies/range";
+import { networkLabel } from "@/lib/operations/deployment";
 import type { DraftLeg, PackageDraft, StrategyBuildMode } from "@/lib/strategies/types";
 import {
   daysToExpiry,
@@ -95,10 +97,26 @@ function HandoffContextBar({ handoff }: { handoff: StudioHandoffContext }) {
       <span className="tnum font-mono text-ink">{summary}</span>
       {refs.length > 0 ? <span className="tnum truncate font-mono text-faint">{refs.join(" / ")}</span> : null}
       <span className="w-full text-[11px] leading-snug text-faint lg:ml-auto lg:w-auto">
-        Read-only handoff context. No order is created here. Arbitrum One; mainnet writes remain disabled.
+        Read-only handoff context. No order is created here; the trade terminal prices and signs it.
       </span>
     </div>
   );
+}
+
+/** The strategy view of a forward level against the live reference, by the market's display kind. */
+function strategyView(market: PackageMarket, nowSeconds: number): { label: string; value: string } | null {
+  const forward = market.netPrice;
+  const spot = market.referencePrice;
+  if (!Number.isFinite(forward) || !Number.isFinite(spot) || spot <= 0) return null;
+  if (market.strategyKind === "DELIVERABLE_FORWARD") {
+    return { label: "Forward points", value: formatNumber((forward - spot) * 10_000, 1) };
+  }
+  if (market.strategyKind === "DATED_BASIS") {
+    return { label: "Basis to spot", value: formatNumber(forward - spot, Math.max(2, market.priceDecimals)) };
+  }
+  const days = Number.isFinite(market.expiryAt) ? (market.expiryAt - nowSeconds) / 86_400 : null;
+  const carry = impliedCarryPct(forward, spot, days);
+  return carry === null ? null : { label: market.strategyKind === "FUNDING_CARRY" ? "Implied funding" : "Implied carry", value: `${formatNumber(carry, 2)}% ann.` };
 }
 
 function HeaderStat({ label, children, className = "" }: { label: string; children: ReactNode; className?: string }) {
@@ -133,12 +151,13 @@ function StudioContent() {
     setAppliedHandoffKey(handoff.key);
     setDraft(draftForHandoff(handoff) ?? initialDraft());
   }
-  const board = usePreviewBoard();
+  const board = useMarketBoard();
+  const nowSeconds = useChainNow();
   const catalog = useMemo(() => instrumentCatalog(), []);
   const catalogById = useMemo(() => new Map(catalog.map((instrument) => [instrument.id, instrument])), [catalog]);
   const [instrumentChoice, setSelectedInstrument] = useState("");
   const [scenarioMove, setScenarioMove] = useState(0);
-  // Economics compile against the shared preview board so prices match the terminal feed.
+  // Economics compile against the market-data feed so prices match the terminal.
   const compiled = useMemo(() => compilePackageDraft(draft, board.markets), [draft, board.markets]);
   const liveTemplates = useMemo(() => marketTemplates(board.markets), [board.markets]);
   const availableInstruments = useMemo(
@@ -208,6 +227,8 @@ function StudioContent() {
   const move = Math.min(summary.moveMax, Math.max(summary.moveMin, scenarioMove));
   const unit = priceUnitSuffix(liveSelected.priceUnit);
   const spread = liveSelected.bestAsk - liveSelected.bestBid;
+  const view = strategyView(liveSelected, nowSeconds);
+  const network = networkLabel(board.snapshot?.chainId ?? null, board.snapshot?.network ?? null);
 
   return (
     <main className="scroll-thin flex min-h-0 min-w-0 flex-1 flex-col gap-1 overflow-y-auto bg-app p-1 xl:overflow-hidden">
@@ -239,11 +260,18 @@ function StudioContent() {
             aria-label="Strategy summary"
             className="focus-ring no-scrollbar flex min-w-0 items-stretch gap-5 overflow-x-auto lg:flex-1"
           >
-            <HeaderStat label="Index mark">
+            <HeaderStat label={`Mark / ${MARK_SOURCE_LABEL[liveSelected.markSource].toLowerCase()}`}>
               <span className="flex items-center gap-1.5">
-                <Flash value={liveSelected.netPrice}>{formatNumber(liveSelected.netPrice, liveSelected.priceDecimals)}</Flash>
+                {Number.isFinite(liveSelected.netPrice) ? (
+                  <Flash value={liveSelected.netPrice}>{formatNumber(liveSelected.netPrice, liveSelected.priceDecimals)}</Flash>
+                ) : (
+                  <span className="text-faint">No mark</span>
+                )}
                 <span className="text-[11px] text-faint">{unit}</span>
               </span>
+            </HeaderStat>
+            <HeaderStat label={view?.label ?? "Strategy view"}>
+              <span className={view ? "text-ink" : "text-faint"}>{view?.value ?? "Needs a reference"}</span>
             </HeaderStat>
             <HeaderStat label="Best bid">
               <span className="text-up">{formatNumber(liveSelected.bestBid, liveSelected.priceDecimals)}</span>
@@ -263,10 +291,10 @@ function StudioContent() {
           </div>
 
           <div className="flex shrink-0 items-center gap-2 lg:ml-auto">
-            <span className="flex items-center gap-1.5 text-[11px] whitespace-nowrap text-faint" title="Setryn index feed">
-              <LiveDot tone="up" live />
-              <span className="lg:hidden 2xl:inline">Arbitrum One</span>
-              <span className="hidden lg:inline 2xl:hidden">Index</span>
+            <span className="flex items-center gap-1.5 text-[11px] whitespace-nowrap text-faint" title="Market-data feed: onchain book, fills and Chainlink references">
+              <LiveDot tone={board.status === "LIVE" ? "up" : board.status === "LOADING" ? "dim" : "down"} live={board.status === "LIVE"} />
+              <span className="lg:hidden 2xl:inline">{network}</span>
+              <span className="hidden lg:inline 2xl:hidden">{board.status === "LIVE" ? "Live" : board.status === "LOADING" ? "Loading" : "Stale"}</span>
             </span>
             <div className="ml-auto w-[168px] lg:ml-2">
               <Segmented options={MODES} value={draft.mode} onChange={chooseMode} label="Construction mode" size="sm" />
@@ -294,7 +322,7 @@ function StudioContent() {
             <span className="tnum font-mono text-[11px] text-faint">{compiled.canonicalId}</span>
             <span className="ml-auto flex items-center gap-1.5">
               <Chip tone={compiled.executable ? "up" : "dim"} dot>
-                {compiled.executable ? "Listed and executable" : "Modeled graph"}
+                {compiled.executable ? (Number.isFinite(compiled.allInPrice) ? "Listed and executable" : "Listed, no resting liquidity") : "Modeled graph"}
               </Chip>
             </span>
           </div>
