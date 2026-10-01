@@ -74,6 +74,7 @@ contract NetworkMarketsBootstrapIntegrationTest is Test {
         d = harness.deploy(_config(true));
         BootstrapSetrynMarkets.Runtime memory runtime = bootstrapper.bootstrap(_input(address(0)));
 
+        assertTrue(runtime.settlementTokenMintable);
         assertEq(runtime.series.length, 3);
         assertEq(runtime.horizon.fromDay, uint32(LISTED_AT / 1 days));
         assertEq(runtime.horizon.throughDay, uint32(EXPIRY_MAR / 1 days) + 2);

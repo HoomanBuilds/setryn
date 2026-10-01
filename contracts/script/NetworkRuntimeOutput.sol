@@ -111,6 +111,7 @@ library NetworkRuntimeOutput {
         vm.serializeUint(key, "referenceChainId", NetworkListing.REFERENCE_CHAIN_ID);
         vm.serializeAddress(key, "operator", operator);
         vm.serializeAddress(key, "settlementToken", runtime.settlementToken);
+        vm.serializeBool(key, "settlementTokenMintable", runtime.settlementTokenMintable);
         // Schema 9 readers name the devnet market adapter here; on a network it is the risk adapter.
         vm.serializeAddress(key, "marketAdapter", address(runtime.riskAdapter));
         vm.serializeAddress(key, "riskAdapter", address(runtime.riskAdapter));

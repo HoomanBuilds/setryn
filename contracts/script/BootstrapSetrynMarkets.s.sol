@@ -41,6 +41,7 @@ import {SessionDefinitionLib} from "../src/libraries/SessionDefinitionLib.sol";
 import {CappedForwardPayoffModule} from "../src/payoff/ProductionPayoffModules.sol";
 import {ExecutionPolicyRegistry} from "../src/policy/ExecutionPolicyRegistry.sol";
 import {FullyCollateralizedRiskAdapter} from "../src/risk/FullyCollateralizedRiskAdapter.sol";
+import {SetrynTestUSDC} from "../src/testnet/SetrynTestUSDC.sol";
 import {AdapterDefinition} from "../src/types/AdapterDefinition.sol";
 import {AssetDefinition} from "../src/types/AssetDefinition.sol";
 import {BenchmarkDefinition} from "../src/types/BenchmarkDefinition.sol";
@@ -101,10 +102,11 @@ import {FeeRatePpm, Lots, PriceTicks, TickSizeMinor} from "../src/types/Units.so
 /// sweep, or PublishSessionDays.s.sol) from the session-day proofs file.
 ///
 /// @dev Chains: the local devnet (31337, 1337) deploys DevnetSettlementToken as its mintable USDC unless
-/// SETRYN_SETTLEMENT_TOKEN names one; Arbitrum Sepolia (421614) requires SETRYN_SETTLEMENT_TOKEN to be Circle's test USDC;
-/// Arbitrum One is refused until mainnet work is explicitly authorized. Every registration is broadcast by the governance
-/// operator. Activations go directly from the operator where it holds the registries' status roles (local devnets) and
-/// otherwise through RegistryStatusController.govern from its governance principal, which must be able to sign in this run.
+/// SETRYN_SETTLEMENT_TOKEN names one. Arbitrum Sepolia (421614) deploys SetrynTestUSDC when that setting is empty, or
+/// accepts only Circle's test USDC when it is set. Arbitrum One is refused until mainnet work is explicitly authorized.
+/// Every registration is broadcast by the governance operator. Activations go directly from the operator where it holds
+/// the registries' status roles (local devnets) and otherwise through RegistryStatusController.govern from its governance
+/// principal, which must be able to sign in this run.
 contract BootstrapSetrynMarkets is Script {
     uint256 private constant ARBITRUM_ONE_CHAIN_ID = 42_161;
     uint256 private constant ARBITRUM_SEPOLIA_CHAIN_ID = 421_614;
@@ -206,6 +208,7 @@ contract BootstrapSetrynMarkets is Script {
 
     struct Runtime {
         address settlementToken;
+        bool settlementTokenMintable;
         SignedObservationFixingAdapter fixingAdapter;
         FullyCollateralizedRiskAdapter riskAdapter;
         address[] oracleSigners;
@@ -250,7 +253,9 @@ contract BootstrapSetrynMarkets is Script {
             : vm.envAddress("SETRYN_TREASURY_CONTROLLER");
         input.acceptTreasuryControl = vm.envOr("SETRYN_TREASURY_ACCEPT_CONTROL", localChain);
         input.observationAge = uint64(vm.envOr("SETRYN_MAXIMUM_RISK_OBSERVATION_AGE", uint256(5 minutes)));
-        input.settlementToken = vm.envOr("SETRYN_SETTLEMENT_TOKEN", address(0));
+        string memory configuredSettlementToken = vm.envOr("SETRYN_SETTLEMENT_TOKEN", string(""));
+        input.settlementToken =
+            bytes(configuredSettlementToken).length == 0 ? address(0) : vm.parseAddress(configuredSettlementToken);
         address[] memory defaultSigners = new address[](1);
         defaultSigners[0] = input.operator;
         input.oracleSigners = localChain
@@ -290,7 +295,7 @@ contract BootstrapSetrynMarkets is Script {
         runtime.horizon = _horizon(input.listing, runtime.day);
 
         vm.startBroadcast(input.operator);
-        runtime.settlementToken = _settlementToken(input.settlementToken);
+        (runtime.settlementToken, runtime.settlementTokenMintable) = _settlementToken(input.settlementToken);
         runtime.fixingAdapter = new SignedObservationFixingAdapter(
             runtime.oracleSigners, runtime.oracleThreshold, NetworkMarketPolicy.SIGNED_FIXING_CAPABILITY
         );
@@ -369,11 +374,12 @@ contract BootstrapSetrynMarkets is Script {
         return block.chainid == ANVIL_CHAIN_ID || block.chainid == GANACHE_CHAIN_ID;
     }
 
-    /// The local devnet mints its own USDC; Arbitrum Sepolia settles in Circle's test USDC and nothing else.
-    function _settlementToken(address configured) private returns (address token) {
+    /// Local devnets and Sepolia can deploy faucet collateral. A configured Sepolia token must be Circle test USDC.
+    function _settlementToken(address configured) private returns (address token, bool mintable) {
         if (configured == address(0)) {
-            if (!_isLocalChain()) revert InvalidSettlementToken(configured);
-            return address(new DevnetSettlementToken());
+            if (_isLocalChain()) return (address(new DevnetSettlementToken()), true);
+            if (block.chainid == ARBITRUM_SEPOLIA_CHAIN_ID) return (address(new SetrynTestUSDC()), true);
+            revert InvalidSettlementToken(configured);
         }
         if (block.chainid == ARBITRUM_SEPOLIA_CHAIN_ID && configured != ARBITRUM_SEPOLIA_USDC) {
             revert InvalidSettlementToken(configured);
@@ -381,7 +387,7 @@ contract BootstrapSetrynMarkets is Script {
         if (configured.code.length == 0 || IERC20Metadata(configured).decimals() != USDC_DECIMALS) {
             revert InvalidSettlementToken(configured);
         }
-        return configured;
+        return (configured, false);
     }
 
     /// Activates directly when the operator holds the status roles; otherwise through the status controller.

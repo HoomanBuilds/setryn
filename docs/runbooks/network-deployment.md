@@ -2,7 +2,8 @@
 
 This runbook deploys Setryn to Arbitrum Sepolia (chain 421614) with the real-data product of
 [docs/plans/network-runtime-real-data.md](../plans/network-runtime-real-data.md): dated range forwards listed from live
-Chainlink references, Circle test USDC as collateral, signed-observation fixings, and continuous UTC trading sessions.
+Chainlink references, Setryn test USDC or Circle test USDC as collateral, signed-observation fixings, and continuous UTC
+trading sessions.
 The local devnet (`bash scripts/local-deploy-reset.sh`) runs the same listing generator, bootstrap and runtime schema.
 
 Arbitrum One stays disabled: `DeploySetryn`, `BootstrapSetrynMarkets` and `PublishSessionDays` revert on chain 42161,
@@ -154,7 +155,9 @@ block, where event scans start).
 export SETRYN_MARKET_LISTING="$PWD/deployments/arbitrum-sepolia/markets.json"
 export SETRYN_RUNTIME_OUTPUT="$PWD/deployments/arbitrum-sepolia/runtime.json"
 export SETRYN_SESSION_DAYS_OUTPUT="$PWD/deployments/arbitrum-sepolia/session-days.json"
-export SETRYN_SETTLEMENT_TOKEN=0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d   # Circle USDC; anything else is refused
+export SETRYN_SETTLEMENT_TOKEN=   # empty deploys Setryn Test USDC
+# To use Circle test USDC instead:
+# export SETRYN_SETTLEMENT_TOKEN=0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d
 export SETRYN_ORACLE_SIGNERS=0x...,0x...                                     # fixing publishers, comma separated
 export SETRYN_ORACLE_THRESHOLD=1                                            # distinct signatures per fixing
 # export SETRYN_TREASURY_ACCEPT_CONTROL=true   # only if the treasury key is also passed below (default false here)
@@ -166,11 +169,12 @@ forge script script/BootstrapSetrynMarkets.s.sol:BootstrapSetrynMarkets --root c
   --slow --broadcast
 ```
 
-About 140 transactions: the operator deploys the `SignedObservationFixingAdapter` (immutable signer set and threshold)
-and the `FullyCollateralizedRiskAdapter`, registers the settlement asset, adapters, calendar, session, one base asset and
+About 140 transactions: when `SETRYN_SETTLEMENT_TOKEN` is empty the operator first deploys the six-decimal `SetrynTestUSDC`
+faucet token, then deploys the `SignedObservationFixingAdapter` (immutable signer set and threshold) and the
+`FullyCollateralizedRiskAdapter`. It registers the settlement asset, adapters, calendar, session, one base asset and
 benchmark per family, the fee schedule (maker 500 ppm, taker 1,000 ppm, recipient account created by the operator and
-proposed to the treasury), the risk domain, the instrument, and one market and series per listing market; governance
-activates each through the status controller; the operator then enables the execution modes and publishes today through
+proposed to the treasury), the risk domain, the instrument, and one market and series per listing market. Governance
+activates each through the status controller. The operator then enables the execution modes and publishes today through
 three days ahead. It writes:
 
 - `deployments/arbitrum-sepolia/runtime.json`: schema 11 (every schema 9 field plus `network`, `listedAt`,
@@ -209,8 +213,9 @@ SETRYN_MAKER_PRIVATE_KEY=<optional maker key>      # without it no house quotes 
 # SETRYN_RUNTIME_PATH overrides deployments/arbitrum-sepolia/runtime.json
 ```
 
-Restart the app; `sync-market-catalog` projects the runtime markets into the catalog on start. Users deposit Circle test
-USDC (faucet.circle.com); the mint route is local only.
+Restart the app; `sync-market-catalog` projects the runtime markets into the catalog on start. With Setryn Test USDC,
+users claim 10,000 tUSDC from the in-app faucet and deposit it into their trading account. They still need Arbitrum
+Sepolia ETH for gas. With the Circle override, users get test USDC from faucet.circle.com instead.
 
 ## Operations
 
