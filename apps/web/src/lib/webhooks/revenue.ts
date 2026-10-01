@@ -6,8 +6,8 @@ import type { PartnerDeployment } from "./partners";
 /**
  * Partner revenue reconciliation. Fills are read from the deployment's chain (FillCleared, the same record the
  * platform's fills and receipts are rebuilt from); a fill side is attributed to a partner when the order's account is in the
- * partner's attributed accounts. Protocol fees are OBSERVED from the fill record; the partner share is MODELED as
- * `revShareBps` of the attributed side's net fee. No payout exists onchain, so every payout is unsettled.
+ * partner's attributed accounts. Protocol fees are OBSERVED from the fill record; the partner share accrues as
+ * `revShareBps` of the attributed side's net fee. No payout exists onchain yet, so every accrual is unpaid.
  */
 const getFill = atomicClearingAbi.find((item) => item.type === "function" && item.name === "getFill");
 if (!getFill || getFill.type !== "function") throw new Error("atomicClearingAbi.getFill is missing");
@@ -34,8 +34,8 @@ export interface AttributedFill {
   accountId: string;
   /** Net protocol fee (charge minus rebate) of the attributed side, USDC minor units (6 dp). */
   feeMinor: string;
-  /** MODELED partner share, USDC minor units. */
-  modeledShareMinor: string;
+  /** Accrued (unpaid) partner share, USDC minor units. */
+  accruedShareMinor: string;
 }
 
 export interface PartnerRevenueRow {
@@ -45,8 +45,8 @@ export interface PartnerRevenueRow {
   fills: number;
   lots: number;
   feesMinor: string;
-  modeledShareMinor: string;
-  status: "UNSETTLED_MODELED";
+  accruedShareMinor: string;
+  status: "ACCRUED_UNPAID";
 }
 
 export interface RevenueReport {
@@ -116,7 +116,7 @@ export async function buildRevenueReport(partners: readonly PartnerDeployment[])
         role: side.role,
         accountId: side.account,
         feeMinor: side.fee.toString(),
-        modeledShareMinor: ((side.fee * BigInt(side.partner.revShareBps)) / BigInt(10_000)).toString(),
+        accruedShareMinor: ((side.fee * BigInt(side.partner.revShareBps)) / BigInt(10_000)).toString(),
       });
     }
   }
@@ -130,8 +130,8 @@ export async function buildRevenueReport(partners: readonly PartnerDeployment[])
       fills: own.length,
       lots: own.reduce((sum, fill) => sum + fill.lots, 0),
       feesMinor: own.reduce((sum, fill) => sum + BigInt(fill.feeMinor), BigInt(0)).toString(),
-      modeledShareMinor: own.reduce((sum, fill) => sum + BigInt(fill.modeledShareMinor), BigInt(0)).toString(),
-      status: "UNSETTLED_MODELED",
+      accruedShareMinor: own.reduce((sum, fill) => sum + BigInt(fill.accruedShareMinor), BigInt(0)).toString(),
+      status: "ACCRUED_UNPAID",
     };
   });
   return {

@@ -85,8 +85,8 @@ export interface RevenueRow {
   fills: number;
   lots: number;
   feesMinor: string;
-  modeledShareMinor: string;
-  status: "UNSETTLED_MODELED";
+  accruedShareMinor: string;
+  status: "ACCRUED_UNPAID";
 }
 
 export interface AttributedFill {
@@ -100,7 +100,7 @@ export interface AttributedFill {
   role: "taker" | "maker" | "both";
   accountId: string;
   feeMinor: string;
-  modeledShareMinor: string;
+  accruedShareMinor: string;
 }
 
 export interface RevenueReport {

@@ -4,8 +4,8 @@ import { Chip, Panel, PanelHead, TH, TH_NUM } from "@/components/strategies/desk
 import { formatMinorUsdc, formatStamp, shortHash, type RevenueReport } from "./api";
 
 /**
- * Revenue reconciliation. Fees are OBSERVED from FillCleared records on the settlement chain; the partner share is MODELED
- * from each deployment's fee-share setting. No payout exists onchain, so every row reconciles as unsettled.
+ * Revenue reconciliation. Fees are OBSERVED from FillCleared records on the settlement chain; the partner share accrues
+ * from each deployment's fee-share setting. No payout exists onchain yet, so every accrual is unpaid.
  */
 export function RevenuePanel({ report }: { report: RevenueReport | null }) {
   return (
@@ -15,7 +15,7 @@ export function RevenuePanel({ report }: { report: RevenueReport | null }) {
           title="Revenue reconciliation"
           tools={
             <>
-              <Chip tone="brand" title="Partner share is computed from the fee-share setting, not paid onchain">Modeled</Chip>
+              <Chip tone="brand" title="Partner share accrues from observed onchain fees at the fee-share setting; no onchain payout exists yet">Accrued, unpaid</Chip>
               <Chip tone="dim">
                 {report?.available ? `${report.totalFills} fills to block ${report.scannedToBlock}` : "chain unavailable"}
               </Chip>
@@ -32,7 +32,7 @@ export function RevenuePanel({ report }: { report: RevenueReport | null }) {
                 <th scope="col" className={TH_NUM}>Lots</th>
                 <th scope="col" className={TH_NUM}>Protocol fees (observed)</th>
                 <th scope="col" className={TH_NUM}>Fee share</th>
-                <th scope="col" className={TH_NUM}>Partner share (modeled)</th>
+                <th scope="col" className={TH_NUM}>Partner share (accrued)</th>
                 <th scope="col" className={TH}>Reconciliation</th>
               </tr>
             </thead>
@@ -50,8 +50,8 @@ export function RevenuePanel({ report }: { report: RevenueReport | null }) {
                     <td className="tnum px-3 py-2 text-right font-mono text-dim">{row.lots}</td>
                     <td className="tnum px-3 py-2 text-right font-mono text-ink">{formatMinorUsdc(row.feesMinor)}</td>
                     <td className="tnum px-3 py-2 text-right font-mono text-dim">{(row.revShareBps / 100).toFixed(2)}%</td>
-                    <td className="tnum px-3 py-2 text-right font-mono text-brand">{formatMinorUsdc(row.modeledShareMinor)}</td>
-                    <td className="px-3 py-2"><Chip tone="brand">Unsettled · modeled</Chip></td>
+                    <td className="tnum px-3 py-2 text-right font-mono text-brand">{formatMinorUsdc(row.accruedShareMinor)}</td>
+                    <td className="px-3 py-2"><Chip tone="brand">Accrued · unpaid</Chip></td>
                   </tr>
                 ))
               )}
@@ -73,7 +73,7 @@ export function RevenuePanel({ report }: { report: RevenueReport | null }) {
                 <th scope="col" className={TH}>Side</th>
                 <th scope="col" className={TH_NUM}>Lots</th>
                 <th scope="col" className={TH_NUM}>Fee (observed)</th>
-                <th scope="col" className={TH_NUM}>Share (modeled)</th>
+                <th scope="col" className={TH_NUM}>Share (accrued)</th>
                 <th scope="col" className={TH}>Cleared</th>
               </tr>
             </thead>
@@ -88,7 +88,7 @@ export function RevenuePanel({ report }: { report: RevenueReport | null }) {
                     <td className="px-3 py-2 text-dim">{fill.role}</td>
                     <td className="tnum px-3 py-2 text-right font-mono text-dim">{fill.lots}</td>
                     <td className="tnum px-3 py-2 text-right font-mono text-ink">{formatMinorUsdc(fill.feeMinor)}</td>
-                    <td className="tnum px-3 py-2 text-right font-mono text-brand">{formatMinorUsdc(fill.modeledShareMinor)}</td>
+                    <td className="tnum px-3 py-2 text-right font-mono text-brand">{formatMinorUsdc(fill.accruedShareMinor)}</td>
                     <td className="tnum px-3 py-2 font-mono text-[11px] text-dim">{formatStamp(fill.clearedAt)}</td>
                   </tr>
                 ))

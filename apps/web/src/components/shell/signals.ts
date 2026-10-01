@@ -1,6 +1,5 @@
 import type { GatewaySnapshot } from "@/lib/internal-gateway/types";
-import { OPERATIONS_FIXTURE } from "@/lib/operations/fixture";
-import type { HealthState } from "@/lib/operations/types";
+import type { HealthState, OperationalAlert } from "@/lib/operations/types";
 
 export type SignalTone = "up" | "down" | "warn" | "info";
 
@@ -22,7 +21,7 @@ export interface Notice {
   href: string;
   tone: SignalTone;
   /** How the value is known: read from the connected chain, or from the recorded operations fixture. */
-  provenance: "Onchain" | "Recorded";
+  provenance: "Onchain" | "Observed";
 }
 
 /** Work that is waiting on the user, derived only from the connected account's gateway snapshot. */
@@ -80,15 +79,12 @@ export function pendingActions(snapshot: GatewaySnapshot): PendingAction[] {
 }
 
 /** The recorded fixture stores clock times ("07:39:54 UTC") on its capture date; expand them to ISO timestamps. */
-function recordedTime(value: string): string {
-  if (Number.isFinite(Date.parse(value))) return new Date(value).toISOString();
-  const clock = /^(\d{2}):(\d{2}):(\d{2})/.exec(value);
-  const day = OPERATIONS_FIXTURE.capturedAt.slice(0, 10);
-  return clock ? `${day}T${clock[1]}:${clock[2]}:${clock[3]}.000Z` : OPERATIONS_FIXTURE.capturedAt;
+function alertTime(value: string): string {
+  return Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : new Date().toISOString();
 }
 
-/** Recent account events plus recorded system alerts, newest first. */
-export function notices(snapshot: GatewaySnapshot, limit = 30): Notice[] {
+/** Recent account events plus the live operational alerts (from the operations snapshot), newest first. */
+export function notices(snapshot: GatewaySnapshot, limit = 30, systemAlerts: readonly OperationalAlert[] = []): Notice[] {
   const items: Notice[] = [];
   for (const receipt of snapshot.receipts) {
     items.push({
@@ -128,17 +124,17 @@ export function notices(snapshot: GatewaySnapshot, limit = 30): Notice[] {
       provenance: "Onchain",
     });
   }
-  for (const alert of OPERATIONS_FIXTURE.alerts) {
+  for (const alert of systemAlerts) {
     if (alert.state === "RESOLVED") continue;
     items.push({
       id: `system-${alert.id}`,
-      time: recordedTime(alert.openedAt),
+      time: alertTime(alert.openedAt),
       source: "System",
       title: alert.title,
       detail: alert.detail,
       href: "/operations",
       tone: alert.severity === "CRITICAL" ? "down" : "warn",
-      provenance: "Recorded",
+      provenance: "Observed",
     });
   }
   return items.sort((a, b) => Date.parse(b.time) - Date.parse(a.time)).slice(0, limit);

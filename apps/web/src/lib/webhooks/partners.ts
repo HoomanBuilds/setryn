@@ -25,7 +25,7 @@ export interface PartnerDeployment {
   widgets: WidgetKind[];
   deepLinkEnabled: boolean;
   webhookEventTypes: WebhookEventType[];
-  /** Fee share in basis points of attributed protocol fees. Used only for the MODELED reconciliation. */
+  /** Fee share in basis points of attributed protocol fees. Sizes the accrued (unpaid) share in revenue reconciliation. */
   revShareBps: number;
   quotas: PartnerQuotas;
   /** Trading accounts (bytes32 account ids) attributed to the partner. */
