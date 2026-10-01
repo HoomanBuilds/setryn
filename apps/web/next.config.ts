@@ -1,6 +1,14 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  turbopack: {
+    resolveAlias: {
+      // RainbowKit pulls in wagmi's Base Account connector, which lazy-loads this SDK in the browser when a user picks
+      // that wallet. The SDK's Node entry adds CDP payment helpers whose optional x402 peers are not installed and break
+      // the server compile, so server bundles, which never run a connector, get a stub; browsers get the real SDK.
+      "@base-org/account": { browser: "@base-org/account", default: "./src/lib/wallet/base-account-server.ts" },
+    },
+  },
   experimental: {
     // The landing and the platform use separate root layouts.
     globalNotFound: true,
