@@ -53,7 +53,13 @@ export interface OperatorChainConfig {
   readonly runtimePath: string;
   readonly manifestPath: string;
   readonly signer: OperatorSignerSource;
+  /** Oracle publisher key for signed fixings; local defaults to the deployment operator's anvil account. */
+  readonly oracleSigner?: OperatorSignerSource | null;
+  /** Arbitrum One RPC for read-only Chainlink reference reads (SETRYN_REFERENCE_RPC_URL). */
+  readonly referenceRpcUrl?: string;
 }
+
+export const defaultReferenceRpcUrl = "https://arb1.arbitrum.io/rpc";
 
 export interface OperatorTransaction {
   readonly label: string;
@@ -69,8 +75,10 @@ export interface OperatorWriteResult extends OperatorTransaction {
 const repositoryRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 
 /**
- * Resolves chain configuration for a writable environment. Local defaults to the devnet the reset script deploys;
- * Arbitrum Sepolia takes every value from explicit variables and has no defaults, so it cannot be reached by accident.
+ * Resolves chain configuration for a writable environment. Local defaults to the devnet the reset script deploys.
+ * Arbitrum Sepolia defaults its runtime and manifest to deployments/arbitrum-sepolia/ (overridable with
+ * SETRYN_SEPOLIA_RUNTIME_PATH or SETRYN_RUNTIME_PATH, and SETRYN_SEPOLIA_MANIFEST_PATH) but needs an explicit https
+ * SETRYN_SEPOLIA_RPC_URL and SETRYN_SEPOLIA_OPERATOR_KEY, so it cannot be reached by accident. Arbitrum One is refused.
  */
 export function resolveOperatorChainConfig(
   environment: OperatorEnvironment,
@@ -78,6 +86,11 @@ export function resolveOperatorChainConfig(
 ): OperatorChainConfig {
   if (environment === "arbitrum-one") {
     throw new OperatorExecutionError("policy-refused", "Arbitrum One is read-only; operator execution cannot be configured for it");
+  }
+  const referenceRpcUrl = referenceRpc(env.SETRYN_REFERENCE_RPC_URL?.trim() || defaultReferenceRpcUrl);
+  const oracleKey = env.SETRYN_ORACLE_SIGNER_KEY?.trim();
+  if (oracleKey && !/^0x[0-9a-fA-F]{64}$/.test(oracleKey)) {
+    throw new OperatorExecutionError("config-invalid", "SETRYN_ORACLE_SIGNER_KEY must be a 32-byte 0x-prefixed private key");
   }
   if (environment === "local") {
     return {
@@ -87,6 +100,8 @@ export function resolveOperatorChainConfig(
       runtimePath: resolve(env.SETRYN_RUNTIME_PATH ?? resolve(repositoryRoot, "deployments/local/runtime.json")),
       manifestPath: resolve(env.SETRYN_LOCAL_MANIFEST_PATH ?? resolve(repositoryRoot, "deployments/local/manifest.json")),
       signer: { kind: "anvil-development" },
+      oracleSigner: oracleKey ? { kind: "private-key", privateKey: oracleKey as Hex } : { kind: "anvil-development" },
+      referenceRpcUrl,
     };
   }
   const rpcUrl = requiredVariable(env, "SETRYN_SEPOLIA_RPC_URL");
@@ -100,9 +115,11 @@ export function resolveOperatorChainConfig(
     environment,
     expectedChainId: operatorChainIds["arbitrum-sepolia"],
     rpcUrl,
-    runtimePath: resolve(requiredVariable(env, "SETRYN_SEPOLIA_RUNTIME_PATH")),
-    manifestPath: resolve(requiredVariable(env, "SETRYN_SEPOLIA_MANIFEST_PATH")),
+    runtimePath: resolve(env.SETRYN_SEPOLIA_RUNTIME_PATH?.trim() || env.SETRYN_RUNTIME_PATH?.trim() || resolve(repositoryRoot, "deployments/arbitrum-sepolia/runtime.json")),
+    manifestPath: resolve(env.SETRYN_SEPOLIA_MANIFEST_PATH?.trim() || resolve(repositoryRoot, "deployments/arbitrum-sepolia/manifest.json")),
     signer: { kind: "private-key", privateKey: privateKey as Hex },
+    oracleSigner: oracleKey ? { kind: "private-key", privateKey: oracleKey as Hex } : null,
+    referenceRpcUrl,
   };
 }
 
@@ -115,6 +132,7 @@ export class OperatorChainClient {
   readonly deployment: OperatorDeployment;
   readonly public: PublicClient<Transport, Chain>;
   readonly #account: LocalAccount;
+  readonly #oracleAccount: LocalAccount | null;
   readonly #wallet: WalletClient<Transport, Chain, LocalAccount>;
   readonly #policy: StrictEnvironmentWritePolicy;
   readonly #config: OperatorChainConfig;
@@ -123,6 +141,7 @@ export class OperatorChainClient {
     readonly config: OperatorChainConfig;
     readonly deployment: OperatorDeployment;
     readonly account: LocalAccount;
+    readonly oracleAccount: LocalAccount | null;
     readonly policy: StrictEnvironmentWritePolicy;
   }) {
     const { config } = options;
@@ -135,6 +154,7 @@ export class OperatorChainClient {
     this.environment = config.environment;
     this.deployment = options.deployment;
     this.#account = options.account;
+    this.#oracleAccount = options.oracleAccount;
     this.#policy = options.policy;
     this.#config = config;
     this.public = createPublicClient({ chain, transport: http(config.rpcUrl, { retryCount: 1 }) });
@@ -151,8 +171,15 @@ export class OperatorChainClient {
       manifestPath: config.manifestPath,
       expectedChainId: config.expectedChainId,
     });
+    if (deployment.network && deployment.network.network !== config.environment) {
+      throw new OperatorExecutionError(
+        "config-invalid",
+        `runtime ${config.runtimePath} is for network ${deployment.network.network}, not ${config.environment}`,
+      );
+    }
     const account = resolveSigner(config, deployment);
-    return new OperatorChainClient({ config, deployment, account, policy: options.policy ?? new StrictEnvironmentWritePolicy() });
+    const oracleAccount = resolveOracleSigner(config, deployment);
+    return new OperatorChainClient({ config, deployment, account, oracleAccount, policy: options.policy ?? new StrictEnvironmentWritePolicy() });
   }
 
   /** A client for another signer on the same chain and deployment, used by local participants such as smoke takers. */
@@ -162,6 +189,7 @@ export class OperatorChainClient {
       config,
       deployment: this.deployment,
       account: resolveSigner(config, this.deployment),
+      oracleAccount: this.#oracleAccount,
       policy: this.#policy,
     });
   }
@@ -172,6 +200,15 @@ export class OperatorChainClient {
 
   get expectedChainId(): number {
     return this.#config.expectedChainId;
+  }
+
+  /** The configured oracle publisher, or null when no SETRYN_ORACLE_SIGNER_KEY is set off the local devnet. */
+  get oracleSignerAddress(): Address | null {
+    return this.#oracleAccount?.address ?? null;
+  }
+
+  get referenceRpcUrl(): string {
+    return this.#config.referenceRpcUrl ?? defaultReferenceRpcUrl;
   }
 
   isDeploymentOperator(): boolean {
@@ -283,6 +320,25 @@ export class OperatorChainClient {
       throw describeChainError(error, label);
     }
   }
+
+  /**
+   * Signs as the oracle publisher (signed-observation fixings) after the same write-policy and chain-id checks as
+   * every operator signature.
+   */
+  async signTypedDataAsOracle<
+    const typedData extends TypedData | Record<string, unknown>,
+    primaryType extends keyof typedData | "EIP712Domain" = keyof typedData,
+  >(label: string, parameters: TypedDataDefinition<typedData, primaryType>): Promise<Hex> {
+    if (!this.#oracleAccount) {
+      throw new OperatorExecutionError("config-invalid", `${label}: SETRYN_ORACLE_SIGNER_KEY is required to sign fixings on ${this.environment}`);
+    }
+    await this.assertWritable(label);
+    try {
+      return await this.#oracleAccount.signTypedData(parameters);
+    } catch (error) {
+      throw describeChainError(error, label);
+    }
+  }
 }
 
 export function transactionSummary(result: OperatorWriteResult): OperatorTransaction {
@@ -319,6 +375,26 @@ function resolveSigner(config: OperatorChainConfig, deployment: OperatorDeployme
     "config-invalid",
     `runtime operator ${deployment.operator} is not one of the first ${anvilAccountSearchDepth} anvil development accounts`,
   );
+}
+
+/** The oracle publisher: an explicit key, or on the local devnet the deployment operator's anvil account. */
+function resolveOracleSigner(config: OperatorChainConfig, deployment: OperatorDeployment): LocalAccount | null {
+  const source = config.oracleSigner ?? null;
+  if (!source) return null;
+  if (source.kind === "private-key") return privateKeyToAccount(source.privateKey);
+  if (config.environment !== "local") {
+    throw new OperatorExecutionError("config-invalid", "anvil development keys are only valid on the local devnet");
+  }
+  return resolveSigner({ ...config, signer: source }, deployment);
+}
+
+/** The reference RPC is only ever read (eth_call of Chainlink aggregators), so any http(s) URL is accepted. */
+function referenceRpc(rpcUrl: string): string {
+  const parsed = new URL(rpcUrl);
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new OperatorExecutionError("config-invalid", "SETRYN_REFERENCE_RPC_URL must be an http(s) URL");
+  }
+  return rpcUrl;
 }
 
 function requiredVariable(env: Readonly<Record<string, string | undefined>>, name: string): string {

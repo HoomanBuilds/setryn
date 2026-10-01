@@ -15,7 +15,7 @@ import {
   withdrawOwnOrder,
 } from "./book.ts";
 import { transactionSummary, type OperatorChainClient, type OperatorTransaction } from "./chain.ts";
-import { requireMarketById, type OperatorMarket } from "./deployment.ts";
+import { priceToTicks, requireMarketById, ticksToPrice, type OperatorMarket } from "./deployment.ts";
 import { describeChainError, OperatorExecutionError } from "./errors.ts";
 import { feeChargeMinor, readActiveFeeSchedule, readActiveSeriesVersions, requireOpenFeeSchedule } from "./fees.ts";
 import { assertIntentEnvironment, completed, transactionHashes } from "./results.ts";
@@ -38,8 +38,8 @@ import {
  * Accepted `quoteRequest` for a quote-cycle intent (integers as JSON numbers or decimal strings). The intent's
  * `marketId` picks the market: any market of the deployment, each quoted on its own book, grid and economics.
  * {
- *   referencePriceTicks?: integer,       // mid in the market's price ticks (price x priceScale), or ...
- *   referencePrice?: decimal string,     // ... the mid as a package price, converted with the market's priceScale
+ *   referencePriceTicks?: integer,       // mid in the market's price ticks ((price - priceOffset) x priceScale), or ...
+ *   referencePrice?: decimal string,     // ... the mid as a package price, converted with the market's priceOffset/Scale
  *   gridTicks?: integer >= 1,            // price grid in ticks (catalog tickSize x priceScale); default 1
  *   halfSpreadTicks?: integer >= 1,      // default 10 grid steps' worth of ticks; bid = mid - half, ask = mid + half,
  *                                        // then the bid snaps down and the ask up onto the grid
@@ -49,7 +49,9 @@ import {
  *   maxFeeMinor?: integer,               // default: the active schedule's maker charge on the quote's consideration
  *   sides?: "both" | "bid" | "ask"       // default "both"
  * }
- * Each side is sized to the account's free collateral at the market's per-lot debit cap. On the local devnet a
+ * Each side is sized to the account's free collateral at its per-lot outlay: the market's debit cap plus, for a bid,
+ * the consideration it pays at the fill (range forwards carry a zero long debit cap, so a bid's outlay is all
+ * consideration). Prices outside the market's registered tick bounds are not quoted. On the local devnet a
  * shortfall is topped up from the faucet; elsewhere a side is shrunk (or skipped) to what the account can back.
  */
 export interface MakerQuotePortOptions {
@@ -103,7 +105,8 @@ export class ChainMakerQuoteExecutionPort implements MakerQuoteExecutionPort {
     const request = new PayloadReader(intent.quoteRequest, "quoteRequest");
     const mid = referenceTicks(request, market);
     const grid = request.bigint("gridTicks", { fallback: 1n, min: 1n, max: mid });
-    const halfSpread = request.bigint("halfSpreadTicks", { fallback: 10n * grid, min: 1n, max: mid - 1n });
+    const minTicks = market.minPriceTicks ?? 1n;
+    const halfSpread = request.bigint("halfSpreadTicks", { fallback: 10n * grid, min: 1n, max: mid - minTicks > 0n ? mid - minTicks : 1n });
     const maxLots = market.economics.maxOrderLots;
     const lots = request.bigint("lots", { fallback: maxLots, min: 1n, max: maxLots });
     const ttl = BigInt(request.integer("ttlSeconds", { fallback: 240, min: 30, max: 300 }));
@@ -113,10 +116,14 @@ export class ChainMakerQuoteExecutionPort implements MakerQuoteExecutionPort {
     const sides = request.oneOf("sides", ["both", "bid", "ask"] as const, "both");
     const bidTicks = ((mid - halfSpread) / grid) * grid;
     const askTicks = ceilDiv(mid + halfSpread, grid) * grid;
-    if (bidTicks <= 0n) throw new OperatorExecutionError("invalid-payload", `bid ${bidTicks} is not a positive price on a ${grid}-tick grid`);
+    if (bidTicks < minTicks) throw new OperatorExecutionError("invalid-payload", `bid ${bidTicks} is below the market's minimum of ${minTicks} ticks on a ${grid}-tick grid`);
     const targets: SideTarget[] = [];
+    const askAboveRange = market.maxPriceTicks !== null && askTicks > market.maxPriceTicks;
+    if (askAboveRange && sides === "ask") {
+      throw new OperatorExecutionError("invalid-payload", `ask ${askTicks} is above the market's maximum of ${market.maxPriceTicks} ticks`);
+    }
     if (sides !== "ask") targets.push({ side: 1, label: "bid", priceTicks: bidTicks, lots: request.bigint("bidLots", { fallback: lots, min: 1n, max: maxLots }) });
-    if (sides !== "bid") targets.push({ side: 2, label: "ask", priceTicks: askTicks, lots: request.bigint("askLots", { fallback: lots, min: 1n, max: maxLots }) });
+    if (sides !== "bid" && !askAboveRange) targets.push({ side: 2, label: "ask", priceTicks: askTicks, lots: request.bigint("askLots", { fallback: lots, min: 1n, max: maxLots }) });
 
     const seriesId = market.seriesId;
     const now = await client.chainNow();
@@ -188,8 +195,11 @@ export class ChainMakerQuoteExecutionPort implements MakerQuoteExecutionPort {
 
     // Size unplanned sides to free collateral at this market's per-lot debit cap before any risk is reserved.
     const sized: SideTarget[] = [];
-    const perLot = (side: OrderSide) => side === 1 ? market.economics.maxLongDebitMinorPerLot : market.economics.maxShortDebitMinorPerLot;
-    const required = toPost.filter((target) => !plan.has(target.side)).reduce((sum, target) => sum + target.lots * perLot(target.side), 0n);
+    // A bid pays its consideration at the fill on top of its (possibly zero) terminal debit cap; an ask locks its cap.
+    const perLot = (target: SideTarget) => target.side === 1
+      ? market.economics.maxLongDebitMinorPerLot + (target.priceTicks > 0n ? target.priceTicks : 0n) * market.economics.tickSizeMinor
+      : market.economics.maxShortDebitMinorPerLot;
+    const required = toPost.filter((target) => !plan.has(target.side)).reduce((sum, target) => sum + target.lots * perLot(target), 0n);
     const collateral = await ensureFreeCollateral(client, account.accountId, required, {
       faucet: this.#fundingMinor !== null,
       headroomMinor: this.#fundingMinor ?? 0n,
@@ -201,13 +211,14 @@ export class ChainMakerQuoteExecutionPort implements MakerQuoteExecutionPort {
         sized.push(target);
         continue;
       }
-      const affordable = free / perLot(target.side);
+      const outlay = perLot(target);
+      const affordable = outlay === 0n ? target.lots : free / outlay;
       const lotsToPost = target.lots < affordable ? target.lots : affordable;
       if (lotsToPost === 0n) {
-        skipped.push({ side: target.label, reason: `free collateral ${free} cannot back one lot at ${perLot(target.side)}` });
+        skipped.push({ side: target.label, reason: `free collateral ${free} cannot back one lot at ${outlay}` });
         continue;
       }
-      free -= lotsToPost * perLot(target.side);
+      free -= lotsToPost * outlay;
       sized.push({ ...target, lots: lotsToPost });
     }
 
@@ -259,6 +270,7 @@ export class ChainMakerQuoteExecutionPort implements MakerQuoteExecutionPort {
         side: target.label,
         orderHash: placement.orderHash,
         priceTicks: order.priceTicks.toString(),
+        price: ticksToPrice(market, order.priceTicks),
         lots: order.lots.toString(),
         deadline: order.deadline.toString(),
         admissionId: placement.admissionId,
@@ -274,6 +286,7 @@ export class ChainMakerQuoteExecutionPort implements MakerQuoteExecutionPort {
         marketId: market.marketId,
         seriesId,
         priceScale: market.priceScale,
+        priceOffset: market.priceOffset,
         gridTicks: grid.toString(),
         maker: client.address,
         makerAccountId: account.accountId,
@@ -380,17 +393,15 @@ export class ChainMakerQuoteExecutionPort implements MakerQuoteExecutionPort {
 
 /** The quote mid in the market's ticks, from ticks directly or from a package price scaled by the market. */
 function referenceTicks(request: PayloadReader, market: OperatorMarket): bigint {
-  if (request.has("referencePriceTicks")) return request.bigint("referencePriceTicks", { min: 1n });
-  const price = request.string("referencePrice");
-  const match = /^(\d+)(?:\.(\d+))?$/.exec(price);
-  if (!match) throw new OperatorExecutionError("invalid-payload", "quoteRequest.referencePrice must be a positive decimal string");
-  const decimals = String(market.priceScale).length - 1;
-  const fraction = match[2] ?? "";
-  if (fraction.length > decimals && /[1-9]/.test(fraction.slice(decimals))) {
-    throw new OperatorExecutionError("invalid-payload", `quoteRequest.referencePrice ${price} is finer than ${market.marketKey}'s ${decimals}-decimal price grid`);
+  const ticks = request.has("referencePriceTicks")
+    ? request.bigint("referencePriceTicks", { min: 1n })
+    : priceToTicks(market, request.string("referencePrice"), "quoteRequest.referencePrice");
+  if (ticks <= 0n) {
+    throw new OperatorExecutionError("invalid-payload", `quoteRequest.referencePrice must be above ${market.marketKey}'s price offset ${market.priceOffset}`);
   }
-  const ticks = BigInt(match[1]!) * BigInt(market.priceScale) + BigInt((fraction.slice(0, decimals).padEnd(decimals, "0")) || "0");
-  if (ticks <= 0n) throw new OperatorExecutionError("invalid-payload", "quoteRequest.referencePrice must be positive");
+  if (market.maxPriceTicks !== null && ticks > market.maxPriceTicks) {
+    throw new OperatorExecutionError("invalid-payload", `quote mid ${ticks} is above ${market.marketKey}'s maximum of ${market.maxPriceTicks} ticks`);
+  }
   return ticks;
 }
 

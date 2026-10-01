@@ -189,8 +189,10 @@ USDC (faucet.circle.com); the mint route is local only.
 
 ## Operations
 
-Session days. Trading needs the current UTC day published, and the bootstrap only publishes four days. Publish ahead on
-a daily schedule (any funded account; days already published are skipped):
+Session days. Trading needs the current UTC day published, and the bootstrap only publishes four days. The operator
+worker's keeper sweep (below) publishes every missing day from today through today + 3 from the runtime's
+`sessionDaysPath` through the permissionless `TradingSessionPolicy.publishSessionDay`. The manual path (any funded
+account; days already published are skipped):
 
 ```bash
 SETRYN_SESSION_DAYS="$PWD/deployments/arbitrum-sepolia/session-days.json" \
@@ -202,23 +204,38 @@ forge script script/PublishSessionDays.s.sol:PublishSessionDays --root contracts
 Fixings. Between `E − 1s` and `E + 1h`, a publisher reads the Chainlink Arbitrum One round in force at `E − 1s` for the
 family's `referenceFeed`, builds the observation (`observedAt = publishedAt = E − 1s`, value = answer, 8 decimals),
 signs the EIP-712 `SetrynSignedObservationBatchV1` (domain `Setryn`/`1`, this chain, the fixing adapter) and anyone
-submits it through `FixingEngine.submitEvidence`. After corrections close (`E + 2h`) the keeper finalizes it; without
-a fixing by `E + 3h`, the permissionless terminal fallback resolves the series flat.
+submits it through `FixingEngine.submitEvidence`. The operator worker does this in its `chainlink-signed` relay mode
+(below). After corrections close (`E + 2h`) the keeper finalizes it; without a fixing by `E + 3h`, the permissionless
+terminal fallback resolves the series flat.
 
-Keeper. Run the operator worker sweep (order expiry, fixing finalization, settlement, reservation recovery) on a
-schedule, at least every few minutes around each expiry:
+Keeper. Run the operator worker on a schedule, at least every few minutes around each expiry and at least daily
+otherwise. On a schema 11 runtime one `--sweep true` run:
+
+1. publishes missing session days (today … today + 3) from `session-days.json`;
+2. when an oracle signer is configured, relays `chainlink-signed` fixings: for every series whose fixing target has
+   passed and that has no proposal yet, it reads the Chainlink round in force at the target from the market's
+   `referenceFeed` (Arbitrum One, read-only, walking `getRoundData` back from `latestRoundData`), signs the batch with
+   `SETRYN_ORACLE_SIGNER_KEY` (which must be one of the runtime's `oracleSigners`; the relay signs alone, so it needs
+   `oracleThreshold` 1) and submits it through `FixingEngine.submitEvidence`;
+3. sweeps every market: order expiry, fixing finalization or terminal fallback, settlement, reservation recovery.
 
 ```bash
 SETRYN_SEPOLIA_RPC_URL="$ARBITRUM_SEPOLIA_RPC_URL" \
-SETRYN_SEPOLIA_RUNTIME_PATH=deployments/arbitrum-sepolia/runtime.json \
-SETRYN_SEPOLIA_MANIFEST_PATH=deployments/arbitrum-sepolia/manifest.json \
 SETRYN_SEPOLIA_OPERATOR_KEY="$OPERATOR_KEY" \
+SETRYN_ORACLE_SIGNER_KEY="$ORACLE_SIGNER_KEY" \
+SETRYN_REFERENCE_RPC_URL=https://arb1.arbitrum.io/rpc \
 pnpm --filter @setryn/operator-runtime worker --environment arbitrum-sepolia --sweep true
 ```
 
-The operator runtime's schema 11 support (price offset, `chainlink-signed` relay mode with `SETRYN_ORACLE_SIGNER_KEY`,
-session-day publication in the sweep) is a follow-up; until it lands, use `PublishSessionDays.s.sol` for session days
-and submit signed fixings as described above. The first listed expiry is in late December.
+The runtime and manifest default to `deployments/arbitrum-sepolia/runtime.json` and `manifest.json`
+(`SETRYN_SEPOLIA_RUNTIME_PATH` and `SETRYN_SEPOLIA_MANIFEST_PATH` override them); the worker refuses a runtime whose
+`network` is not `arbitrum-sepolia`, and refuses Arbitrum One outright. Without `SETRYN_ORACLE_SIGNER_KEY` the sweep
+skips fixings (publish them another way); `--relay none` turns the relay off, and `--relay chainlink-signed` runs only
+the relay. Locally (`--environment local`) the oracle signer defaults to the operator's anvil account, which the local
+bootstrap registers as the publisher. The worker prices with the runtime's `priceOffset`
+(`ticks = (price − priceOffset) × priceScale`) and sizes bids by their consideration, since a range forward's long has a
+zero terminal debit; such a long cannot back a private RFQ quote (whose liability must be positive), so the solver
+quotes only the short side. The first listed expiry is in late December.
 
 Fee updates. On public chains `UpdateFeeSchedule.s.sol` never broadcasts; it prints the unsigned calls (qualifier
 registration, witness install, and the governance `govern` calls that deprecate the active version and activate the new

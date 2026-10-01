@@ -4,7 +4,7 @@ import type { SolverExecutionPort } from "../ports.ts";
 import type { OperatorExecutionContext, OperatorExecutionResult, SolverExecutionIntent } from "../types.ts";
 import { ensureTradingAccount, hashOrder, reserveOrderRisk, signOrder } from "./book.ts";
 import { transactionSummary, type OperatorChainClient, type OperatorTransaction } from "./chain.ts";
-import { requireMarketById, requireMarketBySeries, type OperatorMarket } from "./deployment.ts";
+import { priceToTicks, requireMarketById, requireMarketBySeries, ticksToPrice, type OperatorMarket } from "./deployment.ts";
 import { readActiveFeeSchedule, readActiveSeriesVersions, requireOpenFeeSchedule } from "./fees.ts";
 import { describeChainError, isContractRevert, OperatorExecutionError } from "./errors.ts";
 import { PayloadReader } from "./payload.ts";
@@ -29,10 +29,12 @@ import { assertIntentEnvironment, completed } from "./results.ts";
 /**
  * Accepted `executionPlan` for a solver-execution intent (integers as JSON numbers or decimal strings):
  *
- *   { "action": "submit-quote", "rfqId": bytes32, "priceTicks": integer,
+ *   { "action": "submit-quote", "rfqId": bytes32, "priceTicks": integer | "price": decimal string,
  *     "lots"?: integer, "maxFeeMinor"?: integer, "ttlSeconds"?: 5..120, "capacityTailSeconds"?: 1..300 }
  *     Registers the solver's backing maker order (risk reserved and bound), submits a signed firm quote for an RFQ
- *     that is collecting, and reserves its capacity. Requires riskClass "new-risk".
+ *     that is collecting, and reserves its capacity. Requires riskClass "new-risk". `price` converts with the market's
+ *     grid: ticks = (price - priceOffset) x priceScale. A side with a zero terminal debit cap (the long of a range
+ *     forward) cannot back an RFQ quote, whose liability must be positive, and is refused.
  *
  *   { "action": "execute-handoff", "rfqId": bytes32 }
  *     Clears the taker-selected, submitted RFQ through AtomicClearingEngine.clearSeriesWithHandoff and reports the
@@ -111,7 +113,21 @@ export class ChainSolverExecutionPort implements SolverExecutionPort {
       throw new OperatorExecutionError("precondition", "two-way RFQs are not quoted by this solver");
     }
     const makerSide = rfq.request.sidePolicy === 1 ? 2 : 1;
-    const priceTicks = plan.bigint("priceTicks", { min: 1n });
+    const priceTicks = plan.has("priceTicks")
+      ? plan.bigint("priceTicks", { min: market.minPriceTicks ?? 1n })
+      : priceToTicks(market, plan.string("price"), "executionPlan.price");
+    if (priceTicks < (market.minPriceTicks ?? 1n) || (market.maxPriceTicks !== null && priceTicks > market.maxPriceTicks)) {
+      throw new OperatorExecutionError(
+        "invalid-payload",
+        `quote price ${ticksToPrice(market, priceTicks)} (${priceTicks} ticks) is outside ${market.marketKey}'s tick bounds`,
+      );
+    }
+    if ((makerSide === 1 ? market.economics.maxLongDebitMinorPerLot : market.economics.maxShortDebitMinorPerLot) === 0n) {
+      throw new OperatorExecutionError(
+        "precondition",
+        `${market.marketKey}'s ${makerSide === 1 ? "long" : "short"} side has no terminal debit, and an RFQ quote's liability must be positive`,
+      );
+    }
     const lots = plan.bigint("lots", { fallback: rfq.request.lots, min: 1n, max: rfq.request.lots });
     if (lots > market.economics.maxOrderLots) {
       throw new OperatorExecutionError("precondition", `${market.marketKey} caps orders at ${market.economics.maxOrderLots} lots; the RFQ asks ${lots}`);

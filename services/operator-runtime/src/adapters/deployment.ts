@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 
 import { decodeAbiParameters, getAddress, type Address, type Hex } from "viem";
 
@@ -9,8 +10,11 @@ const hashPattern = /^0x[0-9a-fA-F]{64}$/;
 /**
  * Schema 9 adds a `markets` array (one series per catalog market); its single-series fields name the primary market.
  * Schema 10 adds optional fee schedule fields (`feeScheduleVersion`, `treasuryController`) to schema 9.
+ * Schema 11 (network runtime) keeps every schema 10 field and adds the network, fixing adapter, oracle signers, the
+ * session-day proofs path and, per market, the listing economics: `priceOffset` (the floor), `referenceFeed` (Chainlink
+ * on Arbitrum One) and the schedule. Range forwards carry a zero long debit: the long pays its consideration at the fill.
  */
-const runtimeSchemaVersions: readonly unknown[] = [8, 9, 10];
+const runtimeSchemaVersions: readonly unknown[] = [8, 9, 10, 11];
 
 /** Addresses the operator ports call; every one is checked against the deployment manifest. */
 export interface OperatorDeploymentAddresses {
@@ -58,6 +62,7 @@ export interface OperatorDeploymentIds {
 }
 
 export interface OperatorDeploymentEconomics {
+  /** Zero for range forwards: the long's whole outlay is the consideration it pays at the fill. */
   readonly maxLongDebitMinorPerLot: bigint;
   readonly maxShortDebitMinorPerLot: bigint;
   readonly tickSizeMinor: bigint;
@@ -90,9 +95,32 @@ export interface OperatorMarket {
   readonly benchmarkId: Hex;
   readonly payoffTerms: Hex;
   readonly terms: OperatorPayoffTerms;
-  /** Price ticks per unit of package price: priceTicks = price x priceScale. */
+  /** Price ticks per unit of package price: priceTicks = (price - priceOffset) x priceScale. */
   readonly priceScale: number;
+  /** Package price at zero ticks (decimal string; the range floor on schema 11, "0" before). */
+  readonly priceOffset: string;
+  /** Inclusive tick bounds the market registered, when the runtime records them. */
+  readonly minPriceTicks: bigint | null;
+  readonly maxPriceTicks: bigint | null;
+  /** Benchmark feed name (for example Crypto.BTC/USD) and its Chainlink aggregator on the reference chain (schema 11). */
+  readonly feedKey: string | null;
+  readonly referenceFeed: Address | null;
   readonly economics: OperatorDeploymentEconomics;
+}
+
+/** Schema 11 network fields; null on older runtimes. */
+export interface OperatorNetworkRuntime {
+  readonly network: string;
+  readonly fixingAdapter: Address;
+  readonly fixingAdapterKind: string;
+  readonly oracleSigners: readonly Address[];
+  readonly oracleThreshold: number;
+  readonly referenceChainId: number;
+  readonly tradingSessionPolicy: Address;
+  readonly sessionId: Hex;
+  readonly sessionVersion: number;
+  /** Absolute path of the session-day proofs file (`sessionDaysPath` resolved against the runtime file's directory). */
+  readonly sessionDaysPath: string | null;
 }
 
 export interface OperatorDeployment {
@@ -108,6 +136,9 @@ export interface OperatorDeployment {
   /** Every market this deployment trades. Schema 8 runtimes list only the primary market. */
   readonly markets: readonly OperatorMarket[];
   readonly fees: OperatorDeploymentFees;
+  readonly schemaVersion: number;
+  /** Schema 11 network fields; null for schema 8 to 10 runtimes. */
+  readonly network: OperatorNetworkRuntime | null;
 }
 
 const runtimeAddressFields = [
@@ -159,7 +190,7 @@ const manifestCrossChecks: Readonly<Record<string, keyof OperatorDeploymentAddre
 };
 
 /**
- * Reads the devnet-style runtime file (schema version 8 or 9) and the deployment manifest for one chain. The manifest
+ * Reads the runtime file (schema version 8 to 11) and the deployment manifest for one chain. The manifest
  * supplies the fixing and settlement contracts the runtime file does not carry, and both must name the same chain.
  */
 export async function loadOperatorDeployment(options: {
@@ -187,7 +218,12 @@ export async function loadOperatorDeployment(options: {
     runtimeHashFields.map((field) => [field, requireHash(runtime[field], `runtime.${field}`)]),
   ) as unknown as OperatorDeploymentIds;
   const integers = Object.fromEntries(
-    runtimeIntegerFields.map((field) => [field, requirePositiveInteger(runtime[field], `runtime.${field}`)]),
+    runtimeIntegerFields.map((field) => [
+      field,
+      field === "maxLongDebitMinorPerLot"
+        ? requireNonNegativeInteger(runtime[field], `runtime.${field}`)
+        : requirePositiveInteger(runtime[field], `runtime.${field}`),
+    ]),
   ) as unknown as OperatorDeploymentEconomics;
   if (typeof runtime.payoffTerms !== "string" || !/^0x(?:[0-9a-fA-F]{2})+$/.test(runtime.payoffTerms)) {
     throw invalid("runtime.payoffTerms must be non-empty hex");
@@ -241,6 +277,7 @@ export async function loadOperatorDeployment(options: {
       benchmarkId: ids.benchmarkId,
       payoffTerms: runtime.payoffTerms,
       priceScale: typeof runtime.priceScale === "number" ? runtime.priceScale : 1,
+      priceOffset: runtime.priceOffset,
       maxLongDebitMinorPerLot: runtime.maxLongDebitMinorPerLot,
       maxShortDebitMinorPerLot: runtime.maxShortDebitMinorPerLot,
       tickSizeMinor: runtime.tickSizeMinor,
@@ -264,7 +301,81 @@ export async function loadOperatorDeployment(options: {
     payoffTerms: runtime.payoffTerms as Hex,
     markets,
     fees,
+    schemaVersion: runtime.schemaVersion as number,
+    network: runtime.schemaVersion === 11 ? parseNetwork(runtime, options.runtimePath) : null,
   };
+}
+
+function parseNetwork(runtime: Record<string, unknown>, runtimePath: string): OperatorNetworkRuntime {
+  if (typeof runtime.network !== "string" || !runtime.network) throw invalid("runtime.network is missing");
+  if (!Array.isArray(runtime.oracleSigners) || runtime.oracleSigners.length === 0) {
+    throw invalid("runtime.oracleSigners must be a non-empty address array");
+  }
+  const oracleSigners = runtime.oracleSigners.map((signer, index) => requireAddress(signer, `runtime.oracleSigners[${index}]`));
+  const oracleThreshold = Number(requirePositiveInteger(runtime.oracleThreshold, "runtime.oracleThreshold"));
+  if (oracleThreshold > oracleSigners.length) throw invalid("runtime.oracleThreshold exceeds the oracle signer count");
+  const sessionDaysPath = typeof runtime.sessionDaysPath === "string" && runtime.sessionDaysPath.trim()
+    ? resolve(dirname(resolve(runtimePath)), runtime.sessionDaysPath)
+    : null;
+  return {
+    network: runtime.network,
+    fixingAdapter: requireAddress(runtime.fixingAdapter, "runtime.fixingAdapter"),
+    fixingAdapterKind: typeof runtime.fixingAdapterKind === "string" ? runtime.fixingAdapterKind : "signed-observation",
+    oracleSigners,
+    oracleThreshold,
+    referenceChainId: Number(requirePositiveInteger(runtime.referenceChainId, "runtime.referenceChainId")),
+    tradingSessionPolicy: requireAddress(runtime.tradingSessionPolicy, "runtime.tradingSessionPolicy"),
+    sessionId: requireHash(runtime.sessionId, "runtime.sessionId"),
+    sessionVersion: Number(requirePositiveInteger(runtime.sessionVersion, "runtime.sessionVersion")),
+    sessionDaysPath,
+  };
+}
+
+const decimalPattern = /^(-?)(\d+)(?:\.(\d+))?$/;
+
+/** A decimal string as an integer scaled by 10^decimals; refuses digits finer than `decimals` unless they are zero. */
+function scaleDecimal(value: string, decimals: number, label: string): bigint {
+  const match = decimalPattern.exec(value.trim());
+  if (!match) throw new OperatorExecutionError("invalid-payload", `${label} ${value} is not a decimal number`);
+  const fraction = match[3] ?? "";
+  if (fraction.length > decimals && /[1-9]/.test(fraction.slice(decimals))) {
+    throw new OperatorExecutionError("invalid-payload", `${label} ${value} is finer than ${decimals} decimals`);
+  }
+  const magnitude = BigInt(match[2]!) * 10n ** BigInt(decimals) + BigInt(fraction.slice(0, decimals).padEnd(decimals, "0") || "0");
+  return match[1] === "-" ? -magnitude : magnitude;
+}
+
+function fractionDigits(value: string): number {
+  return decimalPattern.exec(value.trim())?.[3]?.length ?? 0;
+}
+
+/** Decimal places of the market's tick grid (priceScale is a power of ten). */
+export function priceGridDecimals(market: OperatorMarket): number {
+  return String(market.priceScale).length - 1;
+}
+
+/** ticks = (price - priceOffset) x priceScale, exactly; a price off the market's tick grid is refused. */
+export function priceToTicks(market: OperatorMarket, price: string, label = "price"): bigint {
+  const grid = priceGridDecimals(market);
+  const decimals = Math.max(grid, fractionDigits(market.priceOffset));
+  const difference = scaleDecimal(price, decimals, label) - scaleDecimal(market.priceOffset, decimals, `${market.marketKey}.priceOffset`);
+  const unit = 10n ** BigInt(decimals - grid);
+  if (difference % unit !== 0n) {
+    throw new OperatorExecutionError("invalid-payload", `${label} ${price} is off ${market.marketKey}'s ${grid}-decimal price grid`);
+  }
+  return difference / unit;
+}
+
+/** price = priceOffset + ticks / priceScale, as a decimal string. */
+export function ticksToPrice(market: OperatorMarket, ticks: bigint): string {
+  const grid = priceGridDecimals(market);
+  const decimals = Math.max(grid, fractionDigits(market.priceOffset));
+  const value = scaleDecimal(market.priceOffset, decimals, `${market.marketKey}.priceOffset`) + ticks * 10n ** BigInt(decimals - grid);
+  const negative = value < 0n;
+  const magnitude = negative ? -value : value;
+  const scale = 10n ** BigInt(decimals);
+  const fraction = decimals > 0 ? `.${(magnitude % scale).toString().padStart(decimals, "0")}` : "";
+  return `${negative ? "-" : ""}${magnitude / scale}${fraction}`;
 }
 
 /** The market registered under an onchain market id; unknown ids are refused rather than defaulted. */
@@ -382,8 +493,12 @@ function buildMarket(entry: Record<string, unknown>, label: string): OperatorMar
     throw invalid(`${label}.priceScale must be a positive power of ten`);
   }
   const payoffTerms = entry.payoffTerms.toLowerCase() as Hex;
+  const priceOffset = entry.priceOffset === undefined || entry.priceOffset === null ? "0" : entry.priceOffset;
+  if (typeof priceOffset !== "string" || !decimalPattern.test(priceOffset)) {
+    throw invalid(`${label}.priceOffset must be a decimal string`);
+  }
   const economics: OperatorDeploymentEconomics = {
-    maxLongDebitMinorPerLot: requirePositiveInteger(entry.maxLongDebitMinorPerLot, `${label}.maxLongDebitMinorPerLot`),
+    maxLongDebitMinorPerLot: requireNonNegativeInteger(entry.maxLongDebitMinorPerLot, `${label}.maxLongDebitMinorPerLot`),
     maxShortDebitMinorPerLot: requirePositiveInteger(entry.maxShortDebitMinorPerLot, `${label}.maxShortDebitMinorPerLot`),
     tickSizeMinor: requirePositiveInteger(entry.tickSizeMinor, `${label}.tickSizeMinor`),
     maxOrderLots: requirePositiveInteger(entry.maxOrderLots, `${label}.maxOrderLots`),
@@ -392,6 +507,9 @@ function buildMarket(entry: Record<string, unknown>, label: string): OperatorMar
   const terms = decodePayoffTerms(payoffTerms, `${label}.payoffTerms`);
   if (terms.maxLongDebitMinorPerLot !== economics.maxLongDebitMinorPerLot || terms.maxShortDebitMinorPerLot !== economics.maxShortDebitMinorPerLot) {
     throw invalid(`${label} debit caps do not match its canonical payoff terms`);
+  }
+  if (economics.maxLongDebitMinorPerLot === 0n && economics.maxShortDebitMinorPerLot === 0n) {
+    throw invalid(`${label} has no terminal debit on either side`);
   }
   if (terms.fixingRequirements.length === 0 || terms.fixingRequirements.some((requirement) => requirement.benchmarkId !== benchmarkId)) {
     throw invalid(`${label} payoff terms do not fix on its benchmark ${benchmarkId}`);
@@ -405,6 +523,11 @@ function buildMarket(entry: Record<string, unknown>, label: string): OperatorMar
     payoffTerms,
     terms,
     priceScale,
+    priceOffset,
+    minPriceTicks: entry.minPriceTicks === undefined || entry.minPriceTicks === null ? null : requireSignedInteger(entry.minPriceTicks, `${label}.minPriceTicks`),
+    maxPriceTicks: entry.maxPriceTicks === undefined || entry.maxPriceTicks === null ? null : requireSignedInteger(entry.maxPriceTicks, `${label}.maxPriceTicks`),
+    feedKey: typeof entry.feedKey === "string" && entry.feedKey ? entry.feedKey : null,
+    referenceFeed: entry.referenceFeed === undefined || entry.referenceFeed === null ? null : requireAddress(entry.referenceFeed, `${label}.referenceFeed`),
     economics,
   };
 }
@@ -466,6 +589,16 @@ function requireHash(value: unknown, label: string): Hex {
 
 function requirePositiveInteger(value: unknown, label: string): bigint {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) throw invalid(`${label} must be a positive integer`);
+  return BigInt(value);
+}
+
+function requireNonNegativeInteger(value: unknown, label: string): bigint {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) throw invalid(`${label} must be a non-negative integer`);
+  return BigInt(value);
+}
+
+function requireSignedInteger(value: unknown, label: string): bigint {
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) throw invalid(`${label} must be an integer`);
   return BigInt(value);
 }
 

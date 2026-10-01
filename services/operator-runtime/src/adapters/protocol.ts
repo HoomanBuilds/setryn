@@ -17,6 +17,7 @@ export const abis = {
   benchmarkRegistry: contractBindings.BenchmarkRegistry.abi,
   fixingEngine: contractBindings.FixingEngine.abi,
   cashSettlementCoordinator: contractBindings.CashSettlementCoordinator.abi,
+  tradingSessionPolicy: contractBindings.TradingSessionPolicy.abi,
 } as const;
 
 /** The devnet settlement token is not a protocol binding; only its faucet and allowance entry points are used. */

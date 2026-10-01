@@ -10,10 +10,12 @@ import {
   ensureTradingAccount,
   hashOrder,
   OperatorChainClient,
+  priceToTicks,
   requireMarket,
   reserveOrderRisk,
   resolveOperatorChainConfig,
   signOrder,
+  ticksToPrice,
   transactionSummary,
   type OperatorMarket,
 } from "../adapters/index.ts";
@@ -117,7 +119,11 @@ interface MarketRun {
 
 const taker = client.withSigner({ kind: "anvil-development", addressIndex: 8 });
 const takerAccount = await ensureTradingAccount(taker, { fundingMinor: 50_000_000_000n });
-const takerNeed = selected.reduce((sum, market) => sum + takerLots * market.economics.maxLongDebitMinorPerLot, 0n);
+// A long pays its consideration at the fill on top of its (zero for range forwards) debit cap; budget the top tick.
+const takerNeed = selected.reduce(
+  (sum, market) => sum + takerLots * (market.economics.maxLongDebitMinorPerLot + (market.maxPriceTicks ?? 0n) * market.economics.tickSizeMinor),
+  0n,
+);
 await ensureFreeCollateral(taker, takerAccount.accountId, takerNeed, { faucet: true, headroomMinor: 10_000_000_000n });
 const solverAccount = await ensureTradingAccount(client, { fundingMinor: 250_000_000_000n });
 
@@ -184,7 +190,7 @@ for (const [index, market] of selected.entries()) {
 
   section(`${market.marketKey}: private RFQ, solver quote and handoff execution`);
   try {
-    const askTicks = BigInt(entry.maker.ask ?? String(BigInt(Math.round(reference.bestAsk * market.priceScale))));
+    const askTicks = entry.maker.ask ? BigInt(entry.maker.ask) : priceToTicks(market, reference.bestAsk.toFixed(reference.priceDecimals));
     const rfq = await openTakerRfq(taker, takerAccount.accountId, market, askTicks + 4n * grid);
     const quote = await execute({
       kind: "solver-execution",
@@ -520,7 +526,7 @@ async function selectQuote(participant: OperatorChainClient, rfqId: Hex, selecte
 }
 
 function formatTicks(ticks: bigint, market: OperatorMarket): string {
-  return formatFixed(ticks, String(market.priceScale).length - 1);
+  return ticksToPrice(market, ticks);
 }
 
 function formatFixed(value: bigint, decimals: number): string {

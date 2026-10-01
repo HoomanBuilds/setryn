@@ -12,16 +12,22 @@ import type { OperatorEnvironment, OperatorJobRequest } from "../types.ts";
  * scheduled retries up to --max-wait-ms).
  *
  *   node --experimental-strip-types services/operator-runtime/src/bin/operator-worker.ts \
- *     --environment local [--jobs jobs.json] [--sweep true] [--relay-fixtures true] [--markets KEY,KEY] \
- *     [--worker-id worker-1] [--max-wait-ms 60000]
+ *     --environment local [--jobs jobs.json] [--sweep true] [--relay chainlink-signed|none] [--relay-fixtures true] \
+ *     [--markets KEY,KEY] [--worker-id worker-1] [--max-wait-ms 60000]
  *
- * --sweep enqueues one keeper sweep (order expiry, fixing, settlement and terminal-reservation recovery) over every
- * market of the deployment (or --markets). --relay-fixtures (local devnet only) enqueues one oracle relay of the
- * per-benchmark fixture fixings. Jobs from the file may target any market the runtime lists. LOCAL_RPC_URL points
- * the local environment at another loopback RPC, such as a throwaway anvil fork.
+ * --sweep enqueues one keeper sweep (session-day publication on schema 11 runtimes, then order expiry, fixing,
+ * settlement and terminal-reservation recovery) over every market of the deployment (or --markets). On a schema 11
+ * runtime with a signed-observation fixing adapter and an oracle signer (SETRYN_ORACLE_SIGNER_KEY; the operator's anvil
+ * account on local), --sweep also enqueues a chainlink-signed oracle relay ahead of the keeper sweep, so due series
+ * get their fixing proposed before the keeper finalizes; --relay none turns that off, and --relay chainlink-signed
+ * enqueues it without a sweep. --relay-fixtures (local devnet only) enqueues one oracle relay of the per-benchmark
+ * fixture fixings. Jobs from the file may target any market the runtime lists. LOCAL_RPC_URL points the local
+ * environment at another loopback RPC, such as a throwaway anvil fork. SETRYN_REFERENCE_RPC_URL (default
+ * https://arb1.arbitrum.io/rpc) is the read-only Arbitrum One RPC for Chainlink rounds.
  *
- * Arbitrum Sepolia requires SETRYN_SEPOLIA_RPC_URL, SETRYN_SEPOLIA_RUNTIME_PATH, SETRYN_SEPOLIA_MANIFEST_PATH, and
- * SETRYN_SEPOLIA_OPERATOR_KEY. Arbitrum One is refused before any client is created.
+ * Arbitrum Sepolia requires SETRYN_SEPOLIA_RPC_URL and SETRYN_SEPOLIA_OPERATOR_KEY; the runtime and manifest default
+ * to deployments/arbitrum-sepolia/ (SETRYN_SEPOLIA_RUNTIME_PATH / SETRYN_SEPOLIA_MANIFEST_PATH override them). Arbitrum
+ * One is refused before any client is created.
  */
 const args = parseArguments(process.argv.slice(2));
 const environment = (args.get("environment") ?? process.env.SETRYN_OPERATOR_ENVIRONMENT ?? "local") as OperatorEnvironment;
@@ -29,7 +35,13 @@ if (!["local", "arbitrum-sepolia", "arbitrum-one"].includes(environment)) throw 
 const jobsPath = args.get("jobs");
 const sweep = args.get("sweep") === "true";
 const relayFixtures = args.get("relay-fixtures") === "true";
-if (!jobsPath && !sweep && !relayFixtures) throw new TypeError("give --jobs <file>, --sweep true, or --relay-fixtures true");
+const relayMode = args.get("relay");
+if (relayMode !== undefined && relayMode !== "chainlink-signed" && relayMode !== "none") {
+  throw new TypeError("--relay must be chainlink-signed or none");
+}
+if (!jobsPath && !sweep && !relayFixtures && relayMode !== "chainlink-signed") {
+  throw new TypeError("give --jobs <file>, --sweep true, --relay chainlink-signed, or --relay-fixtures true");
+}
 const workerId = args.get("worker-id") ?? `operator-worker-${process.pid}`;
 const maxWaitMs = Number(args.get("max-wait-ms") ?? 60_000);
 const marketKeys = args.get("markets")?.split(",").map((key) => key.trim()).filter(Boolean);
@@ -58,6 +70,23 @@ if (relayFixtures) {
       requestedAt: stamp,
       feedKey: "devnet-fixtures",
       relayPayload: { fixtures: marketKeys ? { marketKeys } : {} },
+    },
+    retryPolicy,
+    requestedBy: workerId,
+  });
+}
+const signedFixings = deployment.network?.fixingAdapterKind === "signed-observation" && ports.client.oracleSignerAddress !== null;
+if (relayMode === "chainlink-signed" || (sweep && relayMode === undefined && signedFixings)) {
+  requests.push({
+    intent: {
+      kind: "oracle-relay",
+      domain: "oracle",
+      riskClass: "operational",
+      environment,
+      idempotencyKey: `${workerId}:oracle-chainlink-signed:${stamp}`,
+      requestedAt: stamp,
+      feedKey: "chainlink-signed",
+      relayPayload: { chainlinkSigned: marketKeys ? { marketKeys } : {} },
     },
     retryPolicy,
     requestedBy: workerId,

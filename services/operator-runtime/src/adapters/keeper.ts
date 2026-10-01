@@ -1,5 +1,7 @@
+import { readFile } from "node:fs/promises";
+
 import type { JsonObject } from "@setryn/internal-schemas";
-import { keccak256, stringToHex, type Hex } from "viem";
+import { getAddress, keccak256, stringToHex, type Hex } from "viem";
 
 import type { KeeperExecutionPort } from "../ports.ts";
 import type { KeeperWorkIntent, OperatorExecutionContext, OperatorExecutionResult } from "../types.ts";
@@ -32,6 +34,10 @@ type KeeperWorkType = "expire-orders" | "resolve-fixing" | "settle-positions" | 
 
 const sweepSteps = ["expire-orders", "resolve-fixing", "settle-positions", "recover-positions"] as const;
 type SweepStep = (typeof sweepSteps)[number];
+/** Deployment-scoped sweep step: publish missing session days from the runtime's session-day proofs file. */
+const sessionDaysStep = "publish-session-days";
+/** Session days kept published ahead of today, as PublishSessionDays.s.sol does by default. */
+const sessionDaysAhead = 3n;
 
 interface KeeperAction {
   readonly target: string;
@@ -71,10 +77,12 @@ const recoveryKinds = [
  *     finalize-terminal-reservation, materialize-terminal-claim, fulfill-terminal-claim. For positionIds, both terminal
  *     liability reservations are finalized (or materialized into claims after final resolution) when due.
  *
- * - "sweep":            { marketKeys?: string[], steps?: ("expire-orders" | "resolve-fixing" | "settle-positions" |
- *                         "recover-positions")[], seriesVersion? }
- *     Runs the listed steps (default: all four, in that order) for every market of the deployment (or the listed
- *     catalog keys). "recover-positions" finalizes or materializes the terminal reservations of every position on the
+ * - "sweep":            { marketKeys?: string[], steps?: ("publish-session-days" | "expire-orders" | "resolve-fixing" |
+ *                         "settle-positions" | "recover-positions")[], seriesVersion? }
+ *     First (schema 11 runtimes with a `sessionDaysPath`) publishes every missing session day from today through
+ *     today + 3 through the permissionless TradingSessionPolicy.publishSessionDay, mirroring PublishSessionDays.s.sol.
+ *     Then runs the listed market steps (default: all four, in that order) for every market of the deployment (or the
+ *     listed catalog keys). "recover-positions" finalizes or materializes the terminal reservations of every position on the
  *     series. `resourceId` must be the zero id: the sweep is deployment-scoped. One market's failure is recorded and
  *     the sweep continues; transport failures still throw so the runtime retries the (idempotent) sweep.
  *
@@ -83,6 +91,68 @@ const recoveryKinds = [
  * was opened on); positions default to every PositionCreated on that version. Work that is not yet due is reported,
  * not failed.
  */
+interface SessionDaysFile {
+  readonly chainId: number;
+  readonly tradingSessionPolicy: Hex;
+  readonly sessionId: Hex;
+  readonly sessionVersion: number;
+  readonly fromDay: bigint;
+  readonly throughDay: bigint;
+  readonly days: readonly {
+    readonly day: bigint;
+    readonly windowsHash: Hex;
+    readonly evidenceHash: Hex;
+    readonly proof: readonly Hex[];
+    readonly windows: readonly { readonly kindId: Hex; readonly opensAt: bigint; readonly closesAt: bigint; readonly policyHash: Hex }[];
+  }[];
+}
+
+/** Reads the session-day proofs file BootstrapSetrynMarkets writes (schema 1), as PublishSessionDays.s.sol does. */
+async function readSessionDays(path: string): Promise<SessionDaysFile> {
+  const invalid = (reason: string) => new OperatorExecutionError("config-invalid", `session days file ${path}: ${reason}`);
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+  } catch (error) {
+    throw invalid(`unreadable (${error instanceof Error ? error.message : "unknown error"})`);
+  }
+  const hash = (value: unknown, label: string): Hex => {
+    if (typeof value !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(value)) throw invalid(`${label} must be a 32-byte hex value`);
+    return value.toLowerCase() as Hex;
+  };
+  const integer = (value: unknown, label: string): bigint => {
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) throw invalid(`${label} must be a non-negative integer`);
+    return BigInt(value);
+  };
+  if (raw.schemaVersion !== 1) throw invalid("schemaVersion must be 1");
+  if (typeof raw.tradingSessionPolicy !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(raw.tradingSessionPolicy)) throw invalid("tradingSessionPolicy must be an address");
+  if (!Array.isArray(raw.days)) throw invalid("days must be an array");
+  return {
+    chainId: Number(integer(raw.chainId, "chainId")),
+    tradingSessionPolicy: getAddress(raw.tradingSessionPolicy),
+    sessionId: hash(raw.sessionId, "sessionId"),
+    sessionVersion: Number(integer(raw.sessionVersion, "sessionVersion")),
+    fromDay: integer(raw.fromDay, "fromDay"),
+    throughDay: integer(raw.throughDay, "throughDay"),
+    days: (raw.days as Record<string, unknown>[]).map((day, index) => {
+      const label = `days[${index}]`;
+      if (!Array.isArray(day.proof) || !Array.isArray(day.windows)) throw invalid(`${label} needs proof and windows arrays`);
+      return {
+        day: integer(day.day, `${label}.day`),
+        windowsHash: hash(day.windowsHash, `${label}.windowsHash`),
+        evidenceHash: hash(day.evidenceHash, `${label}.evidenceHash`),
+        proof: day.proof.map((node, nodeIndex) => hash(node, `${label}.proof[${nodeIndex}]`)),
+        windows: (day.windows as Record<string, unknown>[]).map((window, windowIndex) => ({
+          kindId: hash(window.kindId, `${label}.windows[${windowIndex}].kindId`),
+          opensAt: integer(window.opensAt, `${label}.windows[${windowIndex}].opensAt`),
+          closesAt: integer(window.closesAt, `${label}.windows[${windowIndex}].closesAt`),
+          policyHash: hash(window.policyHash, `${label}.windows[${windowIndex}].policyHash`),
+        })),
+      };
+    }),
+  };
+}
+
 /** One series version's share of series-scoped keeper work, before it is folded into the job result. */
 interface VersionOutcome {
   readonly details: Record<string, unknown> & { readonly actions?: unknown };
@@ -517,16 +587,29 @@ export class ChainKeeperExecutionPort implements KeeperExecutionPort {
     const markets: OperatorMarket[] = work.has("marketKeys")
       ? work.strings("marketKeys").map((key) => requireMarket(deployment, key))
       : [...deployment.markets];
-    const steps: SweepStep[] = work.has("steps") ? work.strings("steps").map((step) => {
+    const requestedSteps = work.has("steps") ? work.strings("steps") : null;
+    const steps: SweepStep[] = requestedSteps ? requestedSteps.filter((step) => step !== sessionDaysStep).map((step) => {
       if (!(sweepSteps as readonly string[]).includes(step)) throw new OperatorExecutionError("invalid-payload", `work.steps has unknown step ${step}`);
       return step as SweepStep;
     }) : [...sweepSteps];
+    const publishDays = requestedSteps ? requestedSteps.includes(sessionDaysStep) : deployment.network?.sessionDaysPath != null;
     // Without an explicit version each series step covers every version that holds positions.
     const seriesVersion = work.has("seriesVersion") ? work.integer("seriesVersion", { min: 1 }) : null;
     const now = await this.#client.chainNow();
     const transactions: { label: string; hash: Hex; blockNumber: string; gasUsed: string }[] = [];
     const perMarket: JsonObject[] = [];
     let failures = 0;
+    let sessionDays: JsonObject | null = null;
+    if (publishDays) {
+      try {
+        const published = await this.#publishSessionDays(now);
+        sessionDays = published.details;
+        transactions.push(...published.transactions.map((transaction) => ({ ...transaction })));
+      } catch (error) {
+        if (error instanceof OperatorExecutionError && error.retryable && !isContractRevert(error)) throw error;
+        sessionDays = { outcome: "failed", reason: error instanceof Error ? error.message : String(error) };
+      }
+    }
     for (const market of markets) {
       const seriesWork = new PayloadReader(
         seriesVersion === null ? { seriesId: market.seriesId } : { seriesId: market.seriesId, seriesVersion },
@@ -564,7 +647,78 @@ export class ChainKeeperExecutionPort implements KeeperExecutionPort {
     if (markets.length > 0 && failures === markets.length) {
       throw new OperatorExecutionError("precondition", `keeper sweep failed on every market: ${perMarket.map((entry) => `${String(entry.marketKey)}: ${String(entry.reason)}`).join("; ")}`);
     }
-    return completed({ workType: "sweep", chainTime: now, steps: [...steps], markets: perMarket }, transactions);
+    return completed(
+      { workType: "sweep", chainTime: now, steps: [...(publishDays ? [sessionDaysStep] : []), ...steps], sessionDays, markets: perMarket },
+      transactions,
+    );
+  }
+
+  /**
+   * Publishes each missing session day in [today, today + 3] (clipped to the file's horizon) from the session-day
+   * proofs file. Permissionless: TradingSessionPolicy verifies the day, its windows and its Merkle proof against the
+   * session version's registered root. A day the policy already holds reverts DuplicateSessionDay in simulation and is
+   * skipped.
+   */
+  async #publishSessionDays(now: bigint): Promise<{ readonly details: JsonObject; readonly transactions: readonly OperatorTransaction[] }> {
+    const client = this.#client;
+    const network = client.deployment.network;
+    if (!network?.sessionDaysPath) {
+      throw new OperatorExecutionError("config-invalid", "publishing session days needs a schema 11 runtime with sessionDaysPath");
+    }
+    const file = await readSessionDays(network.sessionDaysPath);
+    if (file.chainId !== client.expectedChainId) {
+      throw new OperatorExecutionError("config-invalid", `${network.sessionDaysPath} is for chain ${file.chainId}, not ${client.expectedChainId}`);
+    }
+    if (
+      file.tradingSessionPolicy !== network.tradingSessionPolicy
+      || file.sessionId !== network.sessionId
+      || file.sessionVersion !== network.sessionVersion
+    ) {
+      throw new OperatorExecutionError("config-invalid", `${network.sessionDaysPath} names a different session or policy than the runtime`);
+    }
+    const today = now / 86_400n;
+    const first = today > file.fromDay ? today : file.fromDay;
+    const last = today + sessionDaysAhead < file.throughDay ? today + sessionDaysAhead : file.throughDay;
+    const actions: KeeperAction[] = [];
+    const transactions: OperatorTransaction[] = [];
+    for (let day = first; day <= last; day += 1n) {
+      const entry = file.days[Number(day - file.fromDay)];
+      const target = `session day ${day}`;
+      if (!entry || entry.day !== day) {
+        actions.push({ target, action: "publishSessionDay", outcome: "skipped", reason: `${network.sessionDaysPath} has no entry for day ${day}` });
+        continue;
+      }
+      const args = [
+        network.sessionId,
+        network.sessionVersion,
+        { day: Number(day), windowsHash: entry.windowsHash, evidenceHash: entry.evidenceHash },
+        entry.windows,
+        entry.proof,
+      ] as const;
+      const call = { address: network.tradingSessionPolicy, abi: abis.tradingSessionPolicy, functionName: "publishSessionDay", args } as const;
+      try {
+        await client.simulate(`simulate publish ${target}`, call);
+      } catch (error) {
+        if (isContractRevert(error) && error.details.errorName === "DuplicateSessionDay") {
+          actions.push({ target, action: "publishSessionDay", outcome: "skipped", reason: "already published" });
+          continue;
+        }
+        throw error;
+      }
+      const write = await client.write(`publish ${target}`, call);
+      transactions.push(transactionSummary(write));
+      actions.push({ target, action: "publishSessionDay", outcome: "executed", transactionHash: write.hash });
+    }
+    return {
+      details: {
+        sessionId: network.sessionId,
+        sessionVersion: network.sessionVersion,
+        fromDay: first.toString(),
+        throughDay: last.toString(),
+        actions: actions as unknown as JsonObject[],
+      },
+      transactions,
+    };
   }
 
   /**
