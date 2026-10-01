@@ -42,6 +42,7 @@ for immediate pauses and a timelocked Protocol Safe for activation and resumptio
 | `guardian` | Pause through `RegistryStatusController.pause`, `AUCTION_GUARDIAN_ROLE` (`SealedAuctionHouse.cancelAuction`), `LIFECYCLE_GUARDIAN_ROLE` (`SignedLifecycleEngine.cancelAction`), `COMPRESSION_GUARDIAN_ROLE` (`CompressionCoordinator.cancelCompression`) |
 | `governanceAdmin` | Pending `DEFAULT_ADMIN_ROLE` on every access-controlled contract, accepted after the `AccessControlDefaultAdminRules` delay |
 | `excessRecovery` | `CollateralVault.EXCESS_RECOVERY_ROLE` (moves only token balance above total liability) |
+| `treasuryController` | Controller of the protocol fee vault account (a Treasury Safe in production, set by `SETRYN_TREASURY_CONTROLLER` at deployment). Only it can withdraw accrued fees through `CollateralVault.withdraw`. It holds no registry or engine role |
 | Protocol contracts | `PositionEngine` holds the vault locker, settler, reservation-creator and reservation-resolver roles. `CashSettlementCoordinator` holds `PositionEngine.FIXING_ENGINE_ROLE`, the vault reservation-resolver role and `FundedFeeEngine.FEE_ACTION_CONSUMER_ROLE` |
 
 Registry status roles: every combined status-manager role (the 13 registries, including the
@@ -262,6 +263,7 @@ Response by key:
 | `governanceOperator` | Pause first, using the same key if it is still exclusively yours, the guardian through `RegistryStatusController.pause`, or the admin. Then have `DEFAULT_ADMIN_ROLE` call `revokeRole(role, operator)` for every registry role in the table above, and grant a fresh principal. Review every `activate*` and `register*` since the compromise. Anything activated maliciously gets `pause*` or `deprecate*` |
 | `guardian` | Admin revokes `AUCTION_GUARDIAN_ROLE`, `LIFECYCLE_GUARDIAN_ROLE`, and `COMPRESSION_GUARDIAN_ROLE`. The guardian can only cancel pending auctions, lifecycle actions, and compressions, so review those cancellations |
 | `excessRecovery` | Admin revokes `EXCESS_RECOVERY_ROLE`. Exposure is capped at `excessOf(token)` |
+| `treasuryController` | Exposure is the fee account's available balance. The controller key itself proposes a control transfer to a fresh Safe and the Safe accepts it (vault account control is two-step). Withdraw remaining fees to a safe address first if the key is still under your control |
 | `governanceAdmin` pending or accepted | While the transfer is pending, the current admin calls `cancelDefaultAdminTransfer()`. After acceptance, only a new admin transfer (`beginDefaultAdminTransfer`, then `acceptDefaultAdminTransfer` after the delay) rotates it. The delay is the response window |
 | Protocol contract role (engine, coordinator) | Revoking vault `TERMINAL_RESERVATION_CREATOR_ROLE`, `TERMINAL_RESERVATION_RESOLVER_ROLE`, `COLLATERAL_LOCKER_ROLE`, or `COLLATERAL_SETTLER_ROLE` from an engine stops new positions and locks at once (`AccessControlUnauthorizedAccount` or `PositionEngineNotAuthorized`). It does not stop existing reservations from finalizing, because vault finalization reads pinned position state and checks no role |
 | Operator runtime key (keeper, maker, solver, relay) | Activate the domain kill switch, rotate the key in the environment secret, and restart the worker. These keys hold no admin role |
@@ -273,6 +275,42 @@ affect existing reservations.
 Verify: `hasRole(role, oldHolder)` is false for every revoked role, `pendingDefaultAdmin()` shows the
 expected state, and the rehearsal flow (open, pause, revoke, settle, withdraw) passes on the devnet
 against the new role graph.
+
+## Runbook 8: changing protocol fees
+
+Fees are versioned and never edited in place. Each market version pins one fee version and each series version pins one
+market version, so a fee change creates a new fee version and moves every market and series onto it. Open positions keep
+the versions they opened under and still fix and settle.
+
+Local chain:
+
+1. `node scripts/update-devnet-fees.mjs --maker-bps <m> --taker-bps <t>` (or the fee form on `/treasury`). It registers
+   fee version n+1, installs its witness on `FundedFeeEngine`, pauses version n, activates n+1, re-versions every market
+   and series, and rewrites `deployments/local/runtime.json`. Running it again with the same rates does nothing.
+
+Public chains (governance):
+
+1. Run `contracts/script/UpdateFeeSchedule.s.sol` with `SETRYN_FEE_SCHEDULE_REGISTRY`, `SETRYN_FUNDED_FEE_ENGINE`,
+   `SETRYN_FEE_SCHEDULE_ID`, `SETRYN_MAKER_FEE_RATE_PPM` and `SETRYN_TAKER_FEE_RATE_PPM`. It refuses to broadcast and
+   prints unsigned calldata for: `registerFeeSchedule` (holder of `FEE_SCHEDULE_QUALIFIER_ROLE`),
+   `installScheduleWitness` (anyone), and the timelocked `RegistryStatusController.govern` calls that retire the old
+   version and activate the new one.
+2. Register, activate and retire the matching market and series versions the same way. Series qualification data is
+   specific to each series, so prepare it per market.
+3. Announce the change in advance. After it lands, old-version positions can no longer be closed early by trading;
+   resting orders on old-version books stay unexecutable until they expire or are cancelled.
+
+Verification: `FeeScheduleRegistry.activeVersion(id)` returns the new version, every market's active version names it,
+and the first fill after the change records `FeeLedgerEntryRecorded` amounts at the new rates. The `/treasury` page shows
+the version history and revenue per version.
+
+## Runbook 9: withdrawing protocol fees
+
+1. Open `/treasury` with the treasury controller's wallet. The page shows the fee account's posted, reserved and
+   available balance and revenue by market, channel, action and version.
+2. Enter an amount up to the available balance. The page simulates `CollateralVault.withdraw` before asking for the
+   signature; any other wallet is refused with `NotAccountController`.
+3. Reconcile against the CSV export of `FeeLedgerEntryRecorded` entries before and after the withdrawal.
 
 ## Rehearsal findings
 

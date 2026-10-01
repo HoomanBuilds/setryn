@@ -205,9 +205,44 @@ Explorer verification on Arbitrum Sepolia needs the deployed bytecode to equal t
 - Holder election works end to end. Normal settlement persists the final fixing and returns a holder-election position to Live awaiting election. The holder exercises in the 22:00 to 22:45 window through the signed lifecycle engine (an exercise now commits its fixing witness in the transition hash), then Settle records the transfer and Claim pays it. After the cutoff anyone lapses unelected lots with zero transfer through `finalizeLapsedPosition`; at final resolution the terminal fallback still applies. Verified in the browser on the devnet: exercise, settle, claim of 260.18 USDC, and a permissionless lapse releasing both reservations. `contracts/test/integration/HolderElectionSettlement.t.sol` covers the contract paths.
 - Registry status roles are held by `RegistryStatusController`: the guardian can only pause and the governance timelock activates, resumes and deprecates. `contracts/test/integration/PausePathRehearsal.t.sol` proves no pause or role revocation deadlocks resolution or withdrawal. Incident runbooks: [incident-response.md](../runbooks/incident-response.md).
 
+### Fees and treasury
+
+- Maker 5 bps and taker 10 bps of each fill's consideration, charged by `FundedFeeEngine` on every execution channel
+  (public book, private RFQ, streaming, sealed auction, batch, solver routes) through the shared atomic clearing path.
+  Settlement, lapse and terminal resolution charge nothing.
+- Fees are updatable. A change registers a new fee version, re-versions every market and series onto it, and switches
+  them over; open positions keep their original versions and still fix and settle. Local: `scripts/update-devnet-fees.mjs`
+  or the Treasury page. Public chains: `contracts/script/UpdateFeeSchedule.s.sol` prints unsigned governance calldata.
+  A maker-taker schedule may now price one side at zero (`FeeEngineLib`).
+- The order ticket, public API, SDK, maker and solver read the active fee, market and series versions and rates from
+  chain (`apps/web/src/lib/internal-gateway/fee-schedule.ts`, `services/operator-runtime/src/adapters/fees.ts`).
+  Verified in the browser: an order at 5/10 bps, a change to 0/12 bps, and the next order charged 12 bps.
+- The protocol fee account is controlled by a separate treasury controller (a Safe in production; anvil #9 locally).
+  `/treasury` shows its balance, revenue by market, channel, action and version, the fee version history, a withdrawal
+  for the controller, and implemented versus planned revenue. Partner revenue share stays labelled modeled.
+- Economics: [setryn-unit-economics-2026-09-30.md](../research/setryn-unit-economics-2026-09-30.md).
+- Tests: `contracts/test/integration/FeeScheduleUpdate.t.sol` (v1 to v3 fee amounts, treasury withdrawal, settlement of
+  old-version positions, public-chain refusal).
+
+### Product surface
+
+- Landing: a single hero ("Private exchange for dated risk") on Arbitrum One with an automatic public book and private
+  RFQ divider, no hero switcher, no field notes, and a footer linking @SetrynX. Copy presents the live product.
+- Platform: asset, pair, USDC and Arbitrum marks across the terminal, markets, portfolio and activity; user-facing copy
+  says "Arbitrum One" and "Index feed" rather than devnet or preview wording.
+
 ### Phase 5 first-party platform: remaining
 
-1. Arbitrum Sepolia release candidate: funded operator and deployer keys, deployment, explorer verification, faucet guidance, and the scripted judge journey. This needs keys and test funds from the operator.
+1. Arbitrum Sepolia release candidate, run by the owner: funded keys, deployment, explorer verification, faucet guidance,
+   and the scripted judge journey.
+
+Open items, none blocking the local product:
+
+- After a fee change, positions on the old market version cannot be closed early by trading or a paired full exit
+  (lifecycle batches refuse mixed fee versions); they still settle, lapse or resolve at expiry.
+- Only the public-book channel has an end-to-end fee test; the other channels share its clearing path.
+- Treasury withdrawal and the treasury CSV export are built but not yet exercised in the browser.
+- No onchain partner payout or claim, no lifecycle or settlement fees, and no fixing-input quarantine.
 
 ### Phase 6 and 7 preparation (no mainnet writes)
 
@@ -219,7 +254,7 @@ Explorer verification on Arbitrum Sepolia needs the deployed bytecode to equal t
 - Versioned public API under `/api/v1` with API keys (hashed, scoped, revocable), per-key token-bucket rate limits, and HMAC replay protection on writes. It reads the same contract events as the platform and relays client-signed orders without custody. OpenAPI 3.1 at `/api/v1/openapi.json`.
 - `@setryn/sdk` TypeScript client with request signing and EIP-712 order helpers, and runnable examples.
 - `@setryn/webhooks`: chain-derived events with reorg-safe cursors, HMAC-signed deliveries, backoff retries, and secret rotation.
-- Embeddable ticker, market, and quote widgets (`/embed/*`, `embed.js`) on the shared preview feed, with partner attribution.
+- Embeddable ticker, market, and quote widgets (`/embed/*`, `embed.js`) on the shared index feed, with partner attribution.
 - `/developers` and `/partners` consoles. Key and partner management is limited to the local devnet until an operator auth system exists.
 - Framing headers: `/embed/*` may be framed by any origin (partner origins are checked by the attribution beacon); every other route sends `X-Frame-Options: DENY` and `frame-ancestors 'none'`.
 - Order cancellation through the API and SDK: the server prepares the cancel and book-sync transactions and the risk-release typed data, and the signer executes them.
@@ -243,14 +278,17 @@ The owner runs every deployment. Nothing has been deployed to Arbitrum Sepolia o
 
 ## Phase sequence
 
-1. Phase 4 contract modularization, pinned-fork qualification, gas evidence, and the complete unsigned deployment intent - done.
-2. Phase 4 gate with production-profile compilation, size checks, the focused fork suite, and deployment rehearsal - passed.
-3. Continue Phase 5 first-party trading workflows: live coherent market data, order entry, public book, private RFQ, collateral, positions, lifecycle, and receipts.
-4. Continue Phase 6 maker, solver, risk, and operations workspaces.
-5. Continue Phase 7 Arbitrum Sepolia release-candidate deployment, monitoring, evidence, and complete user journeys.
-6. Build Phase 8 public APIs, SDKs, webhooks, widgets, and partner tooling only after the first-party platform is complete.
-7. Treat any mainnet activation as a separate user-authorized launch phase with funded-operation research, governance, audits, caps, and explicit approval.
+1. Phase 4 contract modularization, qualification, gas evidence and the unsigned deployment intent - done.
+2. Phase 5 first-party trading platform - done on the local chain.
+3. Phase 6 maker, solver, risk, operations and treasury workspaces - done on the local chain.
+4. Phase 7 Arbitrum Sepolia release candidate - waiting on the owner's deployment.
+5. Phase 8 public API, SDK, webhooks, widgets and partner tooling - built on the local chain.
+6. Mainnet activation is a separate owner-authorized launch with governance, audits, caps and explicit approval.
 
 ## Implementation prompt
 
-Work through Setryn phase by phase from the current Phase 5 position. The landing migration and the Phase 4 gate are complete. Continue with the first-party trading workflows, then the maker, solver, risk, and operations workspaces, then the Arbitrum Sepolia release candidate. Keep the deferred Phase 3 gate visible until it passes, and deploy from standalone artifacts before the Sepolia release candidate. Do not reduce protocol scope or weaken security. Make logical one-line conventional commits after bounded slices. Keep verification targeted to changed surfaces, and run the full phase gate only when a phase's deliverables are complete. Never perform a mainnet write. Do not start public API or SDK work until the user product is complete.
+Setryn's product is complete on the local chain; the remaining step is the owner's deployment. Keep changes targeted:
+fix what is reported, keep user-facing copy presenting the live Arbitrum One product, and run only the tests for the
+surfaces you change. Never deploy, broadcast or transact on any public chain; the owner deploys. Before any contract
+change ships, regenerate the Arbitrum One unsigned intent as described in "Before you deploy". Make logical one-line
+conventional commits.
