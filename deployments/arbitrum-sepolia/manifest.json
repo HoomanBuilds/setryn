@@ -3,17 +3,17 @@
   "schemaVersion": "1.0.0",
   "environment": "arbitrum-sepolia",
   "chainId": 421614,
-  "status": "planned",
-  "generatedAt": null,
-  "sourceCommit": null,
+  "status": "broadcast",
+  "generatedAt": "2026-10-01T14:25:31.263Z",
+  "sourceCommit": "807d29dfeffcf85bbe9cb3e2c5cdab650894a398",
   "blockReference": {
-    "number": null,
-    "hash": null,
-    "mode": "planned"
+    "number": 314663604,
+    "hash": "0x602b3a1c5b1980e745ac75611059177e4c8c7fc594e1948cb3ff82ff72c8dc8c",
+    "mode": "broadcast"
   },
   "compiler": {
     "name": "solc",
-    "version": "0.8.37",
+    "version": "0.8.37+commit.f401782d",
     "evmVersion": "cancun",
     "optimizer": {
       "enabled": true,
@@ -23,34 +23,2152 @@
     "bytecodeHashMode": "none"
   },
   "broadcast": {
-    "enabled": false,
-    "signed": false,
-    "transactionCount": 0
+    "enabled": true,
+    "signed": true,
+    "transactionCount": 112
   },
   "phase2": {
     "inventoryFile": "../phase2-contract-inventory.json",
-    "contracts": ["AssetRegistry", "AdapterRegistry", "CalendarRegistry", "SessionRegistry", "SettlementAssetRegistry", "BenchmarkRegistry", "FeeScheduleRegistry", "RiskDomainRegistry", "InstrumentRegistry", "MarketRegistry", "SeriesRegistry", "CollateralVault", "PackageRegistry", "CanonicalStrategyCompiler", "PositionEngine", "FixingEngine", "FundedFeeEngine", "PortfolioRiskEngine", "PositionLifecycleExecutor", "CashSettlementCoordinator", "PrivacyCommitmentRegistry", "OperationalAdapterExecutor", "CappedForwardPayoffModule", "NdfPayoffModule", "EuropeanCallPayoffModule", "EuropeanPutPayoffModule", "CollarPayoffModule", "RateForwardPayoffModule", "RateCapPayoffModule", "RateFloorPayoffModule", "RateCollarPayoffModule", "BasisSpreadPayoffModule", "CalendarSpreadPayoffModule", "WindowAverageScalarPayoffModule", "CorrelationDispersionScalarPayoffModule", "DevnetSequencerUptimeFeed", "ExecutionPolicyRegistry", "TradingSessionPolicy", "PackageWitnessRegistry", "RiskAdmissionBindingRegistry", "OrderValidationGate", "ClearingAdmissionGate", "PublicBookEligibilityGate", "OrderState", "AtomicClearingEngine", "PublicOrderBook", "PrivateRfqValidationGate", "PrivateRfqBook", "CapacityReservationRegistry", "VaultBackedStreamCapacityManager", "VaultBackedBatchCapacityManager", "AuctionValidationGate", "SealedAuctionHouse", "StreamingQuoteEngine", "BatchClearingEngine", "ProtocolRouteLiquiditySource", "CollateralAwareRouteEngine", "AccountPolicyAuthority", "LifecyclePolicyValidator", "DefaultBidderGate", "SignedLifecycleEngine", "CompressionCoordinator", "DefaultProcessEngine", "OrderReceiptAuthority", "RfqReceiptAuthority", "BookOrderReceiptAuthority", "AuctionReceiptAuthority", "SolverReceiptAuthority", "FillReceiptAuthority", "FixingReceiptAuthority", "SettlementReceiptAuthority", "DefaultReceiptAuthority", "RecoveryReceiptAuthority", "LifecycleReceiptAuthority", "StreamReceiptAuthority", "RouteReceiptAuthority", "PositionReceiptAuthority", "FeeReceiptAuthority", "RiskReceiptAuthority", "PrivacyReceiptAuthority", "AsyncReceiptAuthority", "VerifiableReceiptLedger", "RegistryStatusController"],
-    "deployments": [],
-    "bootstrapAuthority": {"source": "SETRYN_DEPLOYER_ADDRESS", "postWiringRevocationRequired": true},
+    "contracts": [
+      "AssetRegistry",
+      "AdapterRegistry",
+      "CalendarRegistry",
+      "SessionRegistry",
+      "SettlementAssetRegistry",
+      "BenchmarkRegistry",
+      "FeeScheduleRegistry",
+      "RiskDomainRegistry",
+      "InstrumentRegistry",
+      "MarketRegistry",
+      "SeriesRegistry",
+      "CollateralVault",
+      "PackageRegistry",
+      "CanonicalStrategyCompiler",
+      "PositionEngine",
+      "FixingEngine",
+      "FundedFeeEngine",
+      "PortfolioRiskEngine",
+      "PositionLifecycleExecutor",
+      "CashSettlementCoordinator",
+      "PrivacyCommitmentRegistry",
+      "OperationalAdapterExecutor",
+      "CappedForwardPayoffModule",
+      "NdfPayoffModule",
+      "EuropeanCallPayoffModule",
+      "EuropeanPutPayoffModule",
+      "CollarPayoffModule",
+      "RateForwardPayoffModule",
+      "RateCapPayoffModule",
+      "RateFloorPayoffModule",
+      "RateCollarPayoffModule",
+      "BasisSpreadPayoffModule",
+      "CalendarSpreadPayoffModule",
+      "WindowAverageScalarPayoffModule",
+      "CorrelationDispersionScalarPayoffModule",
+      "DevnetSequencerUptimeFeed",
+      "ExecutionPolicyRegistry",
+      "TradingSessionPolicy",
+      "PackageWitnessRegistry",
+      "RiskAdmissionBindingRegistry",
+      "OrderValidationGate",
+      "ClearingAdmissionGate",
+      "PublicBookEligibilityGate",
+      "OrderState",
+      "AtomicClearingEngine",
+      "PublicOrderBook",
+      "PrivateRfqValidationGate",
+      "PrivateRfqBook",
+      "CapacityReservationRegistry",
+      "VaultBackedStreamCapacityManager",
+      "VaultBackedBatchCapacityManager",
+      "AuctionValidationGate",
+      "SealedAuctionHouse",
+      "StreamingQuoteEngine",
+      "BatchClearingEngine",
+      "ProtocolRouteLiquiditySource",
+      "CollateralAwareRouteEngine",
+      "AccountPolicyAuthority",
+      "LifecyclePolicyValidator",
+      "DefaultBidderGate",
+      "SignedLifecycleEngine",
+      "CompressionCoordinator",
+      "DefaultProcessEngine",
+      "OrderReceiptAuthority",
+      "RfqReceiptAuthority",
+      "BookOrderReceiptAuthority",
+      "AuctionReceiptAuthority",
+      "SolverReceiptAuthority",
+      "FillReceiptAuthority",
+      "FixingReceiptAuthority",
+      "SettlementReceiptAuthority",
+      "DefaultReceiptAuthority",
+      "RecoveryReceiptAuthority",
+      "LifecycleReceiptAuthority",
+      "StreamReceiptAuthority",
+      "RouteReceiptAuthority",
+      "PositionReceiptAuthority",
+      "FeeReceiptAuthority",
+      "RiskReceiptAuthority",
+      "PrivacyReceiptAuthority",
+      "AsyncReceiptAuthority",
+      "VerifiableReceiptLedger",
+      "RegistryStatusController"
+    ],
+    "deployments": [
+      {
+        "name": "DevnetSequencerUptimeFeed",
+        "artifact": "contracts/out/DevnetSequencerUptimeFeed.sol/DevnetSequencerUptimeFeed.json",
+        "address": "0xc03103d863db442676989e10e80d1279e009b22c",
+        "runtimeCodeHash": "0x60f9768ac6b4ff21a8c8c8ddc1f9b14557d9b2fbb79ea28c34bd351aa3483be1",
+        "configurationHash": "0xde631a2de0279ab347df7637d6eeba882bcce3200f3e81d31a0bc60d0408762e",
+        "capabilityHash": "0x8fe83bfeaebc41279425f0ebee3d615cf7e546169533a47d11c9b7795a37e1ab",
+        "transactionHash": "0x2377073117a7f8f9058832e64ea7bc0960f2fcc724f38bff522b1ecc46701740",
+        "blockNumber": 314661962,
+        "constructorArguments": [],
+        "linkedLibraries": [],
+        "dependencies": [],
+        "roleAuthority": [],
+        "supported": [
+          "local-sequencer-health"
+        ],
+        "disabled": [
+          "arbitrum-one",
+          "arbitrum-sepolia"
+        ],
+        "activation": "qualified",
+        "evidenceHash": "0x12d984162e0b011a817b6d099681f671e882979eb26a0e2bf4178d5680733b20"
+      },
+      {
+        "name": "PackageRegistry",
+        "artifact": "contracts/out/PackageRegistry.sol/PackageRegistry.json",
+        "address": "0x6adee18fece3aa615b51c10ca499d8197e90ed60",
+        "runtimeCodeHash": "0xa4c41959c5130ea87cd0d35760f7198e609ba1cffa3cec93e25387aa41673867",
+        "configurationHash": "0x3f244c9f99046b5e27f3d6be33765c608612053a7b85c25905bd61e9c3e9055d",
+        "capabilityHash": "0xb082ad975c884681c6677fa2ebf7b49e3567c74849ce43a69b3490e207aa89b7",
+        "transactionHash": "0x674f7594bf4bef5ae9b88e32624598f35d5a8136b9593b51414bfcbe4e5074ff",
+        "blockNumber": 314662038,
+        "constructorArguments": [
+          "172800",
+          "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C",
+          "0x44dF6D9D0071D30Eba5b392A8fF680d3F7a063EA"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "SeriesRegistry"
+        ],
+        "roleAuthority": [
+          "governance",
+          "package-qualifier"
+        ],
+        "supported": [
+          "package-versioning"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x95c67302acc73ca12e74d74d9d35adf04a492089abb9f495f1e672cc2ead0f2d"
+      },
+      {
+        "name": "CanonicalStrategyCompiler",
+        "artifact": "contracts/out/CanonicalStrategyCompiler.sol/CanonicalStrategyCompiler.json",
+        "address": "0x49e19237895388f95a2d431708045b0551cf0776",
+        "runtimeCodeHash": "0x57ab9ce0dcbf496819020a0c51afb97b1eaa44de4c7894a08f71ee629e7a1c80",
+        "configurationHash": "0x9a025a62a8f2966ded9e8f72160b992433b9e0e65d06afc4382140c5954b04ab",
+        "capabilityHash": "0xf6fc59c44a874452f1d99833a1c4c30ae97352e9843ac6c23b63a0f0a1ac2a63",
+        "transactionHash": "0x0f21048b23f6245f1a5ee9f3af01877ac12ecefded1d55981ccf5cefbba08a0a",
+        "blockNumber": 314662043,
+        "constructorArguments": [],
+        "linkedLibraries": [],
+        "dependencies": [],
+        "roleAuthority": [],
+        "supported": [
+          "strategy-compilation"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xb306009a3d3ae721e59456f8b9be7030b28e956f0144c75c5d586909bdba86d0"
+      },
+      {
+        "name": "PositionEngine",
+        "artifact": "contracts/out/PositionEngine.sol/PositionEngine.json",
+        "address": "0x952ab1f864ffdb464e233d0ba6c53e200fa73b07",
+        "runtimeCodeHash": "0xc89f152cdf5cde466a9a58ddd83785f4fb772bf466751cbf078e675f38c44366",
+        "configurationHash": "0xc4d02b40cbba1d66011b27993de5a7091cca22e79dd891df43baa3871e55175c",
+        "capabilityHash": "0x7a951cb65e4cc090e66ad722a14004317d3008adf40445ad3868f616477abfed",
+        "transactionHash": "0xcf2851935c744998fe84ac72e68e518822b5dce5bd007ce1ad3c82ffbb851c61",
+        "blockNumber": 314662049,
+        "constructorArguments": [
+          {
+            "encoding": "abi",
+            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c00000000000000000000000044df6d9d0071d30eba5b392a8ff680d3f7a063ea0000000000000000000000008c5348d2c765bdfe4044921bf7cb5c1db654fed3"
+          }
+        ],
+        "linkedLibraries": [
+          "PositionCreationLib",
+          "PositionTerminalLib",
+          "PositionViewLib"
+        ],
+        "dependencies": [
+          "SeriesRegistry",
+          "CollateralVault"
+        ],
+        "roleAuthority": [
+          "clearing",
+          "settlement",
+          "lifecycle",
+          "default"
+        ],
+        "supported": [
+          "position-ledger",
+          "terminal-payoff"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xedce67ea763af84e5f5de7aa26d1ad3ede43c27a6d73feb41cda030be6ab6c8c"
+      },
+      {
+        "name": "FixingEngine",
+        "artifact": "contracts/out/FixingEngine.sol/FixingEngine.json",
+        "address": "0x40729c1682e0270e7fbb1958d372665a8469f2c2",
+        "runtimeCodeHash": "0x9a317e0fcc2ff6df0bb71d931008e363b2b380852413b48da36e19a8ab20b082",
+        "configurationHash": "0xab980f7a647e061ccd1326d3375a32309dfe2ee517d0df3ad14ca13d972ecdab",
+        "capabilityHash": "0x68764f0d0930ff9dfb34335a8f826c4f7a57f5486fe3fd77d551cfa1f6222e59",
+        "transactionHash": "0xcc8ab9ed165613787b6b42a5979c726c7fd7e5330eb7963f0fd07bd0b3799719",
+        "blockNumber": 314662056,
+        "constructorArguments": [
+          "0x44dF6D9D0071D30Eba5b392A8fF680d3F7a063EA"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "SeriesRegistry"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "historical-fixing"
+        ],
+        "disabled": [
+          "unqualified-adapters"
+        ],
+        "activation": "qualified",
+        "evidenceHash": "0xf190ded5eff7be9f61dd4a2542d4f54ba8dfbef6501643b05ef9091e3f43d3bd"
+      },
+      {
+        "name": "FundedFeeEngine",
+        "artifact": "contracts/out/FundedFeeEngine.sol/FundedFeeEngine.json",
+        "address": "0xfe682a791ba670e19929c0629f743d5367c9b75a",
+        "runtimeCodeHash": "0xa5c14d9b3520b9f5be7c14d9620475d899c37abeef95e7aa8b3fb3b3833f00fb",
+        "configurationHash": "0xed2db900ff22405c2b465c6eec0b14ce68db1c00fd8cc736e6c2ff8d9314aafd",
+        "capabilityHash": "0xd6bf3151e1c093fd1355c617d4a4f173864acaa2f5b1a70827575c1e1277a454",
+        "transactionHash": "0x619d1d4695e854e5c62a11a808e1e91f11eb5648fbd1c606c180b28da602cbb1",
+        "blockNumber": 314662062,
+        "constructorArguments": [
+          "172800",
+          "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C",
+          "0x7C086017E2CE9d9202E02Ce602f2aD67Aa864270",
+          "0x8c5348D2c765BdfE4044921bf7CB5c1DB654fed3"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "FeeScheduleRegistry",
+          "CollateralVault"
+        ],
+        "roleAuthority": [
+          "fee-consumers"
+        ],
+        "supported": [
+          "funded-fees",
+          "funded-rebates"
+        ],
+        "disabled": [
+          "unfunded-credit"
+        ],
+        "activation": "qualified",
+        "evidenceHash": "0xee2e926e439910798075235b99133db6b2166a26fa5d937190ed2fdfbe520c92"
+      },
+      {
+        "name": "PortfolioRiskEngine",
+        "artifact": "contracts/out/PortfolioRiskEngine.sol/PortfolioRiskEngine.json",
+        "address": "0xb6f411ca7cc81e8e1c221d54990896e7520c8bbf",
+        "runtimeCodeHash": "0xcdd0402c5a82cf25ac8454c38427acea6881c73c3c5a9a47579dc53c2b21992f",
+        "configurationHash": "0x1c6932a7f45f3b2c14250642150cb73fd2d83d96f44cc983df5e987978bf7bcb",
+        "capabilityHash": "0xa8177a46bd7092ecdbe3f8501815ec3d89f57d576facad8e7709f16cb533ccb1",
+        "transactionHash": "0xee131084352df52a56c38b6be2613a9303d1e6e7775ca7d6f581b5288b56f0bc",
+        "blockNumber": 314662068,
+        "constructorArguments": [
+          {
+            "encoding": "abi",
+            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c00000000000000000000000015f52cfdad798909218179715d9e7c0fba259fdc000000000000000000000000acc9539918f3b9b3dc86c101f5fec14998b0e4250000000000000000000000008c5348d2c765bdfe4044921bf7cb5c1db654fed3000000000000000000000000952ab1f864ffdb464e233d0ba6c53e200fa73b07000000000000000000000000000000000000000000000000000000000007a120000000000000000000000000000000000000000000000000000000000000012c"
+          }
+        ],
+        "linkedLibraries": [
+          "PortfolioRiskAdmissionLib",
+          "PortfolioRiskExposureLib"
+        ],
+        "dependencies": [
+          "RiskDomainRegistry",
+          "AdapterRegistry",
+          "CollateralVault",
+          "PositionEngine"
+        ],
+        "roleAuthority": [
+          "risk-consumers",
+          "lifecycle-exposure-reducers",
+          "settlement-exposure-reducers",
+          "default-exposure-reducers"
+        ],
+        "supported": [
+          "portfolio-risk",
+          "objective-default-proof",
+          "proportional-exposure-reduction-witnesses"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x13a1834066355c146d07764a2ea39985b577fa8ac36b75052f6bb6d839918a83"
+      },
+      {
+        "name": "ExecutionPolicyRegistry",
+        "artifact": "contracts/out/ExecutionPolicyRegistry.sol/ExecutionPolicyRegistry.json",
+        "address": "0xcd22bf5ad3e24f00047d179be15b7833dd114fc3",
+        "runtimeCodeHash": "0x2f33c76b83cda198bf896583f19c257972bb59d2aad3ba27efae6a3e5ff734e5",
+        "configurationHash": "0x1d249607366526deb2d97b879aa228cae3ca607694e88dc26c2992c59be3daba",
+        "capabilityHash": "0x2e5001fc1438901205a41cf501b2310bb70856c5627d9c292cce7146dd9ded20",
+        "transactionHash": "0x247a8af59e9ca13ec03fba2b4c8266c549a09dce5e5e65f47eab3d862012cfe5",
+        "blockNumber": 314662073,
+        "constructorArguments": [
+          "172800",
+          "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [],
+        "roleAuthority": [
+          "governance",
+          "policy-admin"
+        ],
+        "supported": [
+          "execution-mode-policy",
+          "order-action-policy",
+          "participant-eligibility"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x172c8bfe261d290bcd2cfd881d5d5e2139a1bb0c0d6d1ca37a5cb996023cb94a"
+      },
+      {
+        "name": "TradingSessionPolicy",
+        "artifact": "contracts/out/TradingSessionPolicy.sol/TradingSessionPolicy.json",
+        "address": "0x768a4575f3ba35e105a887eda473a6fbe12e8b49",
+        "runtimeCodeHash": "0x043ce96984b014197208e5550487f30f19a356b7a7918af84d746f4f8b90f789",
+        "configurationHash": "0xe7739a319c3aa87490b4ce79419d591cc3049593b0c4add5afa91217b7042e48",
+        "capabilityHash": "0xdddc6a47671e439ca7ea843002130fe5f8869bfd36fd468159ecce2c8a8e5cb7",
+        "transactionHash": "0x0187e7359408b17c4a063de0f3028479b49a13bd75bdcf9eebdf0bb620c4d25c",
+        "blockNumber": 314662078,
+        "constructorArguments": [
+          "0x5dF3176B4ED3813f50fEd765Ace918Aea268AC5d",
+          "0xc03103d863db442676989E10e80D1279E009b22c",
+          "0x3ea77533eb57ec34612def2c9ef304eacf8e2881059660bbb827426c730f9fe9",
+          "0x4088dcb4df1e474e2bcf7184742fcdb1b1e2c83908ed94cdb195fa51939a5905",
+          "3600"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "SessionRegistry",
+          "SequencerUptimeFeed"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "session-enforcement",
+          "sequencer-recovery-grace"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xff3f7edfbe3c091e6e0d6e945676c4709d52eeb6f0f339315a9b1bfc7528fb02"
+      },
+      {
+        "name": "PackageWitnessRegistry",
+        "artifact": "contracts/out/PackageWitnessRegistry.sol/PackageWitnessRegistry.json",
+        "address": "0x9d295541e2cf673fb430ae6e46a2766d683be453",
+        "runtimeCodeHash": "0x8d16d7985eb71b3e8b2c6bc2eab0afe9d13c761696ef2bfa37aab3cb30a5d909",
+        "configurationHash": "0xa9b977adb7d6767a51d9ce436e971bc6994ef5b9618ca6ce3de5c828e2d8eb00",
+        "capabilityHash": "0xd5aa28366429fa8f2395dfa6699a102cbdb06706d3e80f906cb4ba5b2279d5dd",
+        "transactionHash": "0xb3e75c74eeb3a36d9636b09c8b296359ebd04128770dd5d7c921a53760de851a",
+        "blockNumber": 314662083,
+        "constructorArguments": [
+          "0x6ADEE18FEcE3aa615b51C10Ca499d8197e90eD60"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "PackageRegistry"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "canonical-package-witnesses"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xd2d3021fb33b28dc3c0e0f424eea0bcaf9356cadb72b7e76a4ad83c52acede3d"
+      },
+      {
+        "name": "RiskAdmissionBindingRegistry",
+        "artifact": "contracts/out/RiskAdmissionBindingRegistry.sol/RiskAdmissionBindingRegistry.json",
+        "address": "0x826fac1aa60614ce82d49a1147823e669589b0f6",
+        "runtimeCodeHash": "0x4c6cdcc3ed6aa41f3406f27317b158416e0bc85043a8349b6051b9a7796b2d43",
+        "configurationHash": "0xfdb83e3faaa93f03f41406bb486e9765e98fd8c9d8ff9c69bc8169855983c7ed",
+        "capabilityHash": "0xf45cbebfa2974d32b7b3a3653a947157f170ba44777f7ae385d8779b3b6b0e3a",
+        "transactionHash": "0xabf9f700dcd5b8054fd47beeb5e2d291087146c8e87d527d231db0435b3e4b95",
+        "blockNumber": 314662090,
+        "constructorArguments": [
+          "0xb6f411ca7cC81E8E1c221D54990896e7520c8bbf",
+          "0x0000000000000000000000000000000000000000"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "PortfolioRiskEngine",
+          "OrderState"
+        ],
+        "roleAuthority": [
+          "one-time-order-domain-binder"
+        ],
+        "supported": [
+          "order-risk-binding"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xd700b5ce368ad0332cc91c117027f5de78ceb057e40539974ef9a60811ee6cce"
+      },
+      {
+        "name": "OrderValidationGate",
+        "artifact": "contracts/out/OrderValidationGate.sol/OrderValidationGate.json",
+        "address": "0xdb8a15f340e23c169c9a90e5f2cf2513ac2571f4",
+        "runtimeCodeHash": "0x0dde1a79ddf5ca1b59dfd95de48dad8e282b4f52fc606e1d3f0b3ee6ab2f0b48",
+        "configurationHash": "0x7ddf6606ebc1c0b2f0c9cf7afe6e90a24aa5083d15021cc33a765835a0e1dd0a",
+        "capabilityHash": "0x9c355467f69a174ef02ac1f8676d6daeb51ad940b1f18663e3f7024f2346f0ba",
+        "transactionHash": "0x05bd7977c1626fe51dabb78474f86b0da4bf88d2591c948226a9c93e189151a4",
+        "blockNumber": 314662098,
+        "constructorArguments": [
+          "0x44dF6D9D0071D30Eba5b392A8fF680d3F7a063EA",
+          "0x6ADEE18FEcE3aa615b51C10Ca499d8197e90eD60",
+          "0xcD22bf5ad3e24F00047D179be15b7833Dd114Fc3",
+          "0x768a4575f3Ba35E105A887eDA473A6FBE12E8B49",
+          "0x9d295541E2CF673Fb430Ae6E46A2766d683Be453",
+          "0x826fac1aA60614Ce82D49a1147823E669589b0F6"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "SeriesRegistry",
+          "PackageRegistry",
+          "ExecutionPolicyRegistry",
+          "TradingSessionPolicy",
+          "PackageWitnessRegistry",
+          "RiskAdmissionBindingRegistry"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "order-registration-policy",
+          "order-fill-policy"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x27bea8e9894dffb0c9325a25e74bd450737a6b4b31c7565fa8f8cd6bad00acd5"
+      },
+      {
+        "name": "OrderState",
+        "artifact": "contracts/out/OrderState.sol/OrderState.json",
+        "address": "0xee046b5cd36350820cc1089573be2a3b43c82739",
+        "runtimeCodeHash": "0x3816fcfabe51c4888c61c7318aa8380fb1d3cc42c445a0e363a4824b6e15fbea",
+        "configurationHash": "0x21a7cfb1adf3684d819dbd49c70e7dcd3dd20153ded26dd9ca6556faf2819699",
+        "capabilityHash": "0xd087642db81e114c3a14deb6b6874d9df066032846404163f1f74e3662dd1a99",
+        "transactionHash": "0x90e2d430154192259b6578941e946f4f32ec241fcb4d340a919e312a40b93ed4",
+        "blockNumber": 314662109,
+        "constructorArguments": [
+          "172800",
+          "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C",
+          "0xDb8a15F340E23c169C9A90e5F2cF2513Ac2571f4",
+          "2592000"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "OrderValidationGate"
+        ],
+        "roleAuthority": [
+          "clearing"
+        ],
+        "supported": [
+          "signed-orders"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xd652615f0c0772bbdd55cb2a2285c259a318d001a30dfb18d803006b520004c8"
+      },
+      {
+        "name": "ClearingAdmissionGate",
+        "artifact": "contracts/out/ClearingAdmissionGate.sol/ClearingAdmissionGate.json",
+        "address": "0x9b64a279f12730834af572a329c2f4da2e27ac25",
+        "runtimeCodeHash": "0x779f644c7c240ebb79f76e883dd026196194de4ad012d5f811beb5a575687615",
+        "configurationHash": "0x8f72e7da24c8b2dc70262cce5f4037dd8c6a718d42a089b55a390f362cdde8c8",
+        "capabilityHash": "0x5eea4af13cc359c5598ac362f352836581613d55e7b91a9d67ce84f3841281a1",
+        "transactionHash": "0x488344c29ed26a704d15d83c68535bd5c6fee70e2dc78c6be8f74133a26de5bf",
+        "blockNumber": 314662135,
+        "constructorArguments": [
+          "0x44dF6D9D0071D30Eba5b392A8fF680d3F7a063EA",
+          "0x6ADEE18FEcE3aa615b51C10Ca499d8197e90eD60",
+          "0xcD22bf5ad3e24F00047D179be15b7833Dd114Fc3",
+          "0x768a4575f3Ba35E105A887eDA473A6FBE12E8B49",
+          "0x9d295541E2CF673Fb430Ae6E46A2766d683Be453",
+          "0x826fac1aA60614Ce82D49a1147823E669589b0F6"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "SeriesRegistry",
+          "PackageRegistry",
+          "ExecutionPolicyRegistry",
+          "TradingSessionPolicy",
+          "PackageWitnessRegistry",
+          "RiskAdmissionBindingRegistry"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "bilateral-clearing-admission"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x9a3cc2198b537f8167a7561b50f05765a512cdd0bc44f745ca3ad4f01cd38141"
+      },
+      {
+        "name": "AtomicClearingEngine",
+        "artifact": "contracts/out/AtomicClearingEngine.sol/AtomicClearingEngine.json",
+        "address": "0x34ff375094a5181ca7b3dc308b17d38242707d19",
+        "runtimeCodeHash": "0x0865f5928dd23f29445efd8a358430966e9dcf432780164044797b229ddced54",
+        "configurationHash": "0xb002cfa386d4d95b6e85c8c8c02c698d7f584c3bf8daefeb061302dc9aca0ca4",
+        "capabilityHash": "0xfe04f381c3e1f87bc1af8f1a3cd785ea0637d7cf3db1e72a91607afa36b96dbd",
+        "transactionHash": "0xe79f725cf0d2f1eba7348c3a6e2bc62c895426ff37f2ebefd74dc0bd3651eb99",
+        "blockNumber": 314662146,
+        "constructorArguments": [
+          {
+            "encoding": "abi",
+            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c000000000000000000000000ee046b5cd36350820cc1089573be2a3b43c8273900000000000000000000000044df6d9d0071d30eba5b392a8ff680d3f7a063ea0000000000000000000000006adee18fece3aa615b51c10ca499d8197e90ed60000000000000000000000000952ab1f864ffdb464e233d0ba6c53e200fa73b070000000000000000000000008c5348d2c765bdfe4044921bf7cb5c1db654fed30000000000000000000000009b64a279f12730834af572a329c2f4da2e27ac25000000000000000000000000fe682a791ba670e19929c0629f743d5367c9b75a"
+          }
+        ],
+        "linkedLibraries": [
+          "AtomicClearingFundingLib",
+          "AtomicClearingMatchLib",
+          "AtomicClearingPackageLib",
+          "AtomicClearingSeriesLib"
+        ],
+        "dependencies": [
+          "OrderState",
+          "SeriesRegistry",
+          "PackageRegistry",
+          "PositionEngine",
+          "CollateralVault",
+          "ClearingAdmissionGate",
+          "FundedFeeEngine"
+        ],
+        "roleAuthority": [
+          "match-executors"
+        ],
+        "supported": [
+          "atomic-clearing"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xcbb50752e7dfbe514db9c89290efda4a5458d75d0baaa7337a3d3c7e78ce8f6c"
+      },
+      {
+        "name": "PrivateRfqValidationGate",
+        "artifact": "contracts/out/PrivateRfqValidationGate.sol/PrivateRfqValidationGate.json",
+        "address": "0xff2a4c25ca3693f80f4de92fea7f002ef578c5af",
+        "runtimeCodeHash": "0xc3d7da6121f2f9b3574b5ed57ed34f300f7cb770bd91c2762d2b9479b55de561",
+        "configurationHash": "0xe254761c39ed70dff8845f4a567fd0236dd7b82725a29a2549a329d5f223af7a",
+        "capabilityHash": "0x8459819bfe1c396501443a7736248b5eb7d99bb094dcc13e18cb2725a5992e27",
+        "transactionHash": "0x05dcb3671046245da014712a5f5272f0dbc2fe20892021b64be27e83099ae873",
+        "blockNumber": 314662158,
+        "constructorArguments": [
+          "0x44dF6D9D0071D30Eba5b392A8fF680d3F7a063EA",
+          "0x6ADEE18FEcE3aa615b51C10Ca499d8197e90eD60",
+          "0xcD22bf5ad3e24F00047D179be15b7833Dd114Fc3",
+          "0x768a4575f3Ba35E105A887eDA473A6FBE12E8B49",
+          "0x9d295541E2CF673Fb430Ae6E46A2766d683Be453"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "SeriesRegistry",
+          "PackageRegistry",
+          "ExecutionPolicyRegistry",
+          "TradingSessionPolicy",
+          "PackageWitnessRegistry"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "private-rfq-policy-validation"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x12aeebce682433fc5bd8eed2d1b420780b88c9712cfc86b59adfe00652a026db"
+      },
+      {
+        "name": "PrivateRfqBook",
+        "artifact": "contracts/out/PrivateRfqBook.sol/PrivateRfqBook.json",
+        "address": "0x7a7bee839dfb2c29479aa322a6198522b0a70179",
+        "runtimeCodeHash": "0xe2df51a6d4395dae4212d660eae3ac767cdde765facf9c996bc4b1e4933ccdff",
+        "configurationHash": "0xc8763bdca8b404026797bfe8c889f3d1a7a527f7fd6325f5726ce15e978c131a",
+        "capabilityHash": "0xf8e3061cc90e1faa0a868d58232ea09e68e60c31dc2723a44170dea49ccd2bdf",
+        "transactionHash": "0x4e4d979c277ad6a4c7d216dfeac71306ec8859ab20581690a5fffe16771b8a33",
+        "blockNumber": 314662171,
+        "constructorArguments": [
+          {
+            "encoding": "abi",
+            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c0000000000000000000000008c5348d2c765bdfe4044921bf7cb5c1db654fed3000000000000000000000000ff2a4c25ca3693f80f4de92fea7f002ef578c5af00000000000000000000000034ff375094a5181ca7b3dc308b17d38242707d190000000000000000000000000000000000000000000000000000000000015180"
+          }
+        ],
+        "linkedLibraries": [
+          "PrivateRfqHandoffLib",
+          "PrivateRfqLifecycleLib",
+          "PrivateRfqQuoteLib"
+        ],
+        "dependencies": [
+          "CollateralVault",
+          "PrivateRfqValidationGate",
+          "AtomicClearingEngine",
+          "PositionEngine"
+        ],
+        "roleAuthority": [
+          "governance",
+          "clearing",
+          "route-reservers"
+        ],
+        "supported": [
+          "private-rfq",
+          "firm-capacity",
+          "typed-clearing-handoff"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x6d38782bc3978bd7d6704e878c57af7b93900ba90d6c30e61d9a7f8ad1bf0a98"
+      },
+      {
+        "name": "PublicBookEligibilityGate",
+        "artifact": "contracts/out/PublicBookEligibilityGate.sol/PublicBookEligibilityGate.json",
+        "address": "0x9719755e51ba1a339e0139c2f0e7e919982e5a2d",
+        "runtimeCodeHash": "0xe60f5d3d759db562d261ae2b241fa802f2b057e37845724fc4328f0ff3b0a199",
+        "configurationHash": "0x8cd99f307af10c1eb4b451e8243079bcdc54ec7678113a259aa46e265b0d7438",
+        "capabilityHash": "0x240a89176999fd45e63a8ede6cf2a5556a55468f27fcdaa8eb743b51d404d1bf",
+        "transactionHash": "0x8884a8b58eea0cd5a05011a03e8c3091f793eb62f368740952fddbff097cee04",
+        "blockNumber": 314662195,
+        "constructorArguments": [
+          "0xeE046b5CD36350820Cc1089573be2A3b43C82739",
+          "0x44dF6D9D0071D30Eba5b392A8fF680d3F7a063EA",
+          "0x6ADEE18FEcE3aa615b51C10Ca499d8197e90eD60",
+          "0xcD22bf5ad3e24F00047D179be15b7833Dd114Fc3",
+          "0x768a4575f3Ba35E105A887eDA473A6FBE12E8B49",
+          "0x9d295541E2CF673Fb430Ae6E46A2766d683Be453"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "OrderState",
+          "SeriesRegistry",
+          "PackageRegistry",
+          "ExecutionPolicyRegistry",
+          "TradingSessionPolicy",
+          "PackageWitnessRegistry"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "public-book-eligibility"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xd6a913a35005c7cba85102c49b372d477b7ffedc945d8e652f65f81fc6184425"
+      },
+      {
+        "name": "PublicOrderBook",
+        "artifact": "contracts/out/PublicOrderBook.sol/PublicOrderBook.json",
+        "address": "0xcfceb9e36ed55a9b150f314adf8839d89221762a",
+        "runtimeCodeHash": "0x7c1189ab9719b7abcf0719020d32cbaa9418b715b3aef757f758d4094889d469",
+        "configurationHash": "0x500e2b5ff3029cfd758d3ab939e45eabe2c197769fedbd17019d6c7391809a88",
+        "capabilityHash": "0x62fff18fb24583076c66d58099012b0e8b510ee9ab4dd12c10dd040a8ec12c55",
+        "transactionHash": "0xda6603ef6537abe981a442feb1acd572be95e7b29e746a8a20b4c24bb484387a",
+        "blockNumber": 314662208,
+        "constructorArguments": [
+          "0xeE046b5CD36350820Cc1089573be2A3b43C82739",
+          "0x34fF375094a5181cA7B3dc308b17D38242707D19",
+          "0x9719755e51BA1A339E0139c2F0E7e919982e5A2D"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "OrderState",
+          "AtomicClearingEngine",
+          "PublicBookEligibilityGate"
+        ],
+        "roleAuthority": [
+          "governance",
+          "route-reservers"
+        ],
+        "supported": [
+          "public-series-book",
+          "public-package-book"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x6eedb97eb9d08fa6c7b3e01d30d44961d86572e02b478d8dc06fb1eab3632b65"
+      },
+      {
+        "name": "PositionLifecycleExecutor",
+        "artifact": "contracts/out/PositionLifecycleExecutor.sol/PositionLifecycleExecutor.json",
+        "address": "0xad6c7b1770b6e7131a8c9c1e29001899796e1389",
+        "runtimeCodeHash": "0x5e6efd2ff4e80ea4fe2ea0fbf861a9cc7cf41349b99347cc298c705b1b3afbeb",
+        "configurationHash": "0xcfe62b2d33be9cd437f2833023d3c5d5bbf0d8dc44f1a5471116480b3f711284",
+        "capabilityHash": "0x7720b9463acf8dd0dee8b6ba434e635006a32ebfeacef1b5818b5a4e151faea1",
+        "transactionHash": "0x222647ff18642cb5cc3fc920ec413f37851552a1d0bedaa715e728e1be824551",
+        "blockNumber": 314662219,
+        "constructorArguments": [
+          {
+            "encoding": "abi",
+            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c000000000000000000000000952ab1f864ffdb464e233d0ba6c53e200fa73b07000000000000000000000000b6f411ca7cc81e8e1c221d54990896e7520c8bbf"
+          }
+        ],
+        "linkedLibraries": [
+          "LifecycleActionLib"
+        ],
+        "dependencies": [
+          "PositionEngine",
+          "PortfolioRiskEngine"
+        ],
+        "roleAuthority": [
+          "lifecycle-engines"
+        ],
+        "supported": [
+          "lifecycle-execution",
+          "novation",
+          "proportional-risk-release"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x7d58be72058e69018ba8f9ca64827c1f65888e3a223d7fbac465621fb691774d"
+      },
+      {
+        "name": "AccountPolicyAuthority",
+        "artifact": "contracts/out/AccountPolicyAuthority.sol/AccountPolicyAuthority.json",
+        "address": "0xf0c4336c37b2745b27b2f68ab0f0152e4978ff1c",
+        "runtimeCodeHash": "0x2188a0bc30e1f36c498f64545fa1b206cfade20340e03bd6b7ee35e7827e5f9f",
+        "configurationHash": "0x25f9fe0784f450ecec7603dd754d2e6753fe61c7f0da5d13ac422a8f71126784",
+        "capabilityHash": "0xfa9d92a6ce404ce2cfd9a7dd15cc069857e2f38d31f24694d53fae0565d18956",
+        "transactionHash": "0x830a1e1432e9bb892d9fc4a3b7d0f6a2841e0a8294ce0d0c2f46db95387484b1",
+        "blockNumber": 314662232,
+        "constructorArguments": [
+          "0x8c5348D2c765BdfE4044921bf7CB5c1DB654fed3"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "CollateralVault"
+        ],
+        "roleAuthority": [
+          "account-controllers"
+        ],
+        "supported": [
+          "epoch-bound-delegation",
+          "one-shot-compression-policy-nonces"
+        ],
+        "disabled": [
+          "uncommitted-delegates"
+        ],
+        "activation": "qualified",
+        "evidenceHash": "0x2253dfbfd12ad3eed81e639d873f8fdf9d61acc36409f181c7b664fa111ab2ae"
+      },
+      {
+        "name": "LifecyclePolicyValidator",
+        "artifact": "contracts/out/LifecyclePolicyValidator.sol/LifecyclePolicyValidator.json",
+        "address": "0x25692bba503ed6bd3cbb430b37517eb8f9f3f2e0",
+        "runtimeCodeHash": "0x77b8d36b2dd022f1dfcd55edc577f5b4a918adf6f36e93ebde56a87de5adf930",
+        "configurationHash": "0xc62b9d54491fe0bd16bef1f9e365ad9d6fa5fa1e66e49bbdf887a37e7e0d7ceb",
+        "capabilityHash": "0x28b5749cfdbdce8384e2d5713b5a4fb04e1f4fb965560fb7d6532a0ebb082c74",
+        "transactionHash": "0x042c8ae2eb85827ca79f9d0d159eebacf55fd3ac97107b06b4c8ea804c665631",
+        "blockNumber": 314662238,
+        "constructorArguments": [
+          "0x952ab1F864fFDB464e233d0ba6c53E200fa73b07",
+          "0x6ADEE18FEcE3aa615b51C10Ca499d8197e90eD60"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "PositionEngine",
+          "PackageRegistry",
+          "SeriesRegistry",
+          "MarketRegistry",
+          "InstrumentRegistry",
+          "RiskDomainRegistry",
+          "FeeScheduleRegistry"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "exact-lifecycle-policy-validation"
+        ],
+        "disabled": [
+          "unresolved-package-provenance"
+        ],
+        "activation": "qualified",
+        "evidenceHash": "0x0a833e080c67dba918bc6f84e8ecd592132461b3261e2711e6a61f234917b8da"
+      },
+      {
+        "name": "SignedLifecycleEngine",
+        "artifact": "contracts/out/SignedLifecycleEngine.sol/SignedLifecycleEngine.json",
+        "address": "0x622d4165f14f19c0467783421898279055153794",
+        "runtimeCodeHash": "0xccf873bb8df34e098c26f80e128dc1c88d2a3ea7a8d780e8b52a07d66784fed8",
+        "configurationHash": "0x16728b543560b191ae5b4130c068ef4ed99a176c5ba857d282268687d0992dc3",
+        "capabilityHash": "0x595eaa4c9e1870337bad25543c1925693f3c8f4e26bf6327dda535440e0f2acd",
+        "transactionHash": "0x6052a09f91719add628e238afbad1b1a2952ca40c6974ba71c394e2ade99461a",
+        "blockNumber": 314662246,
+        "constructorArguments": [
+          "172800",
+          "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C",
+          "0x952ab1F864fFDB464e233d0ba6c53E200fa73b07",
+          "0xf0C4336c37B2745B27b2f68aB0f0152e4978FF1c",
+          "0x25692bba503ED6Bd3Cbb430b37517eb8F9f3F2e0",
+          "0xAD6c7b1770b6e7131a8c9C1E29001899796e1389",
+          "0x15f52CfDad798909218179715D9E7c0fBA259Fdc"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "PositionEngine",
+          "AccountPolicyAuthority",
+          "LifecyclePolicyValidator",
+          "PositionLifecycleExecutor",
+          "RiskDomainRegistry"
+        ],
+        "roleAuthority": [
+          "guardian"
+        ],
+        "supported": [
+          "signed-lifecycle"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x735465bbcb75cb5c92b3562aab6f0abaed054d34b23c0560db27b364d7eea994"
+      },
+      {
+        "name": "CompressionCoordinator",
+        "artifact": "contracts/out/CompressionCoordinator.sol/CompressionCoordinator.json",
+        "address": "0xe37c88ec02afdae51d97422b0fade8e9215f74ce",
+        "runtimeCodeHash": "0x14281c4d516788b246d6e15c69764c2edf65b6fe03416c6bb46e1dd68b0a1fc4",
+        "configurationHash": "0xb1e89e4b1084633e1722ee0b63e8f05e4457c4d87c5de3c1652ab959f1cf87d9",
+        "capabilityHash": "0x79d10e3eedd88af9698462498b2d06f9fbf345348d970e8aacac29039b049369",
+        "transactionHash": "0x5599e5280d94964ece841f06b9a0f54c765fa31e89f4cbcf9395aaa930b7b29a",
+        "blockNumber": 314662252,
+        "constructorArguments": [
+          "172800",
+          "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C",
+          "0x952ab1F864fFDB464e233d0ba6c53E200fa73b07",
+          "0xf0C4336c37B2745B27b2f68aB0f0152e4978FF1c",
+          "0xAD6c7b1770b6e7131a8c9C1E29001899796e1389",
+          "0x15f52CfDad798909218179715D9E7c0fBA259Fdc"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "PositionEngine",
+          "AccountPolicyAuthority",
+          "PositionLifecycleExecutor",
+          "RiskDomainRegistry"
+        ],
+        "roleAuthority": [
+          "guardian"
+        ],
+        "supported": [
+          "compression"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xf033170a6d16c19d1dca742d12ee46d2f67c7651520decba8c036ee74ef61075"
+      },
+      {
+        "name": "DefaultBidderGate",
+        "artifact": "contracts/out/DefaultBidderGate.sol/DefaultBidderGate.json",
+        "address": "0xff882fab68edf8b5ea29533fdbfcf9f48bfa38dc",
+        "runtimeCodeHash": "0x152db4e672d37f3f6c2cf5ae8d060ad046e9e7f446ad6888400e5e39fe785b24",
+        "configurationHash": "0x6ea7ed553d0611d100cb074f4360aaa66fca82c61fd3531e4f5c460792ceba6e",
+        "capabilityHash": "0xc1716764cc59d0b0a207c91099734e14615a90999e4b07dc59012e7e799fe8a2",
+        "transactionHash": "0x87995396c6b61fc4e78c55035da6ce9a90d326ed3a934a63af6d768efe2be2a5",
+        "blockNumber": 314662257,
+        "constructorArguments": [
+          "0x15f52CfDad798909218179715D9E7c0fBA259Fdc",
+          "0x8c5348D2c765BdfE4044921bf7CB5c1DB654fed3"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "RiskDomainRegistry",
+          "CollateralVault"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "objective-bidder-eligibility"
+        ],
+        "disabled": [
+          "operator-qualification"
+        ],
+        "activation": "qualified",
+        "evidenceHash": "0xcb3859f707d2e286b8ba00d5d8d4ced6172826dbe85d3b64e2fda19a8fd43d1a"
+      },
+      {
+        "name": "DefaultProcessEngine",
+        "artifact": "contracts/out/DefaultProcessEngine.sol/DefaultProcessEngine.json",
+        "address": "0xf04ae4edb45313f018ec9d70f35119fb2a54b483",
+        "runtimeCodeHash": "0x2fd40ca285d5a95a38e7c64579d919045f8682d1998b2a8a95878fea122eb03e",
+        "configurationHash": "0xeb96fafcde036c0c007a06b4f3e3c51a62d779ea6a474ee368f2b7c6859a6d58",
+        "capabilityHash": "0xf85d8abd13958e79fea6f1ebba54aee290c7d47b8e982599912889ece6ac2dff",
+        "transactionHash": "0xd5c047113cf579fcf04e2ac9404725029a234b7492831d4120e89e40f006f109",
+        "blockNumber": 314662263,
+        "constructorArguments": [
+          {
+            "encoding": "abi",
+            "data": "0x000000000000000000000000b6f411ca7cc81e8e1c221d54990896e7520c8bbf000000000000000000000000ff882fab68edf8b5ea29533fdbfcf9f48bfa38dc000000000000000000000000ad6c7b1770b6e7131a8c9c1e29001899796e1389"
+          }
+        ],
+        "linkedLibraries": [
+          "DefaultAuctionLib",
+          "DefaultOpeningLib",
+          "DefaultResolutionLib"
+        ],
+        "dependencies": [
+          "PortfolioRiskEngine",
+          "DefaultBidderGate",
+          "PositionLifecycleExecutor"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "objective-default",
+          "funded-insurance"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x432f53c50e80a59335d28716b87205a46023677185517e8eaf4b22392cdda45c"
+      },
+      {
+        "name": "CashSettlementCoordinator",
+        "artifact": "contracts/out/CashSettlementCoordinator.sol/CashSettlementCoordinator.json",
+        "address": "0xb3ffebee4d854984d9800904fb98963b9aa91197",
+        "runtimeCodeHash": "0xbced6b05a387734015817389f85fd12d0f75262c30b7550920e87148064e4b2a",
+        "configurationHash": "0x229eff113abdb588da93788c2c0fec1b426acb8cfe2787c85bd4b2cd0f6f17e5",
+        "capabilityHash": "0xe304a21e51ef30239998530957e44e4f1710ceee3ea75121789030b519177b89",
+        "transactionHash": "0xac778ae35e94066b4f7de01edac5fdeafbe72a39111d2b2d6ff7ce32f772b392",
+        "blockNumber": 314662269,
+        "constructorArguments": [
+          {
+            "encoding": "abi",
+            "data": "0x000000000000000000000000952ab1f864ffdb464e233d0ba6c53e200fa73b0700000000000000000000000040729c1682e0270e7fbb1958d372665a8469f2c2000000000000000000000000fe682a791ba670e19929c0629f743d5367c9b75a000000000000000000000000b6f411ca7cc81e8e1c221d54990896e7520c8bbf"
+          }
+        ],
+        "linkedLibraries": [
+          "CashSettlementContextLib",
+          "CashSettlementRecordLib"
+        ],
+        "dependencies": [
+          "PositionEngine",
+          "FixingEngine",
+          "FundedFeeEngine",
+          "PortfolioRiskEngine"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "permissionless-cash-settlement",
+          "proportional-risk-release"
+        ],
+        "disabled": [
+          "physical-delivery"
+        ],
+        "activation": "qualified",
+        "evidenceHash": "0xc35f56210ac18d82dd9f2a886d7079afb2186680e51281b7ff2a3378606a27fd"
+      },
+      {
+        "name": "PrivacyCommitmentRegistry",
+        "artifact": "contracts/out/PrivacyCommitmentRegistry.sol/PrivacyCommitmentRegistry.json",
+        "address": "0x0dde835675dafb5efce044c9c69407c3cf52e2ed",
+        "runtimeCodeHash": "0x712f40a0e21ad668387b6b7afb8bd45b0917b1452b87991026f8da3b37ff53c4",
+        "configurationHash": "0xc7310f0f0d55077229909dc27011dc5974a0ca464193a631ac8a722283e5dc82",
+        "capabilityHash": "0x44a7dc44b97ce24763ecdcee361e8901a2e47c83b77f5d459ec3aba87eeea369",
+        "transactionHash": "0x0829e4c6594dd0410f0e1399ea1ee1f491606ab01cf619c77325f88aa7a39663",
+        "blockNumber": 314662275,
+        "constructorArguments": [
+          "172800",
+          "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [],
+        "roleAuthority": [
+          "governance",
+          "key-publisher"
+        ],
+        "supported": [
+          "ciphertext-commitments",
+          "selective-disclosure"
+        ],
+        "disabled": [
+          "plaintext-secrecy"
+        ],
+        "activation": "qualified",
+        "evidenceHash": "0x5c8984e9b0885034b2dae6df7c1691ba07aeb608c9768d46a38e4b39db7492ef"
+      },
+      {
+        "name": "OperationalAdapterExecutor",
+        "artifact": "contracts/out/OperationalAdapterExecutor.sol/OperationalAdapterExecutor.json",
+        "address": "0x103e93c099f39cd39a3f8f71ab39b19352b57836",
+        "runtimeCodeHash": "0x1b23ed3c7cefc03fcfad8a19a5597123245d24c4ebca43c8f0b4496823f18ec1",
+        "configurationHash": "0x73150229a377ac3bf436331e46a0d70c0567a19359e4fdb7d1aaef4944b83860",
+        "capabilityHash": "0x4ea60c655cb0fe0e17ad64e4a7a3fad04802b24f3266be57dbf2860e54408a07",
+        "transactionHash": "0x6ab7a55fd361bc4e617bb4e98ad9cf94d08b44f45ec5dee461deda27432dd363",
+        "blockNumber": 314662281,
+        "constructorArguments": [
+          {
+            "encoding": "abi",
+            "data": "0x000000000000000000000000acc9539918f3b9b3dc86c101f5fec14998b0e42589ae97018faa83b74ed5b45dec59eb360467ac283c71e3de1785115fe9e8e888000000000000000000000000000000000000000000000000000000000007a12000000000000000000000000000000000000000000000000000000000000c3500"
+          }
+        ],
+        "linkedLibraries": [
+          "OperationalExternalActionLib"
+        ],
+        "dependencies": [
+          "AdapterRegistry"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "typed-adapter-calls",
+          "bounded-async-recovery"
+        ],
+        "disabled": [
+          "physical-delivery",
+          "arbitrary-targets",
+          "delegatecall"
+        ],
+        "activation": "qualified",
+        "evidenceHash": "0xd8760fcf18938c9a69e4ff7aa5f337ff83cbdccbf7f76dc1bbf1facc485d73e3"
+      },
+      {
+        "name": "CappedForwardPayoffModule",
+        "artifact": "contracts/out/ProductionPayoffModules.sol/CappedForwardPayoffModule.json",
+        "address": "0x6660c0f37eaed62e9d870dbf13471e82b6a1882e",
+        "runtimeCodeHash": "0xf32e3ac0b3390186fe44b1fc3153da9a8c85ca1a03768900987afbfa5f46c487",
+        "configurationHash": "0xde4363d54cbe6e033c779069b99b72973886c7d209148c8174c1ab23b7abec84",
+        "capabilityHash": "0x3558fbb78383699e97b9c9ca9d63829ba85cb4e5d1e9a3d4f664ea4c57f5e202",
+        "transactionHash": "0x4799b5509568234953ce38306a4435448e19ebb4e904a2d3e713188168e60956",
+        "blockNumber": 314662287,
+        "constructorArguments": [],
+        "linkedLibraries": [],
+        "dependencies": [],
+        "roleAuthority": [],
+        "supported": [
+          "payoff-evaluation"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x0447d60164066121c7cbf1715fe54f15915aeef53b9687d5bbb06f316e59050d"
+      },
+      {
+        "name": "NdfPayoffModule",
+        "artifact": "contracts/out/ProductionPayoffModules.sol/NdfPayoffModule.json",
+        "address": "0xad3c83a47b0d88de950bc0a6532abbfe696879ba",
+        "runtimeCodeHash": "0x6a39ddd246bf551d0fc1b5502c1530101375cedbe811a6b22d9ec30db9b3d1fb",
+        "configurationHash": "0x7c4b2e8a9308157ab251947ee2eeb2ce688960dac3571f4bce2297b538360897",
+        "capabilityHash": "0x293a0008b6a191af6d0199db50e5944624aad04a74c20d84502dfc883280a7c5",
+        "transactionHash": "0xda6ec7ceef4b5ad66baa9dc71bd57e89e2df36a8d6f25611b0b24e34e940802a",
+        "blockNumber": 314662293,
+        "constructorArguments": [],
+        "linkedLibraries": [],
+        "dependencies": [],
+        "roleAuthority": [],
+        "supported": [
+          "payoff-evaluation"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x96f66571f06c05ff71dce3c750ce0d03739930f578d6f43ff6c9e167500a72a8"
+      },
+      {
+        "name": "EuropeanCallPayoffModule",
+        "artifact": "contracts/out/ProductionPayoffModules.sol/EuropeanCallPayoffModule.json",
+        "address": "0x09644e07d69004dcd22c5f73d99d27c40d34e3ce",
+        "runtimeCodeHash": "0x0dd7c63a46a3c945381acb3e054be63e31960a8457bf8f5828b837859a034589",
+        "configurationHash": "0x5a0e1383776c779aed153267b466ec5aaefb58c729a95195750e242e955e2a25",
+        "capabilityHash": "0x87029e533661accd02850fb2614dba3d9f1a2a10e3a765db88f3d27cee722451",
+        "transactionHash": "0xc44cd93468266f34f0f00444348aae179db1bf67c24519a79e060b4183836c6e",
+        "blockNumber": 314662298,
+        "constructorArguments": [],
+        "linkedLibraries": [],
+        "dependencies": [],
+        "roleAuthority": [],
+        "supported": [
+          "payoff-evaluation"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xc639fdc5d3cdf068c6a91ec3b679f630fac9c966e85a63c9c506cafd40f38f2b"
+      },
+      {
+        "name": "EuropeanPutPayoffModule",
+        "artifact": "contracts/out/ProductionPayoffModules.sol/EuropeanPutPayoffModule.json",
+        "address": "0x533fe40909ae5e48d831c6c03db8d313de6d3334",
+        "runtimeCodeHash": "0xd103862c96fe208b8beab5ab54ef77ab26512629df6386db3b7382444e87b351",
+        "configurationHash": "0x39c49eb8ccf63cc0f40c067d7ac5021cf14448fe109c454c98bb29c9bd63c7f9",
+        "capabilityHash": "0xbd285f957ed6aa164625ac203afd4d0c5580f07593ca9df9c9493435c3ec10d7",
+        "transactionHash": "0x6f7e974bbdb301cfbddebe1a88b5cf1e28b91f4d120de25e2092c035204b4236",
+        "blockNumber": 314662304,
+        "constructorArguments": [],
+        "linkedLibraries": [],
+        "dependencies": [],
+        "roleAuthority": [],
+        "supported": [
+          "payoff-evaluation"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x29f40aa803f5da83a6e2aaf1d75965c42704723fb5ee011f13dfec1107199c84"
+      },
+      {
+        "name": "CollarPayoffModule",
+        "artifact": "contracts/out/ProductionPayoffModules.sol/CollarPayoffModule.json",
+        "address": "0xee1dc8064134a1b4a4ce0e2ace9fec4b16eea8f5",
+        "runtimeCodeHash": "0xa61ad36b27db43ec9b78138dfdece4c44a77ee0e03291dee8996ef3a66f7ea39",
+        "configurationHash": "0xb24019244ca722b024068b325ee82c205ca43f27b4435c46a123b823d923a2e1",
+        "capabilityHash": "0x60b3e8acfbf6f7b86ecf0e14b86e375e349a69aa469aca8f01abf0786e6487f1",
+        "transactionHash": "0x1791ea22d7416ca87e67a4e428f759127863d05af43cf80e9ee2a78996b11018",
+        "blockNumber": 314662310,
+        "constructorArguments": [],
+        "linkedLibraries": [],
+        "dependencies": [],
+        "roleAuthority": [],
+        "supported": [
+          "payoff-evaluation"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x6e74a428b76271e1db93d18d45e1ee0e8d5a3235728a48aaed7a04d8a9703a37"
+      },
+      {
+        "name": "RateForwardPayoffModule",
+        "artifact": "contracts/out/ProductionPayoffModules.sol/RateForwardPayoffModule.json",
+        "address": "0xdf43264ae15933fb62ae2b559e64635f5009208b",
+        "runtimeCodeHash": "0x66d4fa969601ef05bdbf288794e6c9a935958eee34db31fff723db79cea285aa",
+        "configurationHash": "0x5bc8cca6d311e7f4127bff7a77eded528a91d1a67399c9d592d1b4d4a994b210",
+        "capabilityHash": "0x3474753f2521538d5bd07e3ef07cec14ab39bcad16e13a0e9f1bb621f7888c8b",
+        "transactionHash": "0xee25145020647c83ebbb8bd461463322df780e968c05dc32c4608ba821da6b18",
+        "blockNumber": 314662315,
+        "constructorArguments": [],
+        "linkedLibraries": [],
+        "dependencies": [],
+        "roleAuthority": [],
+        "supported": [
+          "payoff-evaluation"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x0e612a2ee6b62dd063fa8be0a5900bf61ec61e38a4264f19dd190251076a5ad3"
+      },
+      {
+        "name": "RateCapPayoffModule",
+        "artifact": "contracts/out/ProductionPayoffModules.sol/RateCapPayoffModule.json",
+        "address": "0xf9d0edf1f4aae6aeef6926ec9ad79d2cf51534e2",
+        "runtimeCodeHash": "0xf6032f5d7ba235f0cec31cda6c0e98dbb0fe1fc4604d40a22cbcb21f9333890f",
+        "configurationHash": "0x3c31b10303e1c1d86964c13243df0a744ef0ebb322e28362fad2723785a51da7",
+        "capabilityHash": "0xd21f0a14ab3fe876446d79c08a5426567b1d3dc7befe4c4966da49569d42055b",
+        "transactionHash": "0xea2f118ac55dd26eb7650381394a2872b0ab89f8509db2fc8ae3545b7f9e41d8",
+        "blockNumber": 314662320,
+        "constructorArguments": [],
+        "linkedLibraries": [],
+        "dependencies": [],
+        "roleAuthority": [],
+        "supported": [
+          "payoff-evaluation"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xf6d6d19d00eb690c0987b091311a6b15a6d581d3afdcc6a1e0b5b8651a70d976"
+      },
+      {
+        "name": "RateFloorPayoffModule",
+        "artifact": "contracts/out/ProductionPayoffModules.sol/RateFloorPayoffModule.json",
+        "address": "0x52581ce932ed60a89683770a4b78e9cc1c5ab667",
+        "runtimeCodeHash": "0xe7c443ede38444dd4de08ac8d5e41538220c5302b208cac03d0461970c6f5370",
+        "configurationHash": "0x0456ab2a7e94f7196ef947202378254106e3c33c26603d45bd34f0c7b978391e",
+        "capabilityHash": "0xd01ea931dc4a7764a485995f6790b8d97e6e7ac3f23e608a6f96efbb3be14e11",
+        "transactionHash": "0xf5af22606efcdfd22ed1d1779b4f1150febcb22c6e4d2642417e5efb896a2c1a",
+        "blockNumber": 314662325,
+        "constructorArguments": [],
+        "linkedLibraries": [],
+        "dependencies": [],
+        "roleAuthority": [],
+        "supported": [
+          "payoff-evaluation"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x31e5f13f11f7af6a2857ee55dc5ba7152fb0648485fa4a65bb53e50ac73597ed"
+      },
+      {
+        "name": "RateCollarPayoffModule",
+        "artifact": "contracts/out/ProductionPayoffModules.sol/RateCollarPayoffModule.json",
+        "address": "0xb590faa9112b15471f3a25bee3a58dfb319be6bb",
+        "runtimeCodeHash": "0xcedbd024a0b26d7ebcc3b95659296c612b63d641c0a6b10cd42019e0fd899757",
+        "configurationHash": "0x2c0db7e6323af0b4c0bedcf85874b7d5e57fb3c9bb08ee40bba60555ca146ce5",
+        "capabilityHash": "0x5bf46c2398c0cacfaaa60b2eef3b8bab12abad62bb6e09d8b1163ec362f87d4c",
+        "transactionHash": "0x8107b6c48a84fc1a82024cd9f7eb221de2d5db5b8742945e019414962a27eb6c",
+        "blockNumber": 314662330,
+        "constructorArguments": [],
+        "linkedLibraries": [],
+        "dependencies": [],
+        "roleAuthority": [],
+        "supported": [
+          "payoff-evaluation"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x945248167c68b2c2848b75c8e33854cba5a23f63634e5b4f72646a7ca3cfddc8"
+      },
+      {
+        "name": "BasisSpreadPayoffModule",
+        "artifact": "contracts/out/ProductionPayoffModules.sol/BasisSpreadPayoffModule.json",
+        "address": "0xae6f1a8dbf90cabe80bbc5a366a7a93446be6188",
+        "runtimeCodeHash": "0x1b89b3661c089927a37b5612a0e70a9d99ab7714cb839fad4cdc77abd6386887",
+        "configurationHash": "0xcfbe3a875572111cdf4f52fb95085676ce55f9e1f370bd252b85399b6c671487",
+        "capabilityHash": "0x55aeade73be266fde2c85c1691e7bc8f1a7edd12e33809ff2042b31c7ad6a0a0",
+        "transactionHash": "0x65de57ccbf333a21b544a7e9fe7ccf88de9b29aae5e6523e17042b9d9b760c9a",
+        "blockNumber": 314662335,
+        "constructorArguments": [],
+        "linkedLibraries": [],
+        "dependencies": [],
+        "roleAuthority": [],
+        "supported": [
+          "payoff-evaluation"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xc5bf08faf011fc48deb4f9c8500b507baf0de15dc0af889aafa88b7de8d3c4b7"
+      },
+      {
+        "name": "CalendarSpreadPayoffModule",
+        "artifact": "contracts/out/ProductionPayoffModules.sol/CalendarSpreadPayoffModule.json",
+        "address": "0xd76a312f5e7d63ac8538ea76e2f8c64174e76d1e",
+        "runtimeCodeHash": "0x46c9830121abe823735eeaf7c13734763fda1127267818a68bc4fcd7717c0cb8",
+        "configurationHash": "0xdf592292c2d04ff8d634b1a6b9e5ee437031836e819280d8811ec7453564517a",
+        "capabilityHash": "0x349229f1af2467aa36401895d232567b3865b365abee0a09fd87ace9ac4475a1",
+        "transactionHash": "0xe00a7b3bd180327cc8e9f5823cfc268a3398a60aa6def965fd0ae68f632b9f74",
+        "blockNumber": 314662340,
+        "constructorArguments": [],
+        "linkedLibraries": [],
+        "dependencies": [],
+        "roleAuthority": [],
+        "supported": [
+          "payoff-evaluation"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xf6da9e5290e2c1f1350a39c427a38cbfc0491d5c254d81def8d1374d5fe292b6"
+      },
+      {
+        "name": "WindowAverageScalarPayoffModule",
+        "artifact": "contracts/out/ProductionPayoffModules.sol/WindowAverageScalarPayoffModule.json",
+        "address": "0xf5bf907fbed58aacf77c7cc6584ff70de480f3b8",
+        "runtimeCodeHash": "0x7cfd442fd54943040589e89c041a42f4a4fe9f7dca7e2f0fe721b9b45e75dafd",
+        "configurationHash": "0xbebc442c9f5ce05af55a0c0a72016594294940b96ab878303930378d72a96b0e",
+        "capabilityHash": "0xe1d0eb457865722421969c95c7f45498be30461358f31809be226acbc4308da7",
+        "transactionHash": "0xf1da8d4afde7f32ac7683b394bb4540ba8daeda3bb263e0bbff60f7f2256da30",
+        "blockNumber": 314662345,
+        "constructorArguments": [],
+        "linkedLibraries": [],
+        "dependencies": [],
+        "roleAuthority": [],
+        "supported": [
+          "payoff-evaluation"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x71e07b4143f541f75b93b0f31d9e0d12820f10b7a9b05958b32d4ee49b37abca"
+      },
+      {
+        "name": "CorrelationDispersionScalarPayoffModule",
+        "artifact": "contracts/out/ProductionPayoffModules.sol/CorrelationDispersionScalarPayoffModule.json",
+        "address": "0xb1fc8c7a8c582976919be56672bde1702a81b75e",
+        "runtimeCodeHash": "0xc57abc0003a97ac9b1fa294e84e65f48ea63d3513df5b6c2df5ff387e26ef726",
+        "configurationHash": "0xd95825fc3e6ce9ca078a5460c9d9c867100a27dbf3c99955fda4f08af0cff4dc",
+        "capabilityHash": "0x34a5dc356846a26f2c84118365ff5a0318f3c8b88e7490f5aafca6b79d65758f",
+        "transactionHash": "0x8e61b51563549d19cea8d89a5d9dc05fa49855e9e44c14dd94a078007503079e",
+        "blockNumber": 314662350,
+        "constructorArguments": [],
+        "linkedLibraries": [],
+        "dependencies": [],
+        "roleAuthority": [],
+        "supported": [
+          "payoff-evaluation"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xa915404254b2b98f5c949d817bbb7d0dfc324f0a3927c8d442d99119b9e1d719"
+      },
+      {
+        "name": "CapacityReservationRegistry",
+        "artifact": "contracts/out/CapacityReservationRegistry.sol/CapacityReservationRegistry.json",
+        "address": "0x2489a240f996de761da02e28c03ac3be5c56297a",
+        "runtimeCodeHash": "0xf64d1569ca486258bf043c73e5ac7d037993a9f645a59d3ba1b8ef51cf31cf45",
+        "configurationHash": "0x6609077ba9443443deae66e94196fc8b136adc2b91a8d420f802c2b5bd6a0b66",
+        "capabilityHash": "0xbde9b3bed213ddd9f5ea64d543507fde0cd7402bb621835a45eda8f9df91632d",
+        "transactionHash": "0x7df07931f65d38e2ca7601e69976faab982c75b1d71d8c9a19e8e64ebff488a3",
+        "blockNumber": 314662356,
+        "constructorArguments": [
+          "172800",
+          "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [],
+        "roleAuthority": [
+          "governance",
+          "capacity-claimants"
+        ],
+        "supported": [
+          "capacity-reservation-references"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x6284f41cc010c612f22507ebbbe97919af4850434d3f8f3611e6849f11ea0e22"
+      },
+      {
+        "name": "VaultBackedStreamCapacityManager",
+        "artifact": "contracts/out/VaultBackedStreamCapacityManager.sol/VaultBackedStreamCapacityManager.json",
+        "address": "0x354edd0ca8b25bdafd52942ed7a64c721048401a",
+        "runtimeCodeHash": "0x410da84d45cce21314cc3c503432203cb13ffba7b2e925c893551757ad1ddfe4",
+        "configurationHash": "0xe57ce64dcdfc68b579c731ca0bc2c181a63b65acb834de588ed4c0c7d5ed31d7",
+        "capabilityHash": "0x76162e704817ddecdd32c9412e6d6df81021cdf972dd0787d9ceeec326c0eea5",
+        "transactionHash": "0xc164a66ad08122040e62147a461307d5c3cff390e8a6211114422650ac11e713",
+        "blockNumber": 314662361,
+        "constructorArguments": [
+          "172800",
+          "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C",
+          "0x952ab1F864fFDB464e233d0ba6c53E200fa73b07",
+          "0x2489A240F996de761dA02e28C03ac3BE5C56297A"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "PositionEngine",
+          "CapacityReservationRegistry"
+        ],
+        "roleAuthority": [
+          "governance",
+          "stream-engine"
+        ],
+        "supported": [
+          "vault-backed-stream-capacity"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x0688cd3aa8cfa8f8b0ba5607ac1dd8edab71705ebb3f592e00bc4aa95daf5653"
+      },
+      {
+        "name": "VaultBackedBatchCapacityManager",
+        "artifact": "contracts/out/VaultBackedBatchCapacityManager.sol/VaultBackedBatchCapacityManager.json",
+        "address": "0x409db7d57f68f74362c479ee6458f72929cbd6d6",
+        "runtimeCodeHash": "0xf69c7a0ff1b6c2ea82e4df45d46931e1d8fc11911b4b1be8cda381881cea23e0",
+        "configurationHash": "0x458610f5052f779a1cf08f666dfa9791372389c593a83e3f720925c3f573f08c",
+        "capabilityHash": "0x6e6b1305dfff64853f9821a917718220545937816ef46e7294467fd18e47315c",
+        "transactionHash": "0x0c729ce90df32a0e1dac93e6d7725510bf86e1a0e899dd1bfb46b892ea94d257",
+        "blockNumber": 314662367,
+        "constructorArguments": [
+          "172800",
+          "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C",
+          "0x952ab1F864fFDB464e233d0ba6c53E200fa73b07",
+          "0x2489A240F996de761dA02e28C03ac3BE5C56297A"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "PositionEngine",
+          "CapacityReservationRegistry"
+        ],
+        "roleAuthority": [
+          "governance",
+          "batch-engine"
+        ],
+        "supported": [
+          "vault-backed-batch-capacity"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xf4c2b62a08da806d711ae98604f76401b2da35cbbe3f23db3499c81ef9f933d2"
+      },
+      {
+        "name": "AuctionValidationGate",
+        "artifact": "contracts/out/AuctionValidationGate.sol/AuctionValidationGate.json",
+        "address": "0xae0b98318e0e2bb9a007241128105808d1569ba5",
+        "runtimeCodeHash": "0xd3d48a057d9c647f73bf00605a3a12f3ac1a0d23c2ea7ba021089761b4f8f8ae",
+        "configurationHash": "0x16e8169bca84478f7f48bc7c1e22348695f420454aa96432d31d89c2fbdba4f5",
+        "capabilityHash": "0xc958adc446e8c3d6c06d8021391d3ebd62e24b1fb992b50c378825b66165a5f9",
+        "transactionHash": "0xabfaa8801a58e4d5860ef22fd111197b299223b43dd44b0e85c4f382ace0b83a",
+        "blockNumber": 314662373,
+        "constructorArguments": [
+          "0x44dF6D9D0071D30Eba5b392A8fF680d3F7a063EA",
+          "0x6ADEE18FEcE3aa615b51C10Ca499d8197e90eD60",
+          "0xcD22bf5ad3e24F00047D179be15b7833Dd114Fc3",
+          "0x768a4575f3Ba35E105A887eDA473A6FBE12E8B49",
+          "0x9d295541E2CF673Fb430Ae6E46A2766d683Be453"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "SeriesRegistry",
+          "PackageRegistry",
+          "ExecutionPolicyRegistry",
+          "TradingSessionPolicy",
+          "PackageWitnessRegistry"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "auction-policy-validation"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xe7f29c138664c57d967feb14af2c89b6a31f689b3d2d8065adac0da1042fc4b0"
+      },
+      {
+        "name": "SealedAuctionHouse",
+        "artifact": "contracts/out/SealedAuctionHouse.sol/SealedAuctionHouse.json",
+        "address": "0x63bebc461cf09ade1104bf9278261d93bc838954",
+        "runtimeCodeHash": "0xfb293afd093102ab84cea8d304591027770466ccfb49e911db9d650ddf21f193",
+        "configurationHash": "0x4eadfc04c8ef8d0622914509e9c9e2922b156dffdc37a47753c30420c1a99a8e",
+        "capabilityHash": "0xcee8f3e42617f04d209cd2c63e9c4f4dc02b2b344fdb0b1ac861cd4903958c95",
+        "transactionHash": "0x20ef7383765ab6cd5065ccf407e34625e70ccfecf8341be940e01b6d808a497f",
+        "blockNumber": 314662379,
+        "constructorArguments": [
+          {
+            "encoding": "abi",
+            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c0000000000000000000000008c5348d2c765bdfe4044921bf7cb5c1db654fed3000000000000000000000000ae0b98318e0e2bb9a007241128105808d1569ba500000000000000000000000034ff375094a5181ca7b3dc308b17d38242707d19"
+          }
+        ],
+        "linkedLibraries": [
+          "SealedAuctionBidLib",
+          "SealedAuctionClearingLib",
+          "SealedAuctionSettlementLib"
+        ],
+        "dependencies": [
+          "CollateralVault",
+          "AuctionValidationGate",
+          "AtomicClearingEngine",
+          "PositionEngine"
+        ],
+        "roleAuthority": [
+          "scheduler",
+          "guardian",
+          "clearing",
+          "route-reservers"
+        ],
+        "supported": [
+          "sealed-auctions",
+          "typed-clearing-handoff"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x936a7b06965913a4c6caf1a5f2518af2f59b58fedb933150816835593f5339ca"
+      },
+      {
+        "name": "StreamingQuoteEngine",
+        "artifact": "contracts/out/StreamingQuoteEngine.sol/StreamingQuoteEngine.json",
+        "address": "0xdad989ab6c6349b3f362476b4d753c8f68b99ab9",
+        "runtimeCodeHash": "0x265fd6e6117c4007e14aea27615b551fe607c422d2a1d59f861c74bfeb22ab4b",
+        "configurationHash": "0x907dcb427309eb931bf117c6cd344178796696e142cf0a05804b399ff606758c",
+        "capabilityHash": "0x954e8b91c81bae2f6597b30ccd5805e7f76d6460b29239ddfa1245baadbf2141",
+        "transactionHash": "0xe1bf45f4854ddd1adbd02457cc639f2ddf1fe79c14f3e08096443e9f112aeb35",
+        "blockNumber": 314662390,
+        "constructorArguments": [
+          "0x34fF375094a5181cA7B3dc308b17D38242707D19",
+          "0x354EdD0Ca8B25BdaFd52942eD7A64C721048401A"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "AtomicClearingEngine",
+          "VaultBackedStreamCapacityManager"
+        ],
+        "roleAuthority": [
+          "governance",
+          "route-reservers"
+        ],
+        "supported": [
+          "streaming-quotes"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x3b9e09d6a6467fcb2f290957c9cfa5d494970377f5f06f8557d5a77058df656f"
+      },
+      {
+        "name": "BatchClearingEngine",
+        "artifact": "contracts/out/BatchClearingEngine.sol/BatchClearingEngine.json",
+        "address": "0x8a012729b8d2516ad6eb134137c87c639118757d",
+        "runtimeCodeHash": "0xf9b316f62409e5dc79c0f36c9e27a7829ade56b7e013feb026f249da1c810274",
+        "configurationHash": "0x3dfae3b14cbb278d4e344427cc3e4c7c6a671a497c1cbb691fe9d32d4f80bd11",
+        "capabilityHash": "0x4440dbbe93db981a5efaeab6e9cb967571c9eb54c1aeb4094b71db70afc213ae",
+        "transactionHash": "0xa2b2534caec795728cc6da1701d4a037fbb778bc54190beb35e0d82e30cff8ea",
+        "blockNumber": 314662396,
+        "constructorArguments": [
+          "0x34fF375094a5181cA7B3dc308b17D38242707D19",
+          "0x63bebc461CF09aDE1104bf9278261d93BC838954",
+          "0x409DB7D57F68f74362c479eE6458f72929cBD6D6"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "AtomicClearingEngine",
+          "SealedAuctionHouse",
+          "VaultBackedBatchCapacityManager"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "batch-clearing"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xcd492f0eacbebf499322676f1ccafa2fb1815f790c3bc5a74aec92dc50d7dce8"
+      },
+      {
+        "name": "ProtocolRouteLiquiditySource",
+        "artifact": "contracts/out/ProtocolRouteLiquiditySource.sol/ProtocolRouteLiquiditySource.json",
+        "address": "0xce2ed7c41a79d6b9608e118a480d97933fb10ab9",
+        "runtimeCodeHash": "0xa72588334542b1052fb1443d6292cc6b519f572f469f9696370559bad0266ff5",
+        "configurationHash": "0xa1c995fa36f7c5f696e431bc0c8f08263e56b52275a45144c7f3bc10a2d90685",
+        "capabilityHash": "0xeb4a04776d40c29c65f0d67a86ccfa6b22a92adb4bec2daec061231d01ca0025",
+        "transactionHash": "0x003327add48ea6f49a74cedb770e2742d36ed05c61aa63badf544ab005b90862",
+        "blockNumber": 314662402,
+        "constructorArguments": [
+          {
+            "encoding": "abi",
+            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c000000000000000000000000cfceb9e36ed55a9b150f314adf8839d89221762a0000000000000000000000006adee18fece3aa615b51c10ca499d8197e90ed600000000000000000000000007a7bee839dfb2c29479aa322a6198522b0a70179000000000000000000000000dad989ab6c6349b3f362476b4d753c8f68b99ab900000000000000000000000063bebc461cf09ade1104bf9278261d93bc8389540000000000000000000000008c5348d2c765bdfe4044921bf7cb5c1db654fed30000000000000000000000005df3176b4ed3813f50fed765ace918aea268ac5d0000000000000000000000002489a240f996de761da02e28c03ac3be5c56297a"
+          }
+        ],
+        "linkedLibraries": [
+          "RouteSourceReservationLib",
+          "RouteSourceValidationLib"
+        ],
+        "dependencies": [
+          "PublicOrderBook",
+          "PackageRegistry",
+          "PrivateRfqBook",
+          "StreamingQuoteEngine",
+          "SealedAuctionHouse",
+          "CollateralVault",
+          "SessionRegistry",
+          "CapacityReservationRegistry"
+        ],
+        "roleAuthority": [
+          "governance",
+          "route-engine"
+        ],
+        "supported": [
+          "protocol-route-liquidity"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x1ba48eff17de1aa26f6b3baa7e3cefa99987f958dd16495ff9dfb158db741a16"
+      },
+      {
+        "name": "CollateralAwareRouteEngine",
+        "artifact": "contracts/out/CollateralAwareRouteEngine.sol/CollateralAwareRouteEngine.json",
+        "address": "0x5c749001821e736a1a7d1d661b159f0c11882d84",
+        "runtimeCodeHash": "0x4244c9bf0886ecf4eda5f361fba6bfdda31c369b212baacc8f6f5044e9260bb7",
+        "configurationHash": "0x631a1f2a7598d95d1509284f460324e0395014f89cd4d62c34934f2bc4dc9e48",
+        "capabilityHash": "0x936d8d21a3d3994322c4aa3548e673489fc15dacc0cf5dc487eace8d2be91418",
+        "transactionHash": "0xac30ffb02bba0509e4d073b3de151e93ce700d065c5f497e041bcdebf00c107e",
+        "blockNumber": 314662409,
+        "constructorArguments": [
+          "172800",
+          "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C",
+          "0xce2eD7c41a79D6b9608E118A480D97933fb10Ab9",
+          "0xb6f411ca7cC81E8E1c221D54990896e7520c8bbf"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "ProtocolRouteLiquiditySource",
+          "PortfolioRiskEngine"
+        ],
+        "roleAuthority": [
+          "governance",
+          "route-consumers",
+          "account-controllers"
+        ],
+        "supported": [
+          "collateral-aware-routing"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xd23691f7fb5cd165703a01febd33c54339e65635bc6ec5f66f029bbb18474c06"
+      },
+      {
+        "name": "OrderReceiptAuthority",
+        "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/OrderReceiptAuthority.json",
+        "address": "0x48af7c81f9633a86c4cdd731ba6d167d3c4f135f",
+        "runtimeCodeHash": "0x9ebe007842b5a1916423739913afaea997ef56fb4213bd0b9b2d856438a5f462",
+        "configurationHash": "0xbd4f143da3390cbcfb5159d817b29266728001cbb88e37242eb7c661c4603ce9",
+        "capabilityHash": "0x4290a62a78c981ef4278a24eec48a363356b1e1272fb5413e05a6df5ae011439",
+        "transactionHash": "0x8715070e0537033a1e26b1c81c33c000badc711763713d2dd029574cef705dec",
+        "blockNumber": 314662415,
+        "constructorArguments": [
+          "0xfa0a141cc8fd4f76eb53c5c81d398fb32235359f384856ec3e18a25b7de13956",
+          "0xeE046b5CD36350820Cc1089573be2A3b43C82739"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "OrderState"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "receipt-terminal-state-authority"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xd8f4cca1fc0acadf0b6fdde372663fc1d6c30367264d9b91b24b5f1039a22412"
+      },
+      {
+        "name": "RfqReceiptAuthority",
+        "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/RfqReceiptAuthority.json",
+        "address": "0x074ad54548fb93b459961a049b00c0b1b40f8d25",
+        "runtimeCodeHash": "0xc4b96f1be1a8f6d79b9b1a2ad64ca9a87e2738543c14a39265c0a641b4ae35a4",
+        "configurationHash": "0xae9ed7460ce6d8f4f12613b5617a2c109a252b236763e774d0d6bc5d2b278963",
+        "capabilityHash": "0x293eaf57bdefd3a20c47de8b07d49592e0dfbf6a1eb180d0598b973f3a146770",
+        "transactionHash": "0x89854184e95baba7b21566a93b29fa2fe436a5a62739bdad0a691b0699d334b2",
+        "blockNumber": 314662420,
+        "constructorArguments": [
+          "0x019829796bb19ac206f250140a53f6f6d17a8eb019b77b6590deab2c68da8dd9",
+          "0x7a7bee839DfB2C29479aA322A6198522B0A70179"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "PrivateRfqBook"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "receipt-terminal-state-authority"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x2f020b8f2cb9aafee1681f17574a9e1142aef428f4ec41a1511b254cd4ea6d32"
+      },
+      {
+        "name": "BookOrderReceiptAuthority",
+        "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/BookOrderReceiptAuthority.json",
+        "address": "0x967030336f866da262eb9bae58630b910b9ebe3f",
+        "runtimeCodeHash": "0xd2f86a04a7ad05ce07cea4577980323b05cea7033d2492d285a701e2c97ec4c5",
+        "configurationHash": "0xdf68d0ef15d5509dec2ad242c2460da6fc9e8ad43d8f624ef0f44eda50a829a3",
+        "capabilityHash": "0x68ef13d8ded9f3f7776003600a0d51aa0b546ddabac24199dcdca2b537ffec07",
+        "transactionHash": "0xadbc7f7de09135d2c085e98d1035922ead38f772d892a61b71851dd9d47d4eaa",
+        "blockNumber": 314662425,
+        "constructorArguments": [
+          "0x2c7bd4d7f6307d271e976792f5c40b1e20bfe4128698f932c418dd5906cb850a",
+          "0xCFCeb9e36ED55A9B150f314Adf8839d89221762a"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "PublicOrderBook"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "receipt-terminal-state-authority"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x6925962a426b68cabfc73e619ce9f436a4f88622c447a216e6d497bf77883f6b"
+      },
+      {
+        "name": "AuctionReceiptAuthority",
+        "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/AuctionReceiptAuthority.json",
+        "address": "0x52427b1016f5fa5552e3f5214779f821b15105b4",
+        "runtimeCodeHash": "0x76268f28a27ab9d8fe8327df4fef645f6fa31aee265d4b2a8e48ae001aba9b2a",
+        "configurationHash": "0x1acaaa76fd09385952f386538f7a03d73640d05fae94bcdbdbee449cd2dce9a6",
+        "capabilityHash": "0x0917079ed92d16b077ed3be9a168949aa7a4adb31804a71c98fd0edf7dcb658a",
+        "transactionHash": "0xee5b163f8fdfddf61749ccacdf515f5225d15fa1cb5444123c2e21ee7e4ca943",
+        "blockNumber": 314662430,
+        "constructorArguments": [
+          "0x412c15e4bf4ceb9c4ec5a552ed535058fd4d2570747cedc11c8754bbab758ff8",
+          "0x63bebc461CF09aDE1104bf9278261d93BC838954"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "SealedAuctionHouse"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "receipt-terminal-state-authority"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xbe6d3031733efd3be9414f96023f2cfc909390fcb09fd1cccd5c7901dd0749a1"
+      },
+      {
+        "name": "SolverReceiptAuthority",
+        "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/SolverReceiptAuthority.json",
+        "address": "0x4c57c4c102750404ed82d759ef0deb592f643693",
+        "runtimeCodeHash": "0x44554667f376725b1471480e07a88b8919484112f1fed1452d2f24b95563664e",
+        "configurationHash": "0x463e05ec99d64e1d03da23fd7a27678fa7e44957d581490bebcef6be4ffc3209",
+        "capabilityHash": "0x3e6054803acb39b3010d95087212c68de4abe7433ab2c5a24ec0d0d82132292c",
+        "transactionHash": "0xfc2f4954ad8f9076d6e082f181656bc99ad3e2685240ff0e98d882c536b270a8",
+        "blockNumber": 314662435,
+        "constructorArguments": [
+          "0x4ad59f1a5b054509a7d49401448f372021a1529332dbf9db63d3a89fd98fb62c",
+          "0x63bebc461CF09aDE1104bf9278261d93BC838954"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "SealedAuctionHouse"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "receipt-terminal-state-authority"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xcb1ad762181980857a9decfbd1832c0bfb5b10ea1d4826fcc959e888a3a3ffa3"
+      },
+      {
+        "name": "FillReceiptAuthority",
+        "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/FillReceiptAuthority.json",
+        "address": "0xbadef7ded81acb1919999eb6b68e63053eea3333",
+        "runtimeCodeHash": "0x668c84d662672fbff343b6ca5908e4a358ce22a895b6b0267563d063e8c1e3d2",
+        "configurationHash": "0xdac64604833f7cc8b215738d45397cda5c055db8b7d29c7333f8ad84671dd5c6",
+        "capabilityHash": "0xe83a8fa040f28eea38cef82b2a27e0bedac033b75fbde2fb3007f99cd16060a9",
+        "transactionHash": "0x69b003d1e96be802ccaad23f3013997d3a2671afc868bd6b0bbcea3263a436f9",
+        "blockNumber": 314662440,
+        "constructorArguments": [
+          "0x678ab88523b748ff300db11d5915041ee802865ea06fdc240bd732c286945537",
+          "0x34fF375094a5181cA7B3dc308b17D38242707D19"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "AtomicClearingEngine"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "receipt-terminal-state-authority"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xb6ca4d7287f1d555070e20d2f43a57bb9ac48ddb2b24c2a0f416c028ac1fddca"
+      },
+      {
+        "name": "FixingReceiptAuthority",
+        "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/FixingReceiptAuthority.json",
+        "address": "0x988f8b71b5fface5f70d757d8f920bec9b18e2d3",
+        "runtimeCodeHash": "0x25abd90596aa7a28b3a7702abf43194410518e2f40d117f7d23db99a60f27838",
+        "configurationHash": "0x612a1301c057adefc43a61ac567ce2f6f58d3526aaf2bddfac0db5575c6490f1",
+        "capabilityHash": "0x57d15b3110c11d392f064b9c5ff38f66aa47ecfe23fe9958922c32e215d4392d",
+        "transactionHash": "0xae15dea349251105ed6ee942c75de55d065fe60ed1fd7ac1582c07942d9a668a",
+        "blockNumber": 314662445,
+        "constructorArguments": [
+          "0xd2ccc1291cc7b8c5951dd68f9a1c3bb7005b27e8378ea1fd02919c63b8fbe5ea",
+          "0x40729C1682E0270e7fbb1958d372665a8469F2c2"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "FixingEngine"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "receipt-terminal-state-authority"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x4913c140af349e6e6ed360ed56b99bfe0e406169b75f5f3cd614647ee0677ed1"
+      },
+      {
+        "name": "SettlementReceiptAuthority",
+        "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/SettlementReceiptAuthority.json",
+        "address": "0x0c45bd0cc167c3555a8bb8dbdc69f1ee225e1235",
+        "runtimeCodeHash": "0x43a17579bcfe03fc3feff658c514783f8adf7634ddd4daaf3424dd09edf6fe78",
+        "configurationHash": "0x187c23f9f7a8d1c140bf0617342a52b3ad4942db14028ffc058046a8447b67ff",
+        "capabilityHash": "0xad246a26a3c85552209e649bfec9642be503ab1bb197914e462ec0e8703e638b",
+        "transactionHash": "0x1eec9db311d85bb2e0a422613f96d1f10863a6413f61dd15ed3bcae847773be0",
+        "blockNumber": 314662450,
+        "constructorArguments": [
+          "0x5d930f805264608a023f8464cf58e6378bb16567d2139a618390f081529acd5e",
+          "0xB3fFEbEE4D854984D9800904fb98963B9Aa91197"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "CashSettlementCoordinator"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "receipt-terminal-state-authority"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x40a538f6f062554a4b6c854d5847ae79ec2387ede6dc1257883b0f757f1f3fa4"
+      },
+      {
+        "name": "DefaultReceiptAuthority",
+        "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/DefaultReceiptAuthority.json",
+        "address": "0x37234d0d3e55b2760b5737269f54190456763eb6",
+        "runtimeCodeHash": "0x7f09256275fdcbce838f4450f6a98e12d07cc126427a835681097c4afb6d255c",
+        "configurationHash": "0x55f49eb874eb9855dd4e705457791e449f357388c089638c2999ae8860684c2b",
+        "capabilityHash": "0x9ff7f8fac127f45633a011d4e213c63e0b24b3cca1d436c7629a6af464b4d173",
+        "transactionHash": "0x1360b70324a3878f273709fbc5b1b616b9292b6b1021d9666c83eb181d0b8698",
+        "blockNumber": 314662455,
+        "constructorArguments": [
+          "0xbcdd4733b2dd7a776a7fae955b3361c63925457cfa3ea5efadfa90eb37646c19",
+          "0xF04ae4edb45313F018Ec9D70F35119fb2a54b483"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "DefaultProcessEngine"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "receipt-terminal-state-authority"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xe55fd23a5aa1abed7525a5b950311bada60b2ee9b4b69cb6aab71b3b9943df45"
+      },
+      {
+        "name": "RecoveryReceiptAuthority",
+        "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/RecoveryReceiptAuthority.json",
+        "address": "0xa0862bbfd6aa01db468ee0932d7f679b0a50bd35",
+        "runtimeCodeHash": "0x9d916ef55797f9a10eb4850c66d397d55d7dcffcd20125717cd55bf42b284858",
+        "configurationHash": "0x28b47cfa05b5a7c33f50c94dff3f962b1498b0e5b057b257962a3dbeb7270d5a",
+        "capabilityHash": "0x1ce7a258cda73ab99fa4b678d41ff39eb62b99d47b619117b786656b9a28b7bd",
+        "transactionHash": "0x41643bf584e8beff51c8e66e97ff8ba33f9cc5854e85c95cb0727427316b8a0e",
+        "blockNumber": 314662460,
+        "constructorArguments": [
+          "0x7c40ae1f20fc9aa26cd28f34f7424b1c415827c6ddd3739595d7885d8ebd0d7e",
+          "0x103E93c099F39cd39a3f8F71Ab39b19352B57836"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "OperationalAdapterExecutor"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "receipt-terminal-state-authority"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x1ccc6ff4f2d8f4f0559d84376a269384e5ded75d9f11a99c75e0e9109f8bf867"
+      },
+      {
+        "name": "LifecycleReceiptAuthority",
+        "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/LifecycleReceiptAuthority.json",
+        "address": "0x1254397c8e4a224781eee4e4255156eb0cbc5b4b",
+        "runtimeCodeHash": "0x8ae3385d74077d9e2431c139f62d323d2d264e0b18234766d2e25c324181e7a7",
+        "configurationHash": "0xebc053d62a52bde0416d3f5952048bf5124d82f9c5e7eea3a38005bfdce9ac10",
+        "capabilityHash": "0xa787c5d596cf97ba56999d66a97c91c7d5a01acaa7bace28dba74a6e7fa94b64",
+        "transactionHash": "0xf3d215e441266a91bebd35aef7d199fdb6f65511eee1c9ccaa96d4c9ec640a4a",
+        "blockNumber": 314662465,
+        "constructorArguments": [
+          "0x59ee230f294fb03d4ccbcbfa14cb4d05774cd7e6860121fbfaefed0c94d9c3e8",
+          "0x622d4165F14F19C0467783421898279055153794"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "SignedLifecycleEngine"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "receipt-terminal-state-authority"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x863c300e025f13dc1e528a130a32314cbd98098855fe38a889fa5b1794aae1ae"
+      },
+      {
+        "name": "StreamReceiptAuthority",
+        "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/StreamReceiptAuthority.json",
+        "address": "0x58fd2ded565bb1fea80befe15e6d9de39902fe0d",
+        "runtimeCodeHash": "0xe9a11e84b538954c87c32f21ed54105dcb14f4fc1b500e66694c8c0c0ea06653",
+        "configurationHash": "0x6b75ed73dc42d830a3307e96187cc2c23cf1e74d3bc65df566492a40853218a0",
+        "capabilityHash": "0x6651ca92d9a9acad8f2ba70373aa2b8c218392b695a9713934d77a880da14ea2",
+        "transactionHash": "0x4fb6a51bf00683b6649afd84e855ffd8c56f6f33cfa502c5a3723cca53e9fcba",
+        "blockNumber": 314662470,
+        "constructorArguments": [
+          "0xd96550ec0fba45a214fbf471a6ccc89cade0bde7d0e4d49ab2868d743201b754",
+          "0xDad989AB6C6349b3F362476B4D753C8f68B99AB9"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "StreamingQuoteEngine"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "receipt-terminal-state-authority"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xc28791860bdfc8ed5c49b96bc7dec2b9a9d3ebc6f613007515f2d712ed4d6eec"
+      },
+      {
+        "name": "RouteReceiptAuthority",
+        "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/RouteReceiptAuthority.json",
+        "address": "0x3d528b29e0e9326c301333d1e3ee3bff96f2f5e1",
+        "runtimeCodeHash": "0xf64188d654270bc3c9f196e1b8c28446f7d0067ba7eb3e6b4bf1993ebf0f1389",
+        "configurationHash": "0x870308e65b21cd33eaea72f76fdcf4f9a8b353ba9f3affeaa97e9cf5fc4d8c57",
+        "capabilityHash": "0xe46d607867284bf4b2c0a0dbb8b9c8159dd7ab1fecddce91856c0946dccb9e68",
+        "transactionHash": "0x96430b246aa88f9c362669ea11fcad7efc9bbcdd7f9561469f984d45ed72862e",
+        "blockNumber": 314662475,
+        "constructorArguments": [
+          "0x68a650b1f6eeec3d670d2a7f21a6228159dd3f6d6260fb209a68758d25a68b2a",
+          "0x5c749001821e736A1A7d1d661b159f0c11882D84"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "CollateralAwareRouteEngine"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "receipt-terminal-state-authority"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xde4b9fa7fd3eb955baa4b0ce1a3aee211002ed329bb9cccf7b7594109647a591"
+      },
+      {
+        "name": "PositionReceiptAuthority",
+        "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/PositionReceiptAuthority.json",
+        "address": "0x0ed8a91b0fb391af3056832dde944a7087dc6881",
+        "runtimeCodeHash": "0x689436dca7628b3a0fb77b6511e360fae2154daf430e010fcc5adc1dbfc4ac42",
+        "configurationHash": "0x0a6c97b9805ab9169f4ce43219b144d2d6dfdd9cd7cce662b8028775a124a1df",
+        "capabilityHash": "0x61f24a034ac467ad19d8d58f3d228f26afdf729bc8e74232f6aab587395230bc",
+        "transactionHash": "0x240fd3b6126304d5c538aff140751a00139a99bcfdf1ac3e52e5b749d55ec646",
+        "blockNumber": 314662480,
+        "constructorArguments": [
+          "0xfd54e0063203dc582b84a92e3b07962eb75d9843d8f3732a910115e5a8772955",
+          "0x952ab1F864fFDB464e233d0ba6c53E200fa73b07"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "PositionEngine"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "receipt-terminal-state-authority"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x566be898590b3f0f376b1f1e4b68dd3bd4d5b1ca756ecd6f4c33cb04c4a5bb9f"
+      },
+      {
+        "name": "FeeReceiptAuthority",
+        "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/FeeReceiptAuthority.json",
+        "address": "0xd02a1d8a6d4eecf57ca48c399dc29b9b5711b68f",
+        "runtimeCodeHash": "0xb260e3816105f8b8c0d4a1374d1c26c94ca1d9bfb22d4c2479c74cfac9cf1982",
+        "configurationHash": "0x003587487d8b5fd8398b28ccde92d5d7bf6005969f46de99b475ea7281a71bb5",
+        "capabilityHash": "0xb6a09222a96251128d30193ef83b0e0cd2c1e52b99a48bd4d00ae6a4c660a937",
+        "transactionHash": "0xcd6352e86e0bca84cb3e08263afb8727dff9bf2cc1e0374ffe59013f0b12f109",
+        "blockNumber": 314662485,
+        "constructorArguments": [
+          "0x4f6ad64a3620e3b018ae7fe14b1b476cfdc64ddd2dd7cc95547a431ce4d721ca",
+          "0xFE682A791Ba670E19929C0629F743D5367C9B75A"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "FundedFeeEngine"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "receipt-terminal-state-authority"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x0075f1b901a6409384539106ed690f691a51eefecb0307bb078f7acf17910472"
+      },
+      {
+        "name": "RiskReceiptAuthority",
+        "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/RiskReceiptAuthority.json",
+        "address": "0x9ae0f7abfcb576c119f0a26b50bb527088348bd2",
+        "runtimeCodeHash": "0xfa83faded93b4ef4f31b2e15c2ae61adc2847458efdf34593070342499b4b9c4",
+        "configurationHash": "0xe8e03d757c0e9ff6cad192cbfc485a99055ec2a250e6bbb9abfc0823f0bc8cac",
+        "capabilityHash": "0x80ccc15925f536d52241248e448d51ef2a20723c96eb326f2b413ca92cf52896",
+        "transactionHash": "0x35054cd574a9953fcfd59aae67b121be7af1e3cc5a400f2e4e42f81cd1a5766a",
+        "blockNumber": 314662495,
+        "constructorArguments": [
+          "0x7458e083ea85b4d675694dd6aa187c8f8338f36f7256979efdad65784ae93da7",
+          "0xb6f411ca7cC81E8E1c221D54990896e7520c8bbf"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "PortfolioRiskEngine"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "receipt-terminal-state-authority"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x66769e4c1af2844aa05534d5261e0fe7be444d2fb1d74746eccad423cc858bae"
+      },
+      {
+        "name": "PrivacyReceiptAuthority",
+        "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/PrivacyReceiptAuthority.json",
+        "address": "0x9507257458c2b611de6f4d5b45d44c9cb0bcbc91",
+        "runtimeCodeHash": "0xd126cc53293ba9e6f30f7d5f189e9ccfd505507161ced72f74e08269c5854f4f",
+        "configurationHash": "0x2e31650e04eec936168c4896366fbd7ff85bfcef1c9ca72aad7e44421abcea50",
+        "capabilityHash": "0x53e5ee09213f511c52d903b018e25af4f88f0ba596558952eb305ae83216e585",
+        "transactionHash": "0xb4ff089705e657aa1807393ab5a0c40d347fd810817e690e98bc34fd8a1a196d",
+        "blockNumber": 314662506,
+        "constructorArguments": [
+          "0xcb8b02233423bc0e2325f9297ab53cbd8ca277322371693e6b0d1a3753b869f8",
+          "0x0DDE835675dafB5efce044c9c69407C3cF52e2ed"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "PrivacyCommitmentRegistry"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "receipt-terminal-state-authority"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x7abd58198858a1218a54d020609d51651246dfb9743ce28f0dce2c23cd2b666c"
+      },
+      {
+        "name": "AsyncReceiptAuthority",
+        "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/AsyncReceiptAuthority.json",
+        "address": "0x99d5274067cbf053d92717211ab79becfa21fab3",
+        "runtimeCodeHash": "0x0922221ce34af613f1f4e5093e721691abf2dc8ea43c12d5aeb684fd826402f0",
+        "configurationHash": "0x4dd8bc3cdc0a6ba00fa0f5bf4bdb59ada43cc661627ce2d0436d6ec95d098200",
+        "capabilityHash": "0x162a5e71df05aed6833727a39b56318d4e7b65c53704bcd3ae5dd6cb5e3172f8",
+        "transactionHash": "0x338892e398500aa9291679e86b424ae2158f148e733f1f1b085c258898b7e8f9",
+        "blockNumber": 314662518,
+        "constructorArguments": [
+          "0x22f3e2174dcafb2bfb4ba3a45ab55ff4baf756a4013ea5a43e8ac1af1f090122",
+          "0x103E93c099F39cd39a3f8F71Ab39b19352B57836"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "OperationalAdapterExecutor"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "receipt-terminal-state-authority"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xd019e55898ad7daa5e808394a2c766bc0efd90c6bc5f58675c8732444684f00f"
+      },
+      {
+        "name": "VerifiableReceiptLedger",
+        "artifact": "contracts/out/VerifiableReceiptLedger.sol/VerifiableReceiptLedger.json",
+        "address": "0x964219c3e7cdea480b89dff4f1efbbb72281b1b0",
+        "runtimeCodeHash": "0x9350ff82817601633650f6fe19a8f6d31c7201fa6a32c6272d7e3d22030ad657",
+        "configurationHash": "0x00c8a0b6d2f6382e560f16362707a9ffcfed8e90ce677bdf66d324f6886c2748",
+        "capabilityHash": "0x62def675b7df5dda375ded2b4b35084ddd46e84c6375cefd0d50b816649d4bc6",
+        "transactionHash": "0x1c4a06ee7cd7f7b1b61fd5a32869253ccc5170f248ead5972b45d12223fe607e",
+        "blockNumber": 314662528,
+        "constructorArguments": [
+          "[(0x019829796bb19ac206f250140a53f6f6d17a8eb019b77b6590deab2c68da8dd9, 0x074Ad54548fB93B459961a049b00C0b1B40f8d25, 0x89ae97018faa83b74ed5b45dec59eb360467ac283c71e3de1785115fe9e8e888), (0x22f3e2174dcafb2bfb4ba3a45ab55ff4baf756a4013ea5a43e8ac1af1f090122, 0x99d5274067CBF053D92717211Ab79BecfA21FaB3, 0x89ae97018faa83b74ed5b45dec59eb360467ac283c71e3de1785115fe9e8e888), (0x2c7bd4d7f6307d271e976792f5c40b1e20bfe4128698f932c418dd5906cb850a, 0x967030336f866da262eB9BaE58630B910b9eBE3F, 0x89ae97018faa83b74ed5b45dec59eb360467ac283c71e3de1785115fe9e8e888), (0x412c15e4bf4ceb9c4ec5a552ed535058fd4d2570747cedc11c8754bbab758ff8, 0x52427B1016f5FA5552E3f5214779f821b15105B4, 0x89ae97018faa83b74ed5b45dec59eb360467ac283c71e3de1785115fe9e8e888), (0x4ad59f1a5b054509a7d49401448f372021a1529332dbf9db63d3a89fd98fb62c, 0x4C57C4C102750404eD82D759eF0dEB592f643693, 0x89ae97018faa83b74ed5b45dec59eb360467ac283c71e3de1785115fe9e8e888), (0x4f6ad64a3620e3b018ae7fe14b1b476cfdc64ddd2dd7cc95547a431ce4d721ca, 0xD02a1D8a6d4eEcF57cA48c399Dc29b9B5711B68f, 0x89ae97018faa83b74ed5b45dec59eb360467ac283c71e3de1785115fe9e8e888), (0x59ee230f294fb03d4ccbcbfa14cb4d05774cd7e6860121fbfaefed0c94d9c3e8, 0x1254397C8E4a224781eeE4E4255156eB0CbC5B4B, 0x89ae97018faa83b74ed5b45dec59eb360467ac283c71e3de1785115fe9e8e888), (0x5d930f805264608a023f8464cf58e6378bb16567d2139a618390f081529acd5e, 0x0C45bd0Cc167c3555a8BB8DbdC69f1EE225e1235, 0x89ae97018faa83b74ed5b45dec59eb360467ac283c71e3de1785115fe9e8e888), (0x678ab88523b748ff300db11d5915041ee802865ea06fdc240bd732c286945537, 0xBAdeF7Ded81aCb1919999eB6B68E63053EEa3333, 0x89ae97018faa83b74ed5b45dec59eb360467ac283c71e3de1785115fe9e8e888), (0x68a650b1f6eeec3d670d2a7f21a6228159dd3f6d6260fb209a68758d25a68b2a, 0x3d528B29e0e9326c301333d1E3eE3BfF96f2f5e1, 0x89ae97018faa83b74ed5b45dec59eb360467ac283c71e3de1785115fe9e8e888), (0x7458e083ea85b4d675694dd6aa187c8f8338f36f7256979efdad65784ae93da7, 0x9aE0F7ABfcB576C119f0A26b50bB527088348bD2, 0x89ae97018faa83b74ed5b45dec59eb360467ac283c71e3de1785115fe9e8e888), (0x7c40ae1f20fc9aa26cd28f34f7424b1c415827c6ddd3739595d7885d8ebd0d7e, 0xA0862Bbfd6aa01Db468Ee0932d7F679B0a50bd35, 0x89ae97018faa83b74ed5b45dec59eb360467ac283c71e3de1785115fe9e8e888), (0xbcdd4733b2dd7a776a7fae955b3361c63925457cfa3ea5efadfa90eb37646c19, 0x37234D0D3E55b2760B5737269F54190456763EB6, 0x89ae97018faa83b74ed5b45dec59eb360467ac283c71e3de1785115fe9e8e888), (0xcb8b02233423bc0e2325f9297ab53cbd8ca277322371693e6b0d1a3753b869f8, 0x9507257458C2B611de6F4D5B45D44C9cB0Bcbc91, 0x89ae97018faa83b74ed5b45dec59eb360467ac283c71e3de1785115fe9e8e888), (0xd2ccc1291cc7b8c5951dd68f9a1c3bb7005b27e8378ea1fd02919c63b8fbe5ea, 0x988f8B71B5ffACe5F70D757D8F920BEc9B18e2D3, 0x89ae97018faa83b74ed5b45dec59eb360467ac283c71e3de1785115fe9e8e888), (0xd96550ec0fba45a214fbf471a6ccc89cade0bde7d0e4d49ab2868d743201b754, 0x58Fd2dEd565BB1FEA80bEFe15E6D9dE39902fE0D, 0x89ae97018faa83b74ed5b45dec59eb360467ac283c71e3de1785115fe9e8e888), (0xfa0a141cc8fd4f76eb53c5c81d398fb32235359f384856ec3e18a25b7de13956, 0x48AF7C81F9633A86c4Cdd731ba6D167d3c4f135f, 0x89ae97018faa83b74ed5b45dec59eb360467ac283c71e3de1785115fe9e8e888), (0xfd54e0063203dc582b84a92e3b07962eb75d9843d8f3732a910115e5a8772955, 0x0ED8A91B0fB391Af3056832dDE944A7087Dc6881, 0x89ae97018faa83b74ed5b45dec59eb360467ac283c71e3de1785115fe9e8e888)]",
+          "0x0DDE835675dafB5efce044c9c69407C3cF52e2ed"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "OrderReceiptAuthority",
+          "RfqReceiptAuthority",
+          "BookOrderReceiptAuthority",
+          "AuctionReceiptAuthority",
+          "SolverReceiptAuthority",
+          "FillReceiptAuthority",
+          "FixingReceiptAuthority",
+          "SettlementReceiptAuthority",
+          "DefaultReceiptAuthority",
+          "RecoveryReceiptAuthority",
+          "LifecycleReceiptAuthority",
+          "StreamReceiptAuthority",
+          "RouteReceiptAuthority",
+          "PositionReceiptAuthority",
+          "FeeReceiptAuthority",
+          "RiskReceiptAuthority",
+          "PrivacyReceiptAuthority",
+          "AsyncReceiptAuthority",
+          "PrivacyCommitmentRegistry"
+        ],
+        "roleAuthority": [
+          "bound-subject-authorities"
+        ],
+        "supported": [
+          "append-only-receipts",
+          "typed-terminal-state-adapters"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xd561522d7d3ee1cd8968eb91a04b70e75011a8b435c46127289215f4fcd93e5d"
+      },
+      {
+        "name": "RegistryStatusController",
+        "artifact": "contracts/out/RegistryStatusController.sol/RegistryStatusController.json",
+        "address": "0x1348c40e3d58d54239f4e63cb66ac627e1039ae1",
+        "runtimeCodeHash": "0xb661af8cd070a8a61a998b5f91d7a1ff4a0a1e08ff086ae704516701c2744b76",
+        "configurationHash": "0x071c448424a30c74d5914053e0ebf856b5a838598295da5ba49383737bba5622",
+        "capabilityHash": "0x583fb8c4f1c4b81c3c10e3e6eb58d7e138aa992ca51c73793afb88ef9558e4e0",
+        "transactionHash": "0x2fc3c4432f61ad75416834625ba73e5267509baa9b42e8bab1e87963467863ad",
+        "blockNumber": 314662540,
+        "constructorArguments": [
+          "0x7459B4F04c8A3619C84A9D39271d489f0B17E8Da",
+          "0x631159C9AC58959577b9ce073B98Da24b7E80eF7",
+          "[(1, 0x39beBEf5483Fc04F9F49078460543e8299574Be8), (2, 0xACC9539918F3b9b3Dc86C101f5fec14998B0E425), (3, 0x58F995999cae47d39e987e393b9fdd422f43cec5), (4, 0x5dF3176B4ED3813f50fEd765Ace918Aea268AC5d), (5, 0x3A18BD556a1De367642bf576186c1f28646c11c9), (6, 0x26a3CeAd57c76ed576C7b29D2Df18E54F5bbD2C9), (7, 0x7C086017E2CE9d9202E02Ce602f2aD67Aa864270), (8, 0x15f52CfDad798909218179715D9E7c0fBA259Fdc), (9, 0x21D50633853DDbecA1920C553f1D89b2d3E9847f), (10, 0xDc34360da2665294312B35BFCa36cF869Ae079Bd), (11, 0x44dF6D9D0071D30Eba5b392A8fF680d3F7a063EA), (12, 0x6ADEE18FEcE3aa615b51C10Ca499d8197e90eD60), (13, 0x0DDE835675dafB5efce044c9c69407C3cF52e2ed)]"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "AssetRegistry",
+          "AdapterRegistry",
+          "CalendarRegistry",
+          "SessionRegistry",
+          "SettlementAssetRegistry",
+          "BenchmarkRegistry",
+          "FeeScheduleRegistry",
+          "RiskDomainRegistry",
+          "InstrumentRegistry",
+          "MarketRegistry",
+          "SeriesRegistry",
+          "PackageRegistry",
+          "PrivacyCommitmentRegistry"
+        ],
+        "roleAuthority": [
+          "guardian-pause-selectors",
+          "governance-activation-selectors"
+        ],
+        "supported": [
+          "registry-status-selector-split",
+          "exact-selector-allowlist"
+        ],
+        "disabled": [
+          "role-administration",
+          "guardian-activation"
+        ],
+        "activation": "qualified",
+        "evidenceHash": "0xa625c17f2deeb631c4da323866c0ce04df8e09ea11ad0763b49a082d5f8c7044"
+      }
+    ],
+    "bootstrapAuthority": {
+      "source": "SETRYN_DEPLOYER_ADDRESS",
+      "postWiringRevocationRequired": true
+    },
     "finalPrincipals": {
-      "governanceAdmin": {"address": null, "source": "SETRYN_GOVERNANCE_ADMIN"},
-      "governanceOperator": {"address": null, "source": "SETRYN_GOVERNANCE_OPERATOR"},
-      "guardian": {"address": null, "source": "SETRYN_GUARDIAN"},
-      "excessRecoveryOperator": {"address": null, "source": "SETRYN_EXCESS_RECOVERY_OPERATOR"},
-      "privacyKeyPublisher": {"address": null, "source": "SETRYN_PRIVACY_KEY_PUBLISHER"},
-      "lifecycleWitnessStager": {"address": null, "source": "SETRYN_LIFECYCLE_WITNESS_STAGER"}
+      "governanceAdmin": {
+        "address": "0x631159c9ac58959577b9ce073b98da24b7e80ef7",
+        "source": "SETRYN_GOVERNANCE_ADMIN"
+      },
+      "governanceOperator": {
+        "address": "0x092aa9cc777484933b5a1603360dbcdc5c81803e",
+        "source": "SETRYN_GOVERNANCE_OPERATOR"
+      },
+      "guardian": {
+        "address": "0x7459b4f04c8a3619c84a9d39271d489f0b17e8da",
+        "source": "SETRYN_GUARDIAN"
+      },
+      "excessRecoveryOperator": {
+        "address": "0xa338b6281efbe4ec9c570236eaec837b386dc19b",
+        "source": "SETRYN_EXCESS_RECOVERY_OPERATOR"
+      },
+      "privacyKeyPublisher": {
+        "address": "0xfe2c93b8899c2d7ebba4f9ac806387a41b928567",
+        "source": "SETRYN_PRIVACY_KEY_PUBLISHER"
+      },
+      "lifecycleWitnessStager": {
+        "address": "0xfc682943278cc058d76a3fd1f719187ac164486f",
+        "source": "SETRYN_LIFECYCLE_WITNESS_STAGER"
+      }
     },
     "qualificationEvidence": {
       "constructorDependencies": "../phase2-contract-inventory.json#/contracts/*/dependencies",
-      "configurationHash": null,
-      "capabilityHash": null,
+      "configurationHash": "0x6493badce3cd83eae8acbeb1c8f7af7384762b40bd149642404826ac3248506e",
+      "capabilityHash": "0xa09d181c011f399c9095b87774c6d2c2158f364dd957b0f7c8771f442b38d8db",
       "roleAssignments": "../phase2-contract-inventory.json#/contracts/*/roleAuthority",
-      "activation": "planned",
+      "activation": "qualified",
       "supportedCapabilities": "../phase2-contract-inventory.json#/contracts/*/supported",
       "disabledCapabilities": "../phase2-contract-inventory.json#/contracts/*/disabled",
-      "postWiringEvidenceHash": null,
-      "bootstrapRolesRevoked": false,
-      "adminTransfersBegun": false
+      "postWiringEvidenceHash": "0xb4bc25d2d5f97c91bf301515a813cf1e960e4db8b867e87697537b75cfb269b1",
+      "bootstrapRolesRevoked": true,
+      "adminTransfersBegun": true
     },
     "activationPolicy": "registered-paused-until-qualified",
     "mainnetBroadcastAllowed": false
@@ -59,18 +2177,54 @@
     {
       "name": "AssetRegistry",
       "artifact": "contracts/out/AssetRegistry.sol/AssetRegistry.json",
-      "address": null,
+      "address": "0x39bebef5483fc04f9f49078460543e8299574be8",
       "implementation": null,
       "constructorArguments": [
-        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
-        {"name": "initialAdmin", "type": "address", "value": null}
+        {
+          "name": "defaultAdminDelay",
+          "type": "uint48",
+          "value": "172800"
+        },
+        {
+          "name": "initialAdmin",
+          "type": "address",
+          "value": "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C"
+        }
       ],
-      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
-      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
-      "owner": {"address": null, "source": "SETRYN_INITIAL_ADMIN"},
+      "bytecode": {
+        "creationCodeHash": "0xaac13efb813b4ba5bf87a3cd75862f5f3a7440b23dac13da6d559f857533e81f",
+        "runtimeCodeHash": "0x8383b4abcb920331d7eb11ad6cf91d5c24288e911b3626fa88274ced63a9eb0b"
+      },
+      "deploymentTransaction": {
+        "hash": "0xee03a4e4c63803365475b4efaf1cdd74be5affdd572dfab57b08225bd001db95",
+        "blockNumber": 314661967,
+        "broadcast": true
+      },
+      "owner": {
+        "address": null,
+        "source": "SETRYN_INITIAL_ADMIN"
+      },
       "roles": [
-        {"name": "REGISTRAR_ROLE", "id": "0x046791d0a4cfdf4f410ba80f11e88f14c2169ca01bd510dc3e57eddcb84681da", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
-        {"name": "STATUS_MANAGER_ROLE", "id": "0x26cbe3408315b5c5c670bdfc25e49f6fc01f2537366048a7f3bbd2bf508effb4", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]}
+        {
+          "name": "REGISTRAR_ROLE",
+          "id": "0x046791d0a4cfdf4f410ba80f11e88f14c2169ca01bd510dc3e57eddcb84681da",
+          "members": [
+            {
+              "address": "0x092aa9cc777484933b5a1603360dbcdc5c81803e",
+              "source": "SETRYN_GOVERNANCE_OPERATOR"
+            }
+          ]
+        },
+        {
+          "name": "STATUS_MANAGER_ROLE",
+          "id": "0x26cbe3408315b5c5c670bdfc25e49f6fc01f2537366048a7f3bbd2bf508effb4",
+          "members": [
+            {
+              "address": "0x1348c40e3d58d54239f4e63cb66ac627e1039ae1",
+              "source": "$contracts.RegistryStatusController.address"
+            }
+          ]
+        }
       ],
       "caps": [],
       "dependencies": []
@@ -78,18 +2232,54 @@
     {
       "name": "AdapterRegistry",
       "artifact": "contracts/out/AdapterRegistry.sol/AdapterRegistry.json",
-      "address": null,
+      "address": "0xacc9539918f3b9b3dc86c101f5fec14998b0e425",
       "implementation": null,
       "constructorArguments": [
-        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
-        {"name": "initialAdmin", "type": "address", "value": null}
+        {
+          "name": "defaultAdminDelay",
+          "type": "uint48",
+          "value": "172800"
+        },
+        {
+          "name": "initialAdmin",
+          "type": "address",
+          "value": "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C"
+        }
       ],
-      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
-      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
-      "owner": {"address": null, "source": "SETRYN_INITIAL_ADMIN"},
+      "bytecode": {
+        "creationCodeHash": "0xce7cdc9d1b7e24da05ba7f8f186c086d340da5fc07bbed7226b9e14e7744a7a2",
+        "runtimeCodeHash": "0x204493c89874ad5c35d0de050505ff496206d6c1c91bbd7122be811d6f6fa025"
+      },
+      "deploymentTransaction": {
+        "hash": "0x169bc356e120791ee8df9dee50fe23721bbde1f98ad466e0e095631c4db34199",
+        "blockNumber": 314661973,
+        "broadcast": true
+      },
+      "owner": {
+        "address": null,
+        "source": "SETRYN_INITIAL_ADMIN"
+      },
       "roles": [
-        {"name": "ADAPTER_QUALIFIER_ROLE", "id": "0xc52033eec72c8c677ea9347118ec0f9999bb198a97c080f24c910b44848e0fbd", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
-        {"name": "ADAPTER_STATUS_MANAGER_ROLE", "id": "0xb9587c24a37da0ae08e71cca64d8f45ee0a7d9bb53d56ef15069283ed5612b39", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]}
+        {
+          "name": "ADAPTER_QUALIFIER_ROLE",
+          "id": "0xc52033eec72c8c677ea9347118ec0f9999bb198a97c080f24c910b44848e0fbd",
+          "members": [
+            {
+              "address": "0x092aa9cc777484933b5a1603360dbcdc5c81803e",
+              "source": "SETRYN_GOVERNANCE_OPERATOR"
+            }
+          ]
+        },
+        {
+          "name": "ADAPTER_STATUS_MANAGER_ROLE",
+          "id": "0xb9587c24a37da0ae08e71cca64d8f45ee0a7d9bb53d56ef15069283ed5612b39",
+          "members": [
+            {
+              "address": "0x1348c40e3d58d54239f4e63cb66ac627e1039ae1",
+              "source": "$contracts.RegistryStatusController.address"
+            }
+          ]
+        }
       ],
       "caps": [],
       "dependencies": []
@@ -97,18 +2287,54 @@
     {
       "name": "CalendarRegistry",
       "artifact": "contracts/out/CalendarRegistry.sol/CalendarRegistry.json",
-      "address": null,
+      "address": "0x58f995999cae47d39e987e393b9fdd422f43cec5",
       "implementation": null,
       "constructorArguments": [
-        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
-        {"name": "initialAdmin", "type": "address", "value": null}
+        {
+          "name": "defaultAdminDelay",
+          "type": "uint48",
+          "value": "172800"
+        },
+        {
+          "name": "initialAdmin",
+          "type": "address",
+          "value": "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C"
+        }
       ],
-      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
-      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
-      "owner": {"address": null, "source": "SETRYN_INITIAL_ADMIN"},
+      "bytecode": {
+        "creationCodeHash": "0x191d572d254de2fd28a19c672d64ffe41530ca16dcefb0c78b6997b5c59c43e0",
+        "runtimeCodeHash": "0xc3aa5c03cfdfd7dbf7dd80e7a16db5395c0e43e07226a7a63ff918000708bf37"
+      },
+      "deploymentTransaction": {
+        "hash": "0x6853e2e47e8f836b8fff53ab7916aa91c506deaea1cf7dd34b673c95d21820d0",
+        "blockNumber": 314661980,
+        "broadcast": true
+      },
+      "owner": {
+        "address": null,
+        "source": "SETRYN_INITIAL_ADMIN"
+      },
       "roles": [
-        {"name": "CALENDAR_REGISTRAR_ROLE", "id": "0xc005105cf41195f093abedee8ba94fecc986b3fe47c00f41026a52a77de1aa7b", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
-        {"name": "CALENDAR_STATUS_MANAGER_ROLE", "id": "0x15b4e49aa45275bbb60ef90feb0d1deecaf4131b33b1310c359024cec0083bd4", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]}
+        {
+          "name": "CALENDAR_REGISTRAR_ROLE",
+          "id": "0xc005105cf41195f093abedee8ba94fecc986b3fe47c00f41026a52a77de1aa7b",
+          "members": [
+            {
+              "address": "0x092aa9cc777484933b5a1603360dbcdc5c81803e",
+              "source": "SETRYN_GOVERNANCE_OPERATOR"
+            }
+          ]
+        },
+        {
+          "name": "CALENDAR_STATUS_MANAGER_ROLE",
+          "id": "0x15b4e49aa45275bbb60ef90feb0d1deecaf4131b33b1310c359024cec0083bd4",
+          "members": [
+            {
+              "address": "0x1348c40e3d58d54239f4e63cb66ac627e1039ae1",
+              "source": "$contracts.RegistryStatusController.address"
+            }
+          ]
+        }
       ],
       "caps": [],
       "dependencies": []
@@ -116,151 +2342,501 @@
     {
       "name": "SessionRegistry",
       "artifact": "contracts/out/SessionRegistry.sol/SessionRegistry.json",
-      "address": null,
+      "address": "0x5df3176b4ed3813f50fed765ace918aea268ac5d",
       "implementation": null,
       "constructorArguments": [
-        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
-        {"name": "initialAdmin", "type": "address", "value": null},
-        {"name": "calendarRegistry", "type": "address", "value": "$contracts.CalendarRegistry.address"}
+        {
+          "name": "defaultAdminDelay",
+          "type": "uint48",
+          "value": "172800"
+        },
+        {
+          "name": "initialAdmin",
+          "type": "address",
+          "value": "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C"
+        },
+        {
+          "name": "calendarRegistry",
+          "type": "address",
+          "value": "$contracts.CalendarRegistry.address"
+        }
       ],
-      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
-      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
-      "owner": {"address": null, "source": "SETRYN_INITIAL_ADMIN"},
+      "bytecode": {
+        "creationCodeHash": "0x24b568064245e75fa8c5a70d4a1f7786eab1e7272a540f3e1d0a1a026b313c74",
+        "runtimeCodeHash": "0x810fce39806eeda323eb43f49a8992075f7a98944cedc87f29a0189113d4ac9f"
+      },
+      "deploymentTransaction": {
+        "hash": "0x1e666fadca6eb65b0138f53a1a16d430481116aed84c2cf005693ba82cee0ae6",
+        "blockNumber": 314661985,
+        "broadcast": true
+      },
+      "owner": {
+        "address": null,
+        "source": "SETRYN_INITIAL_ADMIN"
+      },
       "roles": [
-        {"name": "SESSION_REGISTRAR_ROLE", "id": "0x1447103ecc629480a2f3ca44db1eb9876a9db039dbaea99ca563510d0102703d", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
-        {"name": "SESSION_STATUS_MANAGER_ROLE", "id": "0x67281b39c42c54ddf3726b4298852a5d5abe364bd56d310d5007e4450f054092", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]}
+        {
+          "name": "SESSION_REGISTRAR_ROLE",
+          "id": "0x1447103ecc629480a2f3ca44db1eb9876a9db039dbaea99ca563510d0102703d",
+          "members": [
+            {
+              "address": "0x092aa9cc777484933b5a1603360dbcdc5c81803e",
+              "source": "SETRYN_GOVERNANCE_OPERATOR"
+            }
+          ]
+        },
+        {
+          "name": "SESSION_STATUS_MANAGER_ROLE",
+          "id": "0x67281b39c42c54ddf3726b4298852a5d5abe364bd56d310d5007e4450f054092",
+          "members": [
+            {
+              "address": "0x1348c40e3d58d54239f4e63cb66ac627e1039ae1",
+              "source": "$contracts.RegistryStatusController.address"
+            }
+          ]
+        }
       ],
       "caps": [],
-      "dependencies": ["CalendarRegistry"]
+      "dependencies": [
+        "CalendarRegistry"
+      ]
     },
     {
       "name": "SettlementAssetRegistry",
       "artifact": "contracts/out/SettlementAssetRegistry.sol/SettlementAssetRegistry.json",
-      "address": null,
+      "address": "0x3a18bd556a1de367642bf576186c1f28646c11c9",
       "implementation": null,
       "constructorArguments": [
-        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
-        {"name": "initialAdmin", "type": "address", "value": null},
-        {"name": "assetRegistry", "type": "address", "value": "$contracts.AssetRegistry.address"}
+        {
+          "name": "defaultAdminDelay",
+          "type": "uint48",
+          "value": "172800"
+        },
+        {
+          "name": "initialAdmin",
+          "type": "address",
+          "value": "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C"
+        },
+        {
+          "name": "assetRegistry",
+          "type": "address",
+          "value": "$contracts.AssetRegistry.address"
+        }
       ],
-      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
-      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
-      "owner": {"address": null, "source": "SETRYN_INITIAL_ADMIN"},
+      "bytecode": {
+        "creationCodeHash": "0xba34af901537cb6e39ed4b163e8171bbd352959cf87b9fd2d66af428265bd167",
+        "runtimeCodeHash": "0xf31e5c1e3bb8b1748bd59ebedf07a80a32b012a3594b316682192c9bd9870a03"
+      },
+      "deploymentTransaction": {
+        "hash": "0x0021e77a996be31d79669966d69c9086d4ad3902e14078e1cb7709cc6b72945f",
+        "blockNumber": 314661990,
+        "broadcast": true
+      },
+      "owner": {
+        "address": null,
+        "source": "SETRYN_INITIAL_ADMIN"
+      },
       "roles": [
-        {"name": "QUALIFIER_ROLE", "id": "0xfd23476a0bec4a4ad955c8b10b0c127f588467b695c2ec17e9938c6c800eea88", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
-        {"name": "STATUS_MANAGER_ROLE", "id": "0xeb66ef46406ee3d74188f552bd34965bc71a93b7af3d955512be970b3dded898", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]}
+        {
+          "name": "QUALIFIER_ROLE",
+          "id": "0xfd23476a0bec4a4ad955c8b10b0c127f588467b695c2ec17e9938c6c800eea88",
+          "members": [
+            {
+              "address": "0x092aa9cc777484933b5a1603360dbcdc5c81803e",
+              "source": "SETRYN_GOVERNANCE_OPERATOR"
+            }
+          ]
+        },
+        {
+          "name": "STATUS_MANAGER_ROLE",
+          "id": "0xeb66ef46406ee3d74188f552bd34965bc71a93b7af3d955512be970b3dded898",
+          "members": [
+            {
+              "address": "0x1348c40e3d58d54239f4e63cb66ac627e1039ae1",
+              "source": "$contracts.RegistryStatusController.address"
+            }
+          ]
+        }
       ],
       "caps": [],
-      "dependencies": ["AssetRegistry"]
+      "dependencies": [
+        "AssetRegistry"
+      ]
     },
     {
       "name": "BenchmarkRegistry",
       "artifact": "contracts/out/BenchmarkRegistry.sol/BenchmarkRegistry.json",
-      "address": null,
+      "address": "0x26a3cead57c76ed576c7b29d2df18e54f5bbd2c9",
       "implementation": null,
       "constructorArguments": [
-        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
-        {"name": "initialAdmin", "type": "address", "value": null},
-        {"name": "assetRegistry", "type": "address", "value": "$contracts.AssetRegistry.address"},
-        {"name": "adapterRegistry", "type": "address", "value": "$contracts.AdapterRegistry.address"},
-        {"name": "calendarRegistry", "type": "address", "value": "$contracts.CalendarRegistry.address"},
-        {"name": "sessionRegistry", "type": "address", "value": "$contracts.SessionRegistry.address"}
+        {
+          "name": "defaultAdminDelay",
+          "type": "uint48",
+          "value": "172800"
+        },
+        {
+          "name": "initialAdmin",
+          "type": "address",
+          "value": "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C"
+        },
+        {
+          "name": "assetRegistry",
+          "type": "address",
+          "value": "$contracts.AssetRegistry.address"
+        },
+        {
+          "name": "adapterRegistry",
+          "type": "address",
+          "value": "$contracts.AdapterRegistry.address"
+        },
+        {
+          "name": "calendarRegistry",
+          "type": "address",
+          "value": "$contracts.CalendarRegistry.address"
+        },
+        {
+          "name": "sessionRegistry",
+          "type": "address",
+          "value": "$contracts.SessionRegistry.address"
+        }
       ],
-      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
-      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
-      "owner": {"address": null, "source": "SETRYN_INITIAL_ADMIN"},
+      "bytecode": {
+        "creationCodeHash": "0xf8e52c2ed38a903ae29e0ed61648a09859225b94eb48a71da35ca4d5de9ad524",
+        "runtimeCodeHash": "0xe85e0269c7baeed4f15d95a907893a1ff8cfc6c024ff035c3de66b98cd2cecf8"
+      },
+      "deploymentTransaction": {
+        "hash": "0xf40a11b074824be40107bf6f5c6fe9d4410af8749d70c4e139df6423d47c7807",
+        "blockNumber": 314661996,
+        "broadcast": true
+      },
+      "owner": {
+        "address": null,
+        "source": "SETRYN_INITIAL_ADMIN"
+      },
       "roles": [
-        {"name": "BENCHMARK_QUALIFIER_ROLE", "id": "0x794d455bfa9b4162866b33b1aaeb405ab91c2e8ecaa25feef76acbabff0a72dd", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
-        {"name": "BENCHMARK_STATUS_MANAGER_ROLE", "id": "0x2c86bc9529ed0e41f12e981d22d5318fce87e812921a08ddb938e8d53fccaca6", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]}
+        {
+          "name": "BENCHMARK_QUALIFIER_ROLE",
+          "id": "0x794d455bfa9b4162866b33b1aaeb405ab91c2e8ecaa25feef76acbabff0a72dd",
+          "members": [
+            {
+              "address": "0x092aa9cc777484933b5a1603360dbcdc5c81803e",
+              "source": "SETRYN_GOVERNANCE_OPERATOR"
+            }
+          ]
+        },
+        {
+          "name": "BENCHMARK_STATUS_MANAGER_ROLE",
+          "id": "0x2c86bc9529ed0e41f12e981d22d5318fce87e812921a08ddb938e8d53fccaca6",
+          "members": [
+            {
+              "address": "0x1348c40e3d58d54239f4e63cb66ac627e1039ae1",
+              "source": "$contracts.RegistryStatusController.address"
+            }
+          ]
+        }
       ],
       "caps": [],
-      "dependencies": ["AssetRegistry", "AdapterRegistry", "CalendarRegistry", "SessionRegistry"]
+      "dependencies": [
+        "AssetRegistry",
+        "AdapterRegistry",
+        "CalendarRegistry",
+        "SessionRegistry"
+      ]
     },
     {
       "name": "FeeScheduleRegistry",
       "artifact": "contracts/out/FeeScheduleRegistry.sol/FeeScheduleRegistry.json",
-      "address": null,
+      "address": "0x7c086017e2ce9d9202e02ce602f2ad67aa864270",
       "implementation": null,
       "constructorArguments": [
-        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
-        {"name": "initialAdmin", "type": "address", "value": null},
-        {"name": "settlementAssetRegistry", "type": "address", "value": "$contracts.SettlementAssetRegistry.address"}
+        {
+          "name": "defaultAdminDelay",
+          "type": "uint48",
+          "value": "172800"
+        },
+        {
+          "name": "initialAdmin",
+          "type": "address",
+          "value": "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C"
+        },
+        {
+          "name": "settlementAssetRegistry",
+          "type": "address",
+          "value": "$contracts.SettlementAssetRegistry.address"
+        }
       ],
-      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
-      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
-      "owner": {"address": null, "source": "SETRYN_INITIAL_ADMIN"},
+      "bytecode": {
+        "creationCodeHash": "0x70b6573e0322c8437f56e1b8b4b63be9965c999dfe0d76fa64684d9293fbce28",
+        "runtimeCodeHash": "0xc0d23b685f80fd8e87c9604d38da5ec81a66c18915b252ca25b35087d058616e"
+      },
+      "deploymentTransaction": {
+        "hash": "0xabcd680b1eb6b33018f7e67e9a5ba6826373ae9332a4b104615bd7a901d2b4bc",
+        "blockNumber": 314662001,
+        "broadcast": true
+      },
+      "owner": {
+        "address": null,
+        "source": "SETRYN_INITIAL_ADMIN"
+      },
       "roles": [
-        {"name": "FEE_SCHEDULE_QUALIFIER_ROLE", "id": "0xa5cec1a62f15fc8a8034c794d9b737f8e023eaa1eda517b30d4c2f18d15eedda", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
-        {"name": "FEE_SCHEDULE_STATUS_MANAGER_ROLE", "id": "0x81ecb19f3cbdf48faf8ac71db2c71b938e6e0a75e5eab1d27ad07d05d63f7e66", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]}
+        {
+          "name": "FEE_SCHEDULE_QUALIFIER_ROLE",
+          "id": "0xa5cec1a62f15fc8a8034c794d9b737f8e023eaa1eda517b30d4c2f18d15eedda",
+          "members": [
+            {
+              "address": "0x092aa9cc777484933b5a1603360dbcdc5c81803e",
+              "source": "SETRYN_GOVERNANCE_OPERATOR"
+            }
+          ]
+        },
+        {
+          "name": "FEE_SCHEDULE_STATUS_MANAGER_ROLE",
+          "id": "0x81ecb19f3cbdf48faf8ac71db2c71b938e6e0a75e5eab1d27ad07d05d63f7e66",
+          "members": [
+            {
+              "address": "0x1348c40e3d58d54239f4e63cb66ac627e1039ae1",
+              "source": "$contracts.RegistryStatusController.address"
+            }
+          ]
+        }
       ],
       "caps": [],
-      "dependencies": ["SettlementAssetRegistry"]
+      "dependencies": [
+        "SettlementAssetRegistry"
+      ]
     },
     {
       "name": "RiskDomainRegistry",
       "artifact": "contracts/out/RiskDomainRegistry.sol/RiskDomainRegistry.json",
-      "address": null,
+      "address": "0x15f52cfdad798909218179715d9e7c0fba259fdc",
       "implementation": null,
       "constructorArguments": [
-        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
-        {"name": "initialAdmin", "type": "address", "value": null},
-        {"name": "settlementAssetRegistry", "type": "address", "value": "$contracts.SettlementAssetRegistry.address"},
-        {"name": "adapterRegistry", "type": "address", "value": "$contracts.AdapterRegistry.address"}
+        {
+          "name": "defaultAdminDelay",
+          "type": "uint48",
+          "value": "172800"
+        },
+        {
+          "name": "initialAdmin",
+          "type": "address",
+          "value": "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C"
+        },
+        {
+          "name": "settlementAssetRegistry",
+          "type": "address",
+          "value": "$contracts.SettlementAssetRegistry.address"
+        },
+        {
+          "name": "adapterRegistry",
+          "type": "address",
+          "value": "$contracts.AdapterRegistry.address"
+        }
       ],
-      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
-      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
-      "owner": {"address": null, "source": "SETRYN_INITIAL_ADMIN"},
+      "bytecode": {
+        "creationCodeHash": "0xc119a7a0de59cd8a7d116dcc8e78d9791878d3d040cd24e434a170520ffa9698",
+        "runtimeCodeHash": "0xafe76e7642d45e27dd6ca7643dad6a866656e7df108cda7999036d634402bf42"
+      },
+      "deploymentTransaction": {
+        "hash": "0xa58080d34b8963e88859d26f498d929ab6802d6da6e697b96d5c0dbbc3221960",
+        "blockNumber": 314662007,
+        "broadcast": true
+      },
+      "owner": {
+        "address": null,
+        "source": "SETRYN_INITIAL_ADMIN"
+      },
       "roles": [
-        {"name": "RISK_DOMAIN_QUALIFIER_ROLE", "id": "0xc02652fe082a3c29004e2c9f4bea23227871ce63a2cd640c3a60d2f21d8ae1b7", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
-        {"name": "RISK_DOMAIN_STATUS_MANAGER_ROLE", "id": "0x54e3cacf9a55868b0df4f907f1220883c67d9efd13b13a48d28069aaa9d3cde7", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]}
+        {
+          "name": "RISK_DOMAIN_QUALIFIER_ROLE",
+          "id": "0xc02652fe082a3c29004e2c9f4bea23227871ce63a2cd640c3a60d2f21d8ae1b7",
+          "members": [
+            {
+              "address": "0x092aa9cc777484933b5a1603360dbcdc5c81803e",
+              "source": "SETRYN_GOVERNANCE_OPERATOR"
+            }
+          ]
+        },
+        {
+          "name": "RISK_DOMAIN_STATUS_MANAGER_ROLE",
+          "id": "0x54e3cacf9a55868b0df4f907f1220883c67d9efd13b13a48d28069aaa9d3cde7",
+          "members": [
+            {
+              "address": "0x1348c40e3d58d54239f4e63cb66ac627e1039ae1",
+              "source": "$contracts.RegistryStatusController.address"
+            }
+          ]
+        }
       ],
       "caps": [],
-      "dependencies": ["SettlementAssetRegistry", "AdapterRegistry"]
+      "dependencies": [
+        "SettlementAssetRegistry",
+        "AdapterRegistry"
+      ]
     },
     {
       "name": "InstrumentRegistry",
       "artifact": "contracts/out/InstrumentRegistry.sol/InstrumentRegistry.json",
-      "address": null,
+      "address": "0x21d50633853ddbeca1920c553f1d89b2d3e9847f",
       "implementation": null,
       "constructorArguments": [
-        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
-        {"name": "initialAdmin", "type": "address", "value": null},
-        {"name": "adapterRegistry", "type": "address", "value": "$contracts.AdapterRegistry.address"},
-        {"name": "evaluationGasHardCap", "type": "uint64", "value": null}
+        {
+          "name": "defaultAdminDelay",
+          "type": "uint48",
+          "value": "172800"
+        },
+        {
+          "name": "initialAdmin",
+          "type": "address",
+          "value": "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C"
+        },
+        {
+          "name": "adapterRegistry",
+          "type": "address",
+          "value": "$contracts.AdapterRegistry.address"
+        },
+        {
+          "name": "evaluationGasHardCap",
+          "type": "uint64",
+          "value": "2000000"
+        }
       ],
-      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
-      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
-      "owner": {"address": null, "source": "SETRYN_INITIAL_ADMIN"},
+      "bytecode": {
+        "creationCodeHash": "0x30ea8437df26cfb5698468d8a0fd3a96c983fa8ef624faa7a352afa1ee2bf03a",
+        "runtimeCodeHash": "0xa4781d8e7fb2c72b8f8166e299b55719ee12233bd74048ce066d40dc2cc67f2a"
+      },
+      "deploymentTransaction": {
+        "hash": "0x927f28d3e0749f6eb7625e99ddcf9bcab52f3e1b4e9ae941aba295a8e9cdc86e",
+        "blockNumber": 314662013,
+        "broadcast": true
+      },
+      "owner": {
+        "address": null,
+        "source": "SETRYN_INITIAL_ADMIN"
+      },
       "roles": [
-        {"name": "INSTRUMENT_QUALIFIER_ROLE", "id": "0x02f561dea513e88edf318b113c6f470fd4f80b79ecdd913b3c21bef6a990546d", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
-        {"name": "INSTRUMENT_STATUS_MANAGER_ROLE", "id": "0x3654db16c3864e4a90ce3a136bb6d96b623c8b4f55d27e6d27aea6198179c34f", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]}
+        {
+          "name": "INSTRUMENT_QUALIFIER_ROLE",
+          "id": "0x02f561dea513e88edf318b113c6f470fd4f80b79ecdd913b3c21bef6a990546d",
+          "members": [
+            {
+              "address": "0x092aa9cc777484933b5a1603360dbcdc5c81803e",
+              "source": "SETRYN_GOVERNANCE_OPERATOR"
+            }
+          ]
+        },
+        {
+          "name": "INSTRUMENT_STATUS_MANAGER_ROLE",
+          "id": "0x3654db16c3864e4a90ce3a136bb6d96b623c8b4f55d27e6d27aea6198179c34f",
+          "members": [
+            {
+              "address": "0x1348c40e3d58d54239f4e63cb66ac627e1039ae1",
+              "source": "$contracts.RegistryStatusController.address"
+            }
+          ]
+        }
       ],
-      "caps": [{"name": "evaluationGasHardCap", "unit": "gas", "value": null}],
-      "dependencies": ["AdapterRegistry"]
+      "caps": [
+        {
+          "name": "evaluationGasHardCap",
+          "unit": "gas",
+          "value": "2000000"
+        }
+      ],
+      "dependencies": [
+        "AdapterRegistry"
+      ]
     },
     {
       "name": "MarketRegistry",
       "artifact": "contracts/out/MarketRegistry.sol/MarketRegistry.json",
-      "address": null,
+      "address": "0xdc34360da2665294312b35bfca36cf869ae079bd",
       "implementation": null,
       "constructorArguments": [
-        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
-        {"name": "initialAdmin", "type": "address", "value": null},
-        {"name": "assetRegistry", "type": "address", "value": "$contracts.AssetRegistry.address"},
-        {"name": "settlementAssetRegistry", "type": "address", "value": "$contracts.SettlementAssetRegistry.address"},
-        {"name": "collateralVault", "type": "address", "value": "$contracts.CollateralVault.address"},
-        {"name": "benchmarkRegistry", "type": "address", "value": "$contracts.BenchmarkRegistry.address"},
-        {"name": "calendarRegistry", "type": "address", "value": "$contracts.CalendarRegistry.address"},
-        {"name": "sessionRegistry", "type": "address", "value": "$contracts.SessionRegistry.address"},
-        {"name": "riskDomainRegistry", "type": "address", "value": "$contracts.RiskDomainRegistry.address"},
-        {"name": "feeScheduleRegistry", "type": "address", "value": "$contracts.FeeScheduleRegistry.address"}
+        {
+          "name": "defaultAdminDelay",
+          "type": "uint48",
+          "value": "172800"
+        },
+        {
+          "name": "initialAdmin",
+          "type": "address",
+          "value": "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C"
+        },
+        {
+          "name": "assetRegistry",
+          "type": "address",
+          "value": "$contracts.AssetRegistry.address"
+        },
+        {
+          "name": "settlementAssetRegistry",
+          "type": "address",
+          "value": "$contracts.SettlementAssetRegistry.address"
+        },
+        {
+          "name": "collateralVault",
+          "type": "address",
+          "value": "$contracts.CollateralVault.address"
+        },
+        {
+          "name": "benchmarkRegistry",
+          "type": "address",
+          "value": "$contracts.BenchmarkRegistry.address"
+        },
+        {
+          "name": "calendarRegistry",
+          "type": "address",
+          "value": "$contracts.CalendarRegistry.address"
+        },
+        {
+          "name": "sessionRegistry",
+          "type": "address",
+          "value": "$contracts.SessionRegistry.address"
+        },
+        {
+          "name": "riskDomainRegistry",
+          "type": "address",
+          "value": "$contracts.RiskDomainRegistry.address"
+        },
+        {
+          "name": "feeScheduleRegistry",
+          "type": "address",
+          "value": "$contracts.FeeScheduleRegistry.address"
+        }
       ],
-      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
-      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
-      "owner": {"address": null, "source": "SETRYN_INITIAL_ADMIN"},
+      "bytecode": {
+        "creationCodeHash": "0x47c3f0d06bc3546aefc7fb01e689c51bbd38aa33d5a64b5bc573f53369ecc0dd",
+        "runtimeCodeHash": "0x938be9d2c590d44d33567fe697a5a3fa79cb4f8cc136936cf5b37f2e3ad993d8"
+      },
+      "deploymentTransaction": {
+        "hash": "0xfb8bf5468423c33c1e5c434f187e50c5436fc85f4d33d41024db40847583b60a",
+        "blockNumber": 314662025,
+        "broadcast": true
+      },
+      "owner": {
+        "address": null,
+        "source": "SETRYN_INITIAL_ADMIN"
+      },
       "roles": [
-        {"name": "MARKET_QUALIFIER_ROLE", "id": "0x0281a465e3c123a5ed19aa8e5ffe24e30e46ec3bf4c00b5cf47c46f4539ecb74", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
-        {"name": "MARKET_STATUS_MANAGER_ROLE", "id": "0x22ceba6f2e648f7e4675327e44c50ef05fcda828fcb01ef0fbad9537b7b3c9d3", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]}
+        {
+          "name": "MARKET_QUALIFIER_ROLE",
+          "id": "0x0281a465e3c123a5ed19aa8e5ffe24e30e46ec3bf4c00b5cf47c46f4539ecb74",
+          "members": [
+            {
+              "address": "0x092aa9cc777484933b5a1603360dbcdc5c81803e",
+              "source": "SETRYN_GOVERNANCE_OPERATOR"
+            }
+          ]
+        },
+        {
+          "name": "MARKET_STATUS_MANAGER_ROLE",
+          "id": "0x22ceba6f2e648f7e4675327e44c50ef05fcda828fcb01ef0fbad9537b7b3c9d3",
+          "members": [
+            {
+              "address": "0x1348c40e3d58d54239f4e63cb66ac627e1039ae1",
+              "source": "$contracts.RegistryStatusController.address"
+            }
+          ]
+        }
       ],
       "caps": [],
       "dependencies": [
@@ -277,50 +2853,213 @@
     {
       "name": "SeriesRegistry",
       "artifact": "contracts/out/SeriesRegistry.sol/SeriesRegistry.json",
-      "address": null,
+      "address": "0x44df6d9d0071d30eba5b392a8ff680d3f7a063ea",
       "implementation": null,
       "constructorArguments": [
-        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
-        {"name": "initialAdmin", "type": "address", "value": null},
-        {"name": "marketRegistry", "type": "address", "value": "$contracts.MarketRegistry.address"},
-        {"name": "instrumentRegistry", "type": "address", "value": "$contracts.InstrumentRegistry.address"}
+        {
+          "name": "defaultAdminDelay",
+          "type": "uint48",
+          "value": {
+            "encoding": "abi",
+            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c000000000000000000000000dc34360da2665294312b35bfca36cf869ae079bd00000000000000000000000021d50633853ddbeca1920c553f1d89b2d3e9847f"
+          }
+        },
+        {
+          "name": "initialAdmin",
+          "type": "address",
+          "value": null
+        },
+        {
+          "name": "marketRegistry",
+          "type": "address",
+          "value": "$contracts.MarketRegistry.address"
+        },
+        {
+          "name": "instrumentRegistry",
+          "type": "address",
+          "value": "$contracts.InstrumentRegistry.address"
+        }
       ],
-      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
-      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
-      "owner": {"address": null, "source": "SETRYN_INITIAL_ADMIN"},
+      "bytecode": {
+        "creationCodeHash": "0x102634e6af87e26a680338805c68ee1c9b890f2c78d3b6b7a34a8533af7cc183",
+        "runtimeCodeHash": "0xcf5b37fdd5d05c9528ffcda9c22769b6a974ae7db12f51f076e4e7dad9662214"
+      },
+      "deploymentTransaction": {
+        "hash": "0xa38933ccbbeb94e5ae005ad4162ead0f3f26c804ca3884fc2b046908100f2ac7",
+        "blockNumber": 314662031,
+        "broadcast": true
+      },
+      "owner": {
+        "address": null,
+        "source": "SETRYN_INITIAL_ADMIN"
+      },
       "roles": [
-        {"name": "SERIES_QUALIFIER_ROLE", "id": "0x7ed8715f5b228a75c531118974b1168e56a6853913f0acf96f6a685ca217a167", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
-        {"name": "SERIES_STATUS_MANAGER_ROLE", "id": "0xd237b9d78d4ee869267036ee8b6bf72841fa63051a1a54ae147f11f8ef5b9102", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]}
+        {
+          "name": "SERIES_QUALIFIER_ROLE",
+          "id": "0x7ed8715f5b228a75c531118974b1168e56a6853913f0acf96f6a685ca217a167",
+          "members": [
+            {
+              "address": "0x092aa9cc777484933b5a1603360dbcdc5c81803e",
+              "source": "SETRYN_GOVERNANCE_OPERATOR"
+            }
+          ]
+        },
+        {
+          "name": "SERIES_STATUS_MANAGER_ROLE",
+          "id": "0xd237b9d78d4ee869267036ee8b6bf72841fa63051a1a54ae147f11f8ef5b9102",
+          "members": [
+            {
+              "address": "0x1348c40e3d58d54239f4e63cb66ac627e1039ae1",
+              "source": "$contracts.RegistryStatusController.address"
+            }
+          ]
+        }
       ],
       "caps": [],
-      "dependencies": ["MarketRegistry", "InstrumentRegistry"]
+      "dependencies": [
+        "MarketRegistry",
+        "InstrumentRegistry"
+      ]
     },
     {
       "name": "CollateralVault",
       "artifact": "contracts/out/CollateralVault.sol/CollateralVault.json",
-      "address": null,
+      "address": "0x8c5348d2c765bdfe4044921bf7cb5c1db654fed3",
       "implementation": null,
       "constructorArguments": [
-        {"name": "defaultAdminDelay", "type": "uint48", "value": 172800},
-        {"name": "initialAdmin", "type": "address", "value": null},
-        {"name": "settlementAssetRegistry", "type": "address", "value": "$contracts.SettlementAssetRegistry.address"},
-        {"name": "riskDomainRegistry", "type": "address", "value": "$contracts.RiskDomainRegistry.address"},
-        {"name": "maxLockDuration", "type": "uint64", "value": 2592000}
+        {
+          "name": "defaultAdminDelay",
+          "type": "uint48",
+          "value": {
+            "encoding": "abi",
+            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c0000000000000000000000003a18bd556a1de367642bf576186c1f28646c11c900000000000000000000000015f52cfdad798909218179715d9e7c0fba259fdc0000000000000000000000000000000000000000000000000000000000278d00"
+          }
+        },
+        {
+          "name": "initialAdmin",
+          "type": "address",
+          "value": null
+        },
+        {
+          "name": "settlementAssetRegistry",
+          "type": "address",
+          "value": "$contracts.SettlementAssetRegistry.address"
+        },
+        {
+          "name": "riskDomainRegistry",
+          "type": "address",
+          "value": "$contracts.RiskDomainRegistry.address"
+        },
+        {
+          "name": "maxLockDuration",
+          "type": "uint64",
+          "value": 2592000
+        }
       ],
-      "bytecode": {"creationCodeHash": null, "runtimeCodeHash": null},
-      "deploymentTransaction": {"hash": null, "blockNumber": null, "broadcast": false},
-      "owner": {"address": null, "source": "SETRYN_INITIAL_ADMIN"},
+      "bytecode": {
+        "creationCodeHash": "0x14122b0479e32be8bebdccfc19c1202ac25132811a3f7b93bdeb599e275e79dc",
+        "runtimeCodeHash": "0x0513490164b835d7fe7cbd03c9b08b72d868afc91697a55a3fce22a0f067cf48"
+      },
+      "deploymentTransaction": {
+        "hash": "0xbf556cca7cd9bef88900b76d633d0b0d4324bfcdab25a7e915d18c01a049f29e",
+        "blockNumber": 314662019,
+        "broadcast": true
+      },
+      "owner": {
+        "address": null,
+        "source": "SETRYN_INITIAL_ADMIN"
+      },
       "roles": [
-        {"name": "COLLATERAL_LOCKER_ROLE", "id": "0xae58182dd6e03509898e3d2294a55cf04f584b2dd7f21b08c2eeac8b3007695e", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
-        {"name": "COLLATERAL_SETTLER_ROLE", "id": "0x4465f16537f957eb9bcc1f5ecc11148e07b2322719cc82074aa38ad12eeff48e", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
-        {"name": "TERMINAL_RESERVATION_CREATOR_ROLE", "id": "0xc2b36aaef1c77d75c1a65b1b4b26b56243ce47c7985a837ed48dbb1b9ac45894", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
-        {"name": "TERMINAL_RESERVATION_RESOLVER_ROLE", "id": "0x99c8955d749bac1f2fd2f8b5664c86fccab0a2d838caf0cb697396ee11112e9a", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]},
-        {"name": "EXCESS_RECOVERY_ROLE", "id": "0xea19ef25c0f12242c433a7b1cecf15553dbc6476762f77c0745b1473ee04ee17", "members": [{"address": null, "source": "SETRYN_INITIAL_ADMIN"}]}
+        {
+          "name": "COLLATERAL_LOCKER_ROLE",
+          "id": "0xae58182dd6e03509898e3d2294a55cf04f584b2dd7f21b08c2eeac8b3007695e",
+          "members": [
+            {
+              "address": "0x952ab1f864ffdb464e233d0ba6c53e200fa73b07",
+              "source": "$contracts.PositionEngine.address"
+            },
+            {
+              "address": "0x34ff375094a5181ca7b3dc308b17d38242707d19",
+              "source": "$contracts.AtomicClearingEngine.address"
+            },
+            {
+              "address": "0xf04ae4edb45313f018ec9d70f35119fb2a54b483",
+              "source": "$contracts.DefaultProcessEngine.address"
+            },
+            {
+              "address": "0x63bebc461cf09ade1104bf9278261d93bc838954",
+              "source": "$contracts.SealedAuctionHouse.address"
+            }
+          ]
+        },
+        {
+          "name": "COLLATERAL_SETTLER_ROLE",
+          "id": "0x4465f16537f957eb9bcc1f5ecc11148e07b2322719cc82074aa38ad12eeff48e",
+          "members": [
+            {
+              "address": "0xfe682a791ba670e19929c0629f743d5367c9b75a",
+              "source": "$contracts.FundedFeeEngine.address"
+            },
+            {
+              "address": "0x34ff375094a5181ca7b3dc308b17d38242707d19",
+              "source": "$contracts.AtomicClearingEngine.address"
+            },
+            {
+              "address": "0xf04ae4edb45313f018ec9d70f35119fb2a54b483",
+              "source": "$contracts.DefaultProcessEngine.address"
+            },
+            {
+              "address": "0x63bebc461cf09ade1104bf9278261d93bc838954",
+              "source": "$contracts.SealedAuctionHouse.address"
+            }
+          ]
+        },
+        {
+          "name": "TERMINAL_RESERVATION_CREATOR_ROLE",
+          "id": "0xc2b36aaef1c77d75c1a65b1b4b26b56243ce47c7985a837ed48dbb1b9ac45894",
+          "members": [
+            {
+              "address": "0x952ab1f864ffdb464e233d0ba6c53e200fa73b07",
+              "source": "$contracts.PositionEngine.address"
+            }
+          ]
+        },
+        {
+          "name": "TERMINAL_RESERVATION_RESOLVER_ROLE",
+          "id": "0x99c8955d749bac1f2fd2f8b5664c86fccab0a2d838caf0cb697396ee11112e9a",
+          "members": [
+            {
+              "address": "0xb3ffebee4d854984d9800904fb98963b9aa91197",
+              "source": "$contracts.CashSettlementCoordinator.address"
+            },
+            {
+              "address": "0xad6c7b1770b6e7131a8c9c1e29001899796e1389",
+              "source": "$contracts.PositionLifecycleExecutor.address"
+            }
+          ]
+        },
+        {
+          "name": "EXCESS_RECOVERY_ROLE",
+          "id": "0xea19ef25c0f12242c433a7b1cecf15553dbc6476762f77c0745b1473ee04ee17",
+          "members": [
+            {
+              "address": "0xa338b6281efbe4ec9c570236eaec837b386dc19b",
+              "source": "SETRYN_EXCESS_RECOVERY_OPERATOR"
+            }
+          ]
+        }
       ],
       "caps": [
-        {"name": "maxLockDuration", "unit": "seconds", "value": 2592000}
+        {
+          "name": "maxLockDuration",
+          "unit": "seconds",
+          "value": 2592000
+        }
       ],
-      "dependencies": ["SettlementAssetRegistry", "RiskDomainRegistry"]
+      "dependencies": [
+        "SettlementAssetRegistry",
+        "RiskDomainRegistry"
+      ]
     }
   ],
   "externalDependencies": [
@@ -333,9 +3072,414 @@
         "reference": "https://developers.circle.com/stablecoins/usdc-contract-addresses",
         "verifiedAt": null
       },
-      "runtimeCodeHash": null,
-      "qualificationStatus": "pending",
-      "consumers": ["SettlementAssetRegistry"]
+      "runtimeCodeHash": "0x9a736af6aac290d9196883e8686fc1d127ff657ca534fe4b88d6d40dc0bc6750",
+      "qualificationStatus": "code-hash-recorded",
+      "consumers": [
+        "SettlementAssetRegistry"
+      ]
+    }
+  ],
+  "linkedLibraries": [
+    {
+      "name": "AtomicClearingFundingLib",
+      "artifact": "contracts/out/AtomicClearingFundingLib.sol/AtomicClearingFundingLib.json",
+      "address": "0x35980c104ea3153cf16e91868640e206bf5716d1",
+      "creationCodeHash": "0xc9d05b4e2de1900a13d6990a28aa8808dc0c381fedff861dba5a2fae404ab792",
+      "runtimeCodeHash": "0x1c712f6bfacb13e9d1c2c04c3d89397876a72448ec4c71594f7af1f2829e6a85",
+      "transactionHash": "0xd9796efe1448483a0f917c18f3704dee68d4f9ced40840bf17230eddd43d10a2",
+      "blockNumber": 314661777,
+      "linkedLibraries": [],
+      "linkedBy": [
+        "AtomicClearingEngine",
+        "AtomicClearingPackageLib",
+        "AtomicClearingSeriesLib"
+      ]
+    },
+    {
+      "name": "AtomicClearingMatchLib",
+      "artifact": "contracts/out/AtomicClearingMatchLib.sol/AtomicClearingMatchLib.json",
+      "address": "0x2dcbe5e16bd257079ce9593961c0fd89dc8b8159",
+      "creationCodeHash": "0x9755e1b37d6b641661d6164420caf65f811537d7f3a61aa4093d038790b3fa8f",
+      "runtimeCodeHash": "0xe810e6ad01ad64218fafe463d08244f827b56893ec67ea0d757e3028cdd2a645",
+      "transactionHash": "0x57cde1ea36e9c36d380d52b2790bff064d54957bd75d79a56964d981883f5745",
+      "blockNumber": 314661783,
+      "linkedLibraries": [],
+      "linkedBy": [
+        "AtomicClearingEngine",
+        "AtomicClearingPackageLib",
+        "AtomicClearingSeriesLib"
+      ]
+    },
+    {
+      "name": "AtomicClearingPackageLib",
+      "artifact": "contracts/out/AtomicClearingPackageLib.sol/AtomicClearingPackageLib.json",
+      "address": "0x3332c459a5e413efd247f3ed3ef2302ddc946ca5",
+      "creationCodeHash": "0x2e655337f4b48bb9856065e4483df212fcd320c090fbd8d79a7a67402a487cbd",
+      "runtimeCodeHash": "0xcf567aefa72ddd20672c8c41055bffbd437645b11e237501d363985dc7d7ca61",
+      "transactionHash": "0x2afe1c18c4d804612b28341f40b8f67f29981a73e5388c46b7eff8f7c5ca38d9",
+      "blockNumber": 314661789,
+      "linkedLibraries": [
+        "AtomicClearingFundingLib",
+        "AtomicClearingMatchLib"
+      ],
+      "linkedBy": [
+        "AtomicClearingEngine"
+      ]
+    },
+    {
+      "name": "AtomicClearingSeriesLib",
+      "artifact": "contracts/out/AtomicClearingSeriesLib.sol/AtomicClearingSeriesLib.json",
+      "address": "0xb37288bb284e37f8b230051738a015bbb460655a",
+      "creationCodeHash": "0x12d6fe2fde88881f4761d5e60b82e7678e47372a8dfb55f6ef59d218c2f36d42",
+      "runtimeCodeHash": "0x80e8cb73d31e6627217023d88aa1d76b528f9cb319498f99010cf4836d430ab3",
+      "transactionHash": "0xfaf1e6afff090d78fa47dc365c5344090c4a8c1f8d2fba15586aaa8900b4e649",
+      "blockNumber": 314661795,
+      "linkedLibraries": [
+        "AtomicClearingFundingLib",
+        "AtomicClearingMatchLib"
+      ],
+      "linkedBy": [
+        "AtomicClearingEngine"
+      ]
+    },
+    {
+      "name": "CashSettlementContextLib",
+      "artifact": "contracts/out/CashSettlementContextLib.sol/CashSettlementContextLib.json",
+      "address": "0xa596605eb780a3180db3b6a716a4a5faaaa50bdb",
+      "creationCodeHash": "0x61c7133d745f78e5217949f8fd14caba882bdff5c767e3be0ea9a0aa535433c5",
+      "runtimeCodeHash": "0x2deb9465f2019563f73d2d73255d1f832fc3d70cdec32728e7df1dcdbb91fc08",
+      "transactionHash": "0x96e512e0ce82941b06939252779a6145d8e6cd25bcd7df77e227bc2e6dcb89ba",
+      "blockNumber": 314661802,
+      "linkedLibraries": [],
+      "linkedBy": [
+        "CashSettlementCoordinator"
+      ]
+    },
+    {
+      "name": "CashSettlementRecordLib",
+      "artifact": "contracts/out/CashSettlementRecordLib.sol/CashSettlementRecordLib.json",
+      "address": "0xf6442343e32e02ed043b1e4c0a6b042365c35f29",
+      "creationCodeHash": "0xd9ea1da2bd5850eeb8d94f86f1654a94c9ac00953323936ce3ab6fa08958ebe7",
+      "runtimeCodeHash": "0x3031e2d4ed61dab45b491c270e0e72ab4b8cbd31cb17e7d8621d866623edb99e",
+      "transactionHash": "0x712f17f6c8809c5e0d1a3dc6a2967b4b226769064d6ed2d1309a9588b07af1d2",
+      "blockNumber": 314661809,
+      "linkedLibraries": [],
+      "linkedBy": [
+        "CashSettlementCoordinator"
+      ]
+    },
+    {
+      "name": "CollateralReservationLib",
+      "artifact": "contracts/out/CollateralReservationLib.sol/CollateralReservationLib.json",
+      "address": "0x8983fb7701de78b5ba36feb694e17f64ad46368f",
+      "creationCodeHash": "0xd26f0b713e416e86dd9c625d672bb0e53e46f4bfa3c33a61e7f130b4a7a7a7d3",
+      "runtimeCodeHash": "0xa1ad21e92972b8522161fe4f5a18228283c7bc313e2e85ce7c82009044ab74de",
+      "transactionHash": "0xf101b560b27c324ca12eeee7fd65172f46e0f85ea95c206a033a658f73aa8144",
+      "blockNumber": 314661814,
+      "linkedLibraries": [],
+      "linkedBy": [
+        "CollateralVault"
+      ]
+    },
+    {
+      "name": "DefaultAuctionLib",
+      "artifact": "contracts/out/DefaultAuctionLib.sol/DefaultAuctionLib.json",
+      "address": "0x1a4a6f7af527e2b8e978abffede9f984e7df1f91",
+      "creationCodeHash": "0x1499da432a966c8f252dc35afa0846a6ca5c04b42a2afd6aff54a98d2aa716f3",
+      "runtimeCodeHash": "0xad96205f47c8007ca9d4a6c9071159ec2a7fd3847d5bb75210eb97cfc6575d65",
+      "transactionHash": "0xbac34dc273ee45ef20df03c0dfea026443b381164e0f90f31dc91dcfa8bbcbf5",
+      "blockNumber": 314661820,
+      "linkedLibraries": [],
+      "linkedBy": [
+        "DefaultProcessEngine"
+      ]
+    },
+    {
+      "name": "DefaultOpeningLib",
+      "artifact": "contracts/out/DefaultOpeningLib.sol/DefaultOpeningLib.json",
+      "address": "0xf2b839e75d4639288695f09edf3d79443d9977b4",
+      "creationCodeHash": "0xeff1e304a9466d63545089bef2789d8afd79ec009684cb5d80e87278bd24c3fe",
+      "runtimeCodeHash": "0x3e9edabaa166b66341c5b13b03976d3008f4cf6c37c3a84d8e6fed4d90a67a51",
+      "transactionHash": "0xed783d611f175c45892c23f97d6f7cd54d736885a2cc63d0314cf7b287b66924",
+      "blockNumber": 314661826,
+      "linkedLibraries": [],
+      "linkedBy": [
+        "DefaultProcessEngine"
+      ]
+    },
+    {
+      "name": "DefaultResolutionLib",
+      "artifact": "contracts/out/DefaultResolutionLib.sol/DefaultResolutionLib.json",
+      "address": "0x148fbb00534b4fb64f154748239cda3558e604e1",
+      "creationCodeHash": "0xce2e66de07bc9ce18e12de7cfd111803fe76afe9e0e3a1841ad8f7f8368ad148",
+      "runtimeCodeHash": "0x820697e4243e7ff511dc51d6be3aeea35266d10fdaddf78dac7d0fc68b1613ef",
+      "transactionHash": "0x7cd7f9d44eaa32aa3119d473b7f1bb53d8377fc4763ad9ddedcb7cdadc0493c0",
+      "blockNumber": 314661832,
+      "linkedLibraries": [],
+      "linkedBy": [
+        "DefaultProcessEngine"
+      ]
+    },
+    {
+      "name": "OperationalExternalActionLib",
+      "artifact": "contracts/out/OperationalExternalActionLib.sol/OperationalExternalActionLib.json",
+      "address": "0x085484dc66fc7d4fb329cd67fee52b558019f844",
+      "creationCodeHash": "0x1ee34c088463cfc1ae808e67987f87ea3f2043c3a33afc2ded6faef775f97037",
+      "runtimeCodeHash": "0xab3775882bd9a9128c6fd94222634bdc75dbff8487c03a43e528364182546c72",
+      "transactionHash": "0x31904a8a2040f0377aec0a70254a1d6b74ce393a68fd93d1a2bbaed4fbe2802f",
+      "blockNumber": 314661838,
+      "linkedLibraries": [],
+      "linkedBy": [
+        "OperationalAdapterExecutor"
+      ]
+    },
+    {
+      "name": "PortfolioRiskAdmissionLib",
+      "artifact": "contracts/out/PortfolioRiskAdmissionLib.sol/PortfolioRiskAdmissionLib.json",
+      "address": "0x5fc7212f9cd0333f22433b85a2e8ab2dcade734e",
+      "creationCodeHash": "0xaf6fe6e466f8eee260b87bbb96a4840f63e1d239ca4d934d59ca0ecb17d1d990",
+      "runtimeCodeHash": "0xad3b7ee013a2bb6b35a0d053d8679c01ce2c201dd9252169289b8c6294a000c8",
+      "transactionHash": "0xd2b779852bbdf858de1583b0c9cbb746131af9b557207ee663238e9a0fa13877",
+      "blockNumber": 314661845,
+      "linkedLibraries": [],
+      "linkedBy": [
+        "PortfolioRiskEngine"
+      ]
+    },
+    {
+      "name": "PortfolioRiskExposureLib",
+      "artifact": "contracts/out/PortfolioRiskExposureLib.sol/PortfolioRiskExposureLib.json",
+      "address": "0x1c0d21b5cb478c6252879a0b2a42b2aebcdd5ceb",
+      "creationCodeHash": "0xeaeab8371c7281e5f20617f9d478a9c912c52e393177d07af72a9c70bc55775b",
+      "runtimeCodeHash": "0x8b5b8f63cf90790276e53519386ae8ecaf228ed6255e020026c1dcb6bfa15296",
+      "transactionHash": "0xef4b8449c38f1cba1e6303051b881105562cfec79d8ef24ccd59d74d2d897558",
+      "blockNumber": 314661851,
+      "linkedLibraries": [],
+      "linkedBy": [
+        "PortfolioRiskEngine"
+      ]
+    },
+    {
+      "name": "PositionCreationLib",
+      "artifact": "contracts/out/PositionCreationLib.sol/PositionCreationLib.json",
+      "address": "0xa3dbd2e52a3630a9ad594d0b690085e534fcf987",
+      "creationCodeHash": "0x883d3c14bb6a9dcb60538742f423c321c8c60e1596051e14ce70f03f5fb5b6cd",
+      "runtimeCodeHash": "0x1efe174fce0522851ecc4abf01cb9a134216e4051a4b88a216d0204b45013a47",
+      "transactionHash": "0x6f4bddae2a448d13617edcc201bd64f50d95133389344b4f918076443d739af9",
+      "blockNumber": 314661859,
+      "linkedLibraries": [],
+      "linkedBy": [
+        "PositionEngine"
+      ]
+    },
+    {
+      "name": "PositionTerminalLib",
+      "artifact": "contracts/out/PositionTerminalLib.sol/PositionTerminalLib.json",
+      "address": "0xb4cbf85625ad1ecc1282a811ccdc044dd9105cf1",
+      "creationCodeHash": "0xc5cf63157b63d2cc496828c69be58fd493c668ef1aa8c81109a26b4b9d01be34",
+      "runtimeCodeHash": "0x8ad50c3551492c9bbf9833de24bbe3e90fb5e87203b8e4315696d8b6819057e8",
+      "transactionHash": "0x69af7dd511885f54a12ecc9f4371e8d0ff9c7e62eb94cb3a4937618e6ffa01ea",
+      "blockNumber": 314661867,
+      "linkedLibraries": [],
+      "linkedBy": [
+        "PositionEngine"
+      ]
+    },
+    {
+      "name": "PositionViewLib",
+      "artifact": "contracts/out/PositionViewLib.sol/PositionViewLib.json",
+      "address": "0xf0bfcc5a244573968ba58a49768ac1be6825725c",
+      "creationCodeHash": "0xbac59156dad5a4d61885e3e22edbcc59637fd087604e3a1f1b26ccd742d0e858",
+      "runtimeCodeHash": "0x0a84e04280ebc6f3302de1fc4deb668981fa676ce05f4171d8edba3d551f431c",
+      "transactionHash": "0x0c58de0713d66e63d127a55c5b4a4138d4a9c7f85eedae1ce27509a668e5a229",
+      "blockNumber": 314661874,
+      "linkedLibraries": [],
+      "linkedBy": [
+        "PositionEngine"
+      ]
+    },
+    {
+      "name": "LifecycleBackingLib",
+      "artifact": "contracts/out/LifecycleBackingLib.sol/LifecycleBackingLib.json",
+      "address": "0x112705440c443ef44404cf6de13d68e7a1ad1669",
+      "creationCodeHash": "0x2c582570b274df51bd115dc964abc36b582eb02d63d414573d2dcd1a07cd01b8",
+      "runtimeCodeHash": "0x11dbb680f7c664dbf0a7a077fc558130be6bb31cc365a5c16220e0c187d5f461",
+      "transactionHash": "0xa571415649bce93d33f7d35eeaa41b532738ef3c62acd60ee399a86b2c8a12e4",
+      "blockNumber": 314661880,
+      "linkedLibraries": [],
+      "linkedBy": [
+        "LifecycleActionLib"
+      ]
+    },
+    {
+      "name": "LifecycleSuccessorLib",
+      "artifact": "contracts/out/LifecycleSuccessorLib.sol/LifecycleSuccessorLib.json",
+      "address": "0x93682d8747cdeea75b88b266e8bfac73535e82a7",
+      "creationCodeHash": "0xb92e75ef372842835bd27c3240746ffb74a5d24183d84ea1eb2386774967ff24",
+      "runtimeCodeHash": "0xf09c3265c43b5abb32231b7a8db09cca874bf0f4713f58d0d8fd88a23e0823eb",
+      "transactionHash": "0x6efd0f29a7631712e710dfcc9a4ab8cb83f0693a53fa87bee16d7144b8dd2a6a",
+      "blockNumber": 314661887,
+      "linkedLibraries": [],
+      "linkedBy": [
+        "LifecycleActionLib"
+      ]
+    },
+    {
+      "name": "LifecycleActionLib",
+      "artifact": "contracts/out/LifecycleActionLib.sol/LifecycleActionLib.json",
+      "address": "0xbebb62986ccca27375b3b401d41f40867c1412d6",
+      "creationCodeHash": "0xda193165cdb2b495dad1b8b4c2f6aff229b449f8a57c032e137dd1c7b27bb81f",
+      "runtimeCodeHash": "0x00175670e8d9488d0681e3dcaa61fc3efd2a239ff2b06a49696675d8526e871b",
+      "transactionHash": "0xd0e29681c5201e7094a231c944085d19dfa4351c0c95d63595d9dd26cec5d789",
+      "blockNumber": 314661893,
+      "linkedLibraries": [
+        "LifecycleBackingLib",
+        "LifecycleSuccessorLib"
+      ],
+      "linkedBy": [
+        "PositionLifecycleExecutor"
+      ]
+    },
+    {
+      "name": "PrivateRfqHandoffLib",
+      "artifact": "contracts/out/PrivateRfqHandoffLib.sol/PrivateRfqHandoffLib.json",
+      "address": "0xbb43179a5cb0f2449498f297eb0477d3cf9da695",
+      "creationCodeHash": "0xb308e522265f4769f0ad0339f0fa5a713162d7ec7193ceda2a042c677383dd74",
+      "runtimeCodeHash": "0xb5650b7e457aaba0809cba4c5cd8cc9f7be9f19aae23046384f6fc6885ced749",
+      "transactionHash": "0x67a5d3e173370e63f84a8e1b31b1dfe2f258cd25ad28395118e523224551f4ce",
+      "blockNumber": 314661900,
+      "linkedLibraries": [],
+      "linkedBy": [
+        "PrivateRfqBook"
+      ]
+    },
+    {
+      "name": "PrivateRfqLifecycleLib",
+      "artifact": "contracts/out/PrivateRfqLifecycleLib.sol/PrivateRfqLifecycleLib.json",
+      "address": "0x15f70c086c109721b1caa2fab20dcbd7255c9e77",
+      "creationCodeHash": "0x12f663d0c5cc5c78d59a2e10df9c24bd26afd1c3faa7350684a6614385480f9c",
+      "runtimeCodeHash": "0x08cdf27e21ab84f4c4e86fb18d0a3e4e97ff15b28bf68b1a1f99ddf2a5bccf05",
+      "transactionHash": "0x8b70e6142096631226113c87fd5dc77225be557e083a3607e155da391ff5a6d5",
+      "blockNumber": 314661906,
+      "linkedLibraries": [],
+      "linkedBy": [
+        "PrivateRfqBook"
+      ]
+    },
+    {
+      "name": "PrivateRfqQuoteLib",
+      "artifact": "contracts/out/PrivateRfqQuoteLib.sol/PrivateRfqQuoteLib.json",
+      "address": "0xd19e34333cc88293d0527f6679e2fae0252b60b2",
+      "creationCodeHash": "0x52bd9ec3c7a8b00218746212462e3ed8493b34c0b08a362f8c13429afaccd3d5",
+      "runtimeCodeHash": "0xc25a6601561118e1496f8aa928cd94e6b2d0f29b5fe6f72ba77c898f92cdf824",
+      "transactionHash": "0xa70452255bc75b2f25820fc505be19673c24e72207ba32460b1e5f4305baf321",
+      "blockNumber": 314661913,
+      "linkedLibraries": [],
+      "linkedBy": [
+        "PrivateRfqBook"
+      ]
+    },
+    {
+      "name": "RouteSourceValidationLib",
+      "artifact": "contracts/out/RouteSourceValidationLib.sol/RouteSourceValidationLib.json",
+      "address": "0x5223772d4544171a1568ada4ab2d1fa77aeb2e90",
+      "creationCodeHash": "0xd29f84a27e943cb5d368b20cf854e9cab37cc6eb212d5f06a9ff5a7f8d93cebe",
+      "runtimeCodeHash": "0x7f74fbb1af0a321d92b1e0443f74e81e80ef00d3d1f81fc24c4e096bdb9d6d61",
+      "transactionHash": "0x718df4ee48bd1c005661bcbed13bf03fd86d99987f632c519efbe8104c91e22a",
+      "blockNumber": 314661921,
+      "linkedLibraries": [],
+      "linkedBy": [
+        "ProtocolRouteLiquiditySource",
+        "RouteSourceReservationLib"
+      ]
+    },
+    {
+      "name": "RouteSourceReservationLib",
+      "artifact": "contracts/out/RouteSourceReservationLib.sol/RouteSourceReservationLib.json",
+      "address": "0x90e36a21eab1112ab1d3948fb1b36beaef45c176",
+      "creationCodeHash": "0x19f0b8b3a33b7ff8ce98f25184c4e7021e9b58fe171239d9f22d6057c3cb7267",
+      "runtimeCodeHash": "0x3fc6e30f7c0ba61f41b0e1a93597096281818934321de133c1e22c08bfeb797b",
+      "transactionHash": "0xd7ddadb24b4082cac543a9a6f450d71e98d32349916c434bff44ad79069f4395",
+      "blockNumber": 314661927,
+      "linkedLibraries": [
+        "RouteSourceValidationLib"
+      ],
+      "linkedBy": [
+        "ProtocolRouteLiquiditySource"
+      ]
+    },
+    {
+      "name": "SealedAuctionBidLib",
+      "artifact": "contracts/out/SealedAuctionBidLib.sol/SealedAuctionBidLib.json",
+      "address": "0xa307d74bf8a347acfb8b59d82fd8dbb07e86cdb9",
+      "creationCodeHash": "0x1c220161b5ac3c4bf4b71b256ccffdb0a66cc534bed05fb079a1619117fdb10b",
+      "runtimeCodeHash": "0xeff6bdf2a4c74c081ba30d8f1740647af2735546f158fe6f8bb305d1c3ce6170",
+      "transactionHash": "0xffa54be7691fb908016e337c0c60f5036bbf81f20ee52ff93e2ded8d8eeea6e2",
+      "blockNumber": 314661934,
+      "linkedLibraries": [],
+      "linkedBy": [
+        "SealedAuctionHouse",
+        "SealedAuctionSettlementLib"
+      ]
+    },
+    {
+      "name": "SealedAuctionClearingLib",
+      "artifact": "contracts/out/SealedAuctionClearingLib.sol/SealedAuctionClearingLib.json",
+      "address": "0x27da25dfa47988b1847c9a5bb78928ec84116e1c",
+      "creationCodeHash": "0xd85413729cba2e7c08680169b2580c93eaea1518b5c7efa1d4cd9678e2249391",
+      "runtimeCodeHash": "0x536c69e0f5fac3f65aa0fc06eface0ed8d1633a2e71386e587596a54c866c002",
+      "transactionHash": "0x87ca2ebb5561f5c97b050c955c2e799b0406c666e462cac37ab242b05d3bcb36",
+      "blockNumber": 314661940,
+      "linkedLibraries": [],
+      "linkedBy": [
+        "SealedAuctionHouse",
+        "SealedAuctionSettlementLib"
+      ]
+    },
+    {
+      "name": "SealedAuctionSettlementLib",
+      "artifact": "contracts/out/SealedAuctionSettlementLib.sol/SealedAuctionSettlementLib.json",
+      "address": "0x5506ab55371c0c369c9b964f8fc015ac63ca98bd",
+      "creationCodeHash": "0xf9d4550c5f136017752f4a7b068b0bd1835458f0c346ac8ecc625332ed6857e7",
+      "runtimeCodeHash": "0x28cd229907ed2c72a07b4e6696a0ae708c67a564b64b6ed923035a8f138db8f6",
+      "transactionHash": "0x6d7831dfadac52608727c7fae425fb956341b3f7c865e95771fa753c0a67cb11",
+      "blockNumber": 314661946,
+      "linkedLibraries": [
+        "SealedAuctionBidLib",
+        "SealedAuctionClearingLib"
+      ],
+      "linkedBy": [
+        "SealedAuctionHouse"
+      ]
+    },
+    {
+      "name": "SeriesValidationLib",
+      "artifact": "contracts/out/SeriesValidationLib.sol/SeriesValidationLib.json",
+      "address": "0xa18ce6fd8311cb4f5b53a31050e213c097bfe26d",
+      "creationCodeHash": "0x9d29691ac8482c1b119e4be9541c19907f9c7b6c0c033ac89854e4bafe23b6a7",
+      "runtimeCodeHash": "0x15fb75cbc3e9e92ff405dbafbfcc6134ebd85d3163b67171f0e831b7615db3fb",
+      "transactionHash": "0x22ea0c9c87b14031c26311f1d20aceedc5ba45b3ceb574e536e571368dcab166",
+      "blockNumber": 314661951,
+      "linkedLibraries": [],
+      "linkedBy": [
+        "SeriesLifecycleLib",
+        "SeriesRegistry"
+      ]
+    },
+    {
+      "name": "SeriesLifecycleLib",
+      "artifact": "contracts/out/SeriesLifecycleLib.sol/SeriesLifecycleLib.json",
+      "address": "0x04c25cffed6dfe1417d67a010716ff565add7c70",
+      "creationCodeHash": "0x2e85c83828dfceff5c9946f1ae99c46b27bd93c8048fadcdd5132ff7fd372f99",
+      "runtimeCodeHash": "0x2ba1abed5a2923a0eab87820f222dd34fd437d1f6b095803b8661b6d46a3d56e",
+      "transactionHash": "0x268a7332fb8f847c9b06f5cb93eb2d15c051f11b4b690288c90f932ceca05c19",
+      "blockNumber": 314661957,
+      "linkedLibraries": [
+        "SeriesValidationLib"
+      ],
+      "linkedBy": [
+        "SeriesRegistry"
+      ]
     }
   ]
 }
