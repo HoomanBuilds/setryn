@@ -300,11 +300,28 @@ async function main() {
 
   const broadcastPath = resolve(repositoryRoot, options.broadcast);
   const broadcast = readJson(broadcastPath);
+  const templatePath = resolve(repositoryRoot, environment.template);
+  const manifest = structuredClone(readJson(templatePath));
+  const reusableLibraryEvidence = new Map();
+  if (manifest.chainId === chainId) {
+    for (const library of manifest.linkedLibraries ?? []) {
+      if (!linkedLibraries.has(library.name)) {
+        throw new Error(`Template records undeclared library ${library.name}.`);
+      }
+      reusableLibraryEvidence.set(library.name, library);
+    }
+  }
   // Linked libraries are recorded by Foundry as `path:Name:address`; every one must be a declared library.
-  const libraryAddresses = new Map();
+  const libraryAddresses = new Map(
+    [...reusableLibraryEvidence.entries()].map(([name, library]) => [name, library.address.toLowerCase()]),
+  );
   for (const entry of broadcast.libraries ?? []) {
     const [, name, address] = entry.split(":");
     if (!linkedLibraries.has(name)) throw new Error(`Broadcast links undeclared library ${name}.`);
+    const reusableAddress = libraryAddresses.get(name);
+    if (reusableAddress && reusableAddress !== address.toLowerCase()) {
+      throw new Error(`Broadcast links ${name} at ${address}, but reusable evidence records ${reusableAddress}.`);
+    }
     libraryAddresses.set(name, address.toLowerCase());
   }
   const transactions = normalizeLibraryDeployments(broadcast.transactions, libraryAddresses);
@@ -326,8 +343,6 @@ async function main() {
   const blockTag = `0x${finalBlockNumber.toString(16)}`;
   const finalBlock = await rpc(rpcUrl, "eth_getBlockByNumber", [blockTag, false]);
 
-  const templatePath = resolve(repositoryRoot, environment.template);
-  const manifest = structuredClone(readJson(templatePath));
   if (options.environment === "local") {
     manifest.externalDependencies = [];
   }
@@ -379,9 +394,32 @@ async function main() {
   }
   for (const name of libraryAddresses.keys()) {
     if (!libraryEvidence.some((library) => library.name === name)) {
-      throw new Error(`Linked library ${name} has no deployment transaction in the broadcast.`);
+      const reusable = reusableLibraryEvidence.get(name);
+      if (!reusable || reusable.address.toLowerCase() !== libraryAddresses.get(name)) {
+        throw new Error(`Linked library ${name} has neither a deployment transaction nor reusable evidence.`);
+      }
+      const artifact = artifactFor(name);
+      const creationCodeHash = keccak(linkedCreationCode(artifact, libraryAddresses));
+      if (creationCodeHash !== reusable.creationCodeHash) {
+        throw new Error(`Reusable library ${name} creation code no longer matches its recorded deployment.`);
+      }
+      const runtimeCode = await rpc(rpcUrl, "eth_getCode", [reusable.address, blockTag]);
+      if (runtimeCode === "0x") throw new Error(`No bytecode found for reusable library ${name} at ${reusable.address}.`);
+      const runtimeCodeHash = keccak(runtimeCode);
+      if (runtimeCodeHash !== reusable.runtimeCodeHash) {
+        throw new Error(`Reusable library ${name} runtime code no longer matches its recorded deployment.`);
+      }
+      libraryEvidence.push({
+        ...reusable,
+        address: reusable.address.toLowerCase(),
+        creationCodeHash,
+        runtimeCodeHash,
+        linkedLibraries: linkedLibraryNames(artifact),
+        linkedBy: linkedLibraries.get(name).linkedBy,
+      });
     }
   }
+  libraryEvidence.sort((first, second) => first.name.localeCompare(second.name));
 
   for (const transaction of creates) {
     const contract = templateContracts.get(transaction.contractName);

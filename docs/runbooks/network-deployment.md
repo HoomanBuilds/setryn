@@ -119,7 +119,7 @@ export SETRYN_SEQUENCER_UPTIME_FEED=testnet-static
 
 forge build --root contracts
 node scripts/generate-deploy-artifacts.mjs --check
-forge script script/DeploySetryn.s.sol:DeploySetryn --root contracts \
+forge script "$PWD/contracts/script/DeploySetryn.s.sol:DeploySetryn" --root contracts \
   --rpc-url "$ARBITRUM_SEPOLIA_RPC_URL" --chain 421614 \
   --sender "$SETRYN_DEPLOYER_ADDRESS" --private-key "$DEPLOYER_KEY" \
   --slow --broadcast
@@ -162,7 +162,7 @@ export SETRYN_ORACLE_SIGNERS=0x...,0x...                                     # f
 export SETRYN_ORACLE_THRESHOLD=1                                            # distinct signatures per fixing
 # export SETRYN_TREASURY_ACCEPT_CONTROL=true   # only if the treasury key is also passed below (default false here)
 
-forge script script/BootstrapSetrynMarkets.s.sol:BootstrapSetrynMarkets --root contracts \
+forge script "$PWD/contracts/script/BootstrapSetrynMarkets.s.sol:BootstrapSetrynMarkets" --root contracts \
   --rpc-url "$ARBITRUM_SEPOLIA_RPC_URL" --chain 421614 \
   --sender "$SETRYN_GOVERNANCE_OPERATOR" \
   --private-keys "$OPERATOR_KEY" --private-keys "$GOVERNANCE_ADMIN_KEY" \
@@ -226,7 +226,7 @@ account; days already published are skipped):
 
 ```bash
 SETRYN_SESSION_DAYS="$PWD/deployments/arbitrum-sepolia/session-days.json" \
-forge script script/PublishSessionDays.s.sol:PublishSessionDays --root contracts \
+forge script "$PWD/contracts/script/PublishSessionDays.s.sol:PublishSessionDays" --root contracts \
   --rpc-url "$ARBITRUM_SEPOLIA_RPC_URL" --chain 421614 --private-key "$KEEPER_KEY" --broadcast
 # SETRYN_SESSION_DAY_FROM / SETRYN_SESSION_DAY_THROUGH (UTC day numbers) override the default today .. today + 3
 ```
@@ -280,7 +280,7 @@ SETRYN_FUNDED_FEE_ENGINE=$(jq -r .fundedFeeEngine deployments/arbitrum-sepolia/r
 SETRYN_FEE_SCHEDULE_ID=$(jq -r .feeScheduleId deployments/arbitrum-sepolia/runtime.json) \
 SETRYN_REGISTRY_STATUS_CONTROLLER=$(jq -r .registryStatusController deployments/arbitrum-sepolia/runtime.json) \
 SETRYN_MAKER_FEE_RATE_PPM=500 SETRYN_TAKER_FEE_RATE_PPM=1000 \
-forge script script/UpdateFeeSchedule.s.sol:UpdateFeeSchedule --root contracts --rpc-url "$ARBITRUM_SEPOLIA_RPC_URL"
+forge script "$PWD/contracts/script/UpdateFeeSchedule.s.sol:UpdateFeeSchedule" --root contracts --rpc-url "$ARBITRUM_SEPOLIA_RPC_URL"
 ```
 
 Oracle key rotation. The adapter has no admin. Deploy a new `SignedObservationFixingAdapter` with the new signer set,
