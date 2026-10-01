@@ -36,6 +36,7 @@ export interface RuntimeEnvironment {
    * in the union only until lib/activity/types.ts stops comparing against it.
    */
   evidence: "ONCHAIN" | "TESTNET" | "MAINNET";
+  settlementTokenMintable: boolean;
 }
 
 export interface GatewayAccount {

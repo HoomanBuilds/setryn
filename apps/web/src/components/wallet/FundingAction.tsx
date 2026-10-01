@@ -13,9 +13,8 @@ const ACTION =
 type FundingState = { kind: "IDLE" } | { kind: "SENDING" } | { kind: "DONE"; message: string } | { kind: "FAILED"; message: string };
 
 /**
- * How a wallet gets settlement USDC on the configured network. On the local chain it grants test USDC (and gas) from
- * the local token; on Arbitrum Sepolia it points to Circle's USDC faucet and the deposit step; on Arbitrum One the
- * wallet brings its own USDC, so nothing is shown.
+ * How a wallet gets settlement USDC on the configured network. Mintable deployments grant test USDC in the app,
+ * Circle-backed Sepolia points to Circle's faucet, and Arbitrum One expects the wallet to bring real USDC.
  */
 export function FundingAction({ className = "" }: { className?: string }) {
   const snapshot = useGatewaySnapshot();
@@ -25,7 +24,7 @@ export function FundingAction({ className = "" }: { className?: string }) {
 
   if (network === "arbitrum-one") return null;
 
-  if (network === "arbitrum-sepolia") {
+  if (network === "arbitrum-sepolia" && !snapshot.environment.settlementTokenMintable) {
     return (
       <div className={`text-[11px] leading-snug text-dim ${className}`}>
         <p>
@@ -65,6 +64,9 @@ export function FundingAction({ className = "" }: { className?: string }) {
         <Plus size={12} aria-hidden="true" />
         {state.kind === "SENDING" ? "Adding USDC..." : "Get test USDC"}
       </button>
+      {network === "arbitrum-sepolia" ? (
+        <p className="mt-1.5 text-[11px] leading-snug text-dim">You still need a small amount of Arbitrum Sepolia ETH for trading gas.</p>
+      ) : null}
       {state.kind === "DONE" ? <p role="status" className="mt-1.5 text-[11px] leading-snug text-up">{state.message}</p> : null}
       {state.kind === "FAILED" ? <p role="alert" className="mt-1.5 text-[11px] leading-snug text-down">{state.message}</p> : null}
     </div>

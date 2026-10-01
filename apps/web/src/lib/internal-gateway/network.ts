@@ -76,7 +76,14 @@ export function publicNetwork(): SetrynNetwork {
 /** The environment the platform reports for a network. */
 export function networkEnvironment(network: SetrynNetwork): RuntimeEnvironment {
   const profile = NETWORK_PROFILES[network];
-  return { id: profile.environmentId, network, label: profile.label, chainId: profile.chainId, evidence: profile.evidence };
+  return {
+    id: profile.environmentId,
+    network,
+    label: profile.label,
+    chainId: profile.chainId,
+    evidence: profile.evidence,
+    settlementTokenMintable: network === "local",
+  };
 }
 
 /**

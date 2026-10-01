@@ -64,6 +64,7 @@ export interface SetrynRuntime {
   rpcUrl: string;
   operator: Address;
   settlementToken: Address;
+  settlementTokenMintable?: boolean;
   marketAdapter: Address;
   collateralVault: Address;
   fundedFeeEngine: Address;

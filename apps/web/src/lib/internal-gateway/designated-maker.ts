@@ -16,8 +16,8 @@ export const MAKER_PUBLIC_POLICY_CONTEXT = keccak256(stringToHex("SETRYN_DEVNET_
 export const MAKER_RFQ_POLICY_CONTEXT = keccak256(stringToHex("SETRYN_DEVNET_MAKER_PRIVATE_RFQ_V1"));
 export const PUBLIC_SERIES_POLICY = keccak256(stringToHex("SETRYN_POLICY_PUBLIC_SERIES_V1"));
 
-/** Collateral the local maker mints for itself: enough to rest both sides of every market with room to fill. */
-const LOCAL_MAKER_FUNDING = parseUnits("5000000", 6);
+/** Collateral a mintable test deployment gives its maker to quote every market with room to fill. */
+const TEST_MAKER_FUNDING = parseUnits("5000000", 6);
 
 export const makerVaultAbi = [
   {
@@ -121,12 +121,13 @@ export function makerAccountId(signer: RoleSigner): Promise<Hex> {
 
 /**
  * Makes the maker's account ready to quote: it exists, holds collateral, and lets the clearing and position engines
- * lock it. Locally the maker mints its test collateral once. On a network the maker is funded by sending USDC to its
- * address: whatever settlement token its wallet holds is deposited, so a top-up needs no other step.
+ * lock it. A mintable test deployment lets the maker mint its collateral once. With real USDC, whatever settlement
+ * token its wallet holds is deposited, so a top-up needs no other step.
  */
 export async function ensureMakerAccount(signer: RoleSigner): Promise<Hex> {
   const { setryn, publicClient, walletClient } = signer;
   const local = (setryn.network ?? "local") === "local";
+  const mintable = local || setryn.settlementTokenMintable === true;
   const accountId = await makerAccountId(signer);
   const exists = await publicClient.readContract({ address: setryn.collateralVault, abi: makerVaultAbi, functionName: "accountExists", args: [accountId] });
   if (!exists) {
@@ -140,10 +141,10 @@ export async function ensureMakerAccount(signer: RoleSigner): Promise<Hex> {
     await confirm(signer, hash, "MAKER_ACCOUNT_CREATION_FAILED");
   }
   let deposit = BigInt(0);
-  if (local && !exists) {
-    const hash = await walletClient.writeContract({ chain: null, address: setryn.settlementToken, abi: tokenAbi, functionName: "mint", args: [LOCAL_MAKER_FUNDING] });
+  if (mintable && !exists) {
+    const hash = await walletClient.writeContract({ chain: null, address: setryn.settlementToken, abi: tokenAbi, functionName: "mint", args: [TEST_MAKER_FUNDING] });
     await confirm(signer, hash, "MAKER_FUNDING_FAILED");
-    deposit = LOCAL_MAKER_FUNDING;
+    deposit = TEST_MAKER_FUNDING;
   } else if (!local) {
     deposit = await publicClient.readContract({ address: setryn.settlementToken, abi: tokenAbi, functionName: "balanceOf", args: [signer.address] });
   }

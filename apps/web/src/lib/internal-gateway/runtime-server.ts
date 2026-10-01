@@ -274,6 +274,7 @@ function validateRuntime(candidate: unknown, network: SetrynNetwork): Omit<Setry
   optional(record, "oracleSigners", (value) =>
     Array.isArray(value) && value.every(isAddress) && new Set(value.map((entry: string) => entry.toLowerCase())).size === value.length);
   optional(record, "oracleThreshold", (value) => Number.isSafeInteger(value) && Number(value) >= 0);
+  optional(record, "settlementTokenMintable", (value) => typeof value === "boolean");
   if (record.oracleThreshold !== undefined && Number(record.oracleThreshold) > (Array.isArray(record.oracleSigners) ? record.oracleSigners.length : 0)) {
     throw new Error("INVALID_RUNTIME");
   }

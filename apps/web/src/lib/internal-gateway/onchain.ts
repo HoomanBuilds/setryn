@@ -2069,7 +2069,11 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     this.observeChainClock(head.timestamp);
     this.publish({
       ...this.snapshot,
-      environment: { ...networkEnvironment(runtimeNetwork(setryn)), chainId: setryn.chainId },
+      environment: {
+        ...networkEnvironment(runtimeNetwork(setryn)),
+        chainId: setryn.chainId,
+        settlementTokenMintable: setryn.settlementTokenMintable === true || runtimeNetwork(setryn) === "local",
+      },
       ...this.feeScheduleProjection(setryn, fees),
     });
     return setryn;
