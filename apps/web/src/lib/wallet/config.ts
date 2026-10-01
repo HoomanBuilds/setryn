@@ -1,36 +1,50 @@
 import { connectorsForWallets, type Wallet, type WalletList } from "@rainbow-me/rainbowkit";
 import { coinbaseWallet, injectedWallet, safeWallet, walletConnectWallet } from "@rainbow-me/rainbowkit/wallets";
-import { defineChain } from "viem";
+import type { Chain } from "viem";
 import { cookieStorage, createConfig, createStorage, http } from "wagmi";
 import { arbitrum, arbitrumSepolia } from "wagmi/chains";
+import { networkChain, publicNetwork } from "@/lib/internal-gateway/network";
 
 export const APP_NAME = "Setryn";
 
-/** The local devnet the runtime deploys to. Wallets list it as "Setryn Local", never as Arbitrum One. */
-export const setrynLocal = defineChain({
-  id: 31337,
-  name: "Setryn Local",
-  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-  rpcUrls: { default: { http: [process.env.NEXT_PUBLIC_SETRYN_LOCAL_RPC_URL || "http://127.0.0.1:8545"] } },
-  testnet: true,
-});
+/** The network this build serves (NEXT_PUBLIC_SETRYN_NETWORK, filled from SETRYN_NETWORK by next.config.ts). */
+export const walletNetwork = publicNetwork();
 
-/** Chains the wallet layer knows. The app signs only on the runtime's chain; the others exist for metadata and reads. */
-export const walletChains = [setrynLocal, arbitrum, arbitrumSepolia] as const;
+/** RPC the browser and the wallet use; empty means each chain's own public endpoint. */
+const browserRpcUrl = process.env.NEXT_PUBLIC_SETRYN_RPC_URL?.trim() || null;
+
+/**
+ * The local chain the runtime deploys to. Wallets list it as "Setryn Local"; the platform itself presents it as
+ * Arbitrum One, which it mirrors.
+ */
+export const setrynLocal = networkChain(
+  "local",
+  process.env.NEXT_PUBLIC_SETRYN_LOCAL_RPC_URL?.trim() || browserRpcUrl || "http://127.0.0.1:8545",
+);
+
+/** The one chain the app signs on: the configured network's. A wallet anywhere else is asked to switch to it. */
+export const setrynChain: Chain =
+  walletNetwork === "arbitrum-one" ? arbitrum : walletNetwork === "arbitrum-sepolia" ? arbitrumSepolia : setrynLocal;
+
+/** Chains the wallet layer connects on: only the configured one, so wrong-network handling always targets it. */
+export const walletChains = [setrynChain] as const;
+
+/** Every chain the app can name, for labels and explorer links when a wallet sits elsewhere. */
+const knownChains: readonly Chain[] = [setrynLocal, arbitrum, arbitrumSepolia];
 
 /** WalletConnect is offered only when a project id is configured; none is ever hardcoded. */
 export const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID?.trim() || null;
 
 /** Where an address is shown on a block explorer: Arbiscan on Arbitrum One and Sepolia, nowhere on the local chain. */
 export function explorerAddressUrl(chainId: number | null | undefined, address: string): string | null {
-  const chain = walletChains.find((candidate) => candidate.id === chainId);
-  const explorer = chain && "blockExplorers" in chain ? chain.blockExplorers?.default : undefined;
+  const chain = knownChains.find((candidate) => candidate.id === chainId);
+  const explorer = chain?.blockExplorers?.default;
   return explorer ? `${explorer.url}/address/${address}` : null;
 }
 
 /** The wallet's own name for a chain, for prompts that speak about the wallet rather than the app. */
 export function walletChainName(chainId: number | null | undefined): string {
-  return walletChains.find((candidate) => candidate.id === chainId)?.name ?? `chain ${chainId ?? "unknown"}`;
+  return knownChains.find((candidate) => candidate.id === chainId)?.name ?? `chain ${chainId ?? "unknown"}`;
 }
 
 /** Any injected provider without an EIP-6963 announcement. Hidden when the browser has no injected wallet at all. */
@@ -46,7 +60,8 @@ function walletList(): WalletList {
 
 /**
  * One wagmi config per client. `ssr` defers reconnecting to after hydration so server and first client render agree,
- * and the session lives in a cookie so a later server read can restore it.
+ * and the session lives in a cookie so a later server read can restore it. Reads go through NEXT_PUBLIC_SETRYN_RPC_URL
+ * when it is set, else the chain's own RPC.
  */
 export function createWalletConfig() {
   return createConfig({
@@ -57,9 +72,7 @@ export function createWalletConfig() {
       projectId: walletConnectProjectId ?? "",
     }),
     transports: {
-      [setrynLocal.id]: http(),
-      [arbitrum.id]: http(),
-      [arbitrumSepolia.id]: http(),
+      [setrynChain.id]: http(browserRpcUrl ?? undefined),
     },
     ssr: true,
     storage: createStorage({ storage: cookieStorage }),

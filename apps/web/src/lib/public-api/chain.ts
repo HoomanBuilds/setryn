@@ -28,7 +28,7 @@ import {
   runtimeMarketBySeries,
   ticksToPrice as marketTicksToPrice,
 } from "@/lib/internal-gateway/runtime-markets";
-import { readLocalRuntime } from "@/lib/internal-gateway/runtime-server";
+import { readRuntime } from "@/lib/internal-gateway/runtime-server";
 import { marketTradingVersions, readActiveFeeSchedule, type ActiveFeeSchedule, type MarketTradingVersions } from "@/lib/internal-gateway/fee-schedule";
 
 /**
@@ -106,6 +106,8 @@ export interface ChainContext {
   chainTime: bigint;
   /** The active fee schedule (15 s cache): the version orders sign, its rates, and the book it keys. */
   feeSchedule: ActiveFeeSchedule;
+  /** First block of the deployment; every event scan starts here rather than at genesis. */
+  deploymentBlock: bigint;
 }
 
 const CLIENTS_KEY = Symbol.for("setryn.public-api.clients");
@@ -124,14 +126,14 @@ function clientFor(rpcUrl: string): PublicClient {
 }
 
 export async function chainContext(): Promise<ChainContext> {
-  const setryn = await readLocalRuntime();
+  const setryn = await readRuntime();
   const client = clientFor(setryn.rpcUrl);
   const [headBlock, pending, feeSchedule] = await Promise.all([
     client.getBlockNumber({ cacheTime: 0 }),
     client.getBlock({ blockTag: "pending" }),
     readActiveFeeSchedule(setryn, { client }),
   ]);
-  return { setryn, client, headBlock, chainTime: pending.timestamp, feeSchedule };
+  return { setryn, client, headBlock, chainTime: pending.timestamp, feeSchedule, deploymentBlock: BigInt(setryn.deploymentBlock ?? 0) };
 }
 
 /** Memoizes a projection for one head block of one deployment, so a burst of reads costs one chain scan. */
@@ -165,7 +167,7 @@ export function activeVersions(context: ChainContext, market: SetrynRuntimeMarke
   return marketTradingVersions(context.feeSchedule, market.seriesId);
 }
 
-/** The onchain market of a catalog market id, or null when that catalog market is preview-only on this deployment. */
+/** The onchain market of a catalog market id, or null when this deployment does not list that market onchain. */
 export function onchainMarket(setryn: SetrynRuntime, catalogMarketId: string): SetrynRuntimeMarket | null {
   return runtimeMarketByKey(setryn, catalogMarketId);
 }
@@ -217,7 +219,7 @@ export async function loadAccount(context: ChainContext, accountId: Hex): Promis
   return {
     accountId,
     exists,
-    collateralAsset: "sUSD",
+    collateralAsset: "USDC",
     collateralId,
     postedUsd: minorToUsd(total),
     reservedUsd: minorToUsd(locked),
@@ -293,7 +295,7 @@ interface ChainActivity {
 function loadChainActivity(context: ChainContext): Promise<ChainActivity> {
   return cachedByBlock("activity", context, async () => {
     const { client, setryn } = context;
-    const range = { fromBlock: BigInt(0), toBlock: context.headBlock } as const;
+    const range = { fromBlock: context.deploymentBlock, toBlock: context.headBlock } as const;
     const [positionEvents, ledgerEvents, quantityEvents, feeEvents] = await Promise.all([
       client.getContractEvents({ address: setryn.atomicClearingEngine, abi: atomicClearingAbi, eventName: "FillPositionCreated", ...range }),
       client.getContractEvents({ address: setryn.atomicClearingEngine, abi: atomicClearingAbi, eventName: "FillLedgerEntry", ...range }),
@@ -409,7 +411,7 @@ export interface ApiReceipt {
   realizedPnlUsd: number | null;
   collateralReleasedUsd: number | null;
   guarantee: string;
-  evidence: "DEVNET" | "TESTNET";
+  evidence: "ONCHAIN" | "TESTNET" | "MAINNET";
   createdAt: string;
 }
 
@@ -540,7 +542,7 @@ export function loadAccountActivity(context: ChainContext, accountId: Hex): Prom
           : null,
         collateralReleasedUsd: entry ? entry.collateralUsd + record.collateralUsd : null,
         guarantee: "Atomic onchain settlement",
-        evidence: setryn.chainId === 31337 ? "DEVNET" : "TESTNET",
+        evidence: setryn.network === "arbitrum-one" ? "MAINNET" : setryn.network === "arbitrum-sepolia" ? "TESTNET" : "ONCHAIN",
         createdAt: record.createdAt,
       });
       if (fill.positionLive) {
@@ -659,7 +661,7 @@ export async function loadOrders(context: ChainContext, filter: { accountId: Hex
       abi: orderStateAbi,
       eventName: "OrderRegistered",
       args: "signer" in filter ? { signer: filter.signer } : undefined,
-      fromBlock: BigInt(0),
+      fromBlock: context.deploymentBlock,
       toBlock: context.headBlock,
     });
     const hashes = [
@@ -741,7 +743,7 @@ export async function loadPublicBook(context: ChainContext, market: SetrynRuntim
       abi: publicOrderBookAbi,
       eventName: "DirectOrderRested",
       args: { bookId },
-      fromBlock: BigInt(0),
+      fromBlock: context.deploymentBlock,
       toBlock: context.headBlock,
     });
     const hashes = [...new Set(events.map((event) => event.args.orderHash).filter((value): value is Hex => value != null))];

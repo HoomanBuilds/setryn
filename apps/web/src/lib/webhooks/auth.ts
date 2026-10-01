@@ -5,17 +5,20 @@ import { WebhookApiError } from "./service";
  * Management authorization for webhook and partner routes.
  *
  * Webhook routes accept a public API key (`Authorization: Bearer stk_...`), verified by `@/lib/public-api/keys`; the
- * key id scopes the subscriptions (`key:<id>`). Without a key, management is local-devnet only: the request must reach
+ * key id scopes the subscriptions (`key:<id>`). Without a key, management is local-console only: the request must reach
  * a loopback host, and a browser request must be same-origin (Origin, when present, must match Host) so a third-party
- * page cannot drive the local API; every such request acts as the single `local-devnet` owner (the partner console).
+ * page cannot drive the local API; every such request acts as the single console owner (the partner console), stored
+ * under the owner id `local-devnet` that services/webhooks shares.
  * Partner-deployment routes are console-only and refuse keys.
  */
 export interface ManagementPrincipal {
   ownerId: string;
-  mode: "local-devnet" | "api-key";
+  mode: "local-console" | "api-key";
 }
 
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+/** Persisted owner id of the console's subscriptions, shared with services/webhooks; kept for stored data. */
+const CONSOLE_OWNER_ID = "local-devnet";
 
 function hostname(host: string | null): string | null {
   if (!host) return null;
@@ -48,7 +51,7 @@ export async function authorizeManagement(
   const host = request.headers.get("host");
   const name = hostname(host);
   if (!name || !LOOPBACK.has(name)) {
-    throw new WebhookApiError(403, "LOCAL_DEVNET_ONLY", "Webhook management is limited to the local devnet host.");
+    throw new WebhookApiError(403, "LOCAL_CONSOLE_ONLY", "Webhook management without an API key is limited to the local console host.");
   }
   const origin = request.headers.get("origin");
   if (origin && origin !== "null") {
@@ -60,5 +63,5 @@ export async function authorizeManagement(
     }
     if (originHost !== host) throw new WebhookApiError(403, "CROSS_ORIGIN_REFUSED", "Cross-origin management requests are refused.");
   }
-  return { ownerId: "local-devnet", mode: "local-devnet" };
+  return { ownerId: CONSOLE_OWNER_ID, mode: "local-console" };
 }

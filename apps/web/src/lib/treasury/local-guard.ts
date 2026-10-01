@@ -1,8 +1,8 @@
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
 /**
- * Devnet control routes answer only a same-origin request that arrived on a loopback host. The runtime reader separately
- * refuses anything but the local chain (31337) on a loopback RPC.
+ * Local-chain control routes (fee schedule changes) answer only a same-origin request that arrived on a loopback host.
+ * The routes separately refuse every network but the local chain, where fees change through the governance timelock.
  */
 export function localRequestRefusal(request: Request): string | null {
   const url = new URL(request.url);

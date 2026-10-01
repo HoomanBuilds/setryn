@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { withDevnetMakerLock } from "@/lib/internal-gateway/devnet-maker-lock";
+import { withMakerLock } from "@/lib/internal-gateway/maker-lock";
 import { invalidateFeeScheduleCache } from "@/lib/internal-gateway/fee-schedule";
 
 /*
@@ -13,8 +13,8 @@ import { invalidateFeeScheduleCache } from "@/lib/internal-gateway/fee-schedule"
  * so this module never sends a registry transaction itself; it runs that script and reports its one-line JSON result.
  *
  * The script can compile contracts first, which takes minutes, so a change runs as a background job the page polls. It
- * broadcasts as the operator, so the job holds the devnet maker lock: the maker's quoting (also the operator) waits
- * rather than racing the script's nonces.
+ * broadcasts as the operator, so the job holds the maker lock: the local designated maker's quoting (also the operator)
+ * waits rather than racing the script's nonces. Every other network changes fees through the governance timelock.
  */
 
 const JOBS_KEY = Symbol.for("setryn.treasury.fee-change-jobs");
@@ -169,7 +169,7 @@ export function startFeeScheduleChange(input: { makerBps: string; takerBps: stri
   };
   jobs().set(job.id, job);
 
-  void withDevnetMakerLock(() => new Promise<void>((release) => runScript(job, script, root, input, release, onSettled)));
+  void withMakerLock(() => new Promise<void>((release) => runScript(job, script, root, input, release, onSettled)));
   return job;
 }
 

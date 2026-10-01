@@ -11,8 +11,9 @@ import {
   type Address,
   type Hex,
 } from "viem";
-import { POST as devnetRfqExecute } from "@/app/api/internal/devnet/rfq-execute/route";
-import { POST as devnetRfqQuote } from "@/app/api/internal/devnet/rfq-quote/route";
+import { POST as operatorRfqExecute } from "@/app/api/internal/operator/rfq-execute/route";
+import { POST as makerRfqQuote } from "@/app/api/internal/operator/rfq-quote/route";
+import { signerAvailability } from "@/lib/internal-gateway/operator-signer";
 import {
   orderStateAbi,
   privateRfqBookAbi,
@@ -65,13 +66,13 @@ import type { StoredApiKey } from "./store";
  *      it, and returns both EIP-712 typed data.
  *   2. POST /rfqs verifies both signatures, runs the platform's risk admission for the order, and returns the
  *      transactions the requester sends: bindOrderRisk, registerSignedOrder, registerRequest and openCollection.
- *   3. POST /rfqs/{rfqId}/quotes invites the solver network to quote. On the local devnet the seeded solver quotes through
- *      the platform's devnet solver route, exactly as the terminal triggers it. GET /rfqs/{rfqId}/quotes lists quotes.
+ *   3. POST /rfqs/{rfqId}/quotes invites the solver network to quote. Where the deployment runs a designated maker, it
+ *      quotes from the live reference exactly as the terminal triggers it. GET /rfqs/{rfqId}/quotes lists quotes.
  *   4. POST /rfqs/{rfqId}/accept/prepare returns the RfqSelectionAuthorization typed data for one quote; POST
  *      /rfqs/{rfqId}/accept verifies the signed selection and returns lockSelection, confirmSelectedCapacity,
  *      authorizeSubmission and submitSelectedRfq for the requester to send.
  *   5. POST /rfqs/{rfqId}/settle hands the submitted RFQ to the permitted executor, which clears it atomically through
- *      AtomicClearingEngine.clearSeriesWithHandoff. On the local devnet the executor is the platform's devnet operator.
+ *      AtomicClearingEngine.clearSeriesWithHandoff. The executor is the platform operator.
  *
  * Every hash, signature, lifecycle state, deadline and collateral bound is validated again by the contracts.
  */
@@ -95,10 +96,9 @@ const RFQ_SIDE_POLICY = { 1: "BUY_ONLY", 2: "SELL_ONLY", 3: "TWO_WAY" } as const
 const RAW_RFQ_COLLECTING = 2;
 const RAW_RFQ_SUBMITTED = 6;
 const RAW_RFQ_SETTLED = 8;
-const DEVNET_CHAIN_ID = 31337;
 const SELECTION_LIFETIME_SECONDS = BigInt(90);
 const RISK_WINDOW_SECONDS = BigInt(300);
-const SOLVER_LABEL = "Setryn Devnet MM";
+const SOLVER_LABEL = "Setryn MM";
 
 export type RfqStateName = (typeof RFQ_STATUS)[keyof typeof RFQ_STATUS];
 export type QuoteStateName = (typeof QUOTE_STATUS)[keyof typeof QUOTE_STATUS];
@@ -362,7 +362,7 @@ async function loadQuotes(context: ChainContext, rfqId: Hex, record: RfqRecord, 
     abi: privateRfqBookAbi,
     eventName: "MakerQuoteCommitted",
     args: { rfqId },
-    fromBlock: BigInt(0),
+    fromBlock: context.deploymentBlock,
     toBlock: context.headBlock,
   });
   const quoteIds = [...new Set(events.map((event) => event.args.quoteId).filter((value): value is Hex => value != null))];
@@ -376,7 +376,7 @@ async function loadQuotes(context: ChainContext, rfqId: Hex, record: RfqRecord, 
       return {
         quoteId,
         rfqId,
-        solver: getAddress(quote.quote.maker) === getAddress(setryn.operator) ? SOLVER_LABEL : getAddress(quote.quote.maker),
+        solver: getAddress(quote.quote.maker) === designatedMakerAddress(setryn) ? SOLVER_LABEL : getAddress(quote.quote.maker),
         maker: getAddress(quote.quote.maker),
         makerAccountId: quote.quote.makerAccountId,
         price: ticksToPrice(market, priceTicks),
@@ -461,7 +461,7 @@ export async function loadRfqs(context: ChainContext, key: StoredApiKey, filter:
     address: setryn.privateRfqBook,
     abi: privateRfqBookAbi,
     eventName: "PrivateRfqCommitted",
-    fromBlock: BigInt(0),
+    fromBlock: context.deploymentBlock,
     toBlock: context.headBlock,
   });
   const rfqIds = [...new Set(events.map((event) => event.args.rfqId).filter((value): value is Hex => value != null))];
@@ -627,24 +627,35 @@ async function requireOwnRfq(context: ChainContext, key: StoredApiKey, rfqId: He
   return { record, rfq };
 }
 
-function requireDevnetSolver(context: ChainContext): void {
-  if (context.setryn.chainId !== DEVNET_CHAIN_ID) {
-    throw new PublicApiError(409, "SOLVER_UNAVAILABLE", "Solver quoting and handoff execution through the API are only available on the local devnet.");
+/** The designated maker's address, or null when the deployment runs none. */
+function designatedMakerAddress(setryn: SetrynRuntime): Address | null {
+  const maker = signerAvailability(setryn).maker;
+  return maker.available && maker.address ? getAddress(maker.address) : null;
+}
+
+function requireRole(context: ChainContext, role: "maker" | "operator"): void {
+  const status = signerAvailability(context.setryn)[role];
+  if (!status.available) {
+    throw new PublicApiError(
+      409,
+      "SOLVER_UNAVAILABLE",
+      role === "maker" ? "This deployment runs no designated maker to quote through the API." : "This deployment has no operator to execute the handoff.",
+    );
   }
 }
 
 /**
- * Invites the eligible solvers to quote an RFQ that is collecting. On the local devnet the seeded solver quotes through
- * the platform's devnet solver route, the same way the terminal triggers it; its quote is firm and capacity-backed.
+ * Invites the eligible solvers to quote an RFQ that is collecting. Where the deployment runs a designated maker, it
+ * quotes from the live reference the same way the terminal triggers it; its quote is firm and capacity-backed.
  */
 export async function solicitQuotes(context: ChainContext, key: StoredApiKey, rfqId: Hex, origin: string) {
   const { record, rfq } = await requireOwnRfq(context, key, rfqId);
   if (record.status !== RAW_RFQ_COLLECTING || rfq.state !== "COLLECTING") {
     throw new PublicApiError(409, "RFQ_NOT_COLLECTING", `The RFQ is ${rfq.state}; quotes are collected only while it is COLLECTING. Send OPEN_RFQ first.`);
   }
-  requireDevnetSolver(context);
-  const response = await devnetRfqQuote(
-    new Request(new URL("/api/internal/devnet/rfq-quote", origin), {
+  requireRole(context, "maker");
+  const response = await makerRfqQuote(
+    new Request(new URL("/api/internal/operator/rfq-quote", origin), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rfqId }),
@@ -787,8 +798,8 @@ export async function acceptQuote(context: ChainContext, key: StoredApiKey, rfqI
 // Settle and cancel
 
 /**
- * Hands a submitted RFQ to its permitted executor for atomic clearing. On the local devnet the executor is the
- * platform's devnet operator, triggered through the same route the terminal uses. Settling a settled RFQ returns its
+ * Hands a submitted RFQ to its permitted executor for atomic clearing. The executor is the platform operator, triggered
+ * through the same route the terminal uses. Settling a settled RFQ returns its
  * settlement again.
  */
 export async function settleRfq(context: ChainContext, key: StoredApiKey, rfqId: Hex, origin: string) {
@@ -798,9 +809,9 @@ export async function settleRfq(context: ChainContext, key: StoredApiKey, rfqId:
   if (record.status !== RAW_RFQ_SUBMITTED || rfq.state !== "SUBMITTED") {
     throw new PublicApiError(409, "RFQ_NOT_SUBMITTED", `The RFQ is ${rfq.state}; send the accepted selection's transactions first.`);
   }
-  requireDevnetSolver(context);
-  const response = await devnetRfqExecute(
-    new Request(new URL("/api/internal/devnet/rfq-execute", origin), {
+  requireRole(context, "operator");
+  const response = await operatorRfqExecute(
+    new Request(new URL("/api/internal/operator/rfq-execute", origin), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rfqId }),

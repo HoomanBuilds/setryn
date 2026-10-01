@@ -7,7 +7,8 @@ import { useAccount, useDisconnect, useSwitchChain } from "wagmi";
 import { useGatewaySnapshot } from "@/components/gateway/InternalGatewayProvider";
 import { ChainIcon, chainLabelOf } from "@/components/icons/AssetIcon";
 import { StatusDot } from "@/components/terminal/primitives";
-import { explorerAddressUrl, walletChainName } from "@/lib/wallet/config";
+import { explorerAddressUrl, setrynChain, walletChainName } from "@/lib/wallet/config";
+import { FundingAction } from "./FundingAction";
 
 function shortAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -83,7 +84,7 @@ const ACTION =
 
 /**
  * The account panel's wallet block: address with copy and explorer link, the connector and gas balance, Disconnect,
- * and Switch network when the wallet sits on a chain the app does not sign on.
+ * Switch network when the wallet sits on a chain the app does not sign on, and how to get USDC on this network.
  */
 export function WalletDetails({ onConnect, onDisconnect }: { onConnect: () => void; onDisconnect: () => void }) {
   const snapshot = useGatewaySnapshot();
@@ -93,7 +94,8 @@ export function WalletDetails({ onConnect, onDisconnect }: { onConnect: () => vo
   const [copied, setCopied] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const { status, address } = snapshot.wallet;
-  const runtimeChainId = snapshot.environment.chainId;
+  // The wallet layer connects on the configured network's chain only, so that is the chain a switch asks for.
+  const runtimeChainId = setrynChain.id;
 
   if ((status !== "CONNECTED" && status !== "WRONG_NETWORK") || !address) {
     return (
@@ -195,6 +197,7 @@ export function WalletDetails({ onConnect, onDisconnect }: { onConnect: () => vo
             </button>
           </div>
           {message ? <p className="mt-2 text-xs leading-snug text-dim">{message}</p> : null}
+          {status === "CONNECTED" ? <FundingAction className="mt-2" /> : null}
         </div>
       )}
     </ConnectButton.Custom>

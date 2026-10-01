@@ -26,7 +26,8 @@ export const GET = publicRoute({ scope: "read" }, async () => {
   const { setryn } = context;
   return {
     data: {
-      environment: evidence.environment ?? "LOCAL_DEVNET",
+      environment: evidence.environment ?? setryn.network ?? "local",
+      network: setryn.network ?? "local",
       chainId: setryn.chainId,
       headBlock: context.headBlock.toString(),
       headTime: new Date(Number(head.timestamp) * 1000).toISOString(),
@@ -39,7 +40,7 @@ export const GET = publicRoute({ scope: "read" }, async () => {
         state: matching === evidence.contracts.length && matching > 0 ? "VERIFIED" : "DEGRADED",
       },
       onchainMarkets: setryn.markets.map((market) => market.marketKey),
-      settlement: { token: setryn.settlementToken, assetId: setryn.settlementAssetId, collateralSymbol: "sUSD", decimals: 6 },
+      settlement: { token: setryn.settlementToken, assetId: setryn.settlementAssetId, collateralSymbol: "USDC", decimals: 6 },
       contracts: {
         collateralVault: setryn.collateralVault,
         orderState: setryn.orderState,

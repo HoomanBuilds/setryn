@@ -1,12 +1,11 @@
 "use client";
 
 import "@rainbow-me/rainbowkit/styles.css";
-import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RainbowKitProvider, darkTheme, type Theme } from "@rainbow-me/rainbowkit";
 import { WagmiProvider } from "wagmi";
-import { useInternalGateway } from "@/components/gateway/InternalGatewayProvider";
-import { APP_NAME, createWalletConfig } from "@/lib/wallet/config";
+import { APP_NAME, createWalletConfig, setrynChain } from "@/lib/wallet/config";
 import { WalletBridge } from "./WalletBridge";
 
 const base = darkTheme({
@@ -67,18 +66,12 @@ const walletTheme: Theme = {
 
 /**
  * The wallet layer for the platform: wagmi for connections, React Query for its reads, and RainbowKit for the connect
- * prompt. It sits inside the gateway provider so the bridge can hand the connected wallet to the gateway.
+ * prompt. It sits inside the gateway provider so the bridge can hand the connected wallet to the gateway. Connecting asks
+ * the wallet for the configured network's chain first, so a fresh wallet lands on the chain the app signs on.
  */
 export function WalletProvider({ children }: { children: ReactNode }) {
-  const gateway = useInternalGateway();
   const [config] = useState(createWalletConfig);
   const [queryClient] = useState(() => new QueryClient());
-  // Connecting asks the wallet for the runtime's chain first, so a fresh wallet lands on the chain the app signs on.
-  const runtimeChainId = useSyncExternalStore(
-    gateway.subscribe,
-    () => gateway.getSnapshot().environment.chainId,
-    () => gateway.getServerSnapshot().environment.chainId,
-  );
 
   return (
     <WagmiProvider config={config}>
@@ -86,7 +79,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         <RainbowKitProvider
           theme={walletTheme}
           modalSize="compact"
-          initialChain={runtimeChainId}
+          initialChain={setrynChain}
           appInfo={{ appName: APP_NAME }}
         >
           <WalletBridge />

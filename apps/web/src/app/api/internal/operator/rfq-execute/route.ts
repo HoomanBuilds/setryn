@@ -1,13 +1,4 @@
-import {
-  createPublicClient,
-  createWalletClient,
-  getAddress,
-  http,
-  keccak256,
-  parseEventLogs,
-  stringToHex,
-  type Hex,
-} from "viem";
+import { keccak256, parseEventLogs, stringToHex, type Hex } from "viem";
 import {
   accountFeesPaidMinor,
   atomicClearingAbi,
@@ -16,9 +7,9 @@ import {
   riskBindingAbi,
   riskEngineAbi,
 } from "@/lib/internal-gateway/protocol";
+import { operatorSigner, signerUnavailableResponse } from "@/lib/internal-gateway/operator-signer";
 import { runtimeMarketBySeries } from "@/lib/internal-gateway/runtime-markets";
-import { readLocalRuntime } from "@/lib/internal-gateway/runtime-server";
-import { devnetOperatorTransport } from "@/lib/internal-gateway/devnet-operator-transport";
+import { readRuntime } from "@/lib/internal-gateway/runtime-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -114,6 +105,10 @@ interface ExecuteRfqBody {
   rfqId?: unknown;
 }
 
+/**
+ * Clears a submitted RFQ through its permitted executor: AtomicClearingEngine.clearSeriesWithHandoff is restricted to
+ * MATCH_EXECUTOR_ROLE, which the operator holds, so the handoff is sent with `operatorSigner()` whichever maker quoted.
+ */
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as ExecuteRfqBody;
@@ -121,10 +116,8 @@ export async function POST(request: Request) {
       return Response.json({ error: "Invalid RFQ identifier" }, { status: 400 });
     }
     const rfqId = body.rfqId as Hex;
-    const setryn = await readLocalRuntime();
-    const operator = getAddress(setryn.operator);
-    const publicClient = createPublicClient({ transport: http(setryn.rpcUrl) });
-    const walletClient = createWalletClient({ account: operator, transport: devnetOperatorTransport(setryn.rpcUrl) });
+    const setryn = await readRuntime();
+    const { publicClient, walletClient } = await operatorSigner(setryn);
     const rfq = await publicClient.readContract({
       address: setryn.privateRfqBook,
       abi: privateRfqBookAbi,
@@ -337,7 +330,6 @@ export async function POST(request: Request) {
       }],
     } as const;
     const hash = await walletClient.writeContract({
-      account: operator,
       chain: null,
       address: setryn.atomicClearingEngine,
       abi: atomicClearingAbi,
@@ -375,7 +367,9 @@ export async function POST(request: Request) {
       takerFeeMinor: takerFeeMinor.toString(),
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "RFQ_EXECUTION_FAILED";
-    return Response.json({ error: message }, { status: 422 });
+    const unavailable = signerUnavailableResponse(error);
+    if (unavailable) return unavailable;
+    const message = error instanceof Error ? error.message.split("\n")[0] : "RFQ_EXECUTION_FAILED";
+    return Response.json({ error: message }, { status: 422, headers: { "Cache-Control": "no-store" } });
   }
 }

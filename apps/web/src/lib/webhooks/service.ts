@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createPublicClient, http } from "viem";
-import { readLocalRuntime } from "@/lib/internal-gateway/runtime-server";
+import { NETWORK_PROFILES } from "@/lib/internal-gateway/network";
+import { configuredNetwork, readRuntime } from "@/lib/internal-gateway/runtime-server";
 import { readJson, setrynDataDirectory, updateJson } from "./json-store";
 import { signPayload, SIGNATURE_HEADER } from "./signature";
 import {
@@ -20,7 +21,6 @@ import {
  * (`services/webhooks`); both sides share the `.setryn/webhooks` store.
  */
 const FILES = { subscriptions: "subscriptions.json", deliveries: "deliveries.json", events: "events.json", cursor: "cursor.json" };
-const LOCAL_CHAIN_ID = 31337;
 const MAX_SUBSCRIPTIONS_PER_OWNER = 25;
 const MAX_ATTEMPTS = 8;
 const BASE_DELAY_MS = 30_000;
@@ -142,9 +142,16 @@ function validatePartnerCode(raw: unknown): string | null {
   return raw;
 }
 
+/** The deployment's network identity, from its runtime; the configured network's chain when the runtime is unreadable. */
+async function deploymentNetwork(): Promise<{ chainId: number; environment: string }> {
+  const runtime = await readRuntime().catch(() => null);
+  const network = runtime?.network ?? configuredNetwork();
+  return { chainId: runtime?.chainId ?? NETWORK_PROFILES[network].chainId, environment: network };
+}
+
 async function chainHead(): Promise<bigint | null> {
   try {
-    const runtime = await readLocalRuntime();
+    const runtime = await readRuntime();
     return await createPublicClient({ transport: http(runtime.rpcUrl) }).getBlockNumber();
   } catch {
     const cursor = (await readJson<CursorFile>(dir(), FILES.cursor, { version: 1, cursor: null })).cursor;
@@ -161,7 +168,7 @@ export interface CreateSubscriptionInput {
   eventTypes?: unknown;
   description?: unknown;
   partnerCode?: unknown;
-  /** Replay events after this block (local devnet only). Defaults to the current head: only new events deliver. */
+  /** Replay events after this block. Defaults to the current head: only new events deliver. */
   fromBlock?: unknown;
 }
 
@@ -170,7 +177,7 @@ export async function createSubscription(ownerId: string, input: CreateSubscript
   const eventTypes = validateEventTypes(input.eventTypes);
   const description = validateText(input.description, "description", 200);
   const partnerCode = validatePartnerCode(input.partnerCode);
-  const head = await chainHead();
+  const [head, network] = await Promise.all([chainHead(), deploymentNetwork()]);
   let startBlock: string;
   if (input.fromBlock === undefined || input.fromBlock === null) {
     startBlock = (head ?? BigInt(0)).toString();
@@ -194,7 +201,7 @@ export async function createSubscription(ownerId: string, input: CreateSubscript
     previousSecret: null,
     previousSecretExpiresAt: null,
     startBlock,
-    chainId: LOCAL_CHAIN_ID,
+    chainId: network.chainId,
     createdAt: now,
     updatedAt: now,
   };
@@ -348,7 +355,7 @@ export async function sendTestEvent(ownerId: string, id: string, rawType: unknow
     type,
     apiVersion: WEBHOOK_API_VERSION,
     createdAt: new Date().toISOString(),
-    network: { chainId: LOCAL_CHAIN_ID, environment: "local-devnet" },
+    network: await deploymentNetwork(),
     livemode: false,
     test: true,
     data: { message: `Test ${type} delivery from Setryn`, nonce },

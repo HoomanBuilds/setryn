@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  env: {
+    // One setting drives both sides: the browser bundle is built for SETRYN_NETWORK unless it is overridden explicitly.
+    NEXT_PUBLIC_SETRYN_NETWORK: process.env.NEXT_PUBLIC_SETRYN_NETWORK?.trim() || process.env.SETRYN_NETWORK?.trim() || "local",
+  },
   turbopack: {
     resolveAlias: {
       // RainbowKit pulls in wagmi's Base Account connector, which lazy-loads this SDK in the browser when a user picks

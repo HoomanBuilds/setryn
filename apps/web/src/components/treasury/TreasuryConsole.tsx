@@ -376,11 +376,11 @@ const WITHDRAW_ERRORS: Record<string, string> = {
   TREASURY_WITHDRAWAL_REVERTED: "The vault refused the withdrawal in simulation. Nothing was sent.",
   TREASURY_WITHDRAWAL_FAILED: "The withdrawal transaction reverted.",
   CONNECT_WALLET: "Connect the controller wallet first.",
-  WRONG_NETWORK: "Switch the wallet to Arbitrum One and try again.",
 };
 
-function withdrawError(caught: unknown): string {
+function withdrawError(caught: unknown, networkLabel: string): string {
   const code = caught instanceof Error ? caught.message : "";
+  if (code === "WRONG_NETWORK") return `Switch the wallet to ${networkLabel} and try again.`;
   if (WITHDRAW_ERRORS[code]) return WITHDRAW_ERRORS[code];
   if (/rejected|denied/i.test(code)) return "The wallet rejected the request. Nothing was sent.";
   return "The withdrawal did not complete. No outcome is claimed; check the fee account balance.";
@@ -409,7 +409,7 @@ function Withdraw({ data, onDone }: { data: TreasuryProjection; onDone: () => vo
       await gateway.withdrawTreasuryFees({ accountId: data.account.accountId, amount, recipient }, "SIMULATE");
       setStage({ kind: "CONFIRM", amount, recipient });
     } catch (caught) {
-      setStage({ kind: "FAILED", message: withdrawError(caught) });
+      setStage({ kind: "FAILED", message: withdrawError(caught, snapshot.environment.label) });
     }
   };
 
@@ -423,7 +423,7 @@ function Withdraw({ data, onDone }: { data: TreasuryProjection; onDone: () => vo
       setAmountInput("");
       onDone();
     } catch (caught) {
-      setStage({ kind: "FAILED", message: withdrawError(caught) });
+      setStage({ kind: "FAILED", message: withdrawError(caught, snapshot.environment.label) });
     }
   };
 
@@ -536,7 +536,9 @@ function FeeScheduleCard({ data, onChanged }: { data: TreasuryProjection; onChan
   const [makerInput, setMakerInput] = useState(String(active.makerFeeBps));
   const [takerInput, setTakerInput] = useState(String(active.takerFeeBps));
   const [stage, setStage] = useState<ChangeStage>({ kind: "IDLE" });
-  const operatorControl = data.feeControl.mode === "DEVNET_OPERATOR";
+  // Only the local chain lets the platform change fees itself; every network goes through the governance timelock.
+  const network = useGatewaySnapshot().environment.network;
+  const operatorControl = network === "local" && data.feeControl.mode === "DEVNET_OPERATOR";
   const ceiling = active.maxChargeRatePpm;
 
   const settle = useCallback(
@@ -562,7 +564,7 @@ function FeeScheduleCard({ data, onChanged }: { data: TreasuryProjection; onChan
     async (id: string) => {
       for (;;) {
         await new Promise((resolve) => window.setTimeout(resolve, JOB_POLL_MS));
-        const response = await fetch(`/api/internal/devnet/fee-schedule?job=${encodeURIComponent(id)}`, { cache: "no-store" }).catch(() => null);
+        const response = await fetch(`/api/internal/operator/fee-schedule?job=${encodeURIComponent(id)}`, { cache: "no-store" }).catch(() => null);
         if (!response || !response.ok) continue;
         const job = (await response.json()) as FeeChangeJobView;
         if (job.status !== "RUNNING") return settle(job);
@@ -575,7 +577,7 @@ function FeeScheduleCard({ data, onChanged }: { data: TreasuryProjection; onChan
   useEffect(() => {
     if (!operatorControl) return;
     let cancelled = false;
-    void fetch("/api/internal/devnet/fee-schedule", { cache: "no-store" })
+    void fetch("/api/internal/operator/fee-schedule", { cache: "no-store" })
       .then((response) => (response.ok ? (response.json() as Promise<FeeChangeJobView>) : null))
       .then((job) => {
         if (!cancelled && job?.status === "RUNNING") {
@@ -592,7 +594,7 @@ function FeeScheduleCard({ data, onChanged }: { data: TreasuryProjection; onChan
   const submit = async () => {
     setStage({ kind: "SENDING", since: Date.now() });
     try {
-      const response = await fetch("/api/internal/devnet/fee-schedule", {
+      const response = await fetch("/api/internal/operator/fee-schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ makerBps: Number(makerInput), takerBps: Number(takerInput) }),
@@ -723,6 +725,7 @@ function RevenueStreams() {
 
 export function TreasuryConsole() {
   const { reading, reload } = useTreasury();
+  const networkLabel = useGatewaySnapshot().environment.label;
   const data = reading.kind === "READY" ? reading.data : reading.kind === "UNAVAILABLE" ? reading.last : null;
   const totals = data?.revenue.totals;
   const active = data?.feeSchedule.active;
@@ -742,7 +745,7 @@ export function TreasuryConsole() {
             <div className="min-w-0">
               <h1 className="font-serif text-2xl text-ink">Treasury</h1>
               <p className="mt-1 max-w-[76ch] text-xs leading-relaxed text-dim">
-                Protocol fees on Arbitrum One, rebuilt from the fee engine&apos;s own ledger. Every maker and taker fee is funded from the payer&apos;s collateral at clearing and credited to the protocol fee account in the collateral vault.
+                {`Protocol fees on ${networkLabel}, rebuilt from the fee engine's own ledger.`} Every maker and taker fee is funded from the payer&apos;s collateral at clearing and credited to the protocol fee account in the collateral vault.
               </p>
             </div>
             <div className="flex items-center gap-2" role="status" aria-live="polite">
@@ -774,7 +777,7 @@ export function TreasuryConsole() {
                 data ? (
                   <span className="flex min-w-0 items-center gap-1.5">
                     <ChainIcon size={15} />
-                    Arbitrum One
+                    {networkLabel}
                   </span>
                 ) : (
                   "–"

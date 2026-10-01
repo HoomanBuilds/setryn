@@ -1,11 +1,11 @@
 import { createPublicClient, http, type AbiEvent, type Hex } from "viem";
 import { atomicClearingAbi, orderStateAbi } from "@/lib/internal-gateway/protocol";
-import { readLocalRuntime } from "@/lib/internal-gateway/runtime-server";
+import { readRuntime } from "@/lib/internal-gateway/runtime-server";
 import type { PartnerDeployment } from "./partners";
 
 /**
- * Partner revenue reconciliation. Fills are read from the local chain (FillCleared, the same record the platform's
- * fills and receipts are rebuilt from); a fill side is attributed to a partner when the order's account is in the
+ * Partner revenue reconciliation. Fills are read from the deployment's chain (FillCleared, the same record the
+ * platform's fills and receipts are rebuilt from); a fill side is attributed to a partner when the order's account is in the
  * partner's attributed accounts. Protocol fees are OBSERVED from the fill record; the partner share is MODELED as
  * `revShareBps` of the attributed side's net fee. No payout exists onchain, so every payout is unsettled.
  */
@@ -62,18 +62,18 @@ export interface RevenueReport {
 export async function buildRevenueReport(partners: readonly PartnerDeployment[]): Promise<RevenueReport> {
   let runtime;
   try {
-    runtime = await readLocalRuntime();
+    runtime = await readRuntime();
   } catch {
-    return { available: false, reason: "Local runtime is not deployed.", chainId: null, scannedToBlock: null, totalFills: 0, rows: [], fills: [] };
+    return { available: false, reason: "The deployment runtime is not available.", chainId: null, scannedToBlock: null, totalFills: 0, rows: [], fills: [] };
   }
   const client = createPublicClient({ transport: http(runtime.rpcUrl) });
   let head: bigint;
   let logs;
   try {
     head = await client.getBlockNumber();
-    logs = await client.getLogs({ address: runtime.atomicClearingEngine as Hex, event: fillClearedEvent, fromBlock: BigInt(0), toBlock: head });
+    logs = await client.getLogs({ address: runtime.atomicClearingEngine as Hex, event: fillClearedEvent, fromBlock: BigInt(runtime.deploymentBlock ?? 0), toBlock: head });
   } catch {
-    return { available: false, reason: "Local devnet RPC is unreachable.", chainId: runtime.chainId, scannedToBlock: null, totalFills: 0, rows: [], fills: [] };
+    return { available: false, reason: "The chain RPC is unreachable.", chainId: runtime.chainId, scannedToBlock: null, totalFills: 0, rows: [], fills: [] };
   }
 
   const owners = new Map<string, PartnerDeployment>();

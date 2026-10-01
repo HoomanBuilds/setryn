@@ -119,7 +119,10 @@ export interface TreasuryProjection {
     history: FeeScheduleHistoryEntry[];
     events: FeeScheduleEvent[];
   };
-  /** How the fee schedule can change on this network. */
+  /**
+   * How the fee schedule can change on this network: the local operator's own update (its value keeps the name
+   * lib/treasury/revenue.ts writes), or the governance timelock everywhere else.
+   */
   feeControl: {
     mode: "DEVNET_OPERATOR" | "GOVERNANCE";
     operator: string;

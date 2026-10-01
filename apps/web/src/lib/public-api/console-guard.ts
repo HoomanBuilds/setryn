@@ -1,12 +1,12 @@
 import { PublicApiError } from "./errors";
-import { readLocalRuntime } from "@/lib/internal-gateway/runtime-server";
+import { readRuntime } from "@/lib/internal-gateway/runtime-server";
 
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
 /**
- * Key management has no user accounts to authorize against yet, so it is served only for the local devnet console:
- * the deployment must be the local chain (31337), the request must arrive on a loopback host, and a browser request
- * must be same-origin (blocks cross-site form posts and fetches from other pages). A production build refuses it
+ * Key management has no user accounts to authorize against yet, so it is served only for the local console: the
+ * deployment must be the local chain (SETRYN_NETWORK=local), the request must arrive on a loopback host, and a browser
+ * request must be same-origin (blocks cross-site form posts and fetches from other pages). A production build refuses it
  * unless SETRYN_ENABLE_LOCAL_KEY_CONSOLE=1 is set explicitly. Once organization accounts exist, these routes move
  * behind that session instead.
  */
@@ -18,7 +18,7 @@ export async function assertLocalConsole(request: Request): Promise<void> {
   const host = request.headers.get("host") ?? url.host;
   const hostname = host.startsWith("[") ? host.slice(0, host.indexOf("]") + 1) : host.split(":")[0];
   if (!LOOPBACK.has(hostname)) {
-    throw new PublicApiError(403, "CONSOLE_LOCAL_ONLY", "Key management is served only on a loopback host for the local devnet.");
+    throw new PublicApiError(403, "CONSOLE_LOCAL_ONLY", "Key management is served only on a loopback host for the local network.");
   }
   const origin = request.headers.get("origin");
   let originHost: string | null = null;
@@ -34,8 +34,8 @@ export async function assertLocalConsole(request: Request): Promise<void> {
   if (fetchSite && fetchSite !== "same-origin" && fetchSite !== "none") {
     throw new PublicApiError(403, "CONSOLE_LOCAL_ONLY", "Key management accepts same-origin requests only.");
   }
-  const runtime = await readLocalRuntime().catch(() => null);
-  if (!runtime || runtime.chainId !== 31337) {
-    throw new PublicApiError(403, "CONSOLE_LOCAL_ONLY", "Key management requires the local devnet deployment (chain 31337).");
+  const runtime = await readRuntime().catch(() => null);
+  if (!runtime || runtime.network !== "local") {
+    throw new PublicApiError(403, "CONSOLE_LOCAL_ONLY", "Key management requires the local network deployment.");
   }
 }

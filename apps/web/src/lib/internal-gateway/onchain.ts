@@ -4,7 +4,6 @@ import {
   createPublicClient,
   createWalletClient,
   custom,
-  defineChain,
   encodeAbiParameters,
   formatUnits,
   getAddress,
@@ -47,12 +46,15 @@ import {
   type OnchainPrivateRfqRequest,
   type OnchainRfqSelection,
 } from "./protocol";
-import { loadSetrynRuntime, type SetrynRuntime, type SetrynRuntimeMarket } from "./runtime";
+import { loadSetrynRuntime, type SetrynNetwork, type SetrynRuntime, type SetrynRuntimeMarket } from "./runtime";
+import { networkChain, networkEnvironment, networkForChainId, publicNetwork } from "./network";
 import { marketTradingVersions, readActiveFeeSchedule, type ActiveFeeSchedule } from "./fee-schedule";
 import {
   considerationPerPriceUnit,
   deriveSeriesBookId,
   marketEconomics,
+  marketPriceDecimals,
+  priceOffset,
   priceToTicks,
   runtimeMarketByKey,
   runtimeMarketBySeries,
@@ -86,8 +88,20 @@ import type {
 
 const ACCOUNT_SALT = keccak256(stringToHex("SETRYN_PRIMARY_ACCOUNT_V1"));
 const EMPTY_ID = `0x${"0".repeat(64)}` as Hex;
-const PRIMARY_MARKET_ID = "BTC-YC-24DEC26";
 const CONSIDERATION_ENTRY = 1;
+/** Settlement collateral on every network: Circle USDC, and the local chain's test token, which mirrors it. */
+const COLLATERAL_ASSET = "USDC";
+/** Every network admits risk through the fully collateralized adapter: margin is the bounded terminal liability. */
+const RISK_DOMAIN_LABEL = "Fully collateralized";
+/** How long the operator status (which roles can sign) is trusted before it is read again. */
+const OPERATOR_STATUS_TTL_MS = 60_000;
+
+/** What the platform's own roles can do on this deployment, from /api/internal/operator/status. */
+interface OperatorStatus {
+  /** A designated maker rests quotes, answers RFQs and consents to exits. */
+  makerEnabled: boolean;
+  makerAddress: Address | null;
+}
 
 interface LedgerFlow {
   args: { fillId?: Hex; kind?: number; payerAccountId?: Hex; receiverAccountId?: Hex; amount?: bigint };
@@ -103,14 +117,17 @@ function netConsiderationUsd(events: readonly LedgerFlow[], fillId: string, acco
   }
   return Number(formatUnits(net, 6));
 }
-const LOCAL_CHAIN_ID = 31337;
 /** Seconds a maker order must remain live past the latest block so it cannot expire before the match lands. */
 const MAKER_DEADLINE_MARGIN_SECONDS = BigInt(15);
 const PUBLIC_SERIES_POLICY = keccak256(stringToHex("SETRYN_POLICY_PUBLIC_SERIES_V1"));
 
 /** Formats a fill price on the market's own decimal grid. */
 function formatTicksPrice(market: SetrynRuntimeMarket, price: number): string {
-  return price.toFixed(Math.round(Math.log10(market.priceScale)));
+  return price.toFixed(marketPriceDecimals(market));
+}
+
+function runtimeNetwork(setryn: SetrynRuntime): SetrynNetwork {
+  return setryn.network ?? networkForChainId(setryn.chainId) ?? "local";
 }
 
 /** Collateral a filled position locks: the series' terminal debit bound on the position's side. */
@@ -528,13 +545,14 @@ const tokenAbi = [
 
 function initialSnapshot(): GatewaySnapshot {
   return {
-    environment: { id: "LOCAL_DEVNET", label: "Arbitrum One", chainId: 31337, evidence: "DEVNET" },
+    // The build's network until the runtime answers; server and first client render agree on it.
+    environment: networkEnvironment(publicNetwork()),
     wallet: { status: "DISCONNECTED", address: null, chainId: null },
     account: {
       id: EMPTY_ID,
       label: "Primary account",
-      riskDomain: "BTC/USD isolated",
-      collateralAsset: "sUSD",
+      riskDomain: RISK_DOMAIN_LABEL,
+      collateralAsset: COLLATERAL_ASSET,
       posted: 0,
       eligible: 0,
       reserved: 0,
@@ -545,7 +563,7 @@ function initialSnapshot(): GatewaySnapshot {
     receipts: [],
     executions: [],
     restingOrders: [],
-    publicBookMarketId: PRIMARY_MARKET_ID,
+    publicBookMarketId: null,
     publicBookEconomics: null,
     onchainMarkets: {},
     feeSchedule: null,
@@ -639,8 +657,10 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   private walletEpoch = 0;
   /** A connectWallet call waiting for the user to pick a wallet, switch network, or dismiss the prompt. */
   private pendingConnection: PendingConnection | null = null;
-  /** Devnet accounts already given gas this page session. */
+  /** Local-chain accounts already given gas this page session. */
   private readonly fundedAccounts = new Set<Address>();
+  /** Which platform roles can sign, read once per minute; a failed read is retried on the next use. */
+  private operatorStatusRead: { at: number; status: Promise<OperatorStatus> } | null = null;
   private readonly authorizations = new Map<string, SignedOrderAuthorization>();
   /** Fills reconstructed per order hash, and the position an exit order's fill closed. */
   private orderFills = new Map<string, { fillIds: string[]; receiptIds: string[]; closedPositionId: string | null }>();
@@ -776,8 +796,9 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   }
 
   /**
-   * Prepares a connected wallet for signing: on the runtime chain it funds devnet gas, builds the signing client over
-   * the connector's own provider, and loads the account. On another chain it stays visible but cannot sign.
+   * Prepares a connected wallet for signing: on the runtime chain it builds the signing client over the connector's own
+   * provider (topping up gas first on the local chain only) and loads the account. On another chain it stays visible but
+   * cannot sign.
    */
   private async attach(epoch: number, provider: EIP1193Provider, address: Address, chainId: number): Promise<void> {
     const current = () => epoch === this.walletEpoch;
@@ -797,7 +818,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         return;
       }
       this.publish({ ...base(), wallet: { status: "CONNECTING", address: null, chainId: null } });
-      if (chainId === LOCAL_CHAIN_ID && !this.fundedAccounts.has(address)) {
+      if (runtimeNetwork(setryn) === "local" && !this.fundedAccounts.has(address)) {
         await this.fundNativeGas(address);
         this.fundedAccounts.add(address);
       }
@@ -817,9 +838,9 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     this.walletClient = createWalletClient({ account: address, chain: this.chain(setryn), transport: custom(provider) });
     this.startPolling();
     this.publish({ ...this.snapshot, wallet: { status: "CONNECTED", address, chainId } });
-    // Seeding every market's book takes a while on a fresh devnet, so it runs behind the account reads and the book
+    // Seeding every market's book takes a while on a fresh deployment, so it runs behind the account reads and the book
     // is re-read once it lands. An order that finds its book empty asks for that market's quotes itself.
-    void this.requestDevnetLiquidity().then(() => this.refreshPublicBook()).catch(() => undefined);
+    void this.requestMakerLiquidity().then(() => this.refreshPublicBook()).catch(() => undefined);
     try {
       await this.refreshAccount();
       await Promise.all([this.refreshOrders(), this.refreshPublicBook(), this.refreshActivity(), this.refreshRfqs()]);
@@ -833,11 +854,13 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   async submitCollateralIntent(intent: CollateralIntent): Promise<CollateralIntentResult> {
     const { setryn, address, walletClient, publicClient } = await this.connected();
     if (!Number.isFinite(intent.amount) || intent.amount <= 0) throw new Error("INVALID_COLLATERAL_AMOUNT");
-    if (intent.asset !== "sUSD") throw new Error("UNSUPPORTED_COLLATERAL_ASSET");
+    // The settlement token is the only collateral; older callers still name the local token by its own symbol.
+    if (intent.asset !== "USDC" && intent.asset !== "sUSD") throw new Error("UNSUPPORTED_COLLATERAL_ASSET");
     const accountId = await this.accountId(address);
     if (intent.accountId.toLowerCase() !== accountId.toLowerCase()) throw new Error("ACCOUNT_MISMATCH");
-    const amount = parseUnits(intent.amount.toString(), 6);
-    await this.fundNativeGas(address);
+    const amount = parseUnits(intent.amount.toFixed(6), 6);
+    const local = runtimeNetwork(setryn) === "local";
+    if (local) await this.fundNativeGas(address);
 
     const exists = await publicClient.readContract({
       address: setryn.collateralVault,
@@ -865,6 +888,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         functionName: "balanceOf",
         args: [address],
       });
+      // The local test token mints the shortfall to its caller; on a network the wallet deposits USDC it already holds.
+      if (tokenBalance < amount && !local) throw new Error("INSUFFICIENT_WALLET_BALANCE");
       if (tokenBalance < amount) {
         const mintHash = await walletClient.writeContract({
           account: address,
@@ -889,7 +914,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
           address: setryn.settlementToken,
           abi: tokenAbi,
           functionName: "approve",
-          args: [setryn.collateralVault, maxUint256],
+          // A real-USDC wallet approves exactly the deposit; the local test token keeps a standing approval.
+          args: [setryn.collateralVault, local ? maxUint256 : amount],
         });
         await publicClient.waitForTransactionReceipt({ hash: approvalHash });
       }
@@ -953,7 +979,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       throw new Error("TREASURY_WITHDRAWAL_REVERTED");
     }
     if (mode === "SIMULATE") return { mode, amount: request.amount, recipient, transactionHash: null };
-    if (setryn.chainId === LOCAL_CHAIN_ID) await this.fundNativeGas(address);
+    if (runtimeNetwork(setryn) === "local") await this.fundNativeGas(address);
     const transactionHash = await walletClient.writeContract({ ...call, chain: this.chain(setryn) });
     const receipt = await publicClient.waitForTransactionReceipt({ hash: transactionHash });
     if (receipt.status !== "success") throw new Error("TREASURY_WITHDRAWAL_FAILED");
@@ -1171,7 +1197,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const bookId = deriveSeriesBookId(setryn, market.seriesId, { seriesVersion: order.targetVersion, feeScheduleVersion: order.feeScheduleVersion });
     const makerSide = order.side === 1 ? 2 : 1;
     // The book prunes an expired maker order during matching instead of filling it, so the head order must still be
-    // live on the chain clock. On the local devnet an expired head is refreshed once through the devnet maker.
+    // live on the chain clock. Where a designated maker runs, an empty or expired head asks it to quote once.
     const readHead = async () => {
       const levelId = await publicClient.readContract({
         address: setryn.publicOrderBook,
@@ -1207,9 +1233,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       return { hash: level.headOrderHash, bookOrder, orderRecord, live };
     };
     let head = await readHead();
-    if ((!head || !head.live) && setryn.chainId === LOCAL_CHAIN_ID) {
-      await this.requestDevnetLiquidity(market.marketKey);
-      head = await readHead();
+    if (!head || !head.live) {
+      if (await this.requestMakerLiquidity(market.marketKey)) head = await readHead();
     }
     if (!head) {
       await this.cancelUnmatchedOrder(authorization);
@@ -1222,12 +1247,13 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const makerOrderHash = head.hash;
     const makerBookOrder = head.bookOrder;
     const makerOrderRecord = head.orderRecord;
-    if (
-      authorization.intent.side === "EXIT" &&
-      makerOrderRecord.order.signer.toLowerCase() !== setryn.operator.toLowerCase()
-    ) {
-      await this.cancelUnmatchedOrder(authorization);
-      throw new Error("EXIT_REQUIRES_DEVNET_MAKER");
+    if (authorization.intent.side === "EXIT") {
+      // A full exit unwinds both positions with the counterparty's consent, which only the designated maker gives.
+      const { makerAddress } = await this.operatorStatus();
+      if (!makerAddress || makerOrderRecord.order.signer.toLowerCase() !== makerAddress.toLowerCase()) {
+        await this.cancelUnmatchedOrder(authorization);
+        throw new Error("EXIT_REQUIRES_COUNTERPARTY_MAKER");
+      }
     }
     const crosses = order.side === 1 ? order.priceTicks >= makerBookOrder.priceTicks : order.priceTicks <= makerBookOrder.priceTicks;
     if (!crosses) {
@@ -1406,7 +1432,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       realizedPnlUsd,
       collateralReleasedUsd: closedPosition ? closedPosition.collateral + position.collateral : undefined,
       guarantee: "Atomic onchain settlement",
-      evidence: "DEVNET",
+      evidence: this.snapshot.environment.evidence,
       createdAt: new Date().toISOString(),
     };
     const result: PackageExecutionResult = {
@@ -1683,19 +1709,35 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       args: [rfqId],
     });
     await publicClient.waitForTransactionReceipt({ hash: openHash });
-    const quoteResponse = await fetch("/api/internal/devnet/rfq-quote", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rfqId }),
-    });
-    const quoteBody = (await quoteResponse.json()) as {
-      quoteId?: string;
-      packagePrice?: number;
-      feeCap?: number;
-      capacityLots?: number;
-      expiresAt?: string;
-    };
-    if (!quoteResponse.ok || !quoteBody.quoteId || !quoteBody.expiresAt) throw new Error("RFQ_QUOTE_FAILED");
+    // The designated maker, where one runs, answers at once from the live reference. Without it (or when it declines,
+    // for example on a stale reference) the request stays open onchain for other makers and can be cancelled.
+    const quotes: RfqRequest["quotes"] = [];
+    if ((await this.operatorStatus()).makerEnabled) {
+      const quoteResponse = await fetch("/api/internal/operator/rfq-quote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rfqId }),
+      }).catch(() => null);
+      const quoteBody = ((await quoteResponse?.json().catch(() => null)) ?? {}) as {
+        quoteId?: string;
+        packagePrice?: number;
+        feeCap?: number;
+        capacityLots?: number;
+        expiresAt?: string;
+      };
+      if (quoteResponse?.ok && quoteBody.quoteId && quoteBody.expiresAt) {
+        quotes.push({
+          id: quoteBody.quoteId,
+          solverLabel: "Setryn MM",
+          packagePrice: quoteBody.packagePrice ?? authorization.intent.executionPrice,
+          feeCap: quoteBody.feeCap ?? authorization.intent.feeCap,
+          capacityLots: quoteBody.capacityLots ?? authorization.intent.lots,
+          expiresAt: quoteBody.expiresAt,
+          settlementGuarantee: "Firm capacity, atomic onchain settlement",
+          provenance: "SEEDED_SOLVER",
+        });
+      }
+    }
     const created: RfqRequest = {
       id: rfqId,
       authorization,
@@ -1704,16 +1746,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       state: "OPEN",
       selectedQuoteId: null,
       receiptId: null,
-      quotes: [{
-        id: quoteBody.quoteId,
-        solverLabel: "Setryn MM",
-        packagePrice: quoteBody.packagePrice ?? authorization.intent.executionPrice,
-        feeCap: quoteBody.feeCap ?? authorization.intent.feeCap,
-        capacityLots: quoteBody.capacityLots ?? authorization.intent.lots,
-        expiresAt: quoteBody.expiresAt,
-        settlementGuarantee: "Firm capacity, atomic onchain settlement",
-        provenance: "SEEDED_SOLVER",
-      }],
+      quotes,
     };
     this.publish({ ...this.snapshot, rfqRequests: [...this.snapshot.rfqRequests, created] });
     return created;
@@ -1813,7 +1846,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       label: "Private handoff submitted",
       detail: "The selected RFQ is being cleared through the private execution channel.",
     });
-    const response = await fetch("/api/internal/devnet/rfq-execute", {
+    const response = await fetch("/api/internal/operator/rfq-execute", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rfqId: requestId }),
@@ -1891,7 +1924,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       realizedPnlUsd,
       collateralReleasedUsd: closedPosition ? closedPosition.collateral + position.collateral : undefined,
       guarantee: "Firm capacity, atomic onchain settlement",
-      evidence: "DEVNET",
+      evidence: this.snapshot.environment.evidence,
       createdAt: new Date().toISOString(),
     };
     const result: PackageExecutionResult = {
@@ -1965,7 +1998,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const current = this.snapshot.rfqRequests.find((request) => request.id === _requestId);
     if (!current) throw new Error("RFQ_NOT_FOUND");
     if (current.state !== "OPEN") throw new Error("RFQ_NOT_OPEN");
-    const response = await fetch("/api/internal/devnet/rfq-quote", {
+    if (!(await this.operatorStatus()).makerEnabled) throw new Error("MAKER_SIGNER_UNCONFIGURED");
+    const response = await fetch("/api/internal/operator/rfq-quote", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rfqId: _requestId, ..._input }),
@@ -1989,7 +2023,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       capacityLots: body.capacityLots,
       expiresAt: body.expiresAt,
       settlementGuarantee: "Firm capacity, atomic onchain settlement",
-      provenance: "DEVNET_MAKER" as const,
+      provenance: "DESIGNATED_MAKER" as const,
     };
     const updated = { ...current, quotes: [...current.quotes, quote] };
     this.publish({
@@ -2003,9 +2037,9 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const current = this.snapshot.rfqRequests.find((request) => request.id === _requestId);
     if (!current) throw new Error("RFQ_NOT_FOUND");
     if (current.state !== "OPEN") throw new Error("RFQ_NOT_OPEN");
-    const quote = [...current.quotes].reverse().find((candidate) => candidate.provenance === "DEVNET_MAKER");
+    const quote = [...current.quotes].reverse().find((candidate) => candidate.provenance === "DESIGNATED_MAKER");
     if (!quote) throw new Error("RFQ_QUOTE_NOT_FOUND");
-    const response = await fetch("/api/internal/devnet/rfq-withdraw", {
+    const response = await fetch("/api/internal/operator/rfq-withdraw", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ quoteId: quote.id }),
@@ -2035,12 +2069,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     this.observeChainClock(head.timestamp);
     this.publish({
       ...this.snapshot,
-      environment: {
-        id: "LOCAL_DEVNET",
-        label: "Arbitrum One",
-        chainId: setryn.chainId,
-        evidence: "DEVNET",
-      },
+      environment: { ...networkEnvironment(runtimeNetwork(setryn)), chainId: setryn.chainId },
       ...this.feeScheduleProjection(setryn, fees),
     });
     return setryn;
@@ -2061,6 +2090,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
             seriesId: market.seriesId,
             bookId: deriveSeriesBookId(setryn, market.seriesId, marketTradingVersions(fees, market.seriesId)),
             priceScale: market.priceScale,
+            priceOffset: priceOffset(market),
+            priceDecimals: marketPriceDecimals(market),
           },
         ]),
       ),
@@ -2115,22 +2146,56 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     return market;
   }
 
-  /** Asks the local devnet maker to refresh resting quotes, on one market or on every market. */
-  private async requestDevnetLiquidity(marketKey?: string): Promise<void> {
-    await fetch("/api/internal/devnet/liquidity", {
+  /**
+   * Which platform roles can sign here. Read from /api/internal/operator/status, whose role section is present even
+   * when the chain check fails; locally the maker is always the runtime operator.
+   */
+  private operatorStatus(): Promise<OperatorStatus> {
+    const cached = this.operatorStatusRead;
+    if (cached && Date.now() - cached.at < OPERATOR_STATUS_TTL_MS) return cached.status;
+    const status = (async (): Promise<OperatorStatus> => {
+      const setryn = await this.runtime();
+      const local = runtimeNetwork(setryn) === "local";
+      const fallback: OperatorStatus = local
+        ? { makerEnabled: true, makerAddress: getAddress(setryn.operator) }
+        : { makerEnabled: false, makerAddress: null };
+      const response = await fetch("/api/internal/operator/status", { cache: "no-store" }).catch(() => null);
+      const body = (await response?.json().catch(() => null)) as { maker?: { enabled?: unknown; address?: unknown } } | null;
+      const maker = body?.maker;
+      if (!maker || typeof maker.enabled !== "boolean") throw Object.assign(new Error("OPERATOR_STATUS_UNAVAILABLE"), { fallback });
+      const address = typeof maker.address === "string" && isAddress(maker.address) ? getAddress(maker.address) : null;
+      return { makerEnabled: maker.enabled && address !== null, makerAddress: address };
+    })().catch((error: unknown) => {
+      // An unreadable status is not cached, so the next use asks again.
+      this.operatorStatusRead = null;
+      const fallback = (error as { fallback?: OperatorStatus } | null)?.fallback;
+      return fallback ?? { makerEnabled: false, makerAddress: null };
+    });
+    this.operatorStatusRead = { at: Date.now(), status };
+    return status;
+  }
+
+  /**
+   * Asks the designated maker to refresh its resting quotes, on one market or on every market. Resolves true when a
+   * maker runs and was asked, false when the deployment has none.
+   */
+  private async requestMakerLiquidity(marketKey?: string): Promise<boolean> {
+    if (!(await this.operatorStatus()).makerEnabled) return false;
+    await fetch("/api/internal/operator/liquidity", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(marketKey ? { marketId: marketKey } : {}),
     }).catch(() => undefined);
+    return true;
   }
 
   private chain(setryn: SetrynRuntime) {
-    return defineChain({
-      id: setryn.chainId,
-      name: setryn.chainId === LOCAL_CHAIN_ID ? "Setryn Local" : "Setryn",
-      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-      rpcUrls: { default: { http: [setryn.rpcUrl] } },
-    });
+    return networkChain(runtimeNetwork(setryn), setryn.rpcUrl);
+  }
+
+  /** Event scans start at the deployment's first block rather than genesis. */
+  private fromBlock(): bigint {
+    return BigInt(this.setryn?.deploymentBlock ?? 0);
   }
 
   private async connected() {
@@ -2189,8 +2254,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       account: {
         id: accountId,
         label: "Primary account",
-        riskDomain: "BTC/USD isolated",
-        collateralAsset: "sUSD",
+        riskDomain: RISK_DOMAIN_LABEL,
+        collateralAsset: COLLATERAL_ASSET,
         posted,
         eligible: posted,
         reserved,
@@ -2207,7 +2272,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       abi: orderStateAbi,
       eventName: "OrderRegistered",
       args: { signer: this.walletAddress },
-      fromBlock: BigInt(0),
+      fromBlock: this.fromBlock(),
       toBlock: "latest",
     });
     const orders: RestingPackageOrder[] = [];
@@ -2369,7 +2434,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         address: setryn.publicOrderBook,
         abi: publicOrderBookAbi,
         eventName: "DirectOrderRested",
-        fromBlock: BigInt(0),
+        fromBlock: this.fromBlock(),
         toBlock: "latest",
       }),
       publicClient.getBlock({ blockTag: "pending" }),
@@ -2445,7 +2510,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       abi: atomicClearingAbi,
       eventName: "FillLedgerEntry",
       args: { fillId: [entryFillId, exitFillId], kind: CONSIDERATION_ENTRY },
-      fromBlock: BigInt(0),
+      fromBlock: this.fromBlock(),
       toBlock: "latest",
     });
     return netConsiderationUsd(events, entryFillId, accountId) + netConsiderationUsd(events, exitFillId, accountId);
@@ -2459,28 +2524,28 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         address: this.setryn.atomicClearingEngine,
         abi: atomicClearingAbi,
         eventName: "FillPositionCreated",
-        fromBlock: BigInt(0),
+        fromBlock: this.fromBlock(),
         toBlock: "latest",
       }),
       this.publicClient.getContractEvents({
         address: this.setryn.atomicClearingEngine,
         abi: atomicClearingAbi,
         eventName: "FillLedgerEntry",
-        fromBlock: BigInt(0),
+        fromBlock: this.fromBlock(),
         toBlock: "latest",
       }),
       this.publicClient.getContractEvents({
         address: this.setryn.positionEngine,
         abi: positionLifecycleAbi,
         eventName: "PositionQuantityChanged",
-        fromBlock: BigInt(0),
+        fromBlock: this.fromBlock(),
         toBlock: "latest",
       }),
       this.publicClient.getContractEvents({
         address: this.setryn.fundedFeeEngine,
         abi: fundedFeeLedgerAbi,
         eventName: "FeeLedgerEntryRecorded",
-        fromBlock: BigInt(0),
+        fromBlock: this.fromBlock(),
         toBlock: "latest",
       }),
     ]);
@@ -2638,7 +2703,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
           : undefined,
         collateralReleasedUsd: entry ? entry.position.collateral + position.collateral : undefined,
         guarantee: "Atomic onchain settlement",
-        evidence: "DEVNET",
+        evidence: this.snapshot.environment.evidence,
         createdAt: record.createdAt,
       };
       const positionUpdate: SubmissionUpdate = closedEntry
@@ -2713,10 +2778,11 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const realizedPnlUsd = round2(entryConsiderationUsd + transferUsd);
     const exercised = view.exercisedLots > 0;
     const perPoint = lots * considerationPerPriceUnit(market);
-    // The close-fill price that would have exchanged the same terminal transfer, on the market's own grid.
+    // The settlement price the terminal transfer implies, on the market's own grid. The long of a range forward receives
+    // lotSize x clamp(S - floor, 0, cap - floor), so the price is floor + transfer / (lots x lotSize): the clamped fixing.
     const longTransferUsd = opening.packageSide === "LONG" ? transferUsd : -transferUsd;
     const impliedPrice = perPoint > 0
-      ? Number((longTransferUsd / perPoint).toFixed(Math.round(Math.log10(market.priceScale))))
+      ? Number((priceOffset(market) + longTransferUsd / perPoint).toFixed(marketPriceDecimals(market)))
       : opening.price;
     const paidUsd = Math.max(0, -transferUsd);
     const collateralReleasedUsd = settlement
@@ -2750,7 +2816,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       realizedPnlUsd,
       collateralReleasedUsd,
       guarantee: "Onchain cash settlement",
-      evidence: "DEVNET",
+      evidence: this.snapshot.environment.evidence,
       createdAt,
     };
     const updates: SubmissionUpdate[] = [];
@@ -2832,7 +2898,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
           abi: seriesRegistryAbi,
           eventName: "SeriesQualificationPublished",
           args: { seriesId, version },
-          fromBlock: BigInt(0),
+          fromBlock: this.fromBlock(),
           toBlock: "latest",
         }),
       ]);
@@ -2935,12 +3001,12 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const [block, settledEvents, claimEvents, exerciseEvents] = await Promise.all([
       publicClient.getBlock({ blockTag: "pending" }),
       coordinator
-        ? publicClient.getContractEvents({ address: coordinator, abi: cashSettlementAbi, eventName: "CashSettlementFinalized", fromBlock: BigInt(0), toBlock: "latest" })
+        ? publicClient.getContractEvents({ address: coordinator, abi: cashSettlementAbi, eventName: "CashSettlementFinalized", fromBlock: this.fromBlock(), toBlock: "latest" })
         : Promise.resolve([]),
       coordinator
-        ? publicClient.getContractEvents({ address: coordinator, abi: cashSettlementAbi, eventName: "SettlementClaimFulfilled", fromBlock: BigInt(0), toBlock: "latest" })
+        ? publicClient.getContractEvents({ address: coordinator, abi: cashSettlementAbi, eventName: "SettlementClaimFulfilled", fromBlock: this.fromBlock(), toBlock: "latest" })
         : Promise.resolve([]),
-      publicClient.getContractEvents({ address: setryn.positionEngine, abi: positionTerminalAbi, eventName: "PositionExactPayoffComputed", fromBlock: BigInt(0), toBlock: "latest" }),
+      publicClient.getContractEvents({ address: setryn.positionEngine, abi: positionTerminalAbi, eventName: "PositionExactPayoffComputed", fromBlock: this.fromBlock(), toBlock: "latest" }),
     ]);
     const now = block.timestamp;
     const fixingBySeries = new Map<string, Promise<SeriesFixingRead>>();
@@ -3314,7 +3380,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       functionName: "hashLifecycleAction",
       args: [action],
     });
-    const witnessResponse = await fetch("/api/internal/devnet/exercise-witness", {
+    const witnessResponse = await fetch("/api/internal/operator/exercise-witness", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ actionId, positionId, finalFixings }),
@@ -3362,11 +3428,12 @@ export class OnchainTradingGateway implements InternalTradingGateway {
 
   private async refreshRfqs(): Promise<void> {
     if (!this.setryn || !this.publicClient || !this.walletAddress) return;
+    const { makerAddress: designatedMaker } = await this.operatorStatus();
     const committed = await this.publicClient.getContractEvents({
       address: this.setryn.privateRfqBook,
       abi: privateRfqBookAbi,
       eventName: "PrivateRfqCommitted",
-      fromBlock: BigInt(0),
+      fromBlock: this.fromBlock(),
       toBlock: "latest",
     });
     const requests: RfqRequest[] = [];
@@ -3407,7 +3474,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         abi: privateRfqBookAbi,
         eventName: "MakerQuoteCommitted",
         args: { rfqId },
-        fromBlock: BigInt(0),
+        fromBlock: this.fromBlock(),
         toBlock: "latest",
       });
       const quotes = [] as RfqRequest["quotes"];
@@ -3424,15 +3491,16 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         const priceTicks = rfq.request.sidePolicy === 1
           ? quoteRecord.quote.askPriceTicks
           : quoteRecord.quote.bidPriceTicks;
+        const houseQuote = designatedMaker !== null && quoteRecord.quote.maker.toLowerCase() === designatedMaker.toLowerCase();
         quotes.push({
           id: quoteId,
-          solverLabel: "Setryn MM",
+          solverLabel: houseQuote ? "Setryn MM" : `${quoteRecord.quote.maker.slice(0, 6)}…${quoteRecord.quote.maker.slice(-4)}`,
           packagePrice: ticksToPrice(market, priceTicks),
           feeCap: Number(formatUnits(quoteRecord.quote.maxFeeMinor, 6)),
           capacityLots: Number(quoteRecord.quote.lots - quoteRecord.cumulativeFilledLots),
           expiresAt: new Date(Number(quoteRecord.quote.deadline) * 1000).toISOString(),
           settlementGuarantee: "Firm capacity, atomic onchain settlement",
-          provenance: "DEVNET_MAKER",
+          provenance: houseQuote ? "DESIGNATED_MAKER" : "SEEDED_SOLVER",
         });
       }
       const settled = rfq.status === 8
@@ -3441,7 +3509,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
             abi: privateRfqBookAbi,
             eventName: "RfqSettled",
             args: { rfqId },
-            fromBlock: BigInt(0),
+            fromBlock: this.fromBlock(),
             toBlock: "latest",
           })
         : [];
@@ -3648,6 +3716,9 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       throw new Error("EXIT_PARTICIPANT_MISMATCH");
     }
     const makerAccountId = participantAccounts.find((accountId) => accountId !== actorAccountId.toLowerCase()) as Hex;
+    // The counterparty's consent comes from the designated maker, which gives it only for positions it is party to.
+    const { makerAddress } = await this.operatorStatus();
+    if (!makerAddress) throw new Error("COUNTERPARTY_CONSENT_REQUIRED");
     const inputs = snapshots.map((snapshot) => ({
       positionId: snapshot.positionId,
       expectedImmutableHash: snapshot.immutableHash,
@@ -3667,11 +3738,11 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const nonce = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(crypto.getRandomValues(new Uint32Array(1))[0]);
     const consentNonce = nonce + BigInt(1);
     const salt = keccak256(stringToHex(`${address}:${sourcePositionId}:${closePositionId}:${nonce}`));
-    const consentSalt = keccak256(stringToHex(`${setryn.operator}:${sourcePositionId}:${closePositionId}:${consentNonce}`));
+    const consentSalt = keccak256(stringToHex(`${makerAddress}:${sourcePositionId}:${closePositionId}:${consentNonce}`));
     const consentBase = {
       actionId: EMPTY_ID,
       accountId: makerAccountId,
-      signer: setryn.operator,
+      signer: makerAddress,
       nonce: consentNonce,
       deadline,
       maximumLiabilityIncreaseBaseUnits: BigInt(0),
@@ -3729,7 +3800,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       args: [action],
     });
     const consent = { ...consentBase, actionId };
-    const consentResponse = await fetch("/api/internal/devnet/lifecycle-consent", {
+    const consentResponse = await fetch("/api/internal/operator/lifecycle-consent", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -3739,6 +3810,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         deadline: deadline.toString(),
         salt: consentSalt,
         allowsPackageBreak: false,
+        positionIds: [sourcePositionId, closePositionId],
       }),
     });
     const consentResult = (await consentResponse.json()) as { signature?: Hex; error?: string };
@@ -3790,13 +3862,14 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     await this.releaseRiskReservation(authorization);
   }
 
+  /** Local chain only: tops the wallet up with gas through the operator's fund route. */
   private async fundNativeGas(address: Address): Promise<void> {
-    const response = await fetch("/api/internal/devnet/fund", {
+    const response = await fetch("/api/internal/operator/fund", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ address }),
     });
-    if (!response.ok) throw new Error("DEVNET_GAS_FUNDING_FAILED");
+    if (!response.ok) throw new Error("GAS_FUNDING_FAILED");
   }
 
   private startPolling(): void {
@@ -3804,7 +3877,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     this.pollingTimer = window.setInterval(() => {
       if (this.polling || this.snapshot.wallet.status !== "CONNECTED") return;
       this.polling = true;
-      void this.requestDevnetLiquidity()
+      void this.requestMakerLiquidity()
         .then(() => Promise.all([
           this.refreshAccount(),
           this.refreshOrders(),

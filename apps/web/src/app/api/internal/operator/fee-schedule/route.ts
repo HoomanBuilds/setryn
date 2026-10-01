@@ -1,4 +1,4 @@
-import { readLocalRuntime } from "@/lib/internal-gateway/runtime-server";
+import { readRuntime } from "@/lib/internal-gateway/runtime-server";
 import {
   bpsArgument,
   feeChangeJob,
@@ -12,30 +12,36 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const NO_STORE = { "Cache-Control": "no-store" };
+const GOVERNANCE_MESSAGE =
+  "Fee schedule changes on this network go through the governance timelock (RegistryStatusController); the platform cannot change fees directly.";
 
 function refused(request: Request): Response | null {
   const refusal = localRequestRefusal(request);
   return refusal ? Response.json({ error: "LOCAL_ONLY", message: refusal }, { status: 403, headers: NO_STORE }) : null;
 }
 
+async function isLocal(): Promise<boolean> {
+  const setryn = await readRuntime().catch(() => null);
+  return setryn?.network === "local";
+}
+
 /**
- * Local network only: starts a fee schedule change with the requested maker and taker rates (basis points). The change
+ * Local chain only: starts a fee schedule change with the requested maker and taker rates (basis points). The change
  * runs the contracts' fee update script, which registers and activates the next fee schedule version and re-versions
  * every market and series onto it; the response is the running job, which GET reports until it settles. Any other
- * network changes fees through governance, and this route refuses it.
+ * network changes fees through the governance timelock, and this route refuses it.
  */
 export async function POST(request: Request) {
+  if (!(await isLocal())) {
+    return Response.json({ error: "GOVERNANCE_TIMELOCK_REQUIRED", message: GOVERNANCE_MESSAGE }, { status: 403, headers: NO_STORE });
+  }
   const blocked = refused(request);
   if (blocked) return blocked;
   try {
     const body = (await request.json().catch(() => ({}))) as { makerBps?: unknown; takerBps?: unknown };
     const makerBps = bpsArgument(body.makerBps, "Maker fee");
     const takerBps = bpsArgument(body.takerBps, "Taker fee");
-    const setryn = await readLocalRuntime().catch(() => null);
-    if (!setryn || setryn.chainId !== 31337) {
-      throw new FeeScheduleChangeError(403, "GOVERNANCE_ONLY", "Fee schedule changes on this network go through governance.");
-    }
-    const liquidityUrl = new URL("/api/internal/devnet/liquidity", request.url);
+    const liquidityUrl = new URL("/api/internal/operator/liquidity", request.url);
     const job = startFeeScheduleChange({ makerBps, takerBps }, (settled) => {
       // Every market now trades a new series version with its own book, so the maker re-quotes all of them.
       if (settled.status !== "SUCCEEDED") return;
@@ -51,8 +57,14 @@ export async function POST(request: Request) {
   }
 }
 
-/** The state of one fee change job (`?job=`), or the running one (else `{ status: "IDLE" }`) when no id is given. */
+/**
+ * The state of one fee change job (`?job=`), or the running one (else `{ status: "IDLE" }`) when no id is given. On a
+ * network no job ever runs here, so the answer is always IDLE with the governance note.
+ */
 export async function GET(request: Request) {
+  if (!(await isLocal())) {
+    return Response.json({ status: "IDLE", governance: "GOVERNANCE_TIMELOCK", message: GOVERNANCE_MESSAGE }, { headers: NO_STORE });
+  }
   const blocked = refused(request);
   if (blocked) return blocked;
   const id = new URL(request.url).searchParams.get("job");

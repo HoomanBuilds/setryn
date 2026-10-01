@@ -3,6 +3,7 @@ import type { Intent, PackageSide, TimeInForce } from "@/lib/terminal/economics"
 import type { BookRow, PackageMarket } from "@/lib/terminal/types";
 import type { EIP1193Provider } from "viem";
 import type { OnchainPublicOrder } from "./protocol";
+import type { SetrynNetwork } from "./runtime";
 
 export type WalletStatus = "DISCONNECTED" | "CONNECTING" | "CONNECTED" | "WRONG_NETWORK";
 
@@ -24,10 +25,17 @@ export interface WalletControls {
 }
 
 export interface RuntimeEnvironment {
-  id: "LOCAL_DEMO" | "LOCAL_DEVNET" | "ARBITRUM_SEPOLIA";
+  id: "LOCAL" | "ARBITRUM_SEPOLIA" | "ARBITRUM_ONE";
+  /** The deployment network (lib/internal-gateway/network.ts). */
+  network: SetrynNetwork;
+  /** What the product calls the network; the local chain presents as Arbitrum One. */
   label: string;
   chainId: number;
-  evidence: "DEMO" | "DEVNET" | "TESTNET";
+  /**
+   * Where the snapshot's state comes from: always chain state on a deployed runtime. "DEMO" is never produced; it stays
+   * in the union only until lib/activity/types.ts stops comparing against it.
+   */
+  evidence: "ONCHAIN" | "TESTNET" | "MAINNET" | "DEMO";
 }
 
 export interface GatewayAccount {
@@ -77,7 +85,7 @@ export interface ExecutionReceipt {
 
 /**
  * Where a held position stands in its onchain terminal lifecycle, read from the position engine, the fixing engine and
- * the settlement coordinator. It is never inferred from the preview clock alone.
+ * the settlement coordinator. It is never inferred from the browser clock alone.
  */
 export type PositionLifecyclePhase =
   /** Live and tradable, before the fixing window. */
@@ -243,6 +251,10 @@ export interface OnchainMarket extends OnchainMarketEconomics {
   bookId: string;
   /** Price ticks per unit of package price. */
   priceScale: number;
+  /** Price at zero ticks (the range forward's floor; zero on a schema 9 or 10 runtime): price = offset + ticks / scale. */
+  priceOffset: number;
+  /** Display decimals of the market's price. */
+  priceDecimals: number;
 }
 
 export interface CollateralIntent {
@@ -353,7 +365,7 @@ export interface SignedOrderAuthorization {
 
 export type RfqRequestState = "OPEN" | "SELECTED" | "CANCELLED" | "EXECUTED";
 
-export type RfqQuoteProvenance = "SEEDED_SOLVER" | "DEVNET_MAKER";
+export type RfqQuoteProvenance = "SEEDED_SOLVER" | "DESIGNATED_MAKER";
 
 export interface FirmRfqQuote {
   id: string;

@@ -1,5 +1,5 @@
 import { createPublicClient, http, keccak256, type Address, type Hex } from "viem";
-import { readLocalDeploymentEvidence, readLocalRuntime } from "@/lib/internal-gateway/runtime-server";
+import { readDeploymentEvidence, readRuntime } from "@/lib/internal-gateway/runtime-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,14 +31,15 @@ type Kind = "library" | "core" | "protocol";
  */
 export async function GET() {
   try {
-    const [setryn, evidence] = await Promise.all([readLocalRuntime(), readLocalDeploymentEvidence()]);
+    const [setryn, evidence] = await Promise.all([readRuntime(), readDeploymentEvidence()]);
     const manifest = evidence as EvidenceManifest;
     const client = createPublicClient({ transport: http(setryn.rpcUrl, { batch: true }) });
     const entries: { kind: Kind; contract: EvidenceContract }[] = [
       ...(manifest.linkedLibraries ?? []).map((contract) => ({ kind: "library" as const, contract })),
-      ...manifest.contracts.filter((contract) => contract.address).map((contract) => ({ kind: "core" as const, contract })),
+      ...manifest.contracts.map((contract) => ({ kind: "core" as const, contract })),
       ...(manifest.phase2?.deployments ?? []).map((contract) => ({ kind: "protocol" as const, contract })),
-    ];
+      // A planned manifest lists contracts before they have addresses; only deployed ones are checked.
+    ].filter(({ contract }) => typeof contract.address === "string" && /^0x[0-9a-fA-F]{40}$/.test(contract.address));
     const [chainId, head, pending, codes] = await Promise.all([
       client.getChainId(),
       client.getBlock(),

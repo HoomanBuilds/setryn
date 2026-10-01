@@ -9,8 +9,8 @@ export const dynamic = "force-dynamic";
 const NO_STORE = { "Cache-Control": "no-store", "Setryn-Api-Version": "v1" };
 
 /**
- * Console-only key management. There is no user account system yet, so these routes are guarded to the local devnet
- * console (loopback host, same-origin, chain 31337); see lib/public-api/console-guard.ts.
+ * Console-only key management. There is no user account system yet, so these routes are guarded to the local console
+ * (loopback host, same-origin, local network); see lib/public-api/console-guard.ts.
  */
 export async function GET(request: Request) {
   try {

@@ -14,7 +14,8 @@ import {
 } from "viem";
 import { PublicApiError } from "./errors";
 import { EMPTY_ID, deriveAccountId, type ChainContext } from "./chain";
-import { DEVNET_CHAIN_ID, lifecycleConsentTypes, lifecycleDomain, signDevnetMakerConsent, type LifecycleConsent } from "./lifecycle-consent";
+import { designatedMaker, lifecycleConsentTypes, lifecycleDomain, MakerConsentRefusal, signMakerConsent, type LifecycleConsent } from "./lifecycle-consent";
+import { SignerUnavailableError } from "@/lib/internal-gateway/operator-signer";
 import { assertSignerAllowed, type TransactionRequest } from "./orders";
 import type { StoredApiKey } from "./store";
 
@@ -23,7 +24,7 @@ import type { StoredApiKey } from "./store";
  * terminal's exit (`completeFullExit` in lib/internal-gateway/onchain.ts):
  *
  *   1. POST /positions/exit/prepare reads both positions' lifecycle snapshots, checks they form one closable pair with
- *      the devnet maker, builds the kind-4 LifecycleAction (hashes from SignedLifecycleEngine, policy context from the
+ *      the designated maker, builds the kind-4 LifecycleAction (hashes from SignedLifecycleEngine, policy context from the
  *      LifecyclePolicyValidator), and returns it with the maker's counterparty consent and the actor's typed data.
  *   2. The actor signs `SetrynLifecycleActionV1` locally.
  *   3. POST /positions/exit re-derives the action id, verifies both signatures, simulates authorization, and returns the
@@ -339,8 +340,14 @@ function actorTypedData(context: ChainContext, action: LifecycleAction) {
   };
 }
 
-async function makerAccountId(context: ChainContext): Promise<Hex> {
-  return (await deriveAccountId(context, getAddress(context.setryn.operator))).toLowerCase() as Hex;
+/** The designated maker, whose consent is the only counterparty consent the API can obtain; null without one. */
+async function maker(context: ChainContext): Promise<{ address: Address; accountId: Hex } | null> {
+  try {
+    return await designatedMaker(context.setryn);
+  } catch (error) {
+    if (error instanceof SignerUnavailableError) return null;
+    throw error;
+  }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -360,14 +367,13 @@ export async function prepareExit(context: ChainContext, key: StoredApiKey, inpu
   }
   const [sourcePositionId, closePositionId] = input.positionIds.map((value, index) => bytes32(value, `positionIds[${index}]`));
   if (sourcePositionId === closePositionId) throw notEligible("positionIds must name two different positions.");
-  if (setryn.chainId !== DEVNET_CHAIN_ID) {
-    throw notEligible("Counterparty consent for lifecycle exits is only available from the devnet maker on the local devnet.");
-  }
-
-  const [actorAccountId, makerAccount] = await Promise.all([
+  const [actorAccountId, houseMaker] = await Promise.all([
     deriveAccountId(context, signer).then((id) => id.toLowerCase() as Hex),
-    makerAccountId(context),
+    maker(context),
   ]);
+  if (!houseMaker) {
+    throw notEligible("This deployment runs no designated maker, so the API cannot obtain counterparty consent for an exit.");
+  }
   const snapshots = await Promise.all(
     [sourcePositionId, closePositionId].map((positionId) =>
       client
@@ -405,8 +411,8 @@ export async function prepareExit(context: ChainContext, key: StoredApiKey, inpu
     throw notEligible("The signer holds the same side on both positions; pair a position with the opposite position that closes it.");
   }
   const counterpartyAccountId = participantAccounts.find((accountId) => accountId !== actorAccountId) as Hex;
-  if (counterpartyAccountId !== makerAccount) {
-    throw notEligible("The counterparty is not the devnet maker, whose consent is the only counterparty consent the API can obtain.");
+  if (counterpartyAccountId !== houseMaker.accountId) {
+    throw notEligible("The counterparty is not the designated maker, whose consent is the only counterparty consent the API can obtain.");
   }
 
   const inputs: LifecycleInput[] = snapshots.map((snapshot) => ({
@@ -420,16 +426,16 @@ export async function prepareExit(context: ChainContext, key: StoredApiKey, inpu
     .sort((left, right) => left.localeCompare(right))
     .map((accountId) => ({ accountId, collateralId: first.collateralId, terminalLiabilityBaseUnits: BigInt(0) }));
 
-  const maker = getAddress(setryn.operator);
+  const makerAddress = houseMaker.address;
   const deadline = context.chainTime + EXIT_LIFETIME_SECONDS;
   const nonce = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(crypto.getRandomValues(new Uint32Array(1))[0]);
   const consentNonce = nonce + BigInt(1);
   const salt = keccak256(stringToHex(`${signer}:${sourcePositionId}:${closePositionId}:${nonce}`));
-  const consentSalt = keccak256(stringToHex(`${maker}:${sourcePositionId}:${closePositionId}:${consentNonce}`));
+  const consentSalt = keccak256(stringToHex(`${makerAddress}:${sourcePositionId}:${closePositionId}:${consentNonce}`));
   const consentBase: LifecycleConsent = {
     actionId: EMPTY_ID,
     accountId: counterpartyAccountId,
-    signer: maker,
+    signer: makerAddress,
     nonce: consentNonce,
     deadline,
     maximumLiabilityIncreaseBaseUnits: BigInt(0),
@@ -484,7 +490,10 @@ export async function prepareExit(context: ChainContext, key: StoredApiKey, inpu
     .readContract({ ...engine, functionName: "hashLifecycleAction", args: [action] })
     .catch(refusal("The lifecycle engine refused the exit action"));
   const consent: LifecycleConsent = { ...consentBase, actionId };
-  const consentSignature = await signDevnetMakerConsent(setryn, consent);
+  const consentSignature = await signMakerConsent(setryn, consent, [sourcePositionId, closePositionId]).catch((error: unknown) => {
+    if (error instanceof MakerConsentRefusal) throw notEligible(error.detail);
+    throw error;
+  });
   const typedData = actorTypedData(context, action);
 
   return {
@@ -540,7 +549,8 @@ export async function submitExit(context: ChainContext, key: StoredApiKey, input
   if (action.deadline <= context.chainTime || consent.deadline <= context.chainTime) {
     throw notEligible("The exit deadline has passed on the chain clock. Prepare a fresh exit.");
   }
-  if (getAddress(consent.signer) !== getAddress(setryn.operator)) throw notEligible("consent was not issued by the devnet maker.");
+  const houseMaker = await maker(context);
+  if (!houseMaker || getAddress(consent.signer) !== getAddress(houseMaker.address)) throw notEligible("consent was not issued by the designated maker.");
 
   const engine = { address: setryn.signedLifecycleEngine, abi: lifecycleEngineAbi } as const;
   const [[, actionId], inputsHash, replacementsHash] = await Promise.all([

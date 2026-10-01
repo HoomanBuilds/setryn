@@ -25,6 +25,7 @@ import {
 } from "@/lib/internal-gateway/protocol";
 import { POST as reserveRisk } from "@/app/api/internal/orders/reserve-risk/route";
 import type { SetrynRuntimeMarket } from "@/lib/internal-gateway/runtime";
+import { priceOffset } from "@/lib/internal-gateway/runtime-markets";
 import { marketTradingVersions, orderFeeCapMinor } from "@/lib/internal-gateway/fee-schedule";
 import { PublicApiError } from "./errors";
 import {
@@ -155,18 +156,22 @@ export interface PrepareInput {
 const INT128_MIN = -(BigInt(1) << BigInt(127));
 const INT128_MAX = (BigInt(1) << BigInt(127)) - BigInt(1);
 
-/** A package price on the market's onchain grid: price x priceScale must be a whole number of ticks. */
+/**
+ * A package price on the market's onchain grid: (price - priceOffset) x priceScale must be a whole number of ticks. The
+ * offset is the range forward's floor on a schema 11 market and zero on older runtimes.
+ */
 export function priceTicksFor(market: SetrynRuntimeMarket, price: unknown, name = "limitPrice"): bigint {
   if (typeof price !== "number" || !Number.isFinite(price)) {
     throw new PublicApiError(400, "INVALID_REQUEST", `${name} must be a finite number.`);
   }
-  const scaled = price * market.priceScale;
+  const offset = priceOffset(market);
+  const scaled = (price - offset) * market.priceScale;
   const ticks = Math.round(scaled);
   if (Math.abs(scaled - ticks) > 1e-6) {
     throw new PublicApiError(
       400,
       "INVALID_REQUEST",
-      `${name} ${price} is off the ${market.marketKey} price grid: prices are quoted in steps of ${1 / market.priceScale}.`,
+      `${name} ${price} is off the ${market.marketKey} price grid: prices are quoted in steps of ${1 / market.priceScale}${offset ? ` from ${offset}` : ""}.`,
     );
   }
   const priceTicks = BigInt(ticks);
@@ -174,13 +179,13 @@ export function priceTicksFor(market: SetrynRuntimeMarket, price: unknown, name 
   return priceTicks;
 }
 
-/** The onchain market behind a catalog market id; a preview-only or suspended market cannot take an order. */
+/** The onchain market behind a catalog market id; an unlisted or suspended market cannot take an order. */
 export function tradableMarket(context: ChainContext, marketId: unknown): SetrynRuntimeMarket {
   const market = typeof marketId === "string" ? findCatalogMarket(marketId) : null;
   if (!market) throw new PublicApiError(404, "NOT_FOUND", "No market has that id.");
   const onchain = onchainMarket(context.setryn, market.id);
   if (!onchain) {
-    throw new PublicApiError(409, "MARKET_NOT_ONCHAIN", `${market.id} is preview-only on this deployment and cannot be traded through the API.`);
+    throw new PublicApiError(409, "MARKET_NOT_ONCHAIN", `${market.id} is not listed onchain on this deployment and cannot be traded through the API.`);
   }
   if (market.qualification === "SUSPENDED") throw new PublicApiError(409, "ORDER_REJECTED", "The market is suspended.");
   return onchain;

@@ -133,6 +133,11 @@ export interface SetrynRuntime {
   oracleThreshold?: number;
   sessionDaysPath?: string;
   referenceChainId?: number;
+  /**
+   * First block of the deployment: the runtime's own field when it carries one, else the earliest deployment
+   * transaction in the manifest next to it. Event scans start here instead of genesis; absent reads as block 0.
+   */
+  deploymentBlock?: number;
 }
 
 export async function loadSetrynRuntime(): Promise<SetrynRuntime> {
