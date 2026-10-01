@@ -22,7 +22,7 @@ export async function GET(request: Request) {
     if (raw !== null && raw !== "" && member === null) {
       return Response.json({ error: "INVALID_MEMBER", message: "member must be a wallet address" }, { status: 400, headers: NO_STORE });
     }
-    return Response.json(readOrganizationState(member), { headers: NO_STORE });
+    return Response.json(await readOrganizationState(member), { headers: NO_STORE });
   } catch (error) {
     const failure =
       error instanceof OrganizationRequestError

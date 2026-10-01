@@ -2,6 +2,7 @@ import { ChainReader, loadLocalChainConfig, missingWebhookSourceCoverage } from 
 import { DEFAULT_RETRY_POLICY } from "../delivery.ts";
 import { WebhookStore } from "../store.ts";
 import { WebhookWorker } from "../worker.ts";
+import { closeDatabase } from "@setryn/persistence";
 
 /**
  * Webhooks worker: polls the local devnet for confirmed protocol logs, derives webhook events, and delivers them with
@@ -74,6 +75,7 @@ while (!stopping) {
   await new Promise((resolveWait) => setTimeout(resolveWait, wait));
 }
 worker.options.log({ event: "worker-stopped" });
+await closeDatabase();
 
 function parseArguments(argv: readonly string[]): Map<string, string> {
   const parsed = new Map<string, string>();

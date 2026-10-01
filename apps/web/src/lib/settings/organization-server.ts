@@ -18,6 +18,7 @@ import {
   type ActorId,
   type ApprovalProposal,
   type ControlEnvironment,
+  type ControlSnapshotFileSystem,
   type ControlSnapshot,
   type MonetaryAmount,
   type OrganizationRole,
@@ -26,6 +27,7 @@ import {
   type ScopeAllowlist,
   type StrategyAccountStatus,
 } from "../../../../../services/organization-control/src/index";
+import { databaseConfigured, readDocument, updateDocument } from "@setryn/persistence";
 import { readRuntime } from "@/lib/internal-gateway/runtime-server";
 import { networkLabel } from "./organization";
 import {
@@ -87,6 +89,14 @@ interface OrganizationControlRuntime {
 
 const RUNTIME_KEY = Symbol.for("setryn.organization-control.runtime");
 
+interface DatabaseOrganizationState {
+  version: 1;
+  snapshot: ControlSnapshot | null;
+  accepted: Record<string, number>;
+}
+
+const emptyDatabaseState = (): DatabaseOrganizationState => ({ version: 1, snapshot: null, accepted: {} });
+
 /** The per-process service. Kept on `globalThis` so development reloads of this module share one store and replay set. */
 export function organizationControl(): OrganizationControlRuntime {
   const network = organizationNetwork();
@@ -140,8 +150,7 @@ function snapshotForMember(snapshot: ControlSnapshot, member: string | null): Co
   };
 }
 
-export function readOrganizationState(member: string | null): OrganizationControlState {
-  const control = organizationControl();
+function stateFromControl(control: OrganizationControlRuntime, member: string | null): OrganizationControlState {
   return {
     network: control.network,
     networkLabel: networkLabel(control.network),
@@ -149,6 +158,13 @@ export function readOrganizationState(member: string | null): OrganizationContro
     member,
     snapshot: snapshotForMember(control.service.snapshot(), member),
   };
+}
+
+export async function readOrganizationState(member: string | null): Promise<OrganizationControlState> {
+  if (!databaseConfigured()) return stateFromControl(organizationControl(), member);
+  const network = organizationNetwork();
+  const stored = await readDocument("organization-control", `${network}.json`, emptyDatabaseState());
+  return stateFromControl(controlFromSnapshot(network, stored.snapshot), member);
 }
 
 /* ---------------------------------------------------------------- signed actions */
@@ -222,14 +238,41 @@ export async function performOrganizationAction(text: string): Promise<Organizat
   });
   // Keyed on the signed content rather than the signature bytes, so a re-encoded signature cannot replay it either.
   const digest = sha256Hex(`${request.actor}\n${message}`);
-  for (const [key, expiresAt] of control.accepted) if (expiresAt <= now) control.accepted.delete(key);
-  if (control.accepted.has(digest)) throw new OrganizationRequestError(409, "SIGNATURE_REUSED", "This signed action was already used");
+  if (!databaseConfigured()) {
+    for (const [key, expiresAt] of control.accepted) if (expiresAt <= now) control.accepted.delete(key);
+    if (control.accepted.has(digest)) throw new OrganizationRequestError(409, "SIGNATURE_REUSED", "This signed action was already used");
+  }
   if (!(await signatureMatches(control, request.actor as Hex, message, request.signature))) {
     throw new OrganizationRequestError(401, "SIGNATURE_MISMATCH", "The signature does not match the actor for this action");
   }
+  if (request.action === "registerStrategyAccount") await requireControlledAccount(request.params, request.actor);
+
+  if (databaseConfigured()) {
+    return updateDocument("organization-control", `${control.network}.json`, emptyDatabaseState(), (stored) => {
+      for (const [key, expiresAt] of Object.entries(stored.accepted)) if (expiresAt <= now) delete stored.accepted[key];
+      if (stored.accepted[digest] !== undefined) {
+        throw new OrganizationRequestError(409, "SIGNATURE_REUSED", "This signed action was already used");
+      }
+      const databaseControl = controlFromSnapshot(control.network, stored.snapshot);
+      let result: unknown;
+      try {
+        result = databaseControl.store.runAtomically(() =>
+          applyAction(databaseControl, request.action, request.params, request.actor),
+        );
+      } catch (error) {
+        throw asRequestError(error);
+      }
+      stored.accepted[digest] = issuedAtMs + ORGANIZATION_SIGNATURE_WINDOW_MS;
+      stored.snapshot = databaseControl.service.snapshot();
+      return {
+        next: stored,
+        result: { ...stateFromControl(databaseControl, request.actor), action: request.action, result },
+      };
+    });
+  }
+
   if (control.accepted.has(digest)) throw new OrganizationRequestError(409, "SIGNATURE_REUSED", "This signed action was already used");
   control.accepted.set(digest, issuedAtMs + ORGANIZATION_SIGNATURE_WINDOW_MS);
-  if (request.action === "registerStrategyAccount") await requireControlledAccount(request.params, request.actor);
 
   let result: unknown;
   try {
@@ -237,7 +280,43 @@ export async function performOrganizationAction(text: string): Promise<Organizat
   } catch (error) {
     throw asRequestError(error);
   }
-  return { ...readOrganizationState(request.actor), action: request.action, result };
+  return { ...stateFromControl(control, request.actor), action: request.action, result };
+}
+
+function controlFromSnapshot(network: ControlEnvironment, snapshot: ControlSnapshot | null): OrganizationControlRuntime {
+  const path = "organization-control.json";
+  const files = new Map<string, string>();
+  if (snapshot) files.set(path, JSON.stringify(snapshot));
+  const fileSystem: ControlSnapshotFileSystem = {
+    existsSync: (target) => files.has(target),
+    readFileSync: (target) => {
+      const value = files.get(target);
+      if (value === undefined) throw new Error(`missing in-memory organization snapshot ${target}`);
+      return value;
+    },
+    writeFileSync: (target, data) => {
+      files.set(target, data);
+    },
+    renameSync: (source, target) => {
+      const value = files.get(source);
+      if (value === undefined) throw new Error(`missing in-memory organization snapshot ${source}`);
+      files.set(target, value);
+      files.delete(source);
+    },
+    mkdirSync: () => undefined,
+  };
+  const store = new FileOrganizationControlStore({ path, fileSystem });
+  const writePolicy = new OrganizationControlWritePolicy();
+  return {
+    key: `${network}:database`,
+    network,
+    path: "database",
+    store,
+    service: new InternalOrganizationControlService({ store, writePolicy }),
+    writePolicy,
+    accepted: new Map(),
+    client: null,
+  };
 }
 
 const vaultAccountAbi = [

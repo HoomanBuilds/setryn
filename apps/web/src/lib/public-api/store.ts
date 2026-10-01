@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { databaseConfigured, readDocument, updateDocument } from "@setryn/persistence";
 import { setrynDataRoot } from "@/lib/webhooks/json-store";
 
 /**
@@ -56,6 +57,17 @@ interface LogFile {
   logs: Record<string, RequestLogEntry[]>;
 }
 
+export interface PublicApiStoreSnapshot {
+  keys: StoredApiKey[];
+  logs: Record<string, RequestLogEntry[]>;
+}
+
+interface DatabaseState extends PublicApiStoreSnapshot {
+  version: 1;
+}
+
+const EMPTY_DATABASE_STATE = (): DatabaseState => ({ version: 1, keys: [], logs: {} });
+
 export const REQUEST_LOG_LIMIT = 50;
 
 interface StoreState {
@@ -104,6 +116,45 @@ export async function loadStore(): Promise<StoreState> {
   });
   await current.loaded;
   return current;
+}
+
+export async function readStore(): Promise<PublicApiStoreSnapshot> {
+  if (databaseConfigured()) {
+    const stored = await readDocument("public-api", "state.json", EMPTY_DATABASE_STATE());
+    return { keys: stored.keys, logs: stored.logs };
+  }
+  const stored = await loadStore();
+  return { keys: stored.keys, logs: stored.logs };
+}
+
+export async function mutateStore<R>(mutate: (store: PublicApiStoreSnapshot) => R): Promise<R> {
+  if (databaseConfigured()) {
+    return updateDocument("public-api", "state.json", EMPTY_DATABASE_STATE(), (stored) => {
+      const result = mutate(stored);
+      return { next: stored, result };
+    });
+  }
+  const stored = await loadStore();
+  const result = mutate(stored);
+  await persist();
+  return result;
+}
+
+export async function recordApiRequest(keyId: string, entry: RequestLogEntry, code?: string): Promise<void> {
+  await mutateStore((stored) => {
+    const key = stored.keys.find((candidate) => candidate.id === keyId);
+    if (!key) return;
+    key.lastUsedAt = entry.at;
+    key.usage.requests += 1;
+    if (entry.status >= 400) key.usage.errors += 1;
+    if (code === "RATE_LIMITED") key.usage.rateLimited += 1;
+    if (code === "NONCE_REUSED" || code === "TIMESTAMP_OUT_OF_WINDOW" || code === "INVALID_SIGNATURE") {
+      key.usage.replayRejected += 1;
+    }
+    const entries = stored.logs[keyId] ?? [];
+    entries.unshift(entry);
+    stored.logs[keyId] = entries.slice(0, REQUEST_LOG_LIMIT);
+  });
 }
 
 async function atomicWrite(path: string, value: unknown): Promise<void> {

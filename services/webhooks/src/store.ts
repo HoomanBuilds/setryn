@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { databaseConfigured, readDocument, updateDocument } from "@setryn/persistence";
 
 import type { ChainCursor, WebhookDelivery, WebhookEvent, WebhookSubscription } from "./types.ts";
 
@@ -47,6 +48,7 @@ export class WebhookStore {
   }
 
   private async read<T>(name: keyof typeof STORE_FILES, empty: T): Promise<T> {
+    if (databaseConfigured()) return readDocument("webhooks", STORE_FILES[name], empty);
     try {
       return JSON.parse(await readFile(this.path(name), "utf8")) as T;
     } catch (error) {
@@ -65,6 +67,7 @@ export class WebhookStore {
 
   /** Runs `mutate` under the file's lock; the returned `next` value is written back when it is not undefined. */
   private async update<T, R>(name: keyof typeof STORE_FILES, empty: T, mutate: (current: T) => { next?: T; result: R }): Promise<R> {
+    if (databaseConfigured()) return updateDocument("webhooks", STORE_FILES[name], empty, mutate);
     const release = await this.lock(name);
     try {
       const current = await this.read(name, empty);
@@ -190,8 +193,13 @@ export class WebhookStore {
     return (await this.read<CursorFile>("cursor", { version: 1, cursor: null })).cursor;
   }
 
-  async writeCursor(cursor: ChainCursor): Promise<void> {
-    await this.update<CursorFile, void>("cursor", { version: 1, cursor: null }, () => ({ next: { version: 1, cursor }, result: undefined }));
+  async writeCursor(cursor: ChainCursor, allowRewind = false): Promise<void> {
+    await this.update<CursorFile, void>("cursor", { version: 1, cursor: null }, (file) => {
+      if (!allowRewind && file.cursor?.chainId === cursor.chainId && BigInt(file.cursor.nextBlock) > BigInt(cursor.nextBlock)) {
+        return { result: undefined };
+      }
+      return { next: { version: 1, cursor }, result: undefined };
+    });
   }
 }
 

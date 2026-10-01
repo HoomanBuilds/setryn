@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { PublicApiError, errorResponse, toPublicApiError } from "./errors";
-import { recordUsage, verifyKey } from "./keys";
+import { verifyKey } from "./keys";
 import { takeToken } from "./rate-limit";
 import { getPartner } from "../webhooks/partners";
 import { verifySignedRequest } from "./replay";
-import { appendRequestLog, type ApiScope, type StoredApiKey } from "./store";
+import { recordApiRequest, type ApiScope, type StoredApiKey } from "./store";
 
 export const API_VERSION = "v1";
 
@@ -87,8 +87,7 @@ export function publicRoute<Params = Record<string, never>>(
       response = errorResponse(apiError, headers);
     }
     if (key) {
-      recordUsage(key, response.status, code);
-      appendRequestLog(key.id, {
+      await recordApiRequest(key.id, {
         id: requestId,
         at: new Date().toISOString(),
         method: request.method,
@@ -96,7 +95,7 @@ export function publicRoute<Params = Record<string, never>>(
         status: response.status,
         durationMs: Math.round(performance.now() - started),
         code,
-      });
+      }, code).catch((error) => console.error(`[public-api] ${requestId} could not persist request accounting`, error));
     }
     return response;
   };

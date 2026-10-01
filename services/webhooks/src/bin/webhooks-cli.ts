@@ -1,5 +1,6 @@
 import { WebhookStore, newSigningSecret, newSubscriptionId } from "../store.ts";
 import { isWebhookEventType, WEBHOOK_EVENT_TYPES, type WebhookEventType, type WebhookSubscription } from "../types.ts";
+import { closeDatabase } from "@setryn/persistence";
 
 /**
  * Local subscription management without the web app:
@@ -58,3 +59,4 @@ if (command === "create") {
   console.error("usage: webhooks-cli.ts create|list|delete|deliveries");
   process.exitCode = 1;
 }
+await closeDatabase();

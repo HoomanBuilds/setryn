@@ -2,9 +2,8 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { getAddress, isAddress } from "viem";
 import { PublicApiError } from "./errors";
 import {
-  loadStore,
-  persist,
-  schedulePersist,
+  mutateStore,
+  readStore,
   type ApiScope,
   type RateLimitPolicy,
   type RequestLogEntry,
@@ -71,10 +70,6 @@ export async function issueKey(input: IssueKeyInput): Promise<{ key: string; rec
     if (!partner) throw new PublicApiError(400, "INVALID_REQUEST", "partnerCode must name an existing partner deployment.");
     partnerCode = partner.code;
   }
-  const store = await loadStore();
-  if (store.keys.filter((key) => !key.revokedAt).length >= MAX_KEYS) {
-    throw new PublicApiError(409, "INVALID_REQUEST", `At most ${MAX_KEYS} active keys are allowed. Revoke one first.`);
-  }
   const id = randomBytes(6).toString("hex");
   const key = `stk_test_${id}_${randomBytes(32).toString("base64url")}`;
   const record: StoredApiKey = {
@@ -91,25 +86,29 @@ export async function issueKey(input: IssueKeyInput): Promise<{ key: string; rec
     revokedAt: null,
     usage: { requests: 0, errors: 0, rateLimited: 0, replayRejected: 0 },
   };
-  store.keys.push(record);
-  await persist();
+  await mutateStore((store) => {
+    if (store.keys.filter((candidate) => !candidate.revokedAt).length >= MAX_KEYS) {
+      throw new PublicApiError(409, "INVALID_REQUEST", `At most ${MAX_KEYS} active keys are allowed. Revoke one first.`);
+    }
+    store.keys.push(record);
+  });
   return { key, record };
 }
 
 export async function revokeKey(id: string): Promise<StoredApiKey> {
-  const store = await loadStore();
-  const record = store.keys.find((key) => key.id === id);
-  if (!record) throw new PublicApiError(404, "NOT_FOUND", "No API key has that id.");
-  record.revokedAt ??= new Date().toISOString();
-  await persist();
-  return record;
+  return mutateStore((store) => {
+    const record = store.keys.find((key) => key.id === id);
+    if (!record) throw new PublicApiError(404, "NOT_FOUND", "No API key has that id.");
+    record.revokedAt ??= new Date().toISOString();
+    return record;
+  });
 }
 
 /** Resolves a bearer key to its record; the hash comparison is constant-time. */
 export async function verifyKey(key: string): Promise<StoredApiKey> {
   const match = KEY_PATTERN.exec(key);
   if (!match) throw new PublicApiError(401, "INVALID_API_KEY", "The API key is malformed.");
-  const store = await loadStore();
+  const store = await readStore();
   const record = store.keys.find((candidate) => candidate.id === match[2]);
   const presented = Buffer.from(hashKey(key), "hex");
   const expected = Buffer.from(record?.secretHash ?? "0".repeat(64), "hex");
@@ -118,15 +117,6 @@ export async function verifyKey(key: string): Promise<StoredApiKey> {
   }
   if (record.revokedAt) throw new PublicApiError(401, "API_KEY_REVOKED", "The API key was revoked.");
   return record;
-}
-
-export function recordUsage(record: StoredApiKey, status: number, code?: string): void {
-  record.lastUsedAt = new Date().toISOString();
-  record.usage.requests += 1;
-  if (status >= 400) record.usage.errors += 1;
-  if (code === "RATE_LIMITED") record.usage.rateLimited += 1;
-  if (code === "NONCE_REUSED" || code === "TIMESTAMP_OUT_OF_WINDOW" || code === "INVALID_SIGNATURE") record.usage.replayRejected += 1;
-  schedulePersist();
 }
 
 export interface ApiKeyView {
@@ -146,7 +136,7 @@ export interface ApiKeyView {
 }
 
 export async function listKeys(): Promise<ApiKeyView[]> {
-  const store = await loadStore();
+  const store = await readStore();
   return store.keys
     .map((record) => {
       const bucket = bucketStatus(record.id, record.rateLimit);

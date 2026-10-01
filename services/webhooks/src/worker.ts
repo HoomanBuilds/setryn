@@ -75,7 +75,7 @@ export class WebhookWorker {
       const nextBlock = recent.length > 0 ? (BigInt(recent[recent.length - 1].number) + 1n).toString() : "0";
       this.options.log({ event: "reorg-detected", previousNextBlock: cursor.nextBlock, rewoundTo: nextBlock });
       cursor = { ...cursor, nextBlock, recent, updatedAt: new Date().toISOString() };
-      await this.store.writeCursor(cursor);
+      await this.store.writeCursor(cursor, true);
     }
 
     const safeHead = head - BigInt(this.options.confirmations);

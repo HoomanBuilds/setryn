@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { databaseConfigured, readDocument, updateDocument } from "@setryn/persistence";
 
 /**
  * Locked JSON documents under the repository's `.setryn/` directory, compatible with the webhooks worker's store:
@@ -29,6 +30,7 @@ export function setrynDataRoot(): string {
 }
 
 export async function readJson<T>(directory: string, file: string, empty: T): Promise<T> {
+  if (databaseConfigured()) return readDocument("webhooks", file, empty);
   try {
     return JSON.parse(await readFile(join(directory, file), "utf8")) as T;
   } catch (error) {
@@ -75,6 +77,7 @@ export async function updateJson<T, R>(
   empty: T,
   mutate: (current: T) => { next?: T; result: R },
 ): Promise<R> {
+  if (databaseConfigured()) return updateDocument("webhooks", file, empty, mutate);
   const release = await lock(directory, file);
   try {
     const { next, result } = mutate(await readJson(directory, file, empty));
