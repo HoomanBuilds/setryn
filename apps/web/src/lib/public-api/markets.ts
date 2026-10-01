@@ -4,7 +4,7 @@ import { CATALOG_MARKETS, MARKETS } from "@/lib/terminal/markets";
 import type { PackageMarket } from "@/lib/terminal/types";
 import type { SetrynRuntime } from "@/lib/internal-gateway/runtime";
 import { marketTradingVersions, readActiveFeeSchedule, type ActiveFeeSchedule } from "@/lib/internal-gateway/fee-schedule";
-import { considerationPerPriceUnit, runtimeMarketByKey } from "@/lib/internal-gateway/runtime-markets";
+import { considerationPerPriceUnit, runtimeMarketByKey, priceOffset } from "@/lib/internal-gateway/runtime-markets";
 import { deriveBookId } from "./chain";
 
 /**
@@ -50,6 +50,8 @@ export interface ApiMarket {
     tickSizeMinor: number;
     /** Price ticks per unit of package price: priceTicks = price x priceScale. */
     priceScale: number;
+    /** Price at zero ticks (the range forward floor): price = priceOffset + priceTicks / priceScale. */
+    priceOffset: number;
     maxOrderLots: number;
     maxLongDebitMinorPerLot: number;
     maxShortDebitMinorPerLot: number;
@@ -131,6 +133,7 @@ export function projectMarket(market: PackageMarket, deployment: { setryn: Setry
             privateRfqBook: setryn.privateRfqBook,
             tickSizeMinor: onchain.tickSizeMinor,
             priceScale: onchain.priceScale,
+            priceOffset: priceOffset(onchain),
             maxOrderLots: onchain.maxOrderLots,
             maxLongDebitMinorPerLot: onchain.maxLongDebitMinorPerLot,
             maxShortDebitMinorPerLot: onchain.maxShortDebitMinorPerLot,

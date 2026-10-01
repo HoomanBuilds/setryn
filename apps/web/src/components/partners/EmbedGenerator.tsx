@@ -48,7 +48,7 @@ export function EmbedGenerator({ partners }: { partners: PartnerDeployment[] }) 
   ].filter(Boolean);
   const snippet = `<div ${attributes.join(" ")}></div>\n<script async src="${origin}/embed.js"></script>`;
 
-  const params = new URLSearchParams({ theme, preview: "1" });
+  const params = new URLSearchParams({ theme, console: "1" });
   if (partner) params.set("partner", partner);
   if (widget === "trade") {
     params.set("side", side);

@@ -133,7 +133,7 @@ export function QuickstartPanel() {
 
 const ENDPOINTS: { method: "GET" | "POST" | "DELETE"; path: string; scope: string; note: string }[] = [
   { method: "GET", path: "/status", scope: "read", note: "Chain, head block, code-hash evidence" },
-  { method: "GET", path: "/markets", scope: "read", note: "Catalog; every runtime market is ONCHAIN, others PREVIEW_ONLY" },
+  { method: "GET", path: "/markets", scope: "read", note: "Listed markets with live quotes and range-forward terms" },
   { method: "GET", path: "/markets/{id}", scope: "read", note: "Series, book, price grid, lot cap and collateral per lot" },
   { method: "GET", path: "/markets/{id}/book", scope: "read", note: "The market's own onchain book, or labelled reference depth" },
   { method: "GET", path: "/markets/{id}/trades", scope: "read", note: "The market's direct-book fills, newest first" },

@@ -1,6 +1,6 @@
 import { readRuntime } from "@/lib/internal-gateway/runtime-server";
 import { paginate, publicRoute } from "@/lib/public-api/handler";
-import { catalog, marketDeployment, projectMarket } from "@/lib/public-api/markets";
+import { liveCatalog, marketDeployment, projectMarket } from "@/lib/public-api/markets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export const GET = publicRoute({ scope: "read" }, async ({ url }) => {
   const deployment = await marketDeployment(await readRuntime().catch(() => null));
   const execution = url.searchParams.get("execution");
-  const markets = catalog()
+  const markets = (await liveCatalog())
     .map((market) => projectMarket(market, deployment))
     .filter((market) => !execution || market.execution === execution);
   return paginate(markets, url);
