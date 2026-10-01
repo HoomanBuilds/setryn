@@ -20,14 +20,6 @@ const MINOR_PER_UNIT = 10n ** 6n;
 const MIN_DAYS_TO_EXPIRY = 14;
 const EXPIRY_HOUR_UTC = 8;
 const MAX_ORDER_LOTS = 100;
-/** Faucet-sized lots for the Arbitrum Sepolia testnet; local and Arbitrum One keep the family defaults. */
-const SEPOLIA_LOT_SIZES = {
-  BTC: "0.00001",
-  ETH: "0.0001",
-  ARB: "1",
-  EUR: "1",
-  XAU: "0.0001",
-};
 
 /**
  * Families, their Chainlink aggregators on Arbitrum One (verified 2026-10-01), and contract parameters. Prices are
@@ -173,7 +165,7 @@ const families = [];
 const markets = [];
 for (const [index, family] of FAMILIES.entries()) {
   const { answerE8, updatedAt } = await latestRound(referenceRpcUrl, family.referenceFeed);
-  const lotSize = network === "arbitrum-sepolia" ? (SEPOLIA_LOT_SIZES[family.symbol] ?? family.lotSize) : family.lotSize;
+  const lotSize = family.lotSize;
   const unitE8 = scaled(family.roundTo, FIXING_DECIMALS);
   const floorE8 = roundToUnit((answerE8 * family.floorBps) / 10_000n, unitE8);
   const capE8 = roundToUnit((answerE8 * family.capBps) / 10_000n, unitE8);

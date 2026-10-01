@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
   "network": "arbitrum-sepolia",
-  "generatedAt": "2026-10-01T13:35:25Z",
-  "listedAt": 1790859600,
+  "generatedAt": "2026-10-01T16:38:31Z",
+  "listedAt": 1790870400,
   "fixingDecimals": 8,
   "reference": {
     "source": "chainlink",
@@ -15,9 +15,9 @@
       "feedKey": "Crypto.BTC/USD",
       "assetClass": 1,
       "referenceFeed": "0x6ce185860a4963106506C203335A2910413708e9",
-      "referencePriceE8": "8368400985290",
-      "referencePrice": "83684.0098529",
-      "referenceAt": 1790861651,
+      "referencePriceE8": "8426787856586",
+      "referencePrice": "84267.87856586",
+      "referenceAt": 1790872696,
       "strategyKind": "DATED_YIELD_CARRY"
     },
     {
@@ -26,9 +26,9 @@
       "feedKey": "Crypto.ETH/USD",
       "assetClass": 1,
       "referenceFeed": "0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612",
-      "referencePriceE8": "268938521405",
-      "referencePrice": "2689.38521405",
-      "referenceAt": 1790861620,
+      "referencePriceE8": "268310385277",
+      "referencePrice": "2683.10385277",
+      "referenceAt": 1790872695,
       "strategyKind": "FUNDING_CARRY"
     },
     {
@@ -37,9 +37,9 @@
       "feedKey": "Crypto.ARB/USD",
       "assetClass": 1,
       "referenceFeed": "0xb2A824043730FE05F3DA2efaFa1CBbe83fa548D6",
-      "referencePriceE8": "20053470",
-      "referencePrice": "0.2005347",
-      "referenceAt": 1790861708,
+      "referencePriceE8": "19965042",
+      "referencePrice": "0.19965042",
+      "referenceAt": 1790872694,
       "strategyKind": "DATED_BASIS"
     },
     {
@@ -48,9 +48,9 @@
       "feedKey": "FX.EUR/USD",
       "assetClass": 3,
       "referenceFeed": "0xA14d53bC1F1c0F31B4aA3BD109344E5009051a84",
-      "referencePriceE8": "112854500",
-      "referencePrice": "1.128545",
-      "referenceAt": 1790861013,
+      "referencePriceE8": "112331000",
+      "referencePrice": "1.12331",
+      "referenceAt": 1790872418,
       "strategyKind": "DELIVERABLE_FORWARD"
     },
     {
@@ -129,9 +129,9 @@
       "displayName": "ETH Dated Forward · 24 Dec 26",
       "expiryAt": 1798099200,
       "floorE8": "134000000000",
-      "capE8": "403000000000",
+      "capE8": "402000000000",
       "floor": "1340",
-      "cap": "4030",
+      "cap": "4020",
       "lotSize": "0.1",
       "tickPrice": "0.1",
       "priceDecimals": 1,
@@ -139,7 +139,7 @@
       "tickSizeMinor": 10000,
       "payoffMultiplierNumerator": "100000",
       "payoffMultiplierDenominator": "100000000",
-      "bandMinor": "269000000",
+      "bandMinor": "268000000",
       "maxOrderLots": 100
     },
     {
@@ -148,9 +148,9 @@
       "displayName": "ETH Dated Forward · 26 Mar 27",
       "expiryAt": 1806048000,
       "floorE8": "134000000000",
-      "capE8": "403000000000",
+      "capE8": "402000000000",
       "floor": "1340",
-      "cap": "4030",
+      "cap": "4020",
       "lotSize": "0.1",
       "tickPrice": "0.1",
       "priceDecimals": 1,
@@ -158,7 +158,7 @@
       "tickSizeMinor": 10000,
       "payoffMultiplierNumerator": "100000",
       "payoffMultiplierDenominator": "100000000",
-      "bandMinor": "269000000",
+      "bandMinor": "268000000",
       "maxOrderLots": 100
     },
     {
@@ -167,9 +167,9 @@
       "displayName": "ETH Dated Forward · 25 Jun 27",
       "expiryAt": 1813910400,
       "floorE8": "134000000000",
-      "capE8": "403000000000",
+      "capE8": "402000000000",
       "floor": "1340",
-      "cap": "4030",
+      "cap": "4020",
       "lotSize": "0.1",
       "tickPrice": "0.1",
       "priceDecimals": 1,
@@ -177,7 +177,7 @@
       "tickSizeMinor": 10000,
       "payoffMultiplierNumerator": "100000",
       "payoffMultiplierDenominator": "100000000",
-      "bandMinor": "269000000",
+      "bandMinor": "268000000",
       "maxOrderLots": 100
     },
     {

@@ -23,7 +23,7 @@ import {
   type OnchainPublicOrder,
 } from "@/lib/internal-gateway/protocol";
 import { reserveOrderRisk } from "@/lib/internal-gateway/risk-admission";
-import type { SetrynNetwork, SetrynRuntimeMarket } from "@/lib/internal-gateway/runtime";
+import type { SetrynRuntimeMarket } from "@/lib/internal-gateway/runtime";
 import { deriveSeriesBookId } from "@/lib/internal-gateway/runtime-markets";
 import { readRuntime } from "@/lib/internal-gateway/runtime-server";
 
@@ -33,12 +33,6 @@ export const dynamic = "force-dynamic";
 const NO_STORE = { "Cache-Control": "no-store" };
 const ZERO_ID = `0x${"0".repeat(64)}` as Hex;
 const MAKER_LOTS = 10;
-const SEPOLIA_MAKER_LOTS = 1;
-
-/** Faucet-sized testnet quotes rest one lot; every other network rests ten lots. */
-function makerLotsForNetwork(network: SetrynNetwork | undefined): number {
-  return network === "arbitrum-sepolia" ? SEPOLIA_MAKER_LOTS : MAKER_LOTS;
-}
 /** The risk reservation admits deadlines up to five minutes out; a longer-lived quote churns the book less. */
 const QUOTE_LIFETIME_SECONDS = BigInt(290);
 
@@ -241,7 +235,7 @@ async function placeQuote(
   const { setryn, publicClient, walletClient } = maker;
   // Random low bits keep concurrent refreshes in one block from signing the same order twice.
   const nonce = now * BigInt(2 ** 32) + BigInt(crypto.getRandomValues(new Uint32Array(1))[0]);
-  const lots = BigInt(Math.min(makerLotsForNetwork(maker.setryn.network), market.maxOrderLots));
+  const lots = BigInt(Math.min(MAKER_LOTS, market.maxOrderLots));
   const absoluteTicks = priceTicks < BigInt(0) ? -priceTicks : priceTicks;
   // A post-only quote only ever fills as maker, so its cap is the maker charge on its full consideration.
   const maxFeeMinor = orderFeeCapMinor(fees, lots * absoluteTicks * BigInt(market.tickSizeMinor), "MAKER");
