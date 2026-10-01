@@ -19,7 +19,7 @@ export default async function TradeEmbedPage({ params, searchParams }: PageProps
       widget="trade"
       theme={embed.theme}
       partner={embed.partner}
-      preview={embed.preview}
+      consoleView={embed.consoleView}
       frameId={embed.frameId}
       marketId={market.id}
       label={`${packageLabel(market)} quote widget`}

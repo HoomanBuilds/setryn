@@ -60,14 +60,11 @@ export function Skeleton({ className = "" }: { className?: string }) {
 }
 
 /**
- * The market's stored history is pinned to its fixture mark. The live board
- * moves that mark, so the last sample is replaced with the current package
- * price: the line always ends exactly where the price column reads.
+ * The market's recent onchain fill prices, oldest first. A market without fills has no line: the sparkline stays
+ * empty rather than drawing a print that did not happen.
  */
 export function liveSeries(market: PackageMarket): number[] {
-  const history = market.priceHistory;
-  if (history.length === 0) return [market.netPrice];
-  return [...history.slice(0, -1), market.netPrice];
+  return market.priceHistory;
 }
 
 export type SparkTone = "up" | "down" | "flat";
@@ -174,9 +171,10 @@ export function Flash({
 }) {
   const [seen, setSeen] = useState(value);
   const [pulse, setPulse] = useState<{ up: boolean; count: number } | null>(null);
-  if (value !== seen) {
+  // Object.is, not !==: a missing value is NaN, and NaN !== NaN would re-render forever.
+  if (!Object.is(value, seen)) {
     setSeen(value);
-    setPulse({ up: value > seen, count: (pulse?.count ?? 0) + 1 });
+    if (Number.isFinite(value) && Number.isFinite(seen)) setPulse({ up: value > seen, count: (pulse?.count ?? 0) + 1 });
   }
   const animation = pulse ? (pulse.up ? motion.flashUp : motion.flashDown) : "";
   return (

@@ -1,4 +1,4 @@
-import type { ChartInterval, PreviewCandle } from "./preview-price-data";
+import type { ChartInterval, MarketCandle } from "@/lib/market-data/types";
 
 export type ChartStyle = "candles" | "hollow" | "bars" | "heikin" | "line" | "step" | "area" | "baseline";
 
@@ -18,7 +18,7 @@ export function isOhlcStyle(style: ChartStyle): boolean {
 }
 
 /** Heikin Ashi bar from the raw bar and the previous Heikin Ashi bar. */
-export function heikinAshiBar(candle: PreviewCandle, previous: PreviewCandle | undefined): PreviewCandle {
+export function heikinAshiBar(candle: MarketCandle, previous: MarketCandle | undefined): MarketCandle {
   const close = (candle.open + candle.high + candle.low + candle.close) / 4;
   const open = previous ? (previous.open + previous.close) / 2 : (candle.open + candle.close) / 2;
   return {
@@ -31,8 +31,8 @@ export function heikinAshiBar(candle: PreviewCandle, previous: PreviewCandle | u
   };
 }
 
-export function heikinAshi(candles: PreviewCandle[]): PreviewCandle[] {
-  const result: PreviewCandle[] = [];
+export function heikinAshi(candles: MarketCandle[]): MarketCandle[] {
+  const result: MarketCandle[] = [];
   for (const candle of candles) result.push(heikinAshiBar(candle, result[result.length - 1]));
   return result;
 }

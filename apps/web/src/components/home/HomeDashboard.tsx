@@ -6,6 +6,7 @@ import { ArrowDownToLine, CandlestickChart } from "lucide-react";
 import { ChainIcon, chainLabelOf } from "@/components/icons/AssetIcon";
 import { useAlertInbox } from "@/components/alerts/useAlertInbox";
 import { AlertLine } from "@/components/alerts/parts";
+import { useChainNow, useMarketBoard } from "@/components/market-data/MarketDataProvider";
 import { usePortfolio } from "@/components/portfolio/usePortfolio";
 import { Chip, Panel, PanelHead } from "@/components/strategies/desk/Desk";
 import { systemHealth } from "@/lib/alerts";
@@ -17,7 +18,7 @@ import { formatNumber, formatShare, priceUnitSuffix, evidenceLabel } from "@/lib
 import { DEFAULT_MARKET_ID, DEFAULT_TRADE_HREF } from "@/lib/terminal/markets";
 import { usePersistentState } from "@/lib/terminal/use-persistent-state";
 import { AccountSummary } from "./AccountSummary";
-import { BUTTON_GHOST, BUTTON_PRIMARY, PageFrame, PageHeader, PanelLink, WalletBadge, useDevnetReading, useWallClock } from "./kit";
+import { BUTTON_GHOST, BUTTON_PRIMARY, PageFrame, PageHeader, PanelLink, WalletBadge, useOperatorReading, useWallClock } from "./kit";
 import { Opportunities } from "./Opportunities";
 import { PendingActions } from "./PendingActions";
 import { pendingActions } from "./pending";
@@ -26,19 +27,27 @@ import { SystemHealthPanel } from "./SystemHealthPanel";
 
 export function HomeDashboard() {
   const read = usePortfolio();
-  const { snapshot, markets, previewEpochSeconds } = read;
+  const { snapshot, markets } = read;
+  const nowSeconds = useChainNow();
+  const board = useMarketBoard();
   const nowMs = useWallClock();
   const inbox = useAlertInbox();
   const [unit] = useSizeUnit();
-  const { reading, recheck } = useDevnetReading();
+  const { reading, recheck } = useOperatorReading();
   const [records] = usePersistentState<ExposureRecord[]>(EXPOSURE_BOOK_KEY, EMPTY_EXPOSURE_BOOK, parseExposureBook);
 
   const pending = useMemo(
-    () => pendingActions(snapshot, markets, previewEpochSeconds, nowMs),
-    [snapshot, markets, previewEpochSeconds, nowMs],
+    () => pendingActions(snapshot, markets, nowSeconds, nowMs),
+    [snapshot, markets, nowSeconds, nowMs],
   );
-  const health = useMemo(() => systemHealth(snapshot, reading), [snapshot, reading]);
-  const book = useMemo(() => buildExposureBook(records, snapshot.positions, markets), [records, snapshot.positions, markets]);
+  const health = useMemo(
+    () => systemHealth(snapshot, reading, { status: board.status, snapshot: board.snapshot }),
+    [snapshot, reading, board.status, board.snapshot],
+  );
+  const book = useMemo(
+    () => buildExposureBook(records, snapshot.positions, markets, { references: board.references }),
+    [records, snapshot.positions, markets, board.references],
+  );
 
   const lead = markets.find((market) => market.id === DEFAULT_MARKET_ID) ?? markets[0];
   const activeRfqs = snapshot.rfqRequests.filter(

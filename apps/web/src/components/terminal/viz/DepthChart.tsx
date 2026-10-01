@@ -45,14 +45,26 @@ function SourceNode({ source, cx, cy }: { source: BookRow["source"]; cx: number;
 export function DepthChart({ market }: { market: PackageMarket }) {
   const bids = cumulative(market.book, "BID");
   const asks = cumulative(market.book, "ASK");
+  if (bids.length === 0 && asks.length === 0) {
+    return (
+      <div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-1 text-center">
+        <p className="text-xs text-dim">No resting orders</p>
+        <p className="text-[11px] text-faint">Depth appears once orders rest on the onchain book.</p>
+      </div>
+    );
+  }
   const prices = [...bids, ...asks].map((entry) => entry.row.price);
-  const minPrice = Math.min(...prices);
-  const maxPrice = Math.max(...prices);
+  // A single level still gets a readable axis: one tick either side.
+  const minPrice = Math.min(...prices) - (prices.length === 1 ? market.tickSize : 0);
+  const maxPrice = Math.max(...prices) + (prices.length === 1 ? market.tickSize : 0);
   const maxLots = Math.max(...bids.map((b) => b.total), ...asks.map((a) => a.total));
 
   const x = makeScale(minPrice, maxPrice, VIEW_W);
   const y = makeScale(0, maxLots * 1.12, VIEW_H, true);
-  const midX = x((market.bestBid + market.bestAsk) / 2);
+  const touch = Number.isFinite(market.bestBid) && Number.isFinite(market.bestAsk)
+    ? (market.bestBid + market.bestAsk) / 2
+    : Number.isFinite(market.bestBid) ? market.bestBid : market.bestAsk;
+  const midX = x(touch);
 
   const bidPoints = bids.map((entry) => ({ x: x(entry.row.price), y: y(entry.total) }));
   const askPoints = asks.map((entry) => ({ x: x(entry.row.price), y: y(entry.total) }));
@@ -69,7 +81,7 @@ export function DepthChart({ market }: { market: PackageMarket }) {
         preserveAspectRatio="none"
         className="h-full w-full"
         role="img"
-        aria-label={`Executable package depth, ${formatLots(market.firmDepthLots)} lots across direct, implied, and solver liquidity`}
+        aria-label={`Onchain book depth, ${formatLots(market.firmDepthLots)} lots resting`}
       >
         <path d={close(bidPoints, 0)} fill="var(--color-up)" opacity={0.1} />
         <path d={close(askPoints, VIEW_W)} fill="var(--color-down)" opacity={0.1} />
@@ -114,9 +126,7 @@ export function DepthChart({ market }: { market: PackageMarket }) {
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 text-xs text-off">
         <span className="tnum font-mono">{formatNumber(minPrice, market.priceDecimals)}</span>
-        <span className="hidden truncate sm:inline">
-          square direct, outline implied, diamond solver
-        </span>
+        <span className="hidden truncate sm:inline">price levels on the onchain book</span>
         <span className="tnum font-mono">
           {`${formatNumber(maxPrice, market.priceDecimals)} ${priceUnitSuffix(market.priceUnit)}`}
         </span>

@@ -8,7 +8,7 @@ export default function NotFound() {
         <p className="text-xs font-medium tracking-[0.08em] text-faint uppercase">404</p>
         <h1 className="mt-1.5 text-base font-semibold text-ink">That market is not listed</h1>
         <p className="mt-1.5 text-sm leading-snug text-dim">
-          The URL does not match any package market in this build. Open the directory to see every
+          The URL does not match any market listed on this deployment. Open the directory to see every
           listed market, or go to the default terminal.
         </p>
       </div>

@@ -1,7 +1,6 @@
-import { formatHours, hoursToFixing, type AlertProvenance } from "@/lib/alerts";
+import { formatHours, type AlertProvenance } from "@/lib/alerts";
 import type { GatewaySnapshot } from "@/lib/internal-gateway/types";
-import { ORGANIZATION_CONTROL_FIXTURE } from "@/lib/settings/organization";
-import { formatDuration, formatExpiry, formatNumber, priceUnitSuffix } from "@/lib/terminal/format";
+import { formatDuration, formatNumber, formatUtcStamp, priceUnitSuffix } from "@/lib/terminal/format";
 import { packageLabel, tradeHref } from "@/lib/terminal/markets";
 import type { PackageMarket } from "@/lib/terminal/types";
 
@@ -35,13 +34,13 @@ function price(market: PackageMarket | undefined, value: number): string {
 
 /**
  * Everything waiting on the viewer, from the gateway snapshot and the live board: quotes selected but not signed,
- * working orders, RFQs collecting or awaiting selection, and the next fixings on held packages. With no held
- * package, the nearest listed fixings stand in and say so.
+ * working orders, RFQs collecting or awaiting selection, and the next fixings on held positions. With no held
+ * position, the nearest listed fixings stand in and say so. `nowSeconds` is the platform (chain-corrected) clock.
  */
 export function pendingActions(
   snapshot: GatewaySnapshot,
   markets: readonly PackageMarket[],
-  previewEpochSeconds: number,
+  nowSeconds: number,
   nowMs: number,
 ): { items: PendingItem[]; listedFixings: boolean } {
   const items: PendingItem[] = [];
@@ -82,23 +81,6 @@ export function pendingActions(
     }
   }
 
-  const organization = ORGANIZATION_CONTROL_FIXTURE.organizations[0];
-  for (const proposal of ORGANIZATION_CONTROL_FIXTURE.proposals) {
-    if (proposal.status !== "pending") continue;
-    const approvals = proposal.decisions.filter((decision) => decision.choice === "approve").length;
-    items.push({
-      id: `approval-${proposal.id}`,
-      group: "SIGN",
-      title: `Approval: ${proposal.actionKind.replace(/-/g, " ")} ${formatNumber(Number(proposal.notional.amount), 0)} ${proposal.notional.currency}`,
-      detail: `${organization?.name ?? "Organization"} / ${approvals} of ${proposal.requiredApprovers} ${proposal.approverRole} approvals`,
-      meta: `policy v${proposal.policyVersion}`,
-      urgent: false,
-      href: "/settings#approvals",
-      action: "Review",
-      provenance: "RECORDED_FIXTURE",
-    });
-  }
-
   for (const order of snapshot.restingOrders) {
     if (order.state !== "WORKING" && order.state !== "PARTIALLY_FILLED") continue;
     const market = find(order.marketId);
@@ -118,7 +100,7 @@ export function pendingActions(
   const held = new Map<string, number>();
   for (const position of snapshot.positions) held.set(position.marketId, (held.get(position.marketId) ?? 0) + position.lots);
   const fixingMarkets = (held.size > 0 ? markets.filter((market) => held.has(market.id)) : [...markets])
-    .map((market) => ({ market, hours: hoursToFixing(market, previewEpochSeconds) }))
+    .map((market) => ({ market, hours: (market.expiryAt - nowSeconds) / 3_600 }))
     .filter((entry) => entry.hours > -24)
     .sort((a, b) => a.hours - b.hours)
     .slice(0, held.size > 0 ? 6 : 3);
@@ -128,15 +110,14 @@ export function pendingActions(
       id: `fixing-${market.id}`,
       group: "FIXINGS",
       title: `${packageLabel(market)} ${hours > 0 ? "fixes" : "fixing window open"}`,
-      detail: `${formatExpiry(market.expiryIso)} 16:00 UTC / ${market.fixingSource}${lots ? ` / ${formatNumber(lots, 0)} lots held` : " / listed market"}`,
+      detail: `${formatUtcStamp(market.expiryAt)} UTC / ${market.fixingSource}${lots ? ` / ${formatNumber(lots, 0)} lots held` : " / listed market"}`,
       meta: hours > 0 ? formatHours(hours) : "Now",
       urgent: hours <= 72,
       href: lots ? "/lifecycle" : tradeHref(market),
       action: lots ? "Lifecycle" : "Trade",
-      // The fixing time comes from the listed expiry schedule and counts down on the market clock; no fixing has
-      // been observed yet.
-      provenance: "MODELED",
-      provenanceNote: "Scheduled from the listed expiry. Time to fixing runs on the market clock.",
+      // The fixing time is the series' listed expiry and counts down on the platform clock; no fixing is observed yet.
+      provenance: "OBSERVED",
+      provenanceNote: "The series' listed expiry. Time to fixing runs on the platform clock.",
     });
   }
 

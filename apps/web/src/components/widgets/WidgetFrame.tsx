@@ -26,14 +26,14 @@ function embedderOrigin(): string | null {
 }
 
 /**
- * Chromeless widget shell: applies the theme tokens, records the partner impression (skipped for console previews),
+ * Chromeless widget shell: applies the theme tokens, records the partner impression (skipped inside the partner console),
  * enforces the deployment's permission answer, and reports its height to the loader script for auto-resize.
  */
 export function WidgetFrame({
   widget,
   theme,
   partner,
-  preview,
+  consoleView,
   frameId,
   marketId,
   label,
@@ -42,7 +42,7 @@ export function WidgetFrame({
   widget: EmbedWidgetKind;
   theme: EmbedTheme;
   partner: string | null;
-  preview: boolean;
+  consoleView: boolean;
   frameId: string | null;
   marketId: string;
   label: string;
@@ -52,7 +52,7 @@ export function WidgetFrame({
   const [blocked, setBlocked] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!partner || preview) return;
+    if (!partner || consoleView) return;
     const controller = new AbortController();
     fetch("/api/v1/partners/events", {
       method: "POST",
@@ -66,7 +66,7 @@ export function WidgetFrame({
       })
       .catch(() => undefined);
     return () => controller.abort();
-  }, [partner, preview, widget, marketId]);
+  }, [partner, consoleView, widget, marketId]);
 
   useEffect(() => {
     const root = rootRef.current;

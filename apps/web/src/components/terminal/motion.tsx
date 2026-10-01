@@ -11,9 +11,10 @@ export type TickDirection = "up" | "down" | null;
 export function useTickDirection(value: number): TickDirection {
   const [previous, setPrevious] = useState(value);
   const [direction, setDirection] = useState<TickDirection>(null);
-  if (value !== previous) {
+  // Object.is, not !==: a missing value is NaN, and NaN !== NaN would re-render forever.
+  if (!Object.is(value, previous)) {
     setPrevious(value);
-    setDirection(value > previous ? "up" : "down");
+    setDirection(Number.isFinite(value) && Number.isFinite(previous) ? (value > previous ? "up" : "down") : null);
   }
   return direction;
 }

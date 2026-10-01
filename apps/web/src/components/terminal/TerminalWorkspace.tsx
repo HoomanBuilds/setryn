@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useGatewaySnapshot, useInternalGateway } from "@/components/gateway/InternalGatewayProvider";
-import { usePreviewBoard, usePreviewMarket } from "@/components/terminal/PreviewMarketProvider";
+import { useLiveMarket, useMarketBoard, useMarketDataRefresh } from "@/components/market-data/MarketDataProvider";
 import { AnalysisPanel, type VizTab } from "@/components/terminal/AnalysisPanel";
 import { ConsolePanel } from "@/components/terminal/ConsolePanel";
 import { ContractSpec, MarketHeader, MarketStatGrid } from "@/components/terminal/MarketHeader";
@@ -19,6 +19,7 @@ import {
   isPackageSide,
   previewReference,
   protectedPrice,
+  routeCapacity,
   routePrice,
   SLIPPAGE_PRESETS_BPS,
   type Intent,
@@ -29,7 +30,7 @@ import {
 import { parseHandoff, type HandoffContext } from "@/lib/terminal/handoff";
 import { tradeHref } from "@/lib/terminal/markets";
 import { usePersistentState } from "@/lib/terminal/use-persistent-state";
-import type { BookRow, ConsoleTabId, PackageMarket, RouteQuote } from "@/lib/terminal/types";
+import type { BookRow, ConsoleTabId, PackageMarket } from "@/lib/terminal/types";
 import type { OnchainMarket, OrderExecutionProgress } from "@/lib/internal-gateway/types";
 import { platformNow } from "@/lib/terminal/clock";
 import { useConfirmationPrefs, useDisclosurePrefs } from "@/lib/settings/preferences";
@@ -52,8 +53,8 @@ function executionError(error: unknown): string {
   if (error.message === "WALLET_UNAVAILABLE") {
     return "The wallet prompt could not open, so nothing was signed or submitted. Reload the page and try again.";
   }
-  if (error.message === "DEVNET_GAS_FUNDING_FAILED") {
-    return "The local devnet could not fund gas for this wallet, so nothing was submitted. Check the local chain and try again.";
+  if (error.message === "GAS_FUNDING_FAILED") {
+    return "Gas could not be funded for this wallet, so nothing was submitted. Check the chain connection and try again.";
   }
   // Wallet and transport failures surface through viem with EIP-1193 and JSON-RPC codes in the cause chain.
   const codes: unknown[] = [];
@@ -83,7 +84,16 @@ function executionError(error: unknown): string {
   if (error.message === "EXIT_REQUIRES_FOK") return "Lifecycle exits require fill-or-kill execution.";
   if (error.message === "POST_ONLY_WOULD_CROSS") return "The book moved and this post-only order would take liquidity, so it was cancelled without a fill. Reprice behind the touch.";
   if (error.message === "RESTING_ORDER_WOULD_CROSS") return "The book moved and this limit now crosses, so it was cancelled without a fill. Resubmit to execute against the book.";
-  if (error.message === "EXIT_REQUIRES_DEVNET_MAKER") return "The close must use the qualified maker that owns the original counterparty position.";
+  if (error.message === "EXIT_REQUIRES_COUNTERPARTY_MAKER") return "The close must use the qualified maker that owns the original counterparty position.";
+  if (error.message === "COUNTERPARTY_CONSENT_REQUIRED") return "The counterparty has not consented to this close yet. Nothing was submitted; try again shortly.";
+  if (error.message === "INSUFFICIENT_WALLET_BALANCE") return "The wallet does not hold enough USDC for this deposit or fee. Nothing was submitted.";
+  if (error.message === "MAKER_SIGNER_UNCONFIGURED") return "No designated maker is configured on this network, so no maker quote or counterparty is available.";
+  if (error.message === "OPERATOR_SIGNER_UNCONFIGURED") return "The operator signer is not configured on this network, so the order cannot be admitted. Nothing was submitted.";
+  if (error.message === "REFERENCE_UNAVAILABLE") return "The Chainlink reference could not be read, so the order cannot be priced safely. Nothing was submitted.";
+  if (error.message === "LISTING_UNSUPPORTED") return "This market is not listed on the connected deployment.";
+  if (error.message === "QUOTE_OUTSIDE_MAKER_PRICE") return "The requested price is outside the range the maker quotes. Adjust the limit and try again.";
+  if (error.message === "GOVERNANCE_TIMELOCK_REQUIRED") return "This change needs a governance timelock and cannot be made from the terminal.";
+  if (error.message === "NOT_AVAILABLE_ON_NETWORK") return "This action is not available on the connected network.";
   if (error.message === "EXIT_QUANTITY_MISMATCH") return "The close fill does not exactly offset the original position. Both positions remain visible for recovery.";
   if (error.message === "EXIT_PARTICIPANT_MISMATCH") return "The close fill changed the counterparty set and cannot use the direct unwind path.";
   if (error.message === "RFQ_NOT_FOUND") return "The RFQ request is no longer available. Confirm the ticket again for a fresh quote.";
@@ -186,51 +196,31 @@ function executionError(error: unknown): string {
 const SLIPPAGE_KEY = "setryn:ticket-slippage-bps";
 
 /**
- * The ticket's view of an onchain market: chain economics, and only the routes that execute onchain. The direct route
- * is priced from the public book the chain holds, so a market order's protection price tracks what can fill.
+ * The ticket's view of an onchain market: the chain's economics for this series (lot multiplier, bounded liability,
+ * order cap, and the active fee schedule's taker rate) over the market-data feed's routes, which are priced only from
+ * the onchain book.
  */
-function onchainTicketMarket(market: PackageMarket, onchain: OnchainMarket, book: BookRow[]): PackageMarket {
-  const asks = book.filter((row) => row.side === "ASK" && row.executable).map((row) => row.price);
-  const bids = book.filter((row) => row.side === "BID" && row.executable).map((row) => row.price);
-  const previewDirect = market.routes.find((candidate) => candidate.id === "DIRECT_BOOK") ?? null;
-  const direct: RouteQuote | null =
-    asks.length > 0 || bids.length > 0
-      ? {
-          id: "DIRECT_BOOK",
-          label: "Direct package book",
-          source: "DIRECT",
-          counterpartyFeeLabel: "Maker fee",
-          guarantee: "PACKAGE_ATOMIC",
-          etaLabel: "2 blocks, about 4s",
-          requiresPrivate: false,
-          intermediateExposureRate: 0,
-          note: "Resting onchain package liquidity. All legs print in one match, so no leg can fill alone.",
-          ...previewDirect,
-          protocolFeeBps: onchain.takerFeeBps,
-          counterpartyFeeBps: 0,
-          collateralMultiple: 1,
-          enterPrice: asks.length > 0 ? Math.min(...asks) : (previewDirect?.enterPrice ?? market.bestAsk),
-          exitPrice: bids.length > 0 ? Math.max(...bids) : (previewDirect?.exitPrice ?? market.bestBid),
-          availableLots: book.filter((row) => row.executable).reduce((sum, row) => sum + row.lots, 0),
-        }
-      : previewDirect;
-  const solver = market.routes.find((candidate) => candidate.id === "SOLVER_RFQ") ?? null;
+function onchainTicketMarket(market: PackageMarket, onchain: OnchainMarket): PackageMarket {
   return {
     ...market,
     contractMultiplier: onchain.considerationPerPriceUnit,
+    // Consideration is lots x lot size x (price - floor): the chain's offset wins over the catalog's.
+    priceOffset: onchain.priceOffset ?? market.priceOffset,
     collateralPerLot: Math.max(onchain.longCollateralPerLot, onchain.shortCollateralPerLot),
     feeOnConsideration: true,
     maxOrderLots: onchain.maxOrderLots,
-    // Only the public book and the private solver RFQ execute onchain; preview routes would misstate the fill.
-    routes: [direct, solver]
-      .filter((candidate): candidate is RouteQuote => candidate !== null)
-      .map((candidate) => ({
-        ...candidate,
-        protocolFeeBps: onchain.takerFeeBps,
-        counterpartyFeeBps: 0,
-        collateralMultiple: 1,
-      })),
+    routes: market.routes.map((candidate) => ({
+      ...candidate,
+      protocolFeeBps: onchain.takerFeeBps,
+      counterpartyFeeBps: 0,
+      collateralMultiple: 1,
+    })),
   };
+}
+
+/** A price for the ticket's limit field: the value on the tick grid, or the current input when there is none. */
+function limitText(price: number, decimals: number, fallback: string): string {
+  return Number.isFinite(price) ? price.toFixed(decimals) : fallback;
 }
 
 /**
@@ -245,8 +235,11 @@ function onchainFeeCap(
   market: PackageMarket,
   slippageBps: number,
 ): number {
-  const worstPrice = Math.max(Math.abs(preview.limitPrice), Math.abs(preview.effectivePrice)) * (1 + slippageBps / 10_000);
-  const consideration = preview.requestedLots * worstPrice * market.contractMultiplier;
+  // Consideration is lots x (price - floor) x lot size, so the worst case is the larger distance above the floor.
+  const worstDistance =
+    Math.max(Math.abs(preview.limitPrice - market.priceOffset), Math.abs(preview.effectivePrice - market.priceOffset) || 0) *
+    (1 + slippageBps / 10_000);
+  const consideration = preview.requestedLots * worstDistance * market.contractMultiplier;
   const charge = (bps: number, flatUsd: number) => (consideration * bps) / 10_000 + flatUsd;
   const cap = Math.max(charge(onchain.takerFeeBps, onchain.takerFlatFeeUsd), charge(onchain.makerFeeBps, onchain.makerFlatFeeUsd));
   return Math.max(preview.totalFees, Math.ceil(cap * 1_000_000) / 1_000_000);
@@ -260,12 +253,14 @@ function initialTicket(market: PackageMarket, handoff?: HandoffContext): TicketS
   const intent = handoff?.intent ?? "ENTER";
   const side: PackageSide = handoff?.direction ?? "LONG";
   const action = executableAction(intent, side);
+  const touch = bestReferencePrice(market, action);
   return {
     intent,
     side,
     orderType: "MARKETABLE_LIMIT",
-    lotsInput: handoff?.lots != null ? String(handoff.lots) : "10",
-    limitInput: bestReferencePrice(market, action).toFixed(market.priceDecimals),
+    lotsInput: handoff?.lots != null ? String(handoff.lots) : "1",
+    // The touch when the book holds one, else the mark, so the field never shows a price nothing supports.
+    limitInput: limitText(Number.isFinite(touch) ? touch : market.netPrice, market.priceDecimals, ""),
     // A lifecycle exit is fill-or-kill, the same rule the ticket applies when switching to Exit.
     tif: intent === "EXIT" ? "FOK" : "GTC",
     expiresAt: null,
@@ -322,24 +317,36 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   const autoExecuteQuoteRef = useRef(false);
   const ticketTouchedRef = useRef(false);
 
-  /* Shared coherent index feed: one tick drives every market, so the
-     terminal never owns a page-local interval or stream. */
-  const { liveMarket, previewEpochSeconds } = usePreviewMarket(market.id);
-  const { markets } = usePreviewBoard();
+  /* The one market-data feed: the book, fills, marks, and routes on every panel come from the same snapshot, so the
+     terminal never owns a page-local stream. */
+  const { market: liveMarket } = useLiveMarket(market.id);
+  const { markets } = useMarketBoard();
+  const refreshFeed = useMarketDataRefresh();
 
-  /* Every market registered onchain settles on its own deployed series, so the ticket prices collateral, fees, and
-     order size from the chain, and the direct route executes against the public book read from the chain. Charts
-     and the other preview surfaces keep the shared index feed. */
-  const onchainInfo = gatewaySnapshot.onchainMarkets[liveMarket.id] ?? null;
-  const onchainMarket = onchainInfo !== null;
-  const onchainBook = useMemo<BookRow[]>(
-    () => (onchainInfo ? (gatewaySnapshot.publicBooks[liveMarket.id] ?? []) : []),
-    [gatewaySnapshot.publicBooks, liveMarket.id, onchainInfo],
-  );
+  /* Every listed market settles on its own deployed series, so the ticket prices collateral, fees, and order size
+     from the chain's economics, and its routes execute against the onchain book the feed reads. */
+  const gatewayMarket = gatewaySnapshot.onchainMarkets[liveMarket.id] ?? null;
+  // A runtime whose price grid starts anywhere but this listing's floor was deployed for another listing and cannot
+  // price this market, so the ticket offers no route on it rather than mispricing consideration and fees.
+  const onchainInfo =
+    gatewayMarket && Math.abs(gatewayMarket.priceOffset - liveMarket.priceOffset) < liveMarket.tickSize / 2 ? gatewayMarket : null;
+  const deploymentMismatch = gatewayMarket !== null && onchainInfo === null;
+  const onchainMarket = onchainInfo !== null || liveMarket.listedOnchain;
   const ticketMarket = useMemo<PackageMarket>(
-    () => (onchainInfo ? onchainTicketMarket(liveMarket, onchainInfo, onchainBook) : liveMarket),
-    [liveMarket, onchainBook, onchainInfo],
+    () =>
+      deploymentMismatch
+        ? { ...liveMarket, routes: [] }
+        : onchainInfo
+          ? onchainTicketMarket(liveMarket, onchainInfo)
+          : liveMarket,
+    [deploymentMismatch, liveMarket, onchainInfo],
   );
+
+  // The viewer's own orders and fills change the book; read it again rather than waiting for the next poll.
+  const ownActivity = `${gatewaySnapshot.executions.length}:${gatewaySnapshot.restingOrders.map((order) => `${order.id}:${order.state}`).join(",")}`;
+  useEffect(() => {
+    refreshFeed();
+  }, [ownActivity, refreshFeed]);
 
   /* A market order carries a protection price derived from the live route and the slippage tolerance, so it
      tracks the feed every tick. A limit order keeps the price the trader entered. */
@@ -347,10 +354,12 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     if (rawTicket.orderType !== "MARKETABLE_LIMIT") return rawTicket;
     const action = executableAction(rawTicket.intent, rawTicket.side);
     const liveRoute = ticketMarket.routes.find((candidate) => candidate.id === rawTicket.routeId) ?? null;
-    const reference = liveRoute ? routePrice(liveRoute, action) : bestReferencePrice(liveMarket, action);
+    const touch = liveRoute ? routePrice(liveRoute, action) : bestReferencePrice(liveMarket, action);
+    // Without a touch (an empty book side, or an RFQ before quotes) protection is measured from the mark.
+    const reference = Number.isFinite(touch) ? touch : liveMarket.netPrice;
     return {
       ...rawTicket,
-      limitInput: protectedPrice(reference, action, slippageBps, liveMarket).toFixed(liveMarket.priceDecimals),
+      limitInput: limitText(protectedPrice(reference, action, slippageBps, liveMarket), liveMarket.priceDecimals, rawTicket.limitInput),
     };
   }, [liveMarket, rawTicket, slippageBps, ticketMarket]);
 
@@ -605,21 +614,8 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     [gatewaySnapshot.restingOrders, liveMarket.id],
   );
 
-  /* The onchain-activated market shows the public book read from the chain. Reference markets keep their preview
-     direct depth so the ladder reads like a market, marked indicative because nothing there rests onchain. */
-  const directBookOrders = useMemo<BookRow[]>(
-    () =>
-      onchainMarket
-        ? onchainBook
-        : liveMarket.book
-            .filter((row) => row.source === "DIRECT")
-            .map((row) => ({
-              ...row,
-              firmness: "INDICATIVE" as const,
-              origin: "Reference book; trading is not open for this market",
-            })),
-    [liveMarket.book, onchainBook, onchainMarket],
-  );
+  /* The ladder shows the onchain public book exactly as the feed read it; a market with no orders shows none. */
+  const directBookOrders = liveMarket.book;
 
   const selectedClosePosition = useMemo(
     () =>
@@ -661,7 +657,10 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     : null;
 
   const maxLots = useMemo(() => {
-    const byCapacity = route ? route.availableLots : liveMarket.firmDepthLots;
+    const action = executableAction(ticket.intent, ticket.side);
+    // Capacity binds what takes liquidity now; a limit order can rest any size the collateral covers.
+    const routeLots = route ? routeCapacity(route, action) : Number.NaN;
+    const byCapacity = ticket.orderType === "LIMIT" || !Number.isFinite(routeLots) || routeLots <= 0 ? Number.POSITIVE_INFINITY : routeLots;
     const iocUncapped = ticket.tif === "IOC";
     if (ticket.intent === "EXIT") {
       if (!selectedClosePosition) return 1;
@@ -669,12 +668,13 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       return Math.max(1, Math.min(selectedClosePosition.lots, byCapacity));
     }
     const multiple = route?.collateralMultiple ?? 1;
+    const routeQuote = route ? routePrice(route, action) : Number.NaN;
+    const feePrice = Number.isFinite(routeQuote) ? routeQuote : ticketMarket.netPrice;
     const feeBasePerLot = ticketMarket.feeOnConsideration
-      ? Math.abs(route ? routePrice(route, executableAction(ticket.intent, ticket.side)) : ticketMarket.netPrice) *
-        ticketMarket.contractMultiplier
+      ? Math.abs(feePrice - ticketMarket.priceOffset) * ticketMarket.contractMultiplier
       : ticketMarket.notionalPerLot;
-    const feePerLot =
-      (feeBasePerLot * ((route?.protocolFeeBps ?? 2.5) + (route?.counterpartyFeeBps ?? 0))) / 10_000;
+    const feeBps = (route?.protocolFeeBps ?? ticketMarket.routes[0]?.protocolFeeBps ?? 0) + (route?.counterpartyFeeBps ?? 0);
+    const feePerLot = Number.isFinite(feeBasePerLot * feeBps) ? (feeBasePerLot * feeBps) / 10_000 : 0;
     const creditedAvailable =
       amendmentOrder && amendmentOrder.side === "ENTER"
         ? gatewaySnapshot.account.available +
@@ -689,7 +689,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     );
     if (iocUncapped) return Math.max(1, byCollateral);
     return Math.max(1, Math.min(byCollateral, byCapacity));
-  }, [amendmentOrder, gatewaySnapshot.account.available, liveMarket.firmDepthLots, ticketMarket, route, selectedClosePosition, ticket.intent, ticket.side, ticket.tif]);
+  }, [amendmentOrder, gatewaySnapshot.account.available, ticketMarket, route, selectedClosePosition, ticket.intent, ticket.orderType, ticket.side, ticket.tif]);
 
   const selectMarket = useCallback((next: PackageMarket) => router.push(tradeHref(next)), [router]);
 
@@ -769,9 +769,8 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
           const nextRoute =
             ticketMarket.routes.find((candidate) => candidate.id === next.routeId) ?? null;
           const action = executableAction(next.intent, next.side);
-          next.limitInput = (
-            nextRoute ? routePrice(nextRoute, action) : bestReferencePrice(liveMarket, action)
-          ).toFixed(liveMarket.priceDecimals);
+          const touch = nextRoute ? routePrice(nextRoute, action) : bestReferencePrice(liveMarket, action);
+          next.limitInput = limitText(touch, liveMarket.priceDecimals, next.limitInput);
         }
         return next;
       });
@@ -1202,11 +1201,9 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
           <div className="flex min-h-[280px] flex-1 flex-col lg:min-h-0">
             <AnalysisPanel
               market={liveMarket}
-              baseMarket={market}
               tab={vizTab}
               onTab={setVizTab}
               lots={Math.max(1, preview.fillLots)}
-              previewEpochSeconds={previewEpochSeconds}
               positionOverlays={positionOverlays}
               orderOverlays={orderOverlays}
               onAmendOrderPrice={onAmendConsoleRestingOrder}

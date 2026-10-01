@@ -43,15 +43,12 @@ function stateLabel(value: string) {
   return value.toLowerCase().replace(/_/g, " ");
 }
 
+/** The listed market a runtime record belongs to; null for a record on a market this deployment no longer lists. */
 function resolveRuntimeConsoleMarket(
   markets: readonly PackageMarket[],
   marketId: string,
-): PackageMarket {
-  const market = markets.find((candidate) => candidate.id === marketId);
-  if (!market) {
-    throw new Error(`Unknown runtime market: ${marketId}`);
-  }
-  return market;
+): PackageMarket | null {
+  return markets.find((candidate) => candidate.id === marketId) ?? null;
 }
 
 /** Package name with its underlying mark; the mark sits in a fixed slot so names line up down the column. */
@@ -316,20 +313,22 @@ export function ConsolePanel({
             >
               {strategies.map((row) => {
                 const rowMarket = resolveRuntimeConsoleMarket(markets, row.marketId);
-                const unit = priceUnitSuffix(rowMarket.priceUnit);
-                const pnl = strategyPnl(row);
+                const unit = rowMarket ? priceUnitSuffix(rowMarket.priceUnit) : "";
+                const decimals = rowMarket?.priceDecimals ?? 2;
+                // Marked on the live market: lots x lot size x (mark - entry), plus booked fees and transfers.
+                const pnl = rowMarket ? strategyPnl(row, rowMarket) : Number.NaN;
                 return (
                 <Tr key={row.id} highlight={!scoped && row.marketId === market.id}>
                   <td className={`${TD} tnum font-mono whitespace-nowrap text-faint`}>{row.id}</td>
                   <td className={`${TD} whitespace-nowrap text-ink`}>
-                    <PackageCell underlying={rowMarket.underlying}>{`${packageLabel(rowMarket)} · ${row.side === "SHORT" ? "Short" : "Long"}`}</PackageCell>
+                    <PackageCell underlying={rowMarket?.underlying}>{`${rowMarket ? packageLabel(rowMarket) : row.marketId} · ${row.side === "SHORT" ? "Short" : "Long"}`}</PackageCell>
                   </td>
                   <td className={NUM}>{formatSigned(row.lots, 0)}</td>
                   <td className={NUM}>
-                    {`${formatNumber(row.entryPrice, rowMarket.priceDecimals)} ${unit}`}
+                    {`${formatNumber(row.entryPrice, decimals)} ${unit}`.trim()}
                   </td>
                   <td className={NUM}>
-                    {`${formatNumber(rowMarket.netPrice, rowMarket.priceDecimals)} ${unit}`}
+                    {rowMarket && Number.isFinite(rowMarket.netPrice) ? `${formatNumber(rowMarket.netPrice, decimals)} ${unit}` : "—"}
                   </td>
                   <td className={`${NUM} ${tone(pnl)}`}>
                     {formatSignedUsd(pnl, 2)}
@@ -364,7 +363,7 @@ export function ConsolePanel({
             >
               {runtimeRestingOrderRows.map((order) => {
                 const rowMarket = resolveRuntimeConsoleMarket(markets, order.marketId);
-                const unit = priceUnitSuffix(rowMarket.priceUnit);
+                const unit = rowMarket ? priceUnitSuffix(rowMarket.priceUnit) : "";
                 const live = order.state === "WORKING" || order.state === "PARTIALLY_FILLED";
                 const cancellable = live && onCancelRestingOrder;
                 const amendable =
@@ -403,7 +402,7 @@ export function ConsolePanel({
                   <Tr key={order.id} highlight={!scoped && order.marketId === market.id}>
                     <td className={`${TD} tnum font-mono whitespace-nowrap text-faint`}>{order.id}</td>
                     <td className={`${TD} whitespace-nowrap text-ink`}>
-                      <PackageCell underlying={rowMarket.underlying}>{packageLabel(rowMarket)}</PackageCell>
+                      <PackageCell underlying={rowMarket?.underlying}>{rowMarket ? packageLabel(rowMarket) : order.marketId}</PackageCell>
                     </td>
                     <td className={`${TD} whitespace-nowrap text-dim`}>
                       {`${order.side === "ENTER" ? "Enter" : "Exit"} ${order.packageSide === "SHORT" ? "Short" : "Long"}`}
@@ -412,7 +411,7 @@ export function ConsolePanel({
                       {`${formatLots(filledLots)} / ${formatLots(order.lots)}`}
                     </td>
                     <td className={NUM}>
-                      {`${formatNumber(order.limitPrice, rowMarket.priceDecimals)} ${unit}`}
+                      {`${formatNumber(order.limitPrice, rowMarket?.priceDecimals ?? 2)} ${unit}`.trim()}
                     </td>
                     <td className={`${TD} tnum font-mono whitespace-nowrap text-dim`} title={tif.title}>
                       {tif.text}

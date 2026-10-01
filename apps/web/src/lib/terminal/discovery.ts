@@ -290,7 +290,10 @@ export function summarize(markets: PackageMarket[]): DirectorySummary {
   markets.forEach((market) => sourceClasses(market).forEach((source) => sources.add(source)));
   return {
     firmDepthLots: markets.reduce((sum, market) => sum + market.firmDepthLots, 0),
-    openInterestLots: markets.reduce((sum, market) => sum + market.openInterestLots, 0),
+    // Open interest is unknown (NaN) until the feed reads it; a total covers only the markets that report it.
+    openInterestLots: markets.some((market) => Number.isFinite(market.openInterestLots))
+      ? markets.reduce((sum, market) => sum + (Number.isFinite(market.openInterestLots) ? market.openInterestLots : 0), 0)
+      : Number.NaN,
     qualification: qualificationOptions(markets),
     sources: SOURCE_ORDER.filter((source) => sources.has(source)),
   };

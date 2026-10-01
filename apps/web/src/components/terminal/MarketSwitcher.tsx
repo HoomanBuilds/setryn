@@ -5,7 +5,7 @@ import { ChevronDown, Search } from "lucide-react";
 import { UnderlyingIcon } from "@/components/icons/AssetIcon";
 import { Delta } from "@/components/terminal/primitives";
 import { changePercent, formatPrice, priceUnitSuffix } from "@/lib/terminal/format";
-import { MARKETS } from "@/lib/terminal/markets";
+import { useMarketBoard } from "@/components/market-data/MarketDataProvider";
 import type { PackageMarket } from "@/lib/terminal/types";
 
 function matches(market: PackageMarket, query: string): boolean {
@@ -25,11 +25,12 @@ export function MarketSwitcher({
   const [active, setActive] = useState(0);
   const trigger = useRef<HTMLButtonElement>(null);
   const baseId = useId();
+  const { markets } = useMarketBoard();
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return needle ? MARKETS.filter((candidate) => matches(candidate, needle)) : MARKETS;
-  }, [query]);
+    return needle ? markets.filter((candidate) => matches(candidate, needle)) : markets;
+  }, [markets, query]);
 
   const close = useCallback((restoreFocus: boolean) => {
     setOpen(false);
@@ -39,7 +40,7 @@ export function MarketSwitcher({
 
   const openMenu = () => {
     setQuery("");
-    setActive(Math.max(0, MARKETS.findIndex((candidate) => candidate.id === market.id)));
+    setActive(Math.max(0, markets.findIndex((candidate) => candidate.id === market.id)));
     setOpen(true);
   };
 
@@ -198,10 +199,16 @@ export function MarketSwitcher({
                         </span>
                         <span className="flex items-baseline gap-2">
                           <span className="text-xs text-off">{candidate.tenorLabel}</span>
-                          <Delta
-                            value={changePercent(candidate.netPrice, candidate.priorNetPrice)}
-                            className="text-xs"
-                          />
+                          {candidate.markSource === "REFERENCE" ? (
+                            <span className="text-xs text-off" title="Marked at the Chainlink reference: no book or trades yet">
+                              Reference
+                            </span>
+                          ) : (
+                            <Delta
+                              value={changePercent(candidate.netPrice, candidate.priorNetPrice)}
+                              className="text-xs"
+                            />
+                          )}
                         </span>
                       </span>
                     </button>

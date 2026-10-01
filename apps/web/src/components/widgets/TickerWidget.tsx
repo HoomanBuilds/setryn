@@ -1,13 +1,13 @@
 "use client";
 
 import { UnderlyingIcon } from "@/components/icons/AssetIcon";
-import { usePreviewBoard } from "@/components/terminal/PreviewMarketProvider";
+import { useMarketBoard } from "@/components/market-data/MarketDataProvider";
 import { changePercent, formatPercent, formatPrice, priceUnitSuffix } from "@/lib/terminal/format";
 import { platformTradeHref } from "./embed-params";
 
-/** Scrolling strip of package marks and 24h change from the shared preview board. */
+/** Scrolling strip of marks and 24h change from the market-data feed. */
 export function TickerWidget({ marketIds, partner }: { marketIds: string[]; partner: string | null }) {
-  const { markets } = usePreviewBoard();
+  const { markets } = useMarketBoard();
   const shown = marketIds.map((id) => markets.find((market) => market.id === id)).filter((market) => market !== undefined);
 
   return (
@@ -19,7 +19,8 @@ export function TickerWidget({ marketIds, partner }: { marketIds: string[]; part
     >
       <ul className="flex min-w-max items-stretch">
         {shown.map((market) => {
-          const change = changePercent(market.netPrice, market.priorNetPrice);
+          const traded = market.markSource === "MID" || market.markSource === "LAST";
+          const change = traded ? changePercent(market.netPrice, market.priorNetPrice) : Number.NaN;
           const tone = change > 0 ? "text-up" : change < 0 ? "text-down" : "text-dim";
           return (
             <li key={market.id} className="border-r border-line last:border-r-0">
@@ -38,8 +39,8 @@ export function TickerWidget({ marketIds, partner }: { marketIds: string[]; part
                     {formatPrice(market.netPrice, market)}
                     <span className="ml-0.5 text-[11px] text-faint">{priceUnitSuffix(market.priceUnit)}</span>
                   </span>
-                  <span className={`tnum font-mono text-[11px] ${tone}`}>
-                    {formatPercent(change, 2)}
+                  <span className={`tnum font-mono text-[11px] ${traded ? tone : "text-faint"}`}>
+                    {traded ? formatPercent(change, 2) : market.markSource === "REFERENCE" ? "ref" : "—"}
                   </span>
                 </span>
               </a>

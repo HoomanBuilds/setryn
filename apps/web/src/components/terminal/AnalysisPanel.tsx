@@ -1,5 +1,6 @@
 "use client";
 
+import { useChainNow, useMarketFeed } from "@/components/market-data/MarketDataProvider";
 import { Tabs } from "@/components/terminal/primitives";
 import { DepthChart } from "@/components/terminal/viz/DepthChart";
 import { LegGraph } from "@/components/terminal/viz/LegGraph";
@@ -21,27 +22,33 @@ const VIZ_TABS = [
   { id: "legs", label: "Legs" },
 ];
 
+/** Feed state in words: the onchain feed, the reference alone while the chain is unreachable, or a stale read. */
+function feedLabel(status: ReturnType<typeof useMarketFeed>["status"]): { label: string; tone: string; title: string } {
+  if (status === "LIVE") return { label: "Onchain feed", tone: "bg-up text-up", title: "Book and fills read from the chain; references from Chainlink." };
+  if (status === "LOADING") return { label: "Connecting", tone: "bg-faint text-faint", title: "Reading the chain." };
+  if (status === "STALE") return { label: "Feed stale", tone: "bg-brand text-brand", title: "The last chain read is older than 15 seconds." };
+  return { label: "Chain unavailable", tone: "bg-down text-down", title: "The chain did not answer. Marks show the Chainlink reference; the book is unknown." };
+}
+
 export function AnalysisPanel({
   market,
-  baseMarket,
   tab,
   onTab,
   lots,
-  previewEpochSeconds,
   positionOverlays = [],
   orderOverlays = [],
   onAmendOrderPrice,
 }: {
   market: PackageMarket;
-  baseMarket: PackageMarket;
   tab: VizTab;
   onTab: (tab: VizTab) => void;
   lots: number;
-  previewEpochSeconds: number;
   positionOverlays?: PositionPriceOverlay[];
   orderOverlays?: WorkingOrderPriceOverlay[];
   onAmendOrderPrice?: (orderId: string, price: number) => void;
 }) {
+  const now = useChainNow();
+  const feed = feedLabel(useMarketFeed().status);
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-panel">
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-line pr-3 lg:pr-4">
@@ -52,14 +59,11 @@ export function AnalysisPanel({
           idBase="viz"
           className="no-scrollbar min-w-0 overflow-x-auto"
         />
-        <span
-          className="hidden shrink-0 items-center gap-1.5 text-xs text-off sm:flex"
-          title="Setryn index feed."
-        >
-          <span aria-hidden="true" className="live-dot h-1.5 w-1.5 rounded-full bg-up text-up" />
-          <span>Index feed</span>
-          <span className="tnum font-mono text-faint">
-            {`${formatUtcClock(previewEpochSeconds)} UTC`}
+        <span className="hidden shrink-0 items-center gap-1.5 text-xs text-off sm:flex" title={feed.title}>
+          <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${feed.tone} ${feed.label === "Onchain feed" ? "live-dot" : ""}`} />
+          <span>{feed.label}</span>
+          <span className="tnum font-mono text-faint" suppressHydrationWarning>
+            {`${formatUtcClock(now)} UTC`}
           </span>
         </span>
       </div>
@@ -76,8 +80,6 @@ export function AnalysisPanel({
         {tab === "price" ? (
           <PackagePriceChart
             market={market}
-            baseMarket={baseMarket}
-            previewEpochSeconds={previewEpochSeconds}
             positionOverlays={positionOverlays}
             orderOverlays={orderOverlays}
             onAmendOrderPrice={onAmendOrderPrice}

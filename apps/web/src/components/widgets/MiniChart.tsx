@@ -1,34 +1,27 @@
 "use client";
 
-import { useMemo } from "react";
-import { buildPreviewHistory, buildPreviewSeries, candleAtPrice } from "@/components/terminal/viz/preview-price-data";
+import { useMarketCandles } from "@/components/market-data/MarketDataProvider";
 import type { PackageMarket } from "@/lib/terminal/types";
 
 const BARS = 96;
 
 /**
- * Compact 24-hour line of 15-minute closes. History comes from the same deterministic preview series as the terminal
- * chart, and the last bar follows the live mark exactly as the terminal's candle does, so the widget never disagrees
- * with the price column or the full chart.
+ * Compact 24-hour line of 15-minute closes from the market-data feed: the market's onchain fills, or, while it has none,
+ * its underlying's Chainlink reference (labelled as such). It reads the same bars as the terminal chart, so the two
+ * never disagree. With no bars at all it says so instead of drawing a line.
  */
-export function MiniChart({
-  baseMarket,
-  liveMarket,
-  previewEpochSeconds,
-  height = 72,
-}: {
-  baseMarket: PackageMarket;
-  liveMarket: PackageMarket;
-  previewEpochSeconds: number;
-  height?: number;
-}) {
-  const history = useMemo(() => buildPreviewHistory(buildPreviewSeries(baseMarket), "15m").slice(-BARS), [baseMarket]);
-  // The last bar is the history's final bar moved to the live mark at the shared market clock.
-  const previous = history[history.length - 1];
-  const next = previous ? candleAtPrice(previous, previewEpochSeconds, liveMarket.netPrice, "15m") : null;
-  const bars = next ? (next.time === previous.time ? [...history.slice(0, -1), next] : [...history.slice(1), next]) : history;
+export function MiniChart({ market, height = 72 }: { market: PackageMarket; height?: number }) {
+  const { candles, source, loading, reference } = useMarketCandles(market.id, "15m");
+  const closes = candles.slice(-BARS).map((bar) => bar.close);
 
-  const closes = bars.map((bar) => bar.close);
+  if (closes.length < 2) {
+    return (
+      <div className="flex w-full items-center justify-center text-[11px] text-faint" style={{ height }}>
+        {loading ? "Loading" : "No trades yet"}
+      </div>
+    );
+  }
+
   const low = Math.min(...closes);
   const high = Math.max(...closes);
   const span = high - low || Math.abs(high) * 0.001 || 1;
@@ -38,22 +31,30 @@ export function MiniChart({
     const y = 4 + (1 - (close - low) / span) * (height - 8);
     return `${x.toFixed(2)},${y.toFixed(2)}`;
   });
-  const up = liveMarket.netPrice >= (closes[0] ?? liveMarket.netPrice);
+  const change = closes[closes.length - 1] - closes[0];
+  const up = change >= 0;
   const stroke = up ? "var(--color-up)" : "var(--color-down)";
   const fill = up ? "var(--color-up-soft)" : "var(--color-down-soft)";
-  const change = closes.length > 1 ? closes[closes.length - 1] - closes[0] : 0;
+  const subject = source === "REFERENCE" && reference ? `Chainlink ${reference.pair} reference` : market.code;
 
   return (
-    <svg
-      role="img"
-      aria-label={`${baseMarket.code} last 24 hours, ${change >= 0 ? "up" : "down"} ${Math.abs(change).toFixed(baseMarket.priceDecimals)} ${baseMarket.priceUnit}`}
-      viewBox={`0 0 ${width} ${height}`}
-      preserveAspectRatio="none"
-      className="block w-full"
-      style={{ height }}
-    >
-      <polygon points={`0,${height} ${points.join(" ")} ${width},${height}`} fill={fill} />
-      <polyline points={points.join(" ")} fill="none" stroke={stroke} strokeWidth={1.5} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
-    </svg>
+    <div className="relative">
+      <svg
+        role="img"
+        aria-label={`${subject}, last ${closes.length} fifteen-minute bars, ${up ? "up" : "down"} ${Math.abs(change).toFixed(market.priceDecimals)} ${market.priceUnit}`}
+        viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="none"
+        className="block w-full"
+        style={{ height }}
+      >
+        <polygon points={`0,${height} ${points.join(" ")} ${width},${height}`} fill={fill} />
+        <polyline points={points.join(" ")} fill="none" stroke={stroke} strokeWidth={1.5} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+      </svg>
+      {source === "REFERENCE" && reference ? (
+        <span className="pointer-events-none absolute top-0 right-0 rounded-sm bg-panel/85 px-1 text-[10px] text-faint">
+          {`Reference · ${reference.pair}`}
+        </span>
+      ) : null}
+    </div>
   );
 }

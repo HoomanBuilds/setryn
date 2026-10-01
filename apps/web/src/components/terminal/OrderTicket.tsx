@@ -254,17 +254,22 @@ export function OrderTicket({
           : null;
 
   const stepLimit = (direction: 1 | -1) => {
-    const next = (Number.parseFloat(state.limitInput) || bestPrice) + direction * market.tickSize;
-    onChange({ limitInput: next.toFixed(market.priceDecimals) });
+    const typed = Number.parseFloat(state.limitInput);
+    const base = Number.isFinite(typed) && typed > 0 ? typed : Number.isFinite(bestPrice) ? bestPrice : market.netPrice;
+    if (!Number.isFinite(base)) return;
+    onChange({ limitInput: (base + direction * market.tickSize).toFixed(market.priceDecimals) });
   };
 
   const usableRoutes = market.routes.filter(
     (candidate) => (isAmending ? !candidate.requiresPrivate : !candidate.requiresPrivate || state.privateRfq),
   );
+  // The best priced route wins; a route with no price (an empty side, an RFQ before quotes) only wins by default.
   const bestRoute = usableRoutes.length
     ? usableRoutes.reduce((winner, candidate) => {
         const price = routePrice(candidate, action);
         const winning = routePrice(winner, action);
+        if (!Number.isFinite(price)) return winner;
+        if (!Number.isFinite(winning)) return candidate;
         return action === "BUY" ? (price < winning ? candidate : winner) : price > winning ? candidate : winner;
       })
     : null;
@@ -523,16 +528,19 @@ export function OrderTicket({
                 <span className="flex gap-1">
                   <button
                     type="button"
+                    disabled={!Number.isFinite(midPrice)}
+                    title={Number.isFinite(midPrice) ? undefined : "The book needs a bid and an offer for a mid"}
                     onClick={() => onChange({ limitInput: midPrice.toFixed(market.priceDecimals) })}
-                    className="focus-ring rounded-sm bg-inset px-1.5 text-[11px] text-faint transition-colors hover:text-ink"
+                    className="focus-ring rounded-sm bg-inset px-1.5 text-[11px] text-faint transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-faint"
                   >
                     Mid
                   </button>
                   <button
                     type="button"
-                    title={`${bestLabel} ${formatNumber(bestPrice, market.priceDecimals)}`}
+                    disabled={!Number.isFinite(bestPrice)}
+                    title={Number.isFinite(bestPrice) ? `${bestLabel} ${formatNumber(bestPrice, market.priceDecimals)}` : `No ${bestLabel} on the book`}
                     onClick={() => onChange({ limitInput: bestPrice.toFixed(market.priceDecimals) })}
-                    className="focus-ring rounded-sm bg-inset px-1.5 text-[11px] text-faint transition-colors hover:text-ink"
+                    className="focus-ring rounded-sm bg-inset px-1.5 text-[11px] text-faint transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-faint"
                   >
                     {action === "BUY" ? "Ask" : "Bid"}
                   </button>

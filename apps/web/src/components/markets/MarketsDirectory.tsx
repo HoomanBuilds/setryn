@@ -24,15 +24,14 @@ import {
 } from "@/components/markets/preferences";
 import { Chip, LiveDot, motion } from "@/components/markets/ui";
 import { SOURCE_LABEL, SourceMark } from "@/components/terminal/primitives";
-import { usePreviewBoard } from "@/components/terminal/PreviewMarketProvider";
-import { changePercent, formatLots } from "@/lib/terminal/format";
+import { useMarketBoard, useMarketFeed } from "@/components/market-data/MarketDataProvider";
+import { changePercent, formatLots, formatUtcStamp } from "@/lib/terminal/format";
 import {
   ANY,
   EMPTY_FILTERS,
   applyFilters,
   expiryOptions,
   filtersActive,
-  observationRange,
   qualificationOptions,
   sourceOptions,
   strategyOptions,
@@ -62,8 +61,16 @@ function selectedCount(filters: DirectoryFilters): number {
   ).length;
 }
 
+const FEED_CHIP: Record<ReturnType<typeof useMarketFeed>["status"], { label: string; tone: "up" | "muted" | "down" }> = {
+  LOADING: { label: "Connecting", tone: "muted" },
+  LIVE: { label: "Onchain feed", tone: "up" },
+  STALE: { label: "Feed stale", tone: "muted" },
+  ERROR: { label: "Chain unavailable", tone: "down" },
+};
+
 export function MarketsDirectory() {
-  const { markets } = usePreviewBoard();
+  const { markets } = useMarketBoard();
+  const feed = useMarketFeed();
   const [view, setView] = useMarketsView();
   const [category, setCategory] = useMarketsCategory();
   const { favourites, toggle } = useFavourites();
@@ -108,7 +115,7 @@ export function MarketsDirectory() {
   }, [markets, effective, activeCategory, favourites]);
   const summary = useMemo(() => summarize(visible), [visible]);
   const board = useMemo(() => summarize(markets), [markets]);
-  const observation = useMemo(() => observationRange(markets), [markets]);
+  const referenceMarked = useMemo(() => markets.filter((market) => market.markSource === "REFERENCE").length, [markets]);
   const breadth = useMemo(() => {
     let up = 0;
     let down = 0;
@@ -167,10 +174,7 @@ export function MarketsDirectory() {
     })),
   ];
 
-  const observed =
-    observation.min === observation.max
-      ? `${observation.min}s`
-      : `${observation.min}s to ${observation.max}s`;
+  const feedChip = FEED_CHIP[feed.status];
 
   return (
     <main
@@ -188,15 +192,26 @@ export function MarketsDirectory() {
             </h1>
             <span className="flex min-w-0 flex-wrap items-center gap-1.5">
               <Chip
-                tone="up"
-                title="Setryn index feed: marks, quotes, books, routes and charts move together."
+                tone={feedChip.tone}
+                title={
+                  feed.status === "ERROR"
+                    ? "The chain did not answer: marks show the Chainlink reference and books are unknown."
+                    : "One feed for marks, quotes, books, routes, and charts: the onchain book and fills, and Chainlink references."
+                }
               >
-                <LiveDot />
-                Index feed
+                {feed.status === "LIVE" ? <LiveDot /> : null}
+                {feedChip.label}
               </Chip>
-              <Chip tone="muted" title="Age of the index snapshot behind each row.">
-                <span className="tnum font-mono">{`obs ${observed}`}</span>
-              </Chip>
+              {feed.asOf > 0 ? (
+                <Chip tone="muted" title={`Chain time of the last read, block ${feed.blockNumber.toLocaleString("en-US")}.`}>
+                  <span className="tnum font-mono">{`${formatUtcStamp(feed.asOf)} UTC`}</span>
+                </Chip>
+              ) : null}
+              {referenceMarked > 0 ? (
+                <Chip tone="muted" title="Markets with no book or trades yet are marked at their Chainlink reference.">
+                  {`${referenceMarked} at reference`}
+                </Chip>
+              ) : null}
             </span>
           </div>
 
@@ -227,10 +242,13 @@ export function MarketsDirectory() {
                   <span className="text-down">{breadth.down}</span>
                 </span>
               }
-              title={`${breadth.up} advancing, ${breadth.down} declining, ${breadth.flat} unchanged against the prior close`}
+              title={`${breadth.up} advancing, ${breadth.down} declining, ${breadth.flat} unchanged over 24 hours of fills`}
             />
             <BoardStat label="Firm depth" value={`${formatLots(board.firmDepthLots)} lots`} />
-            <BoardStat label="Open interest" value={`${formatLots(board.openInterestLots)} lots`} />
+            <BoardStat
+              label="Open interest"
+              value={Number.isFinite(board.openInterestLots) ? `${formatLots(board.openInterestLots)} lots` : "—"}
+            />
             <BoardStat
               label="Qualified"
               value={`${board.qualification.find((entry) => entry.value === "QUALIFIED")?.count ?? 0} / ${markets.length}`}
@@ -365,7 +383,10 @@ export function MarketsDirectory() {
             >
               <Aggregate label="Shown" value={`${visible.length} of ${markets.length}`} />
               <Aggregate label="Firm depth" value={`${formatLots(summary.firmDepthLots)} lots`} />
-              <Aggregate label="Open interest" value={`${formatLots(summary.openInterestLots)} lots`} />
+              <Aggregate
+                label="Open interest"
+                value={Number.isFinite(summary.openInterestLots) ? `${formatLots(summary.openInterestLots)} lots` : "—"}
+              />
               <Aggregate
                 label="Status"
                 value={summary.qualification.map((entry) => `${entry.label} ${entry.count}`).join(", ")}

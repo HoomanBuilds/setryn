@@ -151,15 +151,44 @@ export interface ServiceHealth {
   detail: string;
 }
 
-/** Oracle and sequencer health come from the recorded operations snapshot until the release candidate publishes live checks. */
-export function serviceHealth(): ServiceHealth[] {
-  const find = (pattern: RegExp) => OPERATIONS_FIXTURE.dependencies.find((dependency) => pattern.test(dependency.label));
-  const oracle = find(/pyth|oracle/i);
-  const sequencer = find(/sequencer|chain reader/i);
-  const services: ServiceHealth[] = [];
-  if (oracle) services.push({ id: "oracle", label: "Oracle", state: oracle.state, detail: `${oracle.label}: ${oracle.detail}` });
-  if (sequencer) {
-    services.push({ id: "sequencer", label: "Sequencer", state: sequencer.state, detail: `${sequencer.label}: ${sequencer.detail}` });
-  }
-  return services;
+/** What service health is derived from: the market-data feed's last snapshot. */
+export interface FeedHealthInput {
+  status: "LOADING" | "LIVE" | "STALE" | "ERROR";
+  chainStatus: "LIVE" | "UNAVAILABLE" | null;
+  chainReason?: string;
+  blockNumber: number;
+  /** Underlyings with a Chainlink reading in the snapshot, and how many the catalog lists. */
+  referenceCount: number;
+  referenceExpected: number;
+}
+
+/** Chain and oracle health as the market-data feed observed them on its last read; nothing recorded or assumed. */
+export function serviceHealth(feed: FeedHealthInput): ServiceHealth[] {
+  const chain: ServiceHealth =
+    feed.status === "LOADING"
+      ? { id: "sequencer", label: "Chain", state: "DEGRADED", detail: "Waiting for the first chain read." }
+      : feed.chainStatus === "LIVE" && feed.status === "LIVE"
+        ? { id: "sequencer", label: "Chain", state: "HEALTHY", detail: `Read at block ${feed.blockNumber.toLocaleString("en-US")}.` }
+        : feed.chainStatus === "LIVE"
+          ? { id: "sequencer", label: "Chain", state: "DEGRADED", detail: "The last chain read is stale." }
+          : {
+              id: "sequencer",
+              label: "Chain",
+              state: "UNAVAILABLE",
+              detail: `The chain did not answer${feed.chainReason ? ` (${feed.chainReason})` : ""}.`,
+            };
+  const oracle: ServiceHealth =
+    feed.status === "LOADING"
+      ? { id: "oracle", label: "Oracle", state: "DEGRADED", detail: "Waiting for the first Chainlink read." }
+      : feed.referenceCount >= feed.referenceExpected && feed.referenceExpected > 0
+        ? { id: "oracle", label: "Oracle", state: "HEALTHY", detail: `Chainlink references read for ${feed.referenceCount} underlyings.` }
+        : feed.referenceCount > 0
+          ? {
+              id: "oracle",
+              label: "Oracle",
+              state: "DEGRADED",
+              detail: `Chainlink references read for ${feed.referenceCount} of ${feed.referenceExpected} underlyings.`,
+            }
+          : { id: "oracle", label: "Oracle", state: "UNAVAILABLE", detail: "No Chainlink reference could be read." };
+  return [oracle, chain];
 }

@@ -4,7 +4,7 @@ import { IBM_Plex_Mono, IBM_Plex_Sans, Newsreader } from "next/font/google";
 import { GlobalHeader } from "@/components/terminal/GlobalHeader";
 import { StatusStrip } from "@/components/terminal/StatusStrip";
 import { InternalGatewayProvider } from "@/components/gateway/InternalGatewayProvider";
-import { PreviewMarketProvider } from "@/components/terminal/PreviewMarketProvider";
+import { MarketDataProvider } from "@/components/market-data/MarketDataProvider";
 import { WalletProvider } from "@/components/wallet/WalletProvider";
 import { SkipLinks } from "@/components/shell/SkipLinks";
 import "./globals.css";
@@ -33,7 +33,7 @@ const plexMono = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   title: "Setryn Terminal",
-  description: "Package-native dated risk exchange terminal. Arbitrum One market data.",
+  description: "Dated cash-settled forwards on Arbitrum, marked from the onchain book and Chainlink references.",
 };
 
 export const viewport: Viewport = {
@@ -49,13 +49,13 @@ export default function PlatformLayout({ children }: Readonly<{ children: ReactN
         <InternalGatewayProvider>
           {/* The wallet layer loads with the platform only; the landing and embed roots never include it. */}
           <WalletProvider>
-            <PreviewMarketProvider>
+            <MarketDataProvider>
               <div className="flex h-dvh w-full flex-col overflow-hidden bg-app">
                 <GlobalHeader />
                 {children}
                 <StatusStrip />
               </div>
-            </PreviewMarketProvider>
+            </MarketDataProvider>
           </WalletProvider>
         </InternalGatewayProvider>
       </body>

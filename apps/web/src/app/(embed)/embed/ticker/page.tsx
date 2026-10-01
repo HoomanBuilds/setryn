@@ -16,7 +16,7 @@ export default async function TickerEmbedPage({
       widget="ticker"
       theme={params.theme}
       partner={params.partner}
-      preview={params.preview}
+      consoleView={params.consoleView}
       frameId={params.frameId}
       marketId="ALL"
       label="Setryn market ticker widget"

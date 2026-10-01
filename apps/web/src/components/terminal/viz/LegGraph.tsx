@@ -61,7 +61,7 @@ export function LegGraph({ market }: { market: PackageMarket }) {
           rx={6}
         />
         <text x={20} y={pkgY + 21} fill="var(--color-faint)" fontSize={12}>
-          Package
+          Range forward
         </text>
         <text x={20} y={pkgY + 41} fill="var(--color-ink)" fontSize={14} fontWeight={500}>
           {market.code}
@@ -76,7 +76,7 @@ export function LegGraph({ market }: { market: PackageMarket }) {
           {formatPriceWithUnit(market.netPrice, market)}
         </text>
         <text x={20} y={pkgY + 77} fill="var(--color-faint)" fontSize={12}>
-          {`one net price, ${legs.length} legs`}
+          {`mark, ${market.markSource === "REFERENCE" ? "reference" : market.markSource === "MID" ? "book mid" : market.markSource === "LAST" ? "last fill" : "none"}`}
         </text>
 
         {legs.map((leg, index) => {
@@ -96,13 +96,13 @@ export function LegGraph({ market }: { market: PackageMarket }) {
               />
               <rect x={LEG_X} y={legY + 8} width={2} height={ROW_H - 16} fill={sideColor} />
               <text x={LEG_X + 14} y={legY + 21} fill={sideColor} fontSize={12}>
-                {`${leg.side === "BUY" ? "Buy" : "Sell"} ${formatNumber(leg.ratio, 2)}x`}
+                {leg.family === "SPOT_REF" ? "Reference" : `${leg.side === "BUY" ? "Long" : "Short"} ${formatNumber(leg.ratio, 2)}x`}
               </text>
               <text x={LEG_X + 14} y={legY + 38} fill="var(--color-ink)" fontSize={13}>
                 {leg.instrument}
               </text>
               <text x={LEG_X + 14} y={legY + 52} fill="var(--color-faint)" fontSize={12}>
-                {leg.venueClass === "NATIVE_BOOK" ? "Native leg book" : "Implied component"}
+                {leg.family === "SPOT_REF" ? "Prices the strategy view, not traded" : "Onchain series book"}
               </text>
               <text
                 x={LEG_X + LEG_W - 14}
@@ -112,7 +112,9 @@ export function LegGraph({ market }: { market: PackageMarket }) {
                 fontFamily="var(--font-mono)"
                 textAnchor="end"
               >
-                {`${formatNumber(leg.mark, leg.markUnit === "USD" ? (leg.mark < 10 ? 4 : 2) : 1)} ${priceUnitSuffix(leg.markUnit)}`}
+                {Number.isFinite(leg.mark)
+                  ? `${formatNumber(leg.mark, leg.markUnit === "USD" ? Math.max(market.priceDecimals, leg.mark < 10 ? 4 : 0) : 1)} ${priceUnitSuffix(leg.markUnit)}`
+                  : "—"}
               </text>
               <text
                 x={LEG_X + LEG_W - 14}
@@ -121,7 +123,7 @@ export function LegGraph({ market }: { market: PackageMarket }) {
                 fontSize={12}
                 textAnchor="end"
               >
-                {leg.qualification === "QUALIFIED" ? "qualified" : "conditional"}
+                {leg.family === "SPOT_REF" ? "Chainlink" : leg.qualification === "QUALIFIED" ? "qualified" : leg.qualification === "SUSPENDED" ? "suspended" : "conditional"}
               </text>
             </g>
           );
@@ -146,7 +148,7 @@ export function LegGraph({ market }: { market: PackageMarket }) {
       </svg>
 
       <div className="pointer-events-none absolute top-0 left-0 text-xs text-faint">
-        Package structure and settlement path
+        Contract structure and settlement path
       </div>
     </div>
   );

@@ -3,11 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/sync-market-catalog.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/sync-market-catalog.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "sync:markets": "node scripts/sync-market-catalog.mjs"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",

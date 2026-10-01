@@ -1,4 +1,4 @@
-import type { PreviewCandle } from "./preview-price-data";
+import type { MarketCandle } from "@/lib/market-data/types";
 
 export type IndicatorId = "volume" | "ma7" | "ma25" | "ma99" | "ema21" | "vwap" | "bb" | "rsi" | "macd" | "atr";
 
@@ -149,7 +149,7 @@ function ema(values: number[], times: number[], length: number): IndicatorPoint[
     .slice(Math.min(values.length, length - 1));
 }
 
-function vwap(candles: PreviewCandle[]): IndicatorPoint[] {
+function vwap(candles: MarketCandle[]): IndicatorPoint[] {
   const points: IndicatorPoint[] = [];
   let day = -1;
   let notional = 0;
@@ -239,7 +239,7 @@ function macd(closes: number[], times: number[]): IndicatorOutput {
   return { macd: macdPoints, signal: signalPoints, hist };
 }
 
-function atr(candles: PreviewCandle[], length: number): IndicatorPoint[] {
+function atr(candles: MarketCandle[], length: number): IndicatorPoint[] {
   const points: IndicatorPoint[] = [];
   let average = 0;
   for (let index = 1; index < candles.length; index += 1) {
@@ -261,7 +261,7 @@ function atr(candles: PreviewCandle[], length: number): IndicatorPoint[] {
   return points;
 }
 
-export function computeIndicator(id: IndicatorId, candles: PreviewCandle[]): IndicatorOutput {
+export function computeIndicator(id: IndicatorId, candles: MarketCandle[]): IndicatorOutput {
   const closes = candles.map((candle) => candle.close);
   const times = candles.map((candle) => candle.time);
   switch (id) {

@@ -4,8 +4,9 @@ import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, ChevronDown, Info } from "lucide-react";
 import { AssetIcon } from "@/components/icons/AssetIcon";
 import { FlashValue } from "@/components/terminal/motion";
-import { usePreviewTrades } from "@/components/terminal/PreviewMarketProvider";
+import { useMarketFeed, useMarketTrades } from "@/components/market-data/MarketDataProvider";
 import { FIRMNESS_LABEL, SOURCE_LABEL, SourceMark } from "@/components/terminal/primitives";
+import type { MarketTrade } from "@/lib/market-data/types";
 import {
   formatCompactUsd,
   formatLots,
@@ -14,20 +15,11 @@ import {
   formatUtcClock,
   priceUnitSuffix,
 } from "@/lib/terminal/format";
-import type { PreviewTrade } from "@/lib/terminal/preview-trades";
-import type { BookRow, LiquiditySource, PackageMarket } from "@/lib/terminal/types";
+import type { BookRow, PackageMarket } from "@/lib/terminal/types";
 
-type SourceFilter = "ALL" | LiquiditySource;
 type BookView = "BOTH" | "BIDS" | "ASKS";
 type SizeUnit = "LOTS" | "USDC";
 type PanelTab = "BOOK" | "TRADES";
-
-const SOURCE_FILTERS: { value: SourceFilter; label: string }[] = [
-  { value: "ALL", label: "All" },
-  { value: "DIRECT", label: "Direct" },
-  { value: "IMPLIED", label: "Implied" },
-  { value: "SOLVER_FIRM", label: "Solver" },
-];
 
 const GROUP_STEPS = [1, 2, 5, 10];
 const ROW = "grid h-[22px] grid-cols-[14px_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1fr)] items-center gap-2 px-3";
@@ -72,8 +64,9 @@ function withCumulative(rows: BookRow[]): LevelRow[] {
   });
 }
 
-function sizeLabel(lots: number, unit: SizeUnit, market: PackageMarket): string {
-  return unit === "LOTS" ? formatLots(lots) : formatCompactUsd(lots * market.notionalPerLot);
+/** Size in lots, or in USDC of underlying exposure at the row's price (lots x lot size x price). */
+function sizeLabel(lots: number, unit: SizeUnit, market: PackageMarket, price: number): string {
+  return unit === "LOTS" ? formatLots(lots) : formatCompactUsd(lots * market.lotSize * price);
 }
 
 function Level({
@@ -120,10 +113,10 @@ function Level({
       </span>
       <span className={`tnum relative truncate font-mono text-xs ${tone}`}>{formatPrice(row.price, market)}</span>
       <span className="tnum relative truncate text-right font-mono text-xs text-ink">
-        {sizeLabel(row.lots, unit, market)}
+        {sizeLabel(row.lots, unit, market, row.price)}
       </span>
       <span className="tnum relative truncate text-right font-mono text-xs text-dim">
-        {sizeLabel(row.cumulative, unit, market)}
+        {sizeLabel(row.cumulative, unit, market, row.price)}
       </span>
     </>
   );
@@ -224,10 +217,29 @@ function Menu<T extends string | number>({
   );
 }
 
-function TradesTape({ market, trades }: { market: PackageMarket; trades: PreviewTrade[] }) {
-  // The seeded history renders still; only prints that arrive while the tape is open animate in.
+const CHANNEL_LABEL: Record<MarketTrade["channel"], string> = {
+  BOOK: "Book fill",
+  RFQ: "Private RFQ fill",
+  AUCTION: "Auction fill",
+  UNSPECIFIED: "Fill",
+};
+
+function TradesTape({ market, trades, unavailable }: { market: PackageMarket; trades: MarketTrade[]; unavailable: boolean }) {
+  // The history renders still; only fills that arrive while the tape is open animate in.
   const [firstId] = useState(() => trades[0]?.id ?? null);
   const animateHead = trades[0]?.id !== firstId;
+  if (trades.length === 0) {
+    return (
+      <div className="panel-in flex min-h-0 flex-1 flex-col items-center justify-center gap-1 px-6 text-center">
+        <p className="text-xs text-dim">{unavailable ? "Trades unavailable" : "No trades yet"}</p>
+        <p className="text-[11px] leading-snug text-faint">
+          {unavailable
+            ? "The chain did not answer, so fills cannot be read right now."
+            : "Fills on this market appear here as they clear onchain."}
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="panel-in flex min-h-0 flex-1 flex-col">
       <div className="grid h-7 shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,0.8fr)] items-center gap-2 px-3 text-[11px] text-faint">
@@ -239,6 +251,9 @@ function TradesTape({ market, trades }: { market: PackageMarket; trades: Preview
         {trades.map((trade, index) => (
           <li
             key={trade.id}
+            title={`${CHANNEL_LABEL[trade.channel]}${
+              trade.sideInferred ? ", side inferred from the previous fill" : ""
+            }, block ${trade.blockNumber.toLocaleString("en-US")}`}
             className={`grid h-[22px] grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,0.8fr)] items-center gap-2 px-3 ${
               index === 0 && animateHead ? (trade.side === "BUY" ? "trade-in-up" : "trade-in-down") : ""
             }`}
@@ -274,17 +289,12 @@ function BookNotes() {
         <>
           <button type="button" aria-label="Close book notes" className="fixed inset-0 z-40 cursor-default" onClick={() => setOpen(false)} />
           <div className="absolute top-full right-0 z-50 mt-1.5 w-[min(300px,calc(100vw-24px))] space-y-2 rounded-lg border border-line-strong bg-raised p-3 text-xs leading-snug text-dim shadow-[0_24px_48px_rgba(0,0,0,0.55)]">
-            <p className="text-ink">One package book, three liquidity sources.</p>
+            <p className="text-ink">The onchain public book of the active series.</p>
             <p className="flex items-center gap-2">
-              <SourceMark source="DIRECT" /> Direct resting package orders.
+              <SourceMark source="DIRECT" /> Signed orders resting onchain, aggregated by price level.
             </p>
-            <p className="flex items-center gap-2">
-              <SourceMark source="IMPLIED" /> Implied from the component leg books, capacity backed.
-            </p>
-            <p className="flex items-center gap-2">
-              <SourceMark source="SOLVER_FIRM" /> Solver firm quotes, signed and time limited.
-            </p>
-            <p className="text-faint">Hatched rows are indicative and never count as executable depth.</p>
+            <p>Only open, unexpired orders count. Private RFQ quotes are not shown here; request them from the ticket.</p>
+            <p className="text-faint">The book refreshes every few seconds from the chain.</p>
           </div>
         </>
       ) : null}
@@ -304,16 +314,15 @@ export function OrderBookPanel({
   onSelectRow: (row: BookRow) => void;
 }) {
   const [tab, setTab] = useState<PanelTab>("BOOK");
-  const [source, setSource] = useState<SourceFilter>("ALL");
   const [view, setView] = useState<BookView>("BOTH");
   const [groupStep, setGroupStep] = useState(1);
   const [unit, setUnit] = useState<SizeUnit>("LOTS");
-  const trades = usePreviewTrades(market.id);
+  const trades = useMarketTrades(market.id);
+  const feed = useMarketFeed();
+  const unavailable = feed.status === "ERROR" && market.book.length === 0 && directOrders.length === 0;
 
   const book = useMemo(() => {
-    const rows = [...market.book.filter((row) => row.source !== "DIRECT"), ...directOrders].filter(
-      (row) => source === "ALL" || row.source === source,
-    );
+    const rows = [...directOrders];
     const step = market.tickSize * groupStep;
     const asks = withCumulative(
       groupLevels(rows.filter((row) => row.side === "ASK"), groupStep === 1 ? 0 : step, "ASK", market.priceDecimals).sort(
@@ -333,15 +342,21 @@ export function OrderBookPanel({
       maxCumulative: Math.max(1, asks.at(-1)?.cumulative ?? 0, bids.at(-1)?.cumulative ?? 0),
       bidShare: bidLots + askLots > 0 ? bidLots / (bidLots + askLots) : 0.5,
     };
-  }, [directOrders, groupStep, market, source]);
+  }, [directOrders, groupStep, market]);
 
-  const spread = market.bestAsk - market.bestBid;
-  const mid = (market.bestAsk + market.bestBid) / 2;
-  const spreadPercent = mid !== 0 ? (spread / Math.abs(mid)) * 100 : 0;
+  const bestAsk = book.asks.find((row) => row.executable)?.price ?? Number.NaN;
+  const bestBid = book.bids.find((row) => row.executable)?.price ?? Number.NaN;
+  const spread = bestAsk - bestBid;
+  const mid = (bestAsk + bestBid) / 2;
+  const spreadPercent = Number.isFinite(mid) && mid !== 0 ? (spread / Math.abs(mid)) * 100 : Number.NaN;
   const unitSuffix = priceUnitSuffix(market.priceUnit);
   const last = trades[0];
   const lastUp = last ? last.side === "BUY" : true;
   const bidPercent = Math.round(book.bidShare * 100);
+  // The centre price: the last fill, else the mid, else the mark with its source named.
+  const centrePrice = last?.price ?? (Number.isFinite(mid) ? mid : market.netPrice);
+  const centreLabel = last ? null : Number.isFinite(mid) ? "Mid" : market.markSource === "REFERENCE" ? "Reference" : null;
+  const empty = book.asks.length === 0 && book.bids.length === 0;
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-panel" aria-label="Order book and trades">
@@ -364,7 +379,7 @@ export function OrderBookPanel({
       </div>
 
       {tab === "TRADES" ? (
-        <TradesTape market={market} trades={trades} />
+        <TradesTape market={market} trades={trades} unavailable={feed.status === "ERROR" && trades.length === 0} />
       ) : (
         <div className="panel-in flex min-h-0 flex-1 flex-col">
           <div className="flex h-8 shrink-0 items-center gap-1 px-2">
@@ -383,12 +398,6 @@ export function OrderBookPanel({
               </button>
             ))}
             <span className="flex-1" />
-            <Menu
-              label="Liquidity source"
-              value={source}
-              options={SOURCE_FILTERS}
-              onChange={setSource}
-            />
             <Menu
               label="Price grouping"
               value={groupStep}
@@ -424,7 +433,17 @@ export function OrderBookPanel({
             <span className="text-right">Total</span>
           </div>
 
-          <div className="flex min-h-0 flex-1 flex-col">
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            {empty ? (
+              <div className="pointer-events-none absolute inset-x-0 top-1/4 z-10 flex flex-col items-center gap-1 px-6 text-center">
+                <p className="text-xs text-dim">{unavailable ? "Book unavailable" : "No resting orders"}</p>
+                <p className="text-[11px] leading-snug text-faint">
+                  {unavailable
+                    ? "The chain did not answer, so the book cannot be read right now."
+                    : "Place a limit order to rest the first bid or offer, or request private quotes."}
+                </p>
+              </div>
+            ) : null}
             {view !== "BIDS" ? (
               <div className={`flex min-h-0 flex-col-reverse overflow-hidden ${view === "ASKS" ? "flex-1" : "flex-1 basis-0"}`}>
                 {book.asks.map((row) => (
@@ -442,16 +461,26 @@ export function OrderBookPanel({
             ) : null}
 
             <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-y border-line bg-inset px-3">
-              <span className={`tnum flex items-center gap-1 font-mono text-base font-medium ${lastUp ? "text-up" : "text-down"}`}>
-                <FlashValue value={last?.price ?? mid}>{formatPrice(last?.price ?? mid, market)}</FlashValue>
-                {lastUp ? <ArrowUp size={14} aria-hidden="true" /> : <ArrowDown size={14} aria-hidden="true" />}
+              <span
+                className={`tnum flex items-center gap-1 font-mono text-base font-medium ${
+                  last ? (lastUp ? "text-up" : "text-down") : "text-ink"
+                }`}
+              >
+                <FlashValue value={centrePrice}>{formatPrice(centrePrice, market)}</FlashValue>
+                {last ? (
+                  lastUp ? <ArrowUp size={14} aria-hidden="true" /> : <ArrowDown size={14} aria-hidden="true" />
+                ) : centreLabel ? (
+                  <span className="ml-1 font-sans text-[11px] font-normal text-faint">{centreLabel}</span>
+                ) : null}
               </span>
               <span className="text-[11px] text-faint">
                 Spread
                 <span className="tnum ml-1.5 font-mono text-dim">
-                  {`${formatNumber(spread, market.priceDecimals)} ${unitSuffix}`}
+                  {Number.isFinite(spread) ? `${formatNumber(spread, market.priceDecimals)} ${unitSuffix}` : "—"}
                 </span>
-                <span className="tnum ml-1 font-mono text-off">{`${spreadPercent.toFixed(3)}%`}</span>
+                {Number.isFinite(spreadPercent) ? (
+                  <span className="tnum ml-1 font-mono text-off">{`${spreadPercent.toFixed(3)}%`}</span>
+                ) : null}
               </span>
             </div>
 

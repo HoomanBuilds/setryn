@@ -4,7 +4,7 @@ import { MarketsDirectory } from "@/components/markets/MarketsDirectory";
 export const metadata: Metadata = {
   title: "Markets / Setryn",
   description:
-    "Package market directory. Table, expiry ladder, and term curve views over the coherent local index feed.",
+    "Listed dated forwards. Table, expiry ladder, and term curve views over the onchain book and Chainlink references.",
 };
 
 export default function MarketsPage() {

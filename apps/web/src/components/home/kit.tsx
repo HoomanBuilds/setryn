@@ -6,8 +6,8 @@ import { ArrowUpRight, Wallet } from "lucide-react";
 import { ChainIcon, chainLabelOf } from "@/components/icons/AssetIcon";
 import { useGatewaySnapshot, useInternalGateway } from "@/components/gateway/InternalGatewayProvider";
 import { Chip, deskMotion } from "@/components/strategies/desk/Desk";
-import { usePreviewTick } from "@/components/terminal/PreviewMarketProvider";
-import type { AlertProvenance, DevnetProbe, DevnetReading } from "@/lib/alerts";
+import { useChainNow } from "@/components/market-data/MarketDataProvider";
+import { OPERATOR_STATUS_PATH, type AlertProvenance, type OperatorProbe, type OperatorReading } from "@/lib/alerts";
 
 /*
  * Page frame and small parts shared by Home, Exposures, Alerts, and Settings. They sit on the desk kit so these
@@ -53,21 +53,18 @@ export function PageHeader({
   );
 }
 
-const PROVENANCE_COPY: Record<AlertProvenance, { label: string; title: string; tone: "neutral" | "dim" }> = {
+type ChipCopy = { label: string; title: string; tone: "neutral" | "dim" };
+
+const PROVENANCE_COPY: Partial<Record<AlertProvenance, ChipCopy>> = {
   OBSERVED: { label: "Observed", title: "Read from an identified feed, chain event, or signed record.", tone: "dim" },
   EXECUTABLE: { label: "Executable", title: "Backed by an active order, firm quote, or reserved commitment.", tone: "dim" },
   ESTIMATED: { label: "Estimated", title: "Calculated from current inputs; not itself guaranteed.", tone: "neutral" },
   MODELED: { label: "Modeled", title: "Produced by a scenario, forecast, or model assumption.", tone: "neutral" },
-  RECORDED_FIXTURE: {
-    label: "Recorded fixture",
-    title: "Recorded operator runtime evidence. Not a live reading.",
-    tone: "neutral",
-  },
 };
 
 /** Data trust label from the spec: distinguishable by its text, not only its colour. */
 export function ProvenanceChip({ kind, title }: { kind: AlertProvenance; title?: string }) {
-  const copy = PROVENANCE_COPY[kind];
+  const copy = PROVENANCE_COPY[kind] ?? { label: kind.charAt(0) + kind.slice(1).toLowerCase().replace(/_/g, " "), title: "", tone: "neutral" as const };
   return (
     <Chip tone={copy.tone} title={title ?? copy.title}>
       {copy.label}
@@ -100,7 +97,7 @@ export function ConnectWalletButton({ className = BUTTON_PRIMARY, label = "Conne
         message === "WALLET_UNAVAILABLE"
           ? "The wallet prompt could not open."
           : message === "RUNTIME_UNAVAILABLE"
-            ? "The local runtime is not reachable."
+            ? "The trading runtime is not reachable."
             : "Wallet connection was not completed.",
       );
     }
@@ -137,11 +134,11 @@ export function WalletBadge() {
 }
 
 /**
- * Wall clock for wall-clock deadlines (RFQ and quote expiry), refreshed on the shared preview tick, so these pages
- * add no timer of their own.
+ * Wall clock for wall-clock deadlines (RFQ and quote expiry), refreshed on the platform clock's one-second tick, so
+ * these pages add no timer of their own.
  */
 export function useWallClock(): number {
-  const { tick } = usePreviewTick();
+  const tick = useChainNow();
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => setNow(Date.now()));
@@ -150,16 +147,16 @@ export function useWallClock(): number {
   return now;
 }
 
-/** One probe of the local runtime on mount, plus an explicit recheck. No polling. */
-export function useDevnetReading(): { reading: DevnetReading; recheck: () => void } {
-  const [reading, setReading] = useState<DevnetReading>({ state: "PENDING" });
+/** One probe of the deployment's runtime on mount, plus an explicit recheck. No polling. */
+export function useOperatorReading(): { reading: OperatorReading; recheck: () => void } {
+  const [reading, setReading] = useState<OperatorReading>({ state: "PENDING" });
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/internal/devnet/status", { cache: "no-store", signal: controller.signal })
+    fetch(OPERATOR_STATUS_PATH, { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
-        if (!response.ok) throw new Error("DEVNET_STATUS_UNAVAILABLE");
-        const probe = (await response.json()) as DevnetProbe;
+        if (!response.ok) throw new Error("OPERATOR_STATUS_UNAVAILABLE");
+        const probe = (await response.json()) as OperatorProbe;
         setReading({ state: "OK", probe });
       })
       .catch(() => {

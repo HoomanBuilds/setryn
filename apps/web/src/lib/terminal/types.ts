@@ -1,3 +1,6 @@
+import type { MarkSource, SeriesStatus } from "@/lib/market-data/types";
+
+/** Every listed market quotes its forward level in USD; leg marks may carry other units. */
 export type PriceUnit = "BP" | "PTS" | "USD";
 
 export type StrategyKind =
@@ -62,6 +65,9 @@ export interface RouteQuote {
   guarantee: Guarantee;
   etaLabel: string;
   availableLots: number;
+  /** Lots available to a buy (resting offers) and to a sell (resting bids), when the route knows them per side. */
+  enterLots?: number;
+  exitLots?: number;
   requiresPrivate: boolean;
   /** Fraction of notional at risk between the first and last leg print. */
   intermediateExposureRate: number;
@@ -74,20 +80,32 @@ export interface PayoffPoint {
   value: number;
 }
 
+/**
+ * One listed market: a cash-settled dated range forward on one underlying's fixing
+ * (docs/plans/network-runtime-real-data.md, section 2). The static fields come from the deployment's catalog
+ * (`catalog.generated.json`); the live fields (marks, quotes, book, routes, open interest, status) come only from the
+ * market-data feed and are NaN, empty, or zero until it reports them. A missing quote is NaN, never a stand-in.
+ */
 export interface PackageMarket {
   id: string;
   name: string;
   code: string;
   underlying: string;
   strategyKind: StrategyKind;
+  /** The analytics view the market is presented under (yield carry, funding carry, basis, forward points). */
   strategyLabel: string;
   priceUnit: PriceUnit;
   priceDecimals: number;
   tickSize: number;
+  /** The mark: book mid, else last fill, else the Chainlink reference clamped into the payoff range (see `markSource`). */
   netPrice: number;
+  /** The first fill of the last 24 hours, else the mark (no change). */
   priorNetPrice: number;
+  /** Best resting bid on the public book; NaN when no bid rests. */
   bestBid: number;
+  /** Best resting offer on the public book; NaN when no offer rests. */
   bestAsk: number;
+  /** Expiry date, `YYYY-MM-DD` (UTC). The exact instant is `expiryAt`. */
   expiryIso: string;
   tenorLabel: string;
   settlementClass: SettlementClass;
@@ -95,11 +113,13 @@ export interface PackageMarket {
   fixingSource: string;
   qualification: Qualification;
   qualificationNote: string;
-  /** Age in seconds of the fixture snapshot at page construction. */
+  /** Age in seconds of the live data at the last feed update. */
   snapshotAgeSeconds: number;
+  /** Lot size times the live reference: the underlying exposure of one lot in USDC. NaN without a reference. */
   notionalPerLot: number;
-  /** USDC of package value per 1.00 of quoted package price, per lot. */
+  /** USDC of consideration per 1.00 of quoted price, per lot: the lot size. */
   contractMultiplier: number;
+  /** The short side's bounded liability per lot: lot size times (cap - floor). */
   collateralPerLot: number;
   /** Fees are charged on the fill's consideration (price x multiplier) rather than on notional, as onchain. */
   feeOnConsideration?: boolean;
@@ -111,10 +131,43 @@ export interface PackageMarket {
   legs: PackageLeg[];
   book: BookRow[];
   routes: RouteQuote[];
+  /** Recent fill prices, oldest first; empty without fills. */
   priceHistory: number[];
   payoffMoveUnit: string;
   payoff: PayoffPoint[];
   breakEvenMove: number;
+  /* Range forward terms (catalog). */
+  /** Price at zero onchain ticks, the payoff floor: consideration per lot is (price - priceOffset) x contractMultiplier. */
+  priceOffset: number;
+  floor: number;
+  cap: number;
+  /** Units of the underlying per lot. */
+  lotSize: number;
+  /** Unix seconds of the expiry fixing. */
+  expiryAt: number;
+  /** Unix seconds after which the series takes no new orders. */
+  lastTradingAt: number;
+  /* Series schedule, unix seconds, present when the deployment's runtime states it (schema 11). */
+  tradingStartsAt?: number;
+  fixingWindowOpen?: number;
+  fixingWindowClose?: number;
+  exerciseOpensAt?: number;
+  exerciseCutoffAt?: number;
+  finalResolutionAt?: number;
+  settlementDeadline?: number;
+  /** Chainlink feed the market is referenced against, e.g. "BTC / USD". */
+  referencePair: string;
+  /* Live overlay (market-data feed). */
+  markSource: MarkSource;
+  /** Unix seconds of the reading the mark comes from; 0 when unknown. */
+  markAsOf: number;
+  /** Live Chainlink reference of the underlying; NaN when it could not be read. */
+  referencePrice: number;
+  /** Unix seconds the reference aggregator last updated; 0 when unknown. */
+  referenceAsOf: number;
+  seriesStatus: SeriesStatus;
+  /** Whether the connected deployment lists this market onchain (false until the feed confirms it). */
+  listedOnchain: boolean;
 }
 
 export type ConsoleTabId =

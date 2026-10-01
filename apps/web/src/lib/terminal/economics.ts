@@ -115,8 +115,19 @@ export function routePrice(route: RouteQuote, action: ExecutableAction): number 
   return action === "BUY" ? route.enterPrice : route.exitPrice;
 }
 
+/** Lots a route can fill for this action: the resting offers for a buy, the resting bids for a sell. */
+export function routeCapacity(route: RouteQuote, action: ExecutableAction): number {
+  return (action === "BUY" ? route.enterLots : route.exitLots) ?? route.availableLots;
+}
+
+/** The touch an order of this action would take: the best offer for a buy, the best bid for a sell (NaN if none). */
 export function bestReferencePrice(market: PackageMarket, action: ExecutableAction): number {
   return action === "BUY" ? market.bestAsk : market.bestBid;
+}
+
+/** The protocol taker fee the market's routes carry, from the live fee schedule; NaN before the feed reports it. */
+export function marketProtocolFeeBps(market: Pick<PackageMarket, "routes">): number {
+  return market.routes[0]?.protocolFeeBps ?? Number.NaN;
 }
 
 export const SLIPPAGE_PRESETS_BPS = [10, 50, 100, 200] as const;
@@ -131,10 +142,15 @@ export function protectedPrice(
   reference: number,
   action: ExecutableAction,
   toleranceBps: number,
-  market: Pick<PackageMarket, "tickSize" | "priceDecimals">,
+  market: Pick<PackageMarket, "tickSize" | "priceDecimals"> & Partial<Pick<PackageMarket, "floor" | "cap">>,
 ): number {
+  if (!Number.isFinite(reference)) return Number.NaN;
   const band = Math.max(market.tickSize, (Math.abs(reference) * toleranceBps) / 10_000);
-  const raw = action === "BUY" ? reference + band : reference - band;
+  let raw = action === "BUY" ? reference + band : reference - band;
+  // A range forward never trades outside its payoff range, so protection stops one tick inside it.
+  if (market.floor !== undefined && market.cap !== undefined) {
+    raw = Math.min(market.cap - market.tickSize, Math.max(market.floor + market.tickSize, raw));
+  }
   const ticks = action === "BUY" ? Math.ceil(raw / market.tickSize - 1e-9) : Math.floor(raw / market.tickSize + 1e-9);
   return Number((ticks * market.tickSize).toFixed(market.priceDecimals));
 }
@@ -165,16 +181,18 @@ export function buildPreview(
   const rests = state.orderType === "LIMIT" && !marketable && isRestingTimeInForce(state.tif);
   const effectivePrice = state.orderType === "LIMIT" && !marketable ? limitPrice : price;
 
+  const capacity = route ? routeCapacity(route, action) : Number.NaN;
   const iocPartial = state.tif === "IOC" && marketable && route != null;
   const fillLots = iocPartial
-    ? Math.min(requestedLots, route.availableLots)
+    ? Math.min(requestedLots, capacity)
     : requestedLots;
   const cancelledLots = Math.max(0, requestedLots - fillLots);
+  // Fees are charged on consideration: lots x (price - floor) x lot size, the USDC the long pays at the fill.
   const notional = market.feeOnConsideration
-    ? fillLots * Math.abs(effectivePrice) * market.contractMultiplier
+    ? fillLots * Math.abs(effectivePrice - market.priceOffset) * market.contractMultiplier
     : fillLots * market.notionalPerLot;
 
-  const protocolFeeBps = route?.protocolFeeBps ?? 2.5;
+  const protocolFeeBps = route?.protocolFeeBps ?? marketProtocolFeeBps(market);
   const counterpartyFeeBps = route?.counterpartyFeeBps ?? 0;
   const collateralMultiple = route?.collateralMultiple ?? 1;
   const exposureRate = route?.intermediateExposureRate ?? 0;
@@ -189,7 +207,10 @@ export function buildPreview(
   if (market.maxOrderLots != null && requestedLots > market.maxOrderLots) {
     blockers.push(`This market accepts at most ${market.maxOrderLots} lots per order.`);
   }
-  if (limitPrice === 0) blockers.push("Enter a package-price limit.");
+  if (limitPrice === 0) blockers.push("Enter a limit price.");
+  else if (!(limitPrice > market.floor && limitPrice < market.cap)) {
+    blockers.push(`The price must be inside the payoff range, above ${market.floor} and below ${market.cap}.`);
+  }
   if (isExit) {
     if (!closePosition || !(closePosition.lots > 0)) {
       blockers.push("Exit requires exactly one active runtime package. Select a package to close.");
@@ -200,7 +221,7 @@ export function buildPreview(
         );
       }
       if (requestedLots !== closePosition.lots) {
-        blockers.push("Devnet lifecycle exit currently requires the complete position quantity.");
+        blockers.push("A lifecycle exit currently requires the complete position quantity.");
       }
       if (state.tif !== "FOK") {
         blockers.push("A lifecycle exit uses FOK so a partial close cannot leave an unmatched hedge.");
@@ -210,16 +231,29 @@ export function buildPreview(
       }
     }
   }
-  if (route && requestedLots > route.availableLots && !(state.tif === "IOC" && marketable && fillLots > 0)) {
-    if (state.tif === "FOK") {
-      blockers.push("Fill or kill cannot clear more than the reserved route capacity.");
-    } else {
+  // Capacity binds only what takes liquidity now; a resting limit adds to the book instead.
+  if (
+    route &&
+    !route.requiresPrivate &&
+    !rests &&
+    Number.isFinite(capacity) &&
+    requestedLots > capacity &&
+    !(state.tif === "IOC" && marketable && fillLots > 0)
+  ) {
+    if (capacity === 0) {
       blockers.push(
-        `Route capacity is ${route.availableLots} lots. Reduce quantity or pick another route.`,
+        action === "BUY"
+          ? "No offers rest on the book. Place a limit order to rest a bid, or request quotes."
+          : "No bids rest on the book. Place a limit order to rest an offer, or request quotes.",
       );
+    } else if (state.tif === "FOK") {
+      blockers.push("Fill or kill cannot clear more than the lots resting at the route price.");
+    } else {
+      blockers.push(`The book holds ${capacity} lots on this side. Reduce quantity or rest the remainder as a limit.`);
     }
   }
-  if (state.orderType === "MARKETABLE_LIMIT" && route && !marketable) {
+  // A route without a price (an empty book side, or an RFQ before quotes) is priced by what answers, not by the limit.
+  if (state.orderType === "MARKETABLE_LIMIT" && route && Number.isFinite(price) && !marketable) {
     blockers.push(
       action === "BUY"
         ? "A marketable limit must be at or above the route offer."
@@ -278,8 +312,10 @@ export function buildPreview(
     guaranteeDetail:
       guarantee?.detail ?? "Pick a route to see which settlement guarantee applies to this package.",
     freshnessLabel: route
-      ? `${route.label}, index snapshot`
-      : "Package mark, index snapshot",
+      ? `${route.label}, onchain snapshot`
+      : market.markSource === "REFERENCE"
+        ? "Chainlink reference"
+        : "Market mark, onchain snapshot",
     freshnessSeconds: market.snapshotAgeSeconds,
     marketable,
     rests,

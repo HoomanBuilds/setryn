@@ -40,6 +40,8 @@ export function RouteTable({
     ? usable.reduce((winner, route) => {
         const price = routePrice(route, action);
         const winning = routePrice(winner, action);
+        if (!Number.isFinite(price)) return winner;
+        if (!Number.isFinite(winning)) return route;
         if (action === "BUY") return price < winning ? route : winner;
         return price > winning ? route : winner;
       })
@@ -97,14 +99,14 @@ export function RouteTable({
                     <SourceMark source={route.source} />
                     <span className="truncate">{route.label}</span>
                   </span>
-                  {best?.id === route.id && !blocked ? (
+                  {best?.id === route.id && !blocked && Number.isFinite(price) ? (
                     <span className="shrink-0 rounded-sm bg-inset px-1.5 text-xs text-dim">
                       best
                     </span>
                   ) : null}
                 </span>
-                <span className="tnum shrink-0 font-mono text-sm text-ink">
-                  {formatNumber(price, market.priceDecimals)}
+                <span className={`tnum shrink-0 font-mono text-sm ${Number.isFinite(price) ? "text-ink" : "text-faint"}`}>
+                  {Number.isFinite(price) ? formatNumber(price, market.priceDecimals) : route.requiresPrivate ? "on quote" : "—"}
                 </span>
               </span>
 
@@ -113,7 +115,11 @@ export function RouteTable({
                   ? amendmentMode && route.requiresPrivate
                     ? "Solver RFQ routes cannot rest as replacements."
                     : "Turn on private RFQ to request this route."
-                  : `${formatNumber(feeBps(route), 1)} bp fees / ${guarantee.label} / ${formatLots(route.availableLots)} lots / ${route.etaLabel}`}
+                  : route.requiresPrivate
+                    ? `${formatNumber(feeBps(route), 1)} bp fees / ${guarantee.label} / priced by solver quotes / ${route.etaLabel}`
+                    : `${formatNumber(feeBps(route), 1)} bp fees / ${guarantee.label} / ${formatLots(
+                        (action === "BUY" ? route.enterLots : route.exitLots) ?? route.availableLots,
+                      )} lots ${action === "BUY" ? "offered" : "bid"} / ${route.etaLabel}`}
               </span>
             </button>
           );

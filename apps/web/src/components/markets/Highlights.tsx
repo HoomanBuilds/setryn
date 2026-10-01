@@ -15,11 +15,15 @@ interface Card {
   id: string;
   title: string;
   note: string;
+  /** What an empty card says: the board has nothing that qualifies yet. */
+  empty: string;
   pick: (markets: PackageMarket[]) => PackageMarket[];
   figure: Figure;
 }
 
-const move = (market: PackageMarket) => changePercent(market.netPrice, market.priorNetPrice);
+/** The 24-hour move of a traded mark; a market marked at its reference has not moved by trading. */
+const move = (market: PackageMarket) =>
+  market.markSource === "MID" || market.markSource === "LAST" ? changePercent(market.netPrice, market.priorNetPrice) : Number.NaN;
 
 const price: Figure = (market) => (
   <span className="flex items-baseline justify-end gap-1">
@@ -34,14 +38,16 @@ const CARDS: Card[] = [
   {
     id: "gainers",
     title: "Top gainers",
-    note: "vs prior close",
+    note: "24h",
+    empty: "No market traded up in the last 24 hours",
     pick: (markets) => markets.filter((m) => move(m) > 0).sort((a, b) => move(b) - move(a)).slice(0, 3),
     figure: price,
   },
   {
     id: "losers",
     title: "Top losers",
-    note: "vs prior close",
+    note: "24h",
+    empty: "No market traded down in the last 24 hours",
     pick: (markets) => markets.filter((m) => move(m) < 0).sort((a, b) => move(a) - move(b)).slice(0, 3),
     figure: price,
   },
@@ -49,16 +55,22 @@ const CARDS: Card[] = [
     id: "interest",
     title: "Most open interest",
     note: "lots",
-    pick: (markets) => [...markets].sort((a, b) => b.openInterestLots - a.openInterestLots).slice(0, 3),
+    empty: "No open positions yet",
+    pick: (markets) =>
+      markets
+        .filter((m) => Number.isFinite(m.openInterestLots) && m.openInterestLots > 0)
+        .sort((a, b) => b.openInterestLots - a.openInterestLots)
+        .slice(0, 3),
     figure: (market) => (
       <span className="tnum font-mono text-xs text-ink">{formatLots(market.openInterestLots)}</span>
     ),
   },
   {
     id: "depth",
-    title: "Deepest firm book",
-    note: "executable lots",
-    pick: (markets) => [...markets].sort((a, b) => b.firmDepthLots - a.firmDepthLots).slice(0, 3),
+    title: "Deepest book",
+    note: "resting lots",
+    empty: "No resting orders yet",
+    pick: (markets) => markets.filter((m) => m.firmDepthLots > 0).sort((a, b) => b.firmDepthLots - a.firmDepthLots).slice(0, 3),
     figure: (market) => (
       <span
         className="tnum font-mono text-xs text-ink"
@@ -93,7 +105,7 @@ export function Highlights({ markets }: { markets: PackageMarket[] }) {
             <ul className="flex flex-col py-1">
               {rows.length === 0 ? (
                 <li className="flex h-[84px] items-center justify-center text-xs text-faint">
-                  No market qualifies right now
+                  {card.empty}
                 </li>
               ) : (
                 rows.map((market) => (

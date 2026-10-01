@@ -47,11 +47,23 @@ function priceFigure(market: PackageMarket) {
   );
 }
 
-/** Movers and depth from the shared live board, so every figure matches the terminal, charts, and ticker. */
+function EmptyRow({ children }: { children: ReactNode }) {
+  return <li className="flex h-[120px] items-center justify-center px-4 text-center text-xs text-faint">{children}</li>;
+}
+
+/** Movers and depth from the market-data feed, so every figure matches the terminal, charts, and ticker. */
 export function Opportunities({ markets }: { markets: readonly PackageMarket[] }) {
-  const move = (market: PackageMarket) => changePercent(market.netPrice, market.priorNetPrice);
-  const movers = [...markets].sort((a, b) => Math.abs(move(b)) - Math.abs(move(a))).slice(0, 5);
-  const deepest = [...markets].sort((a, b) => b.firmDepthLots - a.firmDepthLots).slice(0, 5);
+  // Only traded marks move; a market marked at its reference has no 24-hour change to rank.
+  const move = (market: PackageMarket) =>
+    market.markSource === "MID" || market.markSource === "LAST" ? changePercent(market.netPrice, market.priorNetPrice) : Number.NaN;
+  const movers = markets
+    .filter((market) => Number.isFinite(move(market)) && move(market) !== 0)
+    .sort((a, b) => Math.abs(move(b)) - Math.abs(move(a)))
+    .slice(0, 5);
+  const deepest = markets
+    .filter((market) => market.firmDepthLots > 0)
+    .sort((a, b) => b.firmDepthLots - a.firmDepthLots)
+    .slice(0, 5);
 
   return (
     <div className="grid min-w-0 gap-1 md:grid-cols-2">
@@ -60,15 +72,17 @@ export function Opportunities({ markets }: { markets: readonly PackageMarket[] }
           title="Top movers"
           tools={
             <span className="flex items-center gap-2">
-              <ProvenanceChip kind="OBSERVED" title="Package marks from the coherent index feed, against the prior close." />
+              <ProvenanceChip kind="OBSERVED" title="Marks from the onchain book and fills, against the first fill of the last 24 hours." />
               <PanelLink href="/markets">Markets</PanelLink>
             </span>
           }
         />
         <ul className="py-1">
-          {movers.map((market) => (
-            <MarketRow key={market.id} market={market} figure={priceFigure(market)} />
-          ))}
+          {movers.length === 0 ? (
+            <EmptyRow>No market has traded in the last 24 hours.</EmptyRow>
+          ) : (
+            movers.map((market) => <MarketRow key={market.id} market={market} figure={priceFigure(market)} />)
+          )}
         </ul>
       </Panel>
       <Panel label="Deepest firm books" delay={120}>
@@ -76,12 +90,13 @@ export function Opportunities({ markets }: { markets: readonly PackageMarket[] }
           title="Deepest books"
           tools={
             <span className="flex items-center gap-2">
-              <ProvenanceChip kind="EXECUTABLE" title="Firm executable lots resting on each package book." />
-              <span className="text-[11px] text-faint">firm lots</span>
+              <ProvenanceChip kind="EXECUTABLE" title="Lots resting on each market's onchain book." />
+              <span className="text-[11px] text-faint">resting lots</span>
             </span>
           }
         />
         <ul className="py-1">
+          {deepest.length === 0 ? <EmptyRow>No resting orders on any book yet.</EmptyRow> : null}
           {deepest.map((market) => (
             <MarketRow
               key={market.id}
@@ -89,7 +104,9 @@ export function Opportunities({ markets }: { markets: readonly PackageMarket[] }
               figure={
                 <span className="flex flex-col items-end" title={`Spread ${formatNumber(spreadOf(market), market.priceDecimals)} ${priceUnitSuffix(market.priceUnit)}`}>
                   <span className="tnum font-mono text-xs text-ink">{formatLots(market.firmDepthLots)}</span>
-                  <span className="tnum font-mono text-[10px] text-off">{`${formatNumber(spreadOf(market), market.priceDecimals)} wide`}</span>
+                  <span className="tnum font-mono text-[10px] text-off">
+                    {Number.isFinite(spreadOf(market)) ? `${formatNumber(spreadOf(market), market.priceDecimals)} wide` : "one-sided"}
+                  </span>
                 </span>
               }
             />

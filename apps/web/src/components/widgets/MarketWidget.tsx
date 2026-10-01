@@ -1,17 +1,18 @@
 "use client";
 
 import { UnderlyingIcon } from "@/components/icons/AssetIcon";
-import { usePreviewMarket } from "@/components/terminal/PreviewMarketProvider";
+import { useLiveMarket } from "@/components/market-data/MarketDataProvider";
 import { changePercent, formatExpiry, formatPercent, formatPrice, formatSigned, priceUnitSuffix } from "@/lib/terminal/format";
 import { packageLabel } from "@/lib/terminal/markets";
 import { MiniChart } from "./MiniChart";
 import { platformTradeHref } from "./embed-params";
 
-/** One market: live package mark, 24h change, mini chart and best bid/offer, all from the shared index feed. */
+/** One market: live mark, 24h change, mini chart and best bid/offer, all from the market-data feed. */
 export function MarketWidget({ marketId, partner }: { marketId: string; partner: string | null }) {
-  const { baseMarket, liveMarket, previewEpochSeconds } = usePreviewMarket(marketId);
-  const change = liveMarket.netPrice - liveMarket.priorNetPrice;
-  const pct = changePercent(liveMarket.netPrice, liveMarket.priorNetPrice);
+  const { market: liveMarket } = useLiveMarket(marketId);
+  const traded = liveMarket.markSource === "MID" || liveMarket.markSource === "LAST";
+  const change = traded ? liveMarket.netPrice - liveMarket.priorNetPrice : Number.NaN;
+  const pct = traded ? changePercent(liveMarket.netPrice, liveMarket.priorNetPrice) : Number.NaN;
   const tone = change > 0 ? "text-up" : change < 0 ? "text-down" : "text-dim";
   const unit = priceUnitSuffix(liveMarket.priceUnit);
   const spread = liveMarket.bestAsk - liveMarket.bestBid;
@@ -40,12 +41,21 @@ export function MarketWidget({ marketId, partner }: { marketId: string; partner:
       <div className="flex min-w-0 items-baseline gap-2 px-3 pt-2" aria-live="polite" aria-atomic="true">
         <span className="tnum font-mono text-2xl text-ink">{formatPrice(liveMarket.netPrice, liveMarket)}</span>
         <span className="text-xs text-faint">{unit}</span>
-        <span className={`tnum ml-auto font-mono text-xs ${tone}`}>
-          {formatSigned(change, liveMarket.priceDecimals)} ({formatPercent(pct, 2)})
-        </span>
+        {traded ? (
+          <span className={`tnum ml-auto font-mono text-xs ${tone}`}>
+            {formatSigned(change, liveMarket.priceDecimals)} ({formatPercent(pct, 2)})
+          </span>
+        ) : (
+          <span
+            className="ml-auto text-[11px] text-faint"
+            title={`No book or trades yet: marked at the Chainlink ${liveMarket.referencePair} reference.`}
+          >
+            {liveMarket.markSource === "REFERENCE" ? "Reference" : "No mark"}
+          </span>
+        )}
       </div>
       <div className="px-3 pt-2 pb-1">
-        <MiniChart baseMarket={baseMarket} liveMarket={liveMarket} previewEpochSeconds={previewEpochSeconds} />
+        <MiniChart market={liveMarket} />
       </div>
       <dl className="grid grid-cols-3 border-t border-line text-xs">
         <div className="min-w-0 px-3 py-2">
@@ -59,7 +69,7 @@ export function MarketWidget({ marketId, partner }: { marketId: string; partner:
         <div className="min-w-0 border-l border-line px-3 py-2">
           <dt className="text-[11px] text-faint">Spread</dt>
           <dd className="tnum truncate font-mono text-dim">
-            {formatPrice(spread, liveMarket)} {unit}
+            {Number.isFinite(spread) ? `${formatPrice(spread, liveMarket)} ${unit}` : "—"}
           </dd>
         </div>
       </dl>

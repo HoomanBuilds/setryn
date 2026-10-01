@@ -21,8 +21,10 @@ import {
   formatExpiry,
   formatLots,
   formatNumber,
+  platformNowSeconds,
   priceUnitSuffix,
 } from "@/lib/terminal/format";
+import { formatAnalytic, strategyAnalytic } from "@/lib/market-data/analytics";
 import { settlementShort, sourceClasses, spreadOf } from "@/lib/terminal/discovery";
 import { tradeHref } from "@/lib/terminal/markets";
 import type { PackageMarket } from "@/lib/terminal/types";
@@ -46,13 +48,40 @@ function unit(market: PackageMarket) {
   return priceUnitSuffix(market.priceUnit);
 }
 
+/** The 24-hour move of a traded mark; NaN for a market marked at its reference, which has not traded. */
 function change(market: PackageMarket) {
+  if (market.markSource === "REFERENCE" || market.markSource === "NONE") return Number.NaN;
   return changePercent(market.netPrice, market.priorNetPrice);
+}
+
+/** Sort key that keeps missing values (NaN) last in either direction. */
+function sortable(value: number): number {
+  return Number.isFinite(value) ? value : Number.NaN;
+}
+
+const MARK_TAG: Record<PackageMarket["markSource"], string> = { MID: "mid", LAST: "last", REFERENCE: "ref", NONE: "" };
+
+const MARK_TITLE: Record<PackageMarket["markSource"], string> = {
+  MID: "Mid of the best bid and offer on the onchain book.",
+  LAST: "Last onchain fill.",
+  REFERENCE: "No book or trades yet: the Chainlink reference, held inside the payoff range.",
+  NONE: "No mark is available.",
+};
+
+/** The strategy view (implied carry, basis, forward points) from a traded mark against the live reference. */
+function analyticOf(market: PackageMarket) {
+  return strategyAnalytic(market, market.netPrice, market.referencePrice, platformNowSeconds());
+}
+
+function analyticText(market: PackageMarket): string {
+  if (market.markSource === "REFERENCE" || market.markSource === "NONE") return "—";
+  return formatAnalytic(analyticOf(market));
 }
 
 /** Signed percent that keeps a zero neutral, so only a real move takes colour. */
 export function ChangeText({ market, className = "" }: { market: PackageMarket; className?: string }) {
   const value = change(market);
+  if (!Number.isFinite(value)) return <span className={`tnum font-mono text-off ${className}`}>—</span>;
   const tone = value > 0 ? "text-up" : value < 0 ? "text-down" : "text-dim";
   const sign = value > 0 ? "+" : value < 0 ? "-" : "";
   return (
@@ -65,14 +94,21 @@ export function ChangeText({ market, className = "" }: { market: PackageMarket; 
 /** Mobile reads the move as a filled pill, the way a phone exchange list does. */
 export function ChangePill({ market }: { market: PackageMarket }) {
   const value = change(market);
-  const tone =
-    value > 0 ? "bg-up-soft text-up" : value < 0 ? "bg-down-soft text-down" : "bg-raised text-dim";
+  const known = Number.isFinite(value);
+  const tone = !known
+    ? "bg-raised text-faint"
+    : value > 0
+      ? "bg-up-soft text-up"
+      : value < 0
+        ? "bg-down-soft text-down"
+        : "bg-raised text-dim";
   const sign = value > 0 ? "+" : value < 0 ? "-" : "";
   return (
     <span
+      title={known ? undefined : MARK_TITLE[market.markSource]}
       className={`tnum inline-flex h-[22px] min-w-[64px] items-center justify-center rounded-sm px-1.5 font-mono text-xs font-medium ${tone}`}
     >
-      {`${sign}${Math.abs(value).toFixed(2)}%`}
+      {known ? `${sign}${Math.abs(value).toFixed(2)}%` : market.markSource === "REFERENCE" ? "Reference" : "—"}
     </span>
   );
 }
@@ -110,31 +146,48 @@ const COLUMNS: Column[] = [
   },
   {
     id: "price",
-    label: "Last",
-    title: "Net package price on the Setryn index feed.",
+    label: "Mark",
+    title: "Forward level in USD: the book mid, else the last fill, else the Chainlink reference (ref).",
     numeric: true,
-    key: (market) => market.netPrice,
+    key: (market) => sortable(market.netPrice),
     cell: (market) => (
-      <span className="flex items-baseline justify-end gap-1 whitespace-nowrap">
-        <Flash value={market.netPrice} className="tnum px-1 font-mono text-[13px] text-ink">
+      <span className="flex items-baseline justify-end gap-1 whitespace-nowrap" title={MARK_TITLE[market.markSource]}>
+        <Flash
+          value={market.netPrice}
+          className={`tnum px-1 font-mono text-[13px] ${market.markSource === "REFERENCE" ? "text-dim" : "text-ink"}`}
+        >
           {formatNumber(market.netPrice, market.priceDecimals)}
         </Flash>
-        <span className="w-[22px] text-left text-[10.5px] text-off">{unit(market)}</span>
+        <span className="w-[22px] text-left text-[10.5px] text-off">{MARK_TAG[market.markSource] || unit(market)}</span>
       </span>
     ),
   },
   {
     id: "change",
-    label: "Change",
-    title: "Change against the prior session close.",
+    label: "24h",
+    title: "Change of the mark against the first fill of the last 24 hours.",
     numeric: true,
-    key: change,
+    key: (market) => sortable(change(market)),
     cell: (market) => <ChangeText market={market} className="text-xs" />,
   },
   {
+    id: "analytic",
+    label: "Carry / basis",
+    title:
+      "Strategy view from the mark against the live Chainlink reference: implied annualized carry for carry markets, F - S for basis, forward points for FX.",
+    numeric: true,
+    key: (market) => (market.markSource === "REFERENCE" ? Number.NaN : sortable(analyticOf(market).value)),
+    hide: "hidden xl:table-cell",
+    cell: (market) => (
+      <span className="tnum font-mono text-xs whitespace-nowrap text-dim" title={analyticOf(market).describe}>
+        {analyticText(market)}
+      </span>
+    ),
+  },
+  {
     id: "trend",
-    label: "48h",
-    title: "Index feed over the last 48 hours at 30 minute steps, ending on the live mark.",
+    label: "Fills",
+    title: "Recent onchain fills, oldest to newest. Empty until the market trades.",
     hide: "hidden lg:table-cell",
     width: "w-[112px]",
     cell: (market) => (
@@ -144,9 +197,9 @@ const COLUMNS: Column[] = [
   {
     id: "bid",
     label: "Bid",
-    title: "Best executable bid across every source class.",
+    title: "Best resting bid on the onchain book.",
     numeric: true,
-    key: (market) => market.bestBid,
+    key: (market) => sortable(market.bestBid),
     cell: (market) => (
       <span className="tnum font-mono text-xs text-up">
         {formatNumber(market.bestBid, market.priceDecimals)}
@@ -156,9 +209,9 @@ const COLUMNS: Column[] = [
   {
     id: "ask",
     label: "Offer",
-    title: "Best executable offer across every source class.",
+    title: "Best resting offer on the onchain book.",
     numeric: true,
-    key: (market) => market.bestAsk,
+    key: (market) => sortable(market.bestAsk),
     cell: (market) => (
       <span className="tnum font-mono text-xs text-down">
         {formatNumber(market.bestAsk, market.priceDecimals)}
@@ -168,9 +221,9 @@ const COLUMNS: Column[] = [
   {
     id: "spread",
     label: "Spread",
-    title: "Best executable offer minus best executable bid across every source class.",
+    title: "Best resting offer minus best resting bid on the onchain book.",
     numeric: true,
-    key: spreadOf,
+    key: (market) => sortable(spreadOf(market)),
     hide: "hidden lg:table-cell",
     cell: (market) => (
       <span className="tnum font-mono text-xs text-dim">
@@ -181,7 +234,7 @@ const COLUMNS: Column[] = [
   {
     id: "depth",
     label: "Firm depth",
-    title: "Executable lots only. Indicative rows are never counted.",
+    title: "Lots resting on the onchain book, both sides.",
     numeric: true,
     key: (market) => market.firmDepthLots,
     hide: "hidden lg:table-cell",
@@ -192,9 +245,9 @@ const COLUMNS: Column[] = [
   {
     id: "openInterest",
     label: "Open int.",
-    title: "Open interest in lots.",
+    title: "Open positions in lots, from the position engine.",
     numeric: true,
-    key: (market) => market.openInterestLots,
+    key: (market) => sortable(market.openInterestLots),
     hide: "hidden xl:table-cell",
     cell: (market) => (
       <span className="tnum font-mono text-xs text-dim">{formatLots(market.openInterestLots)}</span>
@@ -237,7 +290,7 @@ const COLUMNS: Column[] = [
   {
     id: "sources",
     label: "Sources",
-    title: "Source classes with executable size: direct, implied, solver firm.",
+    title: "Liquidity resting on the onchain book.",
     key: (market) => market.book.filter((row) => row.executable).length,
     hide: "hidden 2xl:table-cell",
     cell: (market) => <SourceMarks market={market} />,
@@ -245,13 +298,13 @@ const COLUMNS: Column[] = [
   {
     id: "observation",
     label: "Obs",
-    title: "Age of the index snapshot behind this row.",
+    title: "Age of the chain read behind this row.",
     numeric: true,
-    key: (market) => market.snapshotAgeSeconds,
+    key: (market) => (market.listedOnchain ? market.snapshotAgeSeconds : Number.NaN),
     hide: "hidden 2xl:table-cell",
     width: "w-[52px]",
     cell: (market) => (
-      <span className="tnum font-mono text-[11px] text-off">{`${market.snapshotAgeSeconds}s`}</span>
+      <span className="tnum font-mono text-[11px] text-off">{market.listedOnchain ? `${market.snapshotAgeSeconds}s` : "—"}</span>
     ),
   },
 ];
@@ -265,6 +318,10 @@ function compare(column: Column, direction: SortDirection) {
     const right = key(b);
     if (typeof left === "string" || typeof right === "string") {
       return sign * String(left).localeCompare(String(right));
+    }
+    // Missing values sort last whichever way the column runs.
+    if (!Number.isFinite(left) || !Number.isFinite(right)) {
+      return Number.isFinite(left) === Number.isFinite(right) ? 0 : Number.isFinite(left) ? -1 : 1;
     }
     return sign * (left - right);
   };
@@ -541,7 +598,7 @@ function MobileMarketList({
                     <Flash value={market.netPrice} className="tnum font-mono text-[13px] text-ink">
                       {formatNumber(market.netPrice, market.priceDecimals)}
                     </Flash>
-                    <span className="text-[10px] text-off">{unit(market)}</span>
+                    <span className="text-[10px] text-off">{MARK_TAG[market.markSource] || unit(market)}</span>
                   </span>
                   <ChangePill market={market} />
                 </span>
@@ -576,14 +633,19 @@ function MobileMarketList({
                   }
                 />
                 <DetailRow label="Strategy" value={market.strategyLabel} />
+                <DetailRow label={analyticOf(market).label} value={analyticText(market)} />
+                <DetailRow
+                  label="Reference"
+                  value={`${formatNumber(market.referencePrice, market.priceDecimals + 1)} ${market.referencePair}`}
+                />
                 <DetailRow
                   label="Spread"
-                  value={`${formatNumber(spreadOf(market), market.priceDecimals)} ${unit(market)}`}
+                  value={Number.isFinite(spreadOf(market)) ? `${formatNumber(spreadOf(market), market.priceDecimals)} ${unit(market)}` : "—"}
                 />
                 <DetailRow label="Firm depth" value={`${formatLots(market.firmDepthLots)} lots`} />
                 <DetailRow
                   label="Open interest"
-                  value={`${formatLots(market.openInterestLots)} lots`}
+                  value={Number.isFinite(market.openInterestLots) ? `${formatLots(market.openInterestLots)} lots` : "—"}
                 />
                 <DetailRow label="Expiry" value={formatExpiry(market.expiryIso)} />
                 <DetailRow
@@ -599,11 +661,11 @@ function MobileMarketList({
                   label="Sources"
                   value={sourceClasses(market)
                     .map((source) => SOURCE_LABEL[source])
-                    .join(", ")}
+                    .join(", ") || "No resting orders"}
                 />
                 <DetailRow
-                  label="Observation"
-                  value={`index feed, ${market.snapshotAgeSeconds}s`}
+                  label="Mark"
+                  value={MARK_TITLE[market.markSource].replace(/\.$/, "")}
                 />
               </div>
             ) : null}

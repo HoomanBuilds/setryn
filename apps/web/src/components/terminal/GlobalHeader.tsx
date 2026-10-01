@@ -75,8 +75,8 @@ export function GlobalHeader() {
       if (isWalletRejection(error)) return;
       const text = error instanceof Error ? error.message : "";
       setAccountMessage(
-        text === "DEVNET_GAS_FUNDING_FAILED"
-          ? "The local devnet could not fund gas for this wallet. Check the local chain and try again."
+        text === "GAS_FUNDING_FAILED"
+          ? "Gas could not be funded for this wallet. Check the chain connection and try again."
           : /rpc|fetch|http request failed|timed out|RUNTIME_UNAVAILABLE/i.test(text)
             ? "The chain RPC did not respond, so the wallet was not connected. Check the connection and try again."
             : "Wallet connection was not completed. Try again from your wallet.",

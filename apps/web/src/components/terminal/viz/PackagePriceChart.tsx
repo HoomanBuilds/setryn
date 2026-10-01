@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Camera,
   Check,
@@ -46,7 +46,9 @@ import {
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
-import { usePreviewTrades } from "@/components/terminal/PreviewMarketProvider";
+import { useChainNow, useMarketCandles } from "@/components/market-data/MarketDataProvider";
+import { barOpenTime, INTERVAL_SECONDS } from "@/lib/market-data/intervals";
+import type { ChartInterval, MarketCandle } from "@/lib/market-data/types";
 import { usePersistentState } from "@/lib/terminal/use-persistent-state";
 import {
   formatLots,
@@ -87,15 +89,6 @@ import {
   type ChartStyle,
 } from "./chart-styles";
 import { INDICATORS, INDICATOR_BY_ID, computeIndicator, type IndicatorId } from "./indicators";
-import {
-  barOpenTime,
-  buildPreviewHistory,
-  buildPreviewSeries,
-  candleAtPrice,
-  INTERVAL_SECONDS,
-  type ChartInterval,
-  type PreviewCandle,
-} from "./preview-price-data";
 
 type ScaleMode = "normal" | "percent" | "log";
 type Tool = "cursor" | DrawingKind;
@@ -160,20 +153,20 @@ function formatOverlayLots(lots: number): string {
   return bounded.toLocaleString("en-US", { maximumFractionDigits: 4 });
 }
 
-function toBar(candle: PreviewCandle): BarData<UTCTimestamp> {
+function toBar(candle: MarketCandle): BarData<UTCTimestamp> {
   return { time: candle.time as UTCTimestamp, open: candle.open, high: candle.high, low: candle.low, close: candle.close };
 }
 
-function toLine(candle: PreviewCandle): LineData<UTCTimestamp> {
+function toLine(candle: MarketCandle): LineData<UTCTimestamp> {
   return { time: candle.time as UTCTimestamp, value: candle.close };
 }
 
-function setSeriesData(series: ActiveSeries, candles: PreviewCandle[]) {
+function setSeriesData(series: ActiveSeries, candles: MarketCandle[]) {
   if (isOhlcStyle(series.style)) series.api.setData(candles.map(toBar));
   else series.api.setData(candles.map(toLine));
 }
 
-function updateSeries(series: ActiveSeries, candle: PreviewCandle) {
+function updateSeries(series: ActiveSeries, candle: MarketCandle) {
   if (isOhlcStyle(series.style)) series.api.update(toBar(candle));
   else series.api.update(toLine(candle));
 }
@@ -233,7 +226,7 @@ function parsePrefs(value: unknown): ChartPrefs | undefined {
 }
 
 interface Readout {
-  candle: PreviewCandle;
+  candle: MarketCandle;
   previousClose: number;
 }
 
@@ -297,15 +290,11 @@ function MenuPanel({
 
 export function PackagePriceChart({
   market,
-  baseMarket,
-  previewEpochSeconds,
   positionOverlays = [],
   orderOverlays = [],
   onAmendOrderPrice,
 }: {
   market: PackageMarket;
-  baseMarket: PackageMarket;
-  previewEpochSeconds: number;
   positionOverlays?: PositionPriceOverlay[];
   orderOverlays?: WorkingOrderPriceOverlay[];
   /** Dragging a working order's line proposes this limit price; the ticket still confirms and signs the amendment. */
@@ -318,14 +307,13 @@ export function PackagePriceChart({
   const primitiveRef = useRef<DrawingsPrimitive | null>(null);
   const watermarkRef = useRef<ITextWatermarkPluginApi<Time> | null>(null);
   const indicatorRefs = useRef<Map<IndicatorId, ISeriesApi<SeriesType>[]>>(new Map());
-  const candlesRef = useRef<PreviewCandle[]>([]);
-  const displayedRef = useRef<PreviewCandle[]>([]);
+  const candlesRef = useRef<MarketCandle[]>([]);
+  const displayedRef = useRef<MarketCandle[]>([]);
   const intervalRef = useRef<ChartInterval>(DEFAULT_PREFS.interval);
   const pendingRangeRef = useRef<number | null | undefined>(undefined);
   /** What the range effect does once every series holds the new bars. */
   const rangeActionRef = useRef<{ type: "reset" } | { type: "restore"; from: number; to: number } | null>(null);
-  const loadedHistoryRef = useRef<PreviewCandle[] | null>(null);
-  const lastTradeRef = useRef<string | null>(null);
+  const loadedHistoryRef = useRef<MarketCandle[] | null>(null);
   const fontsRef = useRef({ mono: "ui-monospace, monospace", serif: "Georgia, serif" });
   const setDrawingsRef = useRef<(next: Drawing[] | ((current: Drawing[]) => Drawing[])) => void>(() => undefined);
   const live = useRef({
@@ -336,8 +324,8 @@ export function PackagePriceChart({
     drawings: NO_DRAWINGS,
     selectedId: null as string | null,
     draft: null as Drawing | null,
-    decimals: baseMarket.priceDecimals,
-    tick: baseMarket.tickSize,
+    decimals: market.priceDecimals,
+    tick: market.tickSize,
     orders: [] as WorkingOrderPriceOverlay[],
     onAmend: undefined as ((orderId: string, price: number) => void) | undefined,
   });
@@ -364,7 +352,7 @@ export function PackagePriceChart({
   const [latestValues, setLatestValues] = useState<IndicatorValues>({});
   const [paneLegends, setPaneLegends] = useState<{ id: IndicatorId; top: number }[]>([]);
   const [fullscreen, setFullscreen] = useState(false);
-  const trades = usePreviewTrades(market.id);
+  const nowSeconds = useChainNow();
 
   const chooseInterval = (next: ChartInterval) => {
     setActiveRange(null);
@@ -401,8 +389,8 @@ export function PackagePriceChart({
       drawings,
       selectedId,
       draft,
-      decimals: baseMarket.priceDecimals,
-      tick: baseMarket.tickSize,
+      decimals: market.priceDecimals,
+      tick: market.tickSize,
       orders: orderOverlays,
       onAmend: onAmendOrderPrice,
     };
@@ -414,15 +402,19 @@ export function PackagePriceChart({
     });
   }, [magnet]);
 
-  const series = useMemo(
-    () => buildPreviewSeries(baseMarket),
-    // The history is a pure function of these fields; the live market only moves the last candle.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [baseMarket.id, baseMarket.netPrice, baseMarket.priorNetPrice, baseMarket.priceDecimals, baseMarket.tickSize],
-  );
-  const history = useMemo(() => buildPreviewHistory(series, interval), [series, interval]);
+  /* Bars come from the market-data feed: onchain fills, or the underlying's Chainlink history while the market has
+     none. A new market, interval, or source loads a fresh set; later responses stream into the latest bars. */
+  const { candles: feedCandles, source, loading, reference } = useMarketCandles(market.id, interval);
+  const loadKey = `${market.id}:${interval}:${source ?? "pending"}`;
+  const [loaded, setLoaded] = useState<{ key: string; candles: MarketCandle[] }>({ key: "", candles: [] });
+  if (loaded.key !== loadKey) setLoaded({ key: loadKey, candles: source === null ? [] : feedCandles });
+  const history = loaded.candles;
   const unit = priceUnitSuffix(market.priceUnit);
-  const rising = baseMarket.netPrice >= baseMarket.priorNetPrice;
+  const firstBar = history[0];
+  const lastBar = history[history.length - 1];
+  const rising = firstBar && lastBar ? lastBar.close >= firstBar.open : true;
+  // The 24-hour reference line belongs to fills; reference bars are the underlying's spot, not the forward.
+  const priorLine = source === "FILLS" && Number.isFinite(market.priorNetPrice) ? market.priorNetPrice : null;
 
   /** Fractional bar index of a timestamp, extrapolated past either end of the loaded bars. */
   const timeToLogical = useCallback((time: number): number | null => {
@@ -872,7 +864,7 @@ export function PackagePriceChart({
       primitiveRef.current = null;
       indicatorSeries.clear();
     };
-  }, [baseMarket.priceDecimals, logicalToTime, timeToLogical, updatePaneLayout]);
+  }, [market.priceDecimals, logicalToTime, timeToLogical, updatePaneLayout]);
 
   useEffect(() => {
     watermarkRef.current?.applyOptions({
@@ -886,7 +878,7 @@ export function PackagePriceChart({
         },
       ],
     });
-  }, [market.id, interval, baseMarket.priceDecimals]);
+  }, [market.id, interval, market.priceDecimals]);
 
   // Main series: rebuilt when the style or the loaded bars change.
   useEffect(() => {
@@ -908,8 +900,8 @@ export function PackagePriceChart({
 
     const priceFormat = {
       type: "price" as const,
-      precision: baseMarket.priceDecimals,
-      minMove: 10 ** -baseMarket.priceDecimals,
+      precision: market.priceDecimals,
+      minMove: 10 ** -market.priceDecimals,
     };
     const common = {
       priceLineVisible: true,
@@ -980,7 +972,7 @@ export function PackagePriceChart({
       case "baseline":
         api = chart.addSeries(BaselineSeries, {
           ...lineCommon,
-          baseValue: { type: "price", price: baseMarket.priorNetPrice },
+          baseValue: { type: "price", price: priorLine ?? history[0]?.open ?? 0 },
           topLineColor: CHART_THEME.up,
           topFillColor1: "rgba(63, 217, 164, 0.22)",
           topFillColor2: "rgba(63, 217, 164, 0.02)",
@@ -997,14 +989,16 @@ export function PackagePriceChart({
     candlesRef.current = candles;
     displayedRef.current = displayed;
     setSeriesData(active, displayed);
-    api.createPriceLine({
-      price: baseMarket.priorNetPrice,
-      color: CHART_THEME.off,
-      lineWidth: 1,
-      lineStyle: LineStyle.Dotted,
-      axisLabelVisible: true,
-      title: "prior",
-    });
+    if (priorLine !== null) {
+      api.createPriceLine({
+        price: priorLine,
+        color: CHART_THEME.off,
+        lineWidth: 1,
+        lineStyle: LineStyle.Dotted,
+        axisLabelVisible: true,
+        title: "24h open",
+      });
+    }
     api.attachPrimitive(primitive);
     seriesRef.current = active;
     const last = displayed[displayed.length - 1];
@@ -1018,7 +1012,7 @@ export function PackagePriceChart({
         seriesRef.current = null;
       }
     };
-  }, [baseMarket.priceDecimals, baseMarket.priorNetPrice, history, style, rising]);
+  }, [market.priceDecimals, priorLine, history, style, rising]);
 
   // Indicators are recomputed from the same raw bars the chart draws, on the price pane or their own panes.
   useEffect(() => {
@@ -1032,7 +1026,7 @@ export function PackagePriceChart({
     for (const spec of INDICATORS) {
       if (!indicators.includes(spec.id)) continue;
       const output = computeIndicator(spec.id, candlesRef.current);
-      const precision = indicatorDecimals(spec.id, baseMarket.priceDecimals);
+      const precision = indicatorDecimals(spec.id, market.priceDecimals);
       const priceFormat = { type: "price" as const, precision, minMove: 10 ** -precision };
       const paneIndex = spec.placement === "pane" ? chart.panes().length : 0;
       const created: ISeriesApi<SeriesType>[] = [];
@@ -1103,7 +1097,7 @@ export function PackagePriceChart({
     setLatestValues(values);
     const frame = requestAnimationFrame(updatePaneLayout);
     return () => cancelAnimationFrame(frame);
-  }, [indicators, history, baseMarket.priceDecimals, updatePaneLayout]);
+  }, [indicators, history, market.priceDecimals, updatePaneLayout]);
 
   // The viewport is set after the price and indicator series hold the same bars; the time scale is the union of
   // every series, so a range applied earlier would be measured against the previous interval.
@@ -1122,34 +1116,38 @@ export function PackagePriceChart({
     }
   }, [applyRange, history, style]);
 
-  // Live: every preview print moves the last bar and adds its lots to the volume bar.
+  // Live: each feed response streams into the bars from the latest loaded one on (a new fill, a new reference round).
   useEffect(() => {
     const active = seriesRef.current;
     const candles = candlesRef.current;
-    const previous = candles[candles.length - 1];
-    if (!active || !previous) return;
-    const print = trades[0];
-    const fresh = print && print.id !== lastTradeRef.current ? print : null;
-    if (fresh) lastTradeRef.current = fresh.id;
-    const next = candleAtPrice(previous, previewEpochSeconds, market.netPrice, interval, fresh?.lots ?? 0);
-    const appended = next.time !== previous.time;
-    if (appended) candles.push(next);
-    else candles[candles.length - 1] = next;
-
-    let shown = next;
-    if (active.style === "heikin") {
-      const displayed = displayedRef.current;
-      if (appended) {
-        shown = heikinAshiBar(next, displayed[displayed.length - 1]);
-        displayed.push(shown);
+    if (!active || loaded.key !== loadKey || candles.length === 0) return;
+    const lastTime = candles[candles.length - 1].time;
+    const updates = feedCandles.filter((candle) => candle.time >= lastTime);
+    if (updates.length === 0) return;
+    let shown: MarketCandle | null = null;
+    let latestRaw: MarketCandle | null = null;
+    for (const next of updates) {
+      const previous = candles[candles.length - 1];
+      const appended = next.time !== previous.time;
+      if (appended) candles.push({ ...next });
+      else candles[candles.length - 1] = { ...next };
+      shown = next;
+      if (active.style === "heikin") {
+        const displayed = displayedRef.current;
+        if (appended) {
+          shown = heikinAshiBar(next, displayed[displayed.length - 1]);
+          displayed.push(shown);
+        } else {
+          shown = heikinAshiBar(next, displayed[displayed.length - 2]);
+          displayed[displayed.length - 1] = shown;
+        }
       } else {
-        shown = heikinAshiBar(next, displayed[displayed.length - 2]);
-        displayed[displayed.length - 1] = shown;
+        displayedRef.current = candles;
       }
-    } else {
-      displayedRef.current = candles;
+      updateSeries(active, shown);
+      latestRaw = next;
     }
-    updateSeries(active, shown);
+    if (!shown || !latestRaw) return;
 
     const values: IndicatorValues = {};
     const tail = candles.slice(-INDICATOR_TAIL);
@@ -1173,11 +1171,10 @@ export function PackagePriceChart({
     setLatestValues(values);
     const displayed = displayedRef.current;
     setLatest({
-      candle: { ...shown, volume: next.volume },
+      candle: { ...shown, volume: latestRaw.volume },
       previousClose: displayed[displayed.length - 2]?.close ?? shown.open,
     });
-    // Driven by the shared market clock and prints only.
-  }, [interval, market.netPrice, previewEpochSeconds, trades]);
+  }, [feedCandles, loadKey, loaded.key]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -1248,7 +1245,7 @@ export function PackagePriceChart({
     },
     [timeToLogical],
   );
-  const countdownSeconds = barOpenTime(previewEpochSeconds, interval) + INTERVAL_SECONDS[interval] - previewEpochSeconds;
+  const countdownSeconds = barOpenTime(nowSeconds, interval) + INTERVAL_SECONDS[interval] - nowSeconds;
   const latestCandle = latest?.candle ?? null;
   useEffect(() => {
     primitiveRef.current?.setScene({
@@ -1257,7 +1254,7 @@ export function PackagePriceChart({
       selectedId,
       hoveredId,
       visible: drawingsVisible,
-      priceDecimals: baseMarket.priceDecimals,
+      priceDecimals: market.priceDecimals,
       fontFamily: fontsRef.current.mono,
       barsBetween,
       formatTime: (time) => formatUtcStamp(time),
@@ -1288,7 +1285,7 @@ export function PackagePriceChart({
     selectedId,
     hoveredId,
     drawingsVisible,
-    baseMarket.priceDecimals,
+    market.priceDecimals,
     barsBetween,
     latestCandle,
     countdownSeconds,
@@ -1401,7 +1398,7 @@ export function PackagePriceChart({
         : `${DRAWING_LABEL[tool]}: ${DRAWING_ANCHORS[tool] === 1 ? "click to place" : "click, or press and drag, to place"}.`;
 
   const formatValue = (id: IndicatorId, value: number | undefined) =>
-    value === undefined ? "–" : formatNumber(value, indicatorDecimals(id, baseMarket.priceDecimals));
+    value === undefined ? "–" : formatNumber(value, indicatorDecimals(id, market.priceDecimals));
 
   return (
     <div ref={shell} className="flex min-h-0 w-full flex-1 flex-col bg-panel">
@@ -1643,8 +1640,27 @@ export function PackagePriceChart({
             ref={holder}
             className="absolute inset-0"
             role="img"
-            aria-label={`${intervalName(interval)} ${activeStyle.label.toLowerCase()} chart for ${market.name}. Current package price ${formatNumber(market.netPrice, market.priceDecimals)} ${unit}.`}
+            aria-label={`${intervalName(interval)} ${activeStyle.label.toLowerCase()} chart for ${market.name}${
+              source === "REFERENCE" && reference ? `, showing the Chainlink ${reference.pair} reference while the market has no trades` : ""
+            }. Current mark ${formatNumber(market.netPrice, market.priceDecimals)} ${unit}.`}
           />
+          {source === "REFERENCE" ? (
+            <div className="pointer-events-none absolute right-3 bottom-8 z-10 flex max-w-[calc(100%-24px)] items-center gap-1.5 rounded-sm border border-line-strong bg-panel/90 px-2 py-1 text-[11px] text-dim">
+              <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-faint" />
+              <span className="truncate">
+                {reference
+                  ? `No trades yet. Bars show the Chainlink ${reference.pair} reference, not the forward.`
+                  : "No trades yet, and no reference history is available."}
+              </span>
+            </div>
+          ) : null}
+          {history.length === 0 ? (
+            <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center">
+              <span className="text-xs text-faint">
+                {loading ? "Loading chart" : source === "FILLS" ? "No trades in this window" : "No chart history available"}
+              </span>
+            </div>
+          ) : null}
           {readout ? (
             <div className="pointer-events-none absolute top-0 left-0 z-10 flex max-w-[calc(100%-72px)] flex-col gap-0.5 px-3 py-1.5 [text-shadow:0_0_4px_var(--color-panel),0_0_8px_var(--color-panel)]">
               <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 font-mono text-[11px]">
@@ -1759,8 +1775,8 @@ export function PackagePriceChart({
           ))}
         </div>
         <span className="flex-1" />
-        <span className="tnum mr-2 shrink-0 font-mono text-[11px] text-faint">
-          {`${formatUtcClock(previewEpochSeconds)}:${String(previewEpochSeconds % 60).padStart(2, "0")} UTC`}
+        <span className="tnum mr-2 shrink-0 font-mono text-[11px] text-faint" suppressHydrationWarning>
+          {`${formatUtcClock(nowSeconds)}:${String(nowSeconds % 60).padStart(2, "0")} UTC`}
         </span>
         <span aria-hidden="true" className="mr-1 h-3.5 w-px shrink-0 bg-line" />
         <button

@@ -7,6 +7,17 @@ import { VIEW_H, VIEW_W, linePath, makeScale } from "./chart-utils";
 
 export function PayoffChart({ market, lots }: { market: PackageMarket; lots: number }) {
   const clipId = useId();
+  if (market.payoff.length === 0) {
+    return (
+      <div className="flex min-h-0 w-full flex-1 items-center justify-center text-xs text-faint">
+        The payoff needs a mark and a reference reading.
+      </div>
+    );
+  }
+  return <PayoffCurve market={market} lots={lots} clipId={clipId} />;
+}
+
+function PayoffCurve({ market, lots, clipId }: { market: PackageMarket; lots: number; clipId: string }) {
   const scale = Math.max(1, lots);
   const values = market.payoff.map((point) => point.value * scale);
   const lo = Math.min(...values, 0);
@@ -29,7 +40,7 @@ export function PayoffChart({ market, lots }: { market: PackageMarket; lots: num
         preserveAspectRatio="none"
         className="h-full w-full"
         role="img"
-        aria-label={`Modeled payoff at expiry for ${lots} lots, bounded between ${formatNumber(lo, 0)} and ${formatNumber(hi, 0)} USDC`}
+        aria-label={`Payoff at expiry of ${lots} long lots bought at the mark, bounded between ${formatNumber(lo, 0)} and ${formatNumber(hi, 0)} USDC`}
       >
         <defs>
           <clipPath id={`${clipId}-up`}>
@@ -90,7 +101,7 @@ export function PayoffChart({ market, lots }: { market: PackageMarket; lots: num
       </svg>
 
       <div className="pointer-events-none absolute top-0 left-0 flex items-baseline gap-3 text-xs">
-        <span className="text-faint">{`Modeled payoff at expiry, ${lots} lots, USDC`}</span>
+        <span className="text-faint">{`Payoff at expiry, ${lots} long ${lots === 1 ? "lot" : "lots"} at the mark, USDC`}</span>
         <span className="tnum font-mono text-up">{`max +${formatNumber(hi, 0)}`}</span>
         <span className="tnum font-mono text-down">{formatNumber(lo, 0)}</span>
       </div>

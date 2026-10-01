@@ -8,8 +8,8 @@ export interface EmbedParams {
   theme: EmbedTheme;
   /** Partner attribution code from `data-partner`, validated; null when absent or malformed. */
   partner: string | null;
-  /** Console previews render without recording usage. */
-  preview: boolean;
+  /** `console=1`: rendered inside the partner console, so no usage is recorded. */
+  consoleView: boolean;
   /** Id the loader script uses to match resize messages to its iframe. */
   frameId: string | null;
   side: "LONG" | "SHORT";
@@ -41,7 +41,7 @@ export function parseEmbedParams(search: SearchParams): EmbedParams {
   return {
     theme,
     partner,
-    preview: first(search.preview) === "1",
+    consoleView: first(search.console) === "1",
     frameId,
     side,
     lots,

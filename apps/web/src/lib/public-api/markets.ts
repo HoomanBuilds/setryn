@@ -1,5 +1,6 @@
-import { MARKETS } from "@/lib/terminal/markets";
-import { seedPreviewTrades } from "@/lib/terminal/preview-trades";
+import { overlaySnapshot } from "@/lib/market-data/overlay";
+import { readMarketDataSnapshot } from "@/lib/market-data/server";
+import { CATALOG_MARKETS, MARKETS } from "@/lib/terminal/markets";
 import type { PackageMarket } from "@/lib/terminal/types";
 import type { SetrynRuntime } from "@/lib/internal-gateway/runtime";
 import { marketTradingVersions, readActiveFeeSchedule, type ActiveFeeSchedule } from "@/lib/internal-gateway/fee-schedule";
@@ -7,14 +8,13 @@ import { considerationPerPriceUnit, runtimeMarketByKey } from "@/lib/internal-ga
 import { deriveBookId } from "./chain";
 
 /**
- * Market catalog projection. The catalog is the platform's own market list. Every catalog market the deployment's
- * runtime lists in `markets` executes onchain on its own series, tick grid, payoff bounds and collateral; any other
- * catalog market publishes the catalog's preview snapshot, labelled as such, and cannot be traded through the API.
- * Preview figures are the catalog's base snapshot (the same values the platform's preview feed starts from), never a
- * second independent feed.
+ * Market catalog projection. The catalog is the deployment's listing (`catalog.generated.json`), and every listed
+ * market executes onchain on its own series, tick grid, payoff bounds and collateral; `onchain` carries the identifiers
+ * once the deployment's runtime is readable. Quotes come from the platform's one market-data feed (`liveCatalog`): the
+ * onchain book and fills, else the Chainlink reference, labelled by `quote.markSource`. A missing bid or offer is null.
  */
 
-export type ExecutionVenue = "ONCHAIN" | "PREVIEW_ONLY";
+export type ExecutionVenue = "ONCHAIN";
 
 export interface ApiMarket {
   id: string;
@@ -67,12 +67,18 @@ export interface ApiMarket {
     feeSource: "CHAIN" | "RUNTIME";
   } | null;
   quote: {
-    source: "PREVIEW_SNAPSHOT";
-    netPrice: number;
-    priorNetPrice: number;
-    bestBid: number;
-    bestAsk: number;
+    /** MARKET_DATA once the feed has been read; LISTING_REFERENCE for the catalog alone. */
+    source: "MARKET_DATA" | "LISTING_REFERENCE";
+    /** The mark: book mid, last fill, or the Chainlink reference (see markSource). */
+    netPrice: number | null;
+    markSource: PackageMarket["markSource"];
+    priorNetPrice: number | null;
+    bestBid: number | null;
+    bestAsk: number | null;
+    referencePrice: number | null;
   };
+  /** Range forward terms: payoff per lot is lotSize x clamp(fixing - floor, 0, cap - floor). */
+  terms: { floor: number; cap: number; lotSize: number; expiryAt: string; lastTradingAt: string };
   legs: { id: string; side: "BUY" | "SELL"; ratio: number }[];
 }
 
@@ -112,7 +118,7 @@ export function projectMarket(market: PackageMarket, deployment: { setryn: Setry
       ? Math.max(onchain.maxLongDebitMinorPerLot, onchain.maxShortDebitMinorPerLot) / 1_000_000
       : market.collateralPerLot,
     maxOrderLots: maxLots,
-    execution: onchain ? "ONCHAIN" : "PREVIEW_ONLY",
+    execution: "ONCHAIN",
     onchain:
       onchain && setryn && fees
         ? {
@@ -139,18 +145,39 @@ export function projectMarket(market: PackageMarket, deployment: { setryn: Setry
           }
         : null,
     quote: {
-      source: "PREVIEW_SNAPSHOT",
-      netPrice: market.netPrice,
-      priorNetPrice: market.priorNetPrice,
-      bestBid: market.bestBid,
-      bestAsk: market.bestAsk,
+      // Live once the feed read the chain or a fresher reference than the one the market was listed against.
+      source: market.listedOnchain || market.referenceAsOf !== (CATALOG_MARKETS.get(market.id)?.referenceAt ?? 0) ? "MARKET_DATA" : "LISTING_REFERENCE",
+      netPrice: finiteOrNull(market.netPrice),
+      markSource: market.markSource,
+      priorNetPrice: finiteOrNull(market.priorNetPrice),
+      bestBid: finiteOrNull(market.bestBid),
+      bestAsk: finiteOrNull(market.bestAsk),
+      referencePrice: finiteOrNull(market.referencePrice),
+    },
+    terms: {
+      floor: market.floor,
+      cap: market.cap,
+      lotSize: market.lotSize,
+      expiryAt: new Date(market.expiryAt * 1000).toISOString(),
+      lastTradingAt: new Date(market.lastTradingAt * 1000).toISOString(),
     },
     legs: market.legs.map((leg) => ({ id: leg.id, side: leg.side, ratio: leg.ratio })),
   };
 }
 
+function finiteOrNull(value: number): number | null {
+  return Number.isFinite(value) ? value : null;
+}
+
+/** The catalog alone: identity and terms, quotes at the listing reference. Prefer `liveCatalog` for quotes. */
 export function catalog(): readonly PackageMarket[] {
   return MARKETS;
+}
+
+/** The catalog overlaid with the current market-data snapshot, as every platform page reads it. */
+export async function liveCatalog(): Promise<PackageMarket[]> {
+  const snapshot = await readMarketDataSnapshot().catch(() => null);
+  return snapshot ? overlaySnapshot(MARKETS, snapshot) : [...MARKETS];
 }
 
 /** Case-insensitive, like the platform's market routes; an unknown id is a 404, never a fallback. */
@@ -159,28 +186,9 @@ export function findCatalogMarket(id: string): PackageMarket | null {
   return MARKETS.find((market) => market.id.toLowerCase() === needle) ?? null;
 }
 
-export function previewDepth(market: PackageMarket) {
-  const rows = market.book.map((row) => ({
-    side: row.side,
-    source: row.source,
-    price: row.price,
-    lots: row.lots,
-    firmness: row.firmness,
-    executable: false as const,
-  }));
-  return {
-    bids: rows.filter((row) => row.side === "BID").sort((left, right) => right.price - left.price),
-    asks: rows.filter((row) => row.side === "ASK").sort((left, right) => left.price - right.price),
-  };
-}
-
-export function previewTape(market: PackageMarket, chainTimeSeconds: number) {
-  return seedPreviewTrades(market, chainTimeSeconds).map((trade) => ({
-    tradeId: trade.id,
-    marketId: market.id,
-    price: trade.price,
-    lots: trade.lots,
-    aggressorSide: trade.side,
-    time: new Date(trade.time * 1000).toISOString(),
-  }));
+/** `findCatalogMarket` with the live overlay. */
+export async function findLiveCatalogMarket(id: string): Promise<PackageMarket | null> {
+  const market = findCatalogMarket(id);
+  if (!market) return null;
+  return (await liveCatalog()).find((candidate) => candidate.id === market.id) ?? market;
 }

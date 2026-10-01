@@ -65,6 +65,7 @@ export function tone(value: number): string {
 }
 
 export function Delta({ value, className = "" }: { value: number; className?: string }) {
+  if (!Number.isFinite(value)) return <span className={`tnum font-mono text-off ${className}`}>—</span>;
   const positive = value >= 0;
   return (
     <span

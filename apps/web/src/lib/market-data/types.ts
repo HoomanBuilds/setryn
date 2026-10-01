@@ -13,13 +13,21 @@ export interface MarketTrade {
   time: number;
   price: number;
   lots: number;
-  /** Aggressor side: a buy lifts the offer, a sell hits the bid. */
+  /**
+   * Aggressor side: a buy lifts the offer, a sell hits the bid. Read from the taker order's side; a private RFQ fill
+   * whose taker order is not public is classified by the tick rule against the previous fill (`sideInferred`).
+   */
   side: "BUY" | "SELL";
+  sideInferred?: boolean;
+  /** Clearing channel of the fill. */
+  channel: "BOOK" | "RFQ" | "AUCTION" | "UNSPECIFIED";
   txHash: `0x${string}`;
   blockNumber: number;
 }
 
 export type ChartInterval = "1m" | "3m" | "5m" | "15m" | "30m" | "1h" | "2h" | "4h" | "6h" | "12h" | "1d" | "1w";
+
+export const CHART_INTERVALS: readonly ChartInterval[] = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "1w"];
 
 export interface MarketCandle {
   /** Unix seconds of the bar's open. */
@@ -55,6 +63,11 @@ export interface ReferenceQuote {
 export interface LiveMarketData {
   marketKey: string;
   seriesStatus: SeriesStatus;
+  /** The series version and fee schedule version whose public book this reads. */
+  seriesVersion: number;
+  feeScheduleVersion: number;
+  /** Whether an order on the active versions can clear right now (series and fee schedule both active). */
+  tradable: boolean;
   /** Resting public-book orders of the active series version, best first per side (asks then bids). */
   book: BookRow[];
   bestBid: number | null;
@@ -71,6 +84,27 @@ export interface LiveMarketData {
   openInterestLots: number | null;
   /** Most recent fills, newest first (at most 80). */
   trades: MarketTrade[];
+  /** Unix seconds of the reading the mark comes from: the snapshot block, the last fill, or the reference update. */
+  markAsOf: number;
+}
+
+/** The protocol fee schedule orders sign, read from the FeeScheduleRegistry and FundedFeeEngine. */
+export interface MarketFeeSchedule {
+  version: number;
+  active: boolean;
+  makerFeeBps: number;
+  takerFeeBps: number;
+  makerFlatFeeUsd: number;
+  takerFlatFeeUsd: number;
+  /** CHAIN when read from the registry; RUNTIME when only the deployment file's fallback rates were available. */
+  source: "CHAIN" | "RUNTIME";
+}
+
+/** Whether the settlement chain answered for this snapshot. */
+export interface MarketChainState {
+  status: "LIVE" | "UNAVAILABLE";
+  /** Short machine reason when unavailable, e.g. RUNTIME_UNAVAILABLE or RPC_UNREACHABLE. */
+  reason?: string;
 }
 
 /** `GET /api/market-data` response. */
@@ -83,6 +117,11 @@ export interface MarketDataSnapshot {
   markets: LiveMarketData[];
   /** Keyed by underlying ("BTC", "EUR/USD"). Missing when the reference RPC could not be read. */
   references: Record<string, ReferenceQuote>;
+  chain: MarketChainState;
+  /** Null when the chain is unavailable. */
+  fees: MarketFeeSchedule | null;
+  /** Unix seconds (server wall clock) the snapshot was assembled. */
+  servedAt: number;
 }
 
 /** `GET /api/market-data/candles` response. */
@@ -92,6 +131,8 @@ export interface MarketCandlesResponse {
   /** "FILLS" when the bars are onchain fills; "REFERENCE" when the market has none and the bars are the underlying's. */
   source: "FILLS" | "REFERENCE";
   candles: MarketCandle[];
+  /** For reference bars: the underlying and its Chainlink pair label ("BTC / USD"). */
+  reference?: { underlying: string; pair: string; feed: `0x${string}`; chainId: number };
 }
 
 export type MarketFeedStatus = "LOADING" | "LIVE" | "STALE" | "ERROR";

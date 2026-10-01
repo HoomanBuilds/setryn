@@ -63,12 +63,12 @@ export function ExpiryLadder({ markets }: { markets: PackageMarket[] }) {
       >
         <HeadCell align="left">Tenor</HeadCell>
         <HeadCell align="left">Expiry</HeadCell>
-        <HeadCell>Net</HeadCell>
-        <HeadCell>Change</HeadCell>
+        <HeadCell>Mark</HeadCell>
+        <HeadCell>24h</HeadCell>
         <HeadCell>Bid</HeadCell>
         <HeadCell>Offer</HeadCell>
         <HeadCell>Spread</HeadCell>
-        <HeadCell>Firm depth</HeadCell>
+        <HeadCell>Depth</HeadCell>
         <HeadCell className="hidden xl:block">Open interest</HeadCell>
         <HeadCell align="left">Qualification</HeadCell>
         <HeadCell align="left">Sources</HeadCell>
@@ -110,6 +110,14 @@ export function ExpiryLadder({ markets }: { markets: PackageMarket[] }) {
   );
 }
 
+/** The 24-hour move of a traded mark, or "Reference" for a market that has not traded. */
+function MoveCell({ market, className }: { market: PackageMarket; className: string }) {
+  if (market.markSource === "REFERENCE" || market.markSource === "NONE") {
+    return <span className={`text-off ${className}`}>{market.markSource === "REFERENCE" ? "Reference" : "—"}</span>;
+  }
+  return <Delta value={changePercent(market.netPrice, market.priorNetPrice)} className={className} />;
+}
+
 /** Narrow widths keep the same rung data on two lines instead of a shrunken grid. */
 function CompactRung({ market }: { market: PackageMarket }) {
   const unit = priceUnitSuffix(market.priceUnit);
@@ -129,15 +137,12 @@ function CompactRung({ market }: { market: PackageMarket }) {
           {`${formatExpiry(market.expiryIso)} / ${daysToExpiry(market.expiryIso)}d`}
         </span>
         <span className="tnum shrink-0 font-mono text-xs text-dim">
-          {`${formatLots(market.firmDepthLots)} lots firm`}
+          {market.firmDepthLots > 0 ? `${formatLots(market.firmDepthLots)} lots resting` : "No resting orders"}
         </span>
       </span>
       <span className="flex items-baseline justify-between gap-3">
         <QualificationTag market={market} bare />
-        <Delta
-          value={changePercent(market.netPrice, market.priorNetPrice)}
-          className="shrink-0 text-xs"
-        />
+        <MoveCell market={market} className="shrink-0 text-xs" />
       </span>
     </span>
   );
@@ -159,13 +164,13 @@ function DenseRung({ market }: { market: PackageMarket }) {
         </span>
       </span>
 
-      <span className="tnum truncate text-right font-mono text-xs text-ink">
+      <span
+        className={`tnum truncate text-right font-mono text-xs ${market.markSource === "REFERENCE" ? "text-dim" : "text-ink"}`}
+        title={market.markSource === "REFERENCE" ? "No book or trades yet: marked at the Chainlink reference" : undefined}
+      >
         {formatNumber(market.netPrice, market.priceDecimals)}
       </span>
-      <Delta
-        value={changePercent(market.netPrice, market.priorNetPrice)}
-        className="truncate text-right text-xs"
-      />
+      <MoveCell market={market} className="truncate text-right text-xs" />
       <span className="tnum truncate text-right font-mono text-xs text-up">
         {formatNumber(market.bestBid, market.priceDecimals)}
       </span>
@@ -179,7 +184,7 @@ function DenseRung({ market }: { market: PackageMarket }) {
         {`${formatLots(market.firmDepthLots)} lots`}
       </span>
       <span className="tnum hidden truncate text-right font-mono text-xs text-dim xl:block">
-        {`${formatLots(market.openInterestLots)} lots`}
+        {Number.isFinite(market.openInterestLots) ? `${formatLots(market.openInterestLots)} lots` : "—"}
       </span>
 
       <QualificationTag market={market} bare />

@@ -4,12 +4,14 @@ import Link from "next/link";
 import { AssetIcon, UnderlyingIcon } from "@/components/icons/AssetIcon";
 import { QualificationTag } from "@/components/markets/controls";
 import { Delta, SectionLabel } from "@/components/terminal/primitives";
+import { formatAnalytic, strategyAnalytic } from "@/lib/market-data/analytics";
 import {
   changePercent,
   daysToExpiry,
   formatExpiry,
   formatLots,
   formatNumber,
+  platformNowSeconds,
   priceUnitSuffix,
 } from "@/lib/terminal/format";
 import {
@@ -32,8 +34,15 @@ interface Plotted {
   /** Percent of the plot box, so the HTML marker layer can sit on the SVG. */
   left: number;
   top: number;
-  priorTop: number;
+  /** Whether the mark is traded (book mid or last fill); otherwise it sits on the reference. */
+  traded: boolean;
 }
+
+function isTraded(market: PackageMarket): boolean {
+  return market.markSource === "MID" || market.markSource === "LAST";
+}
+
+const SOURCE_SHORT: Record<PackageMarket["markSource"], string> = { MID: "Mid", LAST: "Last", REFERENCE: "Ref", NONE: "—" };
 
 /* Margins of the plot box, so an end maturity keeps its label inside it. */
 const PLOT_START = 8;
@@ -55,10 +64,14 @@ function plot(family: CurveFamily): {
   points: Plotted[];
   low: number;
   high: number;
+  /** The live Chainlink spot of the family's underlying, and its height in the plot; NaN when unread. */
+  spot: number;
+  spotTop: number;
 } {
   const days = family.markets.map((market) => daysToExpiry(market.expiryIso));
-  const prices = family.markets.flatMap((market) => [market.netPrice, market.priorNetPrice]);
-  const price = bounds(prices, 0.18);
+  const spot = family.markets.find((market) => Number.isFinite(market.referencePrice))?.referencePrice ?? Number.NaN;
+  const prices = [...family.markets.map((market) => market.netPrice), spot].filter((value) => Number.isFinite(value));
+  const price = bounds(prices.length > 0 ? prices : [0], 0.18);
   const minDay = Math.min(...days);
   /* One point, or several sharing a maturity, would divide by a zero span. */
   const daySpan = Math.max(...days) - minDay || 1;
@@ -74,11 +87,13 @@ function plot(family: CurveFamily): {
         family.markets.length === 1
           ? 50
           : PLOT_START + ((days[index] - minDay) / daySpan) * (PLOT_END - PLOT_START),
-      top: toTop(market.netPrice),
-      priorTop: toTop(market.priorNetPrice),
+      top: toTop(Number.isFinite(market.netPrice) ? market.netPrice : spot),
+      traded: isTraded(market),
     })),
     low: price.min,
     high: price.max,
+    spot,
+    spotTop: toTop(spot),
   };
 }
 
@@ -101,19 +116,18 @@ export function TermCurve({ markets }: { markets: PackageMarket[] }) {
 
 function CurvePanel({ family }: { family: CurveFamily }) {
   const unit = priceUnitSuffix(family.priceUnit);
-  const { points, low, high } = plot(family);
+  const { points, low, high, spot, spotTop } = plot(family);
+  const decimals = family.markets[0]?.priceDecimals ?? 1;
   /* Interior lines only: an edge tick would collide with the axis labels. */
   const gridLines = ticks(low, high, 4).slice(1, -1);
-  /* A single maturity is a point, never a term structure, so no line is drawn. */
-  const curved = points.length > 1;
-  const line = points.map((point) => ({
+  /* Only traded marks form a term structure; a maturity marked at the reference sits on the spot line. */
+  const traded = points.filter((point) => point.traded);
+  const curved = traded.length > 1;
+  const line = traded.map((point) => ({
     x: (point.left / 100) * VIEW_W,
     y: (point.top / 100) * VIEW_H,
   }));
-  const priorLine = points.map((point) => ({
-    x: (point.left / 100) * VIEW_W,
-    y: (point.priorTop / 100) * VIEW_H,
-  }));
+  const spotY = (spotTop / 100) * VIEW_H;
 
   return (
     <section className={`${motion.enter} border-b border-line py-4 last:border-b-0`}>
@@ -126,19 +140,19 @@ function CurvePanel({ family }: { family: CurveFamily }) {
           <span className="flex flex-wrap items-baseline gap-x-1 text-xs text-faint">
             {`${points.length} ${points.length === 1 ? "maturity" : "maturities"} /`}
             <AssetIcon symbol="USDC" size={12} className="self-center" />
-            {`${settlementShort(family.settlementClass)} / net price in ${unit} against days to expiry`}
+            {`${settlementShort(family.settlementClass)} / forward level in ${unit} against days to expiry`}
           </span>
         </div>
         <span className="flex items-center gap-3 text-[11px] text-faint">
           <span className="flex items-center gap-1.5">
             <span aria-hidden="true" className="h-[2px] w-4 rounded-full bg-brand" />
-            Index feed
+            Traded marks
           </span>
           <span className="flex items-center gap-1.5">
             <span aria-hidden="true" className="w-4 border-t border-dashed border-off" />
-            Prior close
+            {`Chainlink ${family.markets[0]?.referencePair ?? "reference"}`}
           </span>
-          <Chip tone="muted">Index</Chip>
+          <Chip tone="muted">{traded.length === 0 ? "No trades yet" : `${traded.length} traded`}</Chip>
         </span>
       </div>
 
@@ -157,7 +171,7 @@ function CurvePanel({ family }: { family: CurveFamily }) {
                 style={{ top }}
                 className="tnum absolute left-0 -translate-y-1/2 bg-panel pr-1.5 font-mono text-xs text-off"
               >
-                {formatNumber(value, 1)}
+                {formatNumber(value, decimals)}
               </span>
             </span>
           );
@@ -171,28 +185,28 @@ function CurvePanel({ family }: { family: CurveFamily }) {
             role="img"
             aria-label={
               curved
-                ? `Term structure of ${family.label} on the Setryn index feed, net price in ${unit} from ${formatNumber(low, 1)} to ${formatNumber(high, 1)} across ${points.length} maturities of ${family.underlying}. The dashed line is the prior session close. The equivalent table follows.`
-                : `${family.label} has one visible maturity on the Setryn index feed, so no term structure is drawn. The equivalent table follows.`
+                ? `Term structure of ${family.label}, traded forward levels in ${unit} from ${formatNumber(low, decimals)} to ${formatNumber(high, decimals)} across ${traded.length} maturities of ${family.underlying}. The dashed line is the Chainlink spot reference. The equivalent table follows.`
+                : `${family.label} has ${traded.length === 0 ? "no traded maturity" : "one traded maturity"}, so no term structure is drawn. The dashed line is the Chainlink spot reference. The equivalent table follows.`
             }
           >
+            {Number.isFinite(spot) ? (
+              <path
+                d={`M0 ${spotY} L${VIEW_W} ${spotY}`}
+                fill="none"
+                stroke="var(--color-off)"
+                strokeWidth={1.2}
+                strokeDasharray="4 5"
+                vectorEffect="non-scaling-stroke"
+              />
+            ) : null}
             {curved ? (
-              <>
-                <path
-                  d={linePath(priorLine)}
-                  fill="none"
-                  stroke="var(--color-off)"
-                  strokeWidth={1.2}
-                  strokeDasharray="4 5"
-                  vectorEffect="non-scaling-stroke"
-                />
-                <path
-                  d={linePath(line)}
-                  fill="none"
-                  stroke="var(--color-brand)"
-                  strokeWidth={1.7}
-                  vectorEffect="non-scaling-stroke"
-                />
-              </>
+              <path
+                d={linePath(line)}
+                fill="none"
+                stroke="var(--color-brand)"
+                strokeWidth={1.7}
+                vectorEffect="non-scaling-stroke"
+              />
             ) : null}
           </svg>
 
@@ -200,13 +214,15 @@ function CurvePanel({ family }: { family: CurveFamily }) {
             <Link
               key={point.market.id}
               href={tradeHref(point.market)}
-              title={`${point.market.name}, ${point.market.tenorLabel}, ${formatNumber(point.market.netPrice, point.market.priceDecimals)} ${unit}`}
+              title={`${point.market.name}, ${point.market.tenorLabel}, ${formatNumber(point.market.netPrice, point.market.priceDecimals)} ${unit}${
+                point.traded ? "" : ", marked at the reference: no book or trades yet"
+              }`}
               style={{ left: `${point.left}%`, top: `${point.top}%` }}
               className="focus-ring absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1 rounded-sm px-1.5 py-1"
             >
               <span
                 aria-hidden="true"
-                className="h-[7px] w-[7px] rotate-45 border border-brand bg-panel"
+                className={`h-[7px] w-[7px] rotate-45 border bg-panel ${point.traded ? "border-brand" : "border-off"}`}
               />
               <span
                 className={`tnum bg-panel px-1 whitespace-nowrap font-mono text-xs text-dim ${labelShift(point.left)}`}
@@ -219,12 +235,12 @@ function CurvePanel({ family }: { family: CurveFamily }) {
       </div>
 
       <div className="mt-1 flex items-baseline justify-between text-xs text-off">
-        <span className="tnum font-mono">{curved ? `${points[0].days}d` : ""}</span>
+        <span className="tnum font-mono">{points.length > 1 ? `${points[0].days}d` : ""}</span>
         <span className="truncate">
-          {curved ? "days to expiry" : `${points[0].days}d to expiry`}
+          {points.length > 1 ? "days to expiry" : `${points[0]?.days ?? 0}d to expiry`}
         </span>
         <span className="tnum font-mono">
-          {curved ? `${points[points.length - 1].days}d` : ""}
+          {points.length > 1 ? `${points[points.length - 1].days}d` : ""}
         </span>
       </div>
 
@@ -256,19 +272,22 @@ function CurveTable({
               Days
             </th>
             <th scope="col" className="h-8 px-2 text-right text-xs font-normal text-faint">
-              {`Net (${unit})`}
+              {`Mark (${unit})`}
             </th>
             <th scope="col" className="h-8 px-2 text-right text-xs font-normal text-faint">
-              Prior
+              Source
             </th>
             <th scope="col" className="h-8 px-2 text-right text-xs font-normal text-faint">
-              Change
+              24h
+            </th>
+            <th scope="col" className="h-8 px-2 text-right text-xs font-normal text-faint">
+              {family.markets[0] ? strategyAnalytic(family.markets[0], Number.NaN, Number.NaN, 0).label : "View"}
             </th>
             <th scope="col" className="h-8 px-2 text-right text-xs font-normal text-faint">
               Spread
             </th>
             <th scope="col" className="h-8 px-2 text-right text-xs font-normal text-faint">
-              Firm depth
+              Depth
             </th>
             <th scope="col" className="h-8 px-2 text-xs font-normal text-faint">
               Qualification
@@ -295,14 +314,17 @@ function CurveTable({
               <td className="tnum px-2 text-right font-mono text-xs text-ink">
                 {formatNumber(market.netPrice, market.priceDecimals)}
               </td>
-              <td className="tnum px-2 text-right font-mono text-xs text-off">
-                {formatNumber(market.priorNetPrice, market.priceDecimals)}
-              </td>
+              <td className="px-2 text-right text-xs text-off">{SOURCE_SHORT[market.markSource]}</td>
               <td className="px-2 text-right">
                 <Delta
-                  value={changePercent(market.netPrice, market.priorNetPrice)}
+                  value={isTraded(market) ? changePercent(market.netPrice, market.priorNetPrice) : Number.NaN}
                   className="text-xs"
                 />
+              </td>
+              <td className="tnum px-2 text-right font-mono text-xs whitespace-nowrap text-dim">
+                {isTraded(market)
+                  ? formatAnalytic(strategyAnalytic(market, market.netPrice, market.referencePrice, platformNowSeconds()))
+                  : "—"}
               </td>
               <td className="tnum px-2 text-right font-mono text-xs text-dim">
                 {formatNumber(spreadOf(market), market.priceDecimals)}

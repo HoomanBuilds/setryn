@@ -39,7 +39,7 @@ function Tile({
 
 /**
  * Equity in the landing serif, with the balances and book behind it. Every figure comes from the connected
- * account on the gateway and is marked on the shared preview board, exactly as the portfolio reads it.
+ * account on the gateway and is marked on the market-data feed, exactly as the portfolio reads it.
  */
 export function AccountSummary({ read, unit }: { read: PortfolioRead; unit: SizeUnit }) {
   const { snapshot, portfolio } = read;
@@ -113,7 +113,7 @@ export function AccountSummary({ read, unit }: { read: PortfolioRead; unit: Size
             }
             valueTone={connected ? tone(runtimePnl.total) : "text-ink"}
             note={
-              <span title="Estimated: open packages marked on the coherent index feed. Not oracle settlement values.">
+              <span title="Estimated: open positions marked on the market-data feed. Not settlement values.">
                 estimated on index marks
               </span>
             }

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, CornerDownLeft, Search } from "lucide-react";
 import { useInternalGateway } from "@/components/gateway/InternalGatewayProvider";
 import { UnderlyingIcon } from "@/components/icons/AssetIcon";
-import { usePreviewBoard } from "@/components/terminal/PreviewMarketProvider";
+import { useMarketBoard } from "@/components/market-data/MarketDataProvider";
 import { changePercent, formatNumber, priceUnitSuffix } from "@/lib/terminal/format";
 import { ALL_ROUTES } from "./routes";
 
@@ -36,7 +36,7 @@ function matches(haystack: string, query: string): boolean {
 export function CommandPalette() {
   const router = useRouter();
   const gateway = useInternalGateway();
-  const { markets } = usePreviewBoard();
+  const { markets } = useMarketBoard();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -70,7 +70,8 @@ export function CommandPalette() {
       router.push(href);
     };
     const marketEntries: Entry[] = markets.map((market) => {
-      const change = changePercent(market.netPrice, market.priorNetPrice);
+      const traded = market.markSource === "MID" || market.markSource === "LAST";
+      const change = traded ? changePercent(market.netPrice, market.priorNetPrice) : Number.NaN;
       return {
         id: `market-${market.id}`,
         section: "Markets",
@@ -88,8 +89,8 @@ export function CommandPalette() {
             <span className="tnum text-ink">
               {`${formatNumber(market.netPrice, market.priceDecimals)} ${priceUnitSuffix(market.priceUnit)}`}
             </span>
-            <span className={`tnum w-14 text-right ${change >= 0 ? "text-up" : "text-down"}`}>
-              {`${change >= 0 ? "+" : ""}${change.toFixed(2)}%`}
+            <span className={`tnum w-14 text-right ${!traded ? "text-off" : change >= 0 ? "text-up" : "text-down"}`}>
+              {traded ? `${change >= 0 ? "+" : ""}${change.toFixed(2)}%` : "ref"}
             </span>
           </span>
         ),
@@ -260,7 +261,7 @@ export function CommandPalette() {
             <CornerDownLeft size={11} aria-hidden="true" />
             open
           </span>
-          <span className="ml-auto">Live marks from the index feed</span>
+          <span className="ml-auto">Live marks from the onchain feed</span>
         </div>
       </div>
     </div>
