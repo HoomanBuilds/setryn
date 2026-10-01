@@ -6,6 +6,8 @@ import {VmSafe} from "forge-std/Vm.sol";
 import {console2} from "forge-std/console2.sol";
 
 import {DevnetSeriesQualification} from "./DevnetSeriesQualification.sol";
+import {NetworkSeriesQualification} from "./NetworkSeriesQualification.sol";
+import {ICalendarRegistry} from "../src/interfaces/ICalendarRegistry.sol";
 import {IFeeScheduleRegistry} from "../src/interfaces/IFeeScheduleRegistry.sol";
 import {IFundedFeeEngine} from "../src/interfaces/IFundedFeeEngine.sol";
 import {IMarketRegistry} from "../src/interfaces/IMarketRegistry.sol";
@@ -18,6 +20,7 @@ import {FeeScheduleDefinition, FeeScheduleVersion} from "../src/types/FeeSchedul
 import {BenchmarkId, FeeActionId, FeeScheduleId, MarketId, SeriesId} from "../src/types/Identifiers.sol";
 import {MarketDefinition, MarketVersion} from "../src/types/MarketDefinition.sol";
 import {SeriesDefinition, SeriesVersion} from "../src/types/SeriesDefinition.sol";
+import {CalendarDefinition} from "../src/types/CalendarDefinition.sol";
 import {SeriesQualificationData} from "../src/types/SeriesQualification.sol";
 import {FeeRatePpm, PPM_DENOMINATOR} from "../src/types/Units.sol";
 
@@ -35,6 +38,11 @@ import {FeeRatePpm, PPM_DENOMINATOR} from "../src/types/Units.sol";
 /// each series onto its new market version, so trading resumes under new series versions (orders sign the new series
 /// `targetVersion` and the new `feeScheduleVersion`). Positions opened under the old versions keep settling, lapsing,
 /// and resolving: those paths only require the versions they were written under to exist.
+///
+/// @dev The successor series carries a byte-identical qualification witness, rebuilt from the same shared library that
+/// first qualified it: DevnetSeriesQualification for a schema 9/10 devnet runtime (one published day), and
+/// NetworkSeriesQualification for a schema 11 network runtime (the multi-day calendar horizon, read from the market's
+/// calendar version onchain). The script refuses to register a successor whose fixing slots or date proofs differ.
 ///
 /// @dev Local chains (31337, 1337) broadcast as the operator, who holds the registries' qualifier and status roles only
 /// there. Every other chain never broadcasts: the script prints the unsigned calldata for the qualifier, the
@@ -59,6 +67,7 @@ contract UpdateFeeSchedule is Script {
     error FeeScheduleNotActivated(FeeScheduleId feeScheduleId, uint32 version);
     error InvalidStatusController(address controller);
     error EnvironmentValueOutOfRange(string name, uint256 value);
+    error QualificationNotReproduced(SeriesId seriesId, uint32 seriesVersion);
 
     struct FeeUpdate {
         IFeeScheduleRegistry fees;
@@ -84,7 +93,8 @@ contract UpdateFeeSchedule is Script {
     struct Cascade {
         IMarketRegistry markets;
         ISeriesRegistry series;
-        /// The devnet day the series were qualified on (runtime `day`).
+        /// The devnet day the series were qualified on (runtime `day`), or zero for a network runtime (schema 11),
+        /// whose multi-day qualification is rebuilt from the market's calendar horizon onchain.
         uint32 day;
         SeriesTarget[] targets;
     }
@@ -210,7 +220,7 @@ contract UpdateFeeSchedule is Script {
             cascade.markets.activateMarket(marketId, result.marketVersions[i]);
         }
         for (uint256 i; i < count; ++i) {
-            result.seriesVersions[i] = _reversionSeries(cascade, i, series[i], result.marketVersions[i]);
+            result.seriesVersions[i] = _reversionSeries(cascade, i, series[i], markets[i], result.marketVersions[i]);
         }
         vm.stopBroadcast();
 
@@ -244,23 +254,59 @@ contract UpdateFeeSchedule is Script {
         ) revert SeriesNotOnMarketVersion(target.seriesId, seriesVersion);
     }
 
-    /// Registers the series' successor version on its new market version with the same devnet qualification witness,
-    /// then swaps the active version. The payoff terms, schedule, and risk caps are unchanged.
-    function _reversionSeries(Cascade memory cascade, uint256 index, SeriesVersion memory current, uint32 marketVersion)
-        private
-        returns (uint32 version)
-    {
+    /// Registers the series' successor version on its new market version with the same qualification witness, then
+    /// swaps the active version. The payoff terms, schedule, and risk caps are unchanged.
+    function _reversionSeries(
+        Cascade memory cascade,
+        uint256 index,
+        SeriesVersion memory current,
+        MarketVersion memory market,
+        uint32 marketVersion
+    ) private returns (uint32 version) {
         SeriesTarget memory target = cascade.targets[index];
         SeriesDefinition memory definition = current.definition;
         definition.marketVersion = marketVersion;
-        SeriesQualificationData memory qualification =
-            DevnetSeriesQualification.qualification(cascade.day, target.benchmarkId, definition, target.payoffTerms);
+        SeriesQualificationData memory qualification = seriesQualification(cascade, target, definition, market);
         definition.fixingSlotsHash =
             cascade.series.hashFixingSlots(definition, qualification.fixingSlots, MAXIMUM_FIXING_SLOTS);
         definition.dateAdjustmentEvidenceHash = cascade.series.hashDateProofs(definition, qualification.dateProofs);
+        if (
+            definition.fixingSlotsHash != current.definition.fixingSlotsHash
+                || definition.dateAdjustmentEvidenceHash != current.definition.dateAdjustmentEvidenceHash
+        ) revert QualificationNotReproduced(target.seriesId, current.version);
         (, version) = cascade.series.registerSeries(definition, qualification);
         cascade.series.pauseSeries(target.seriesId, current.version);
         cascade.series.activateSeries(target.seriesId, version, qualification);
+    }
+
+    /// The qualification witness the series was first registered with: the devnet's one-day witness, or the network
+    /// listing's multi-day witness over the calendar horizon of the market's calendar version.
+    function seriesQualification(
+        Cascade memory cascade,
+        SeriesTarget memory target,
+        SeriesDefinition memory definition,
+        MarketVersion memory market
+    ) public view returns (SeriesQualificationData memory) {
+        if (cascade.day != 0) {
+            return DevnetSeriesQualification.qualification(
+                cascade.day, target.benchmarkId, definition, target.payoffTerms
+            );
+        }
+        ICalendarRegistry calendars = cascade.markets.calendarRegistry();
+        CalendarDefinition memory calendar =
+        calendars.getCalendar(market.definition.tradingCalendarId, market.definition.tradingCalendarVersion).definition;
+        NetworkSeriesQualification.Horizon memory horizon = NetworkSeriesQualification.Horizon({
+            calendarId: market.definition.tradingCalendarId,
+            fromDay: calendar.validFromDay,
+            throughDay: calendar.validThroughDay
+        });
+        return NetworkSeriesQualification.qualification(
+            horizon,
+            NetworkSeriesQualification.calendarTree(horizon),
+            target.benchmarkId,
+            definition,
+            target.payoffTerms
+        );
     }
 
     function _setChargeRate(FeeRule[] memory rules, FeeActionId actionId, uint32 rate) private pure {
@@ -276,7 +322,8 @@ contract UpdateFeeSchedule is Script {
     function _cascadeFromRuntime(string memory json) private view returns (Cascade memory cascade) {
         cascade.markets = IMarketRegistry(vm.parseJsonAddress(json, ".marketRegistry"));
         cascade.series = ISeriesRegistry(vm.parseJsonAddress(json, ".seriesRegistry"));
-        cascade.day = uint32(vm.parseJsonUint(json, ".day"));
+        // A schema 11 network runtime qualifies over its calendar horizon; older devnet runtimes over one day.
+        cascade.day = vm.parseJsonUint(json, ".schemaVersion") >= 11 ? 0 : uint32(vm.parseJsonUint(json, ".day"));
         uint256 count;
         while (vm.keyExistsJson(json, string.concat(".markets[", vm.toString(count), "]"))) ++count;
         cascade.targets = new SeriesTarget[](count);

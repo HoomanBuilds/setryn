@@ -15,9 +15,13 @@ if [[ -n "${SETRYN_LOCAL_BROADCAST_DIR:-}" ]]; then
 fi
 rpc_url="${LOCAL_RPC_URL:-http://127.0.0.1:8545}"
 chain_id="${LOCAL_CHAIN_ID:-31337}"
-# The devnet starts on the web preview's scenario clock (SCENARIO_CLOCK_ISO), so chain-stamped fills, receipts, and
-# order deadlines fall on the same day and hour as the preview feed. Its trading session is open from 08:00 UTC.
-devnet_epoch_iso="${SETRYN_DEVNET_EPOCH:-2026-09-22T09:00:00Z}"
+# The devnet starts at the current real time, so its dated range forwards expire on their real quarterly dates and the
+# Chainlink references the listing was struck from are current. SETRYN_DEVNET_EPOCH (ISO-8601 UTC) pins another start
+# time; the listing is then generated as if listed at that hour.
+devnet_epoch_iso="${SETRYN_DEVNET_EPOCH:-}"
+# The market listing the bootstrap registers: deployments/local/markets.json, regenerated from live Chainlink Arbitrum
+# One references (read-only) on every reset. SETRYN_MARKET_LISTING names another listing and skips regeneration.
+market_listing="${SETRYN_MARKET_LISTING:-$deployment_directory/markets.json}"
 
 require_command() {
     if ! command -v "$1" >/dev/null 2>&1; then
@@ -188,13 +192,51 @@ rm -f \
     "$deployment_directory/manifest.json" \
     "$deployment_directory/runtime.json" \
     "$deployment_directory/runtime.tmp.json" \
-    "$deployment_directory/devnet-markets.json"
+    "$deployment_directory/session-days.json" \
+    "$deployment_directory/session-days.tmp.json"
 
-devnet_epoch="$(date -u -d "$devnet_epoch_iso" +%s)" || {
-    printf 'SETRYN_DEVNET_EPOCH must be an ISO-8601 UTC timestamp.\n' >&2
-    exit 1
-}
-anvil --silent --host "$rpc_bind_host" --port "$rpc_port" --chain-id "$chain_id" --timestamp "$devnet_epoch" \
+anvil_time_arguments=()
+listing_arguments=()
+if [[ -n "$devnet_epoch_iso" ]]; then
+    devnet_epoch="$(date -u -d "$devnet_epoch_iso" +%s)" || {
+        printf 'SETRYN_DEVNET_EPOCH must be an ISO-8601 UTC timestamp.\n' >&2
+        exit 1
+    }
+    anvil_time_arguments=(--timestamp "$devnet_epoch")
+    listing_arguments=(--listed-at "$((devnet_epoch / 3600 * 3600))")
+else
+    devnet_epoch="$(date -u +%s)"
+fi
+
+# Regenerate the listing from live references before anything starts. Without the reference RPC the existing listing
+# is kept; either way it must leave its first series tradable for at least an hour of chain time.
+if [[ -z "${SETRYN_MARKET_LISTING:-}" ]]; then
+    if ! node --no-warnings "$repository_root/scripts/generate-network-markets.mjs" --network local \
+        --output "$market_listing.tmp" "${listing_arguments[@]}" >&2; then
+        rm -f "$market_listing.tmp"
+        if [[ ! -s "$market_listing" ]]; then
+            printf 'Cannot reach the Arbitrum One reference RPC (SETRYN_REFERENCE_RPC_URL) and no listing exists at %s.\n' \
+                "$market_listing" >&2
+            exit 1
+        fi
+        printf 'Reference RPC unreachable; keeping the existing listing %s.\n' "$market_listing" >&2
+    else
+        mv "$market_listing.tmp" "$market_listing"
+    fi
+fi
+SETRYN_MARKET_LISTING="$market_listing" CHAIN_TIME="$devnet_epoch" node -e '
+    const listing = require(require("node:path").resolve(process.env.SETRYN_MARKET_LISTING));
+    const now = Number(process.env.CHAIN_TIME);
+    const fail = (reason) => { process.stderr.write(`${reason}\n`); process.exit(1); };
+    if (listing.schemaVersion !== 2 || listing.network !== "local") fail("The market listing is not a schema 2 local listing.");
+    const lastTrading = Math.min(...listing.markets.map((market) => market.expiryAt - 2 * 3600));
+    if (!(lastTrading - now >= 3600)) {
+        const at = new Date(lastTrading * 1000).toISOString();
+        fail(`The listing first stops trading at ${at}, too close to the chain time ${new Date(now * 1000).toISOString()}. Regenerate it with node scripts/generate-network-markets.mjs --network local (needs the Arbitrum One reference RPC).`);
+    }
+'
+
+anvil --silent --host "$rpc_bind_host" --port "$rpc_port" --chain-id "$chain_id" "${anvil_time_arguments[@]}" \
     --state "$state_file" >"$log_file" 2>&1 &
 anvil_pid=$!
 trap cleanup_failed_start ERR INT TERM
@@ -299,87 +341,25 @@ node "$repository_root/scripts/generate-deployment-evidence.mjs" \
     --broadcast "$broadcast_directory/DeploySetryn.s.sol/$chain_id/run-latest.json" \
     --output "$deployment_directory/manifest.json"
 
-mapfile -t bootstrap_addresses < <(
-    SETRYN_MANIFEST="$deployment_directory/manifest.json" node -e '
-        const manifest = require(process.env.SETRYN_MANIFEST);
-        const deployments = [...(manifest.contracts ?? []), ...(manifest.phase2?.deployments ?? [])];
-        const required = [
-            "AssetRegistry",
-            "AdapterRegistry",
-            "CalendarRegistry",
-            "SessionRegistry",
-            "SettlementAssetRegistry",
-            "BenchmarkRegistry",
-            "FeeScheduleRegistry",
-            "RiskDomainRegistry",
-            "InstrumentRegistry",
-            "MarketRegistry",
-            "SeriesRegistry",
-            "CanonicalStrategyCompiler",
-            "CappedForwardPayoffModule",
-            "CollateralVault",
-            "FundedFeeEngine",
-            "PortfolioRiskEngine",
-            "RiskAdmissionBindingRegistry",
-            "ExecutionPolicyRegistry",
-            "TradingSessionPolicy",
-            "OrderState",
-            "AtomicClearingEngine",
-            "PrivateRfqValidationGate",
-            "PrivateRfqBook",
-            "PublicOrderBook",
-            "PositionEngine",
-            "LifecyclePolicyValidator",
-            "SignedLifecycleEngine",
-        ];
-        for (const name of required) {
-            const matches = deployments.filter((deployment) => deployment.name === name);
-            if (matches.length !== 1 || !/^0x[0-9a-fA-F]{40}$/.test(matches[0].address)) process.exit(1);
-            process.stdout.write(`${matches[0].address}\n`);
-        }
-    '
-) || {
-    printf 'Deployment manifest does not contain the complete devnet bootstrap dependency graph.\n' >&2
+# Every core address the bootstrap needs, the venue and lifecycle contracts the runtime also names, and the first
+# deployment block, all from the manifest and the broadcast record just written.
+bootstrap_environment="$(node "$repository_root/scripts/network-bootstrap-env.mjs" \
+    --manifest "$deployment_directory/manifest.json" \
+    --broadcast "$broadcast_directory/DeploySetryn.s.sol/$chain_id/run-latest.json")" || {
+    printf 'Deployment manifest does not contain the complete bootstrap dependency graph.\n' >&2
     exit 1
 }
-if [[ "${#bootstrap_addresses[@]}" -ne 27 ]]; then
-    printf 'Deployment manifest returned an invalid devnet bootstrap dependency set.\n' >&2
-    exit 1
-fi
-
-export SETRYN_ASSET_REGISTRY="${bootstrap_addresses[0]}"
-export SETRYN_ADAPTER_REGISTRY="${bootstrap_addresses[1]}"
-export SETRYN_CALENDAR_REGISTRY="${bootstrap_addresses[2]}"
-export SETRYN_SESSION_REGISTRY="${bootstrap_addresses[3]}"
-export SETRYN_SETTLEMENT_ASSET_REGISTRY="${bootstrap_addresses[4]}"
-export SETRYN_BENCHMARK_REGISTRY="${bootstrap_addresses[5]}"
-export SETRYN_FEE_SCHEDULE_REGISTRY="${bootstrap_addresses[6]}"
-export SETRYN_RISK_DOMAIN_REGISTRY="${bootstrap_addresses[7]}"
-export SETRYN_INSTRUMENT_REGISTRY="${bootstrap_addresses[8]}"
-export SETRYN_MARKET_REGISTRY="${bootstrap_addresses[9]}"
-export SETRYN_SERIES_REGISTRY="${bootstrap_addresses[10]}"
-export SETRYN_CANONICAL_STRATEGY_COMPILER="${bootstrap_addresses[11]}"
-export SETRYN_CAPPED_FORWARD_PAYOFF_MODULE="${bootstrap_addresses[12]}"
-export SETRYN_COLLATERAL_VAULT="${bootstrap_addresses[13]}"
-export SETRYN_FUNDED_FEE_ENGINE="${bootstrap_addresses[14]}"
-export SETRYN_PORTFOLIO_RISK_ENGINE="${bootstrap_addresses[15]}"
-export SETRYN_RISK_ADMISSION_BINDING_REGISTRY="${bootstrap_addresses[16]}"
-export SETRYN_EXECUTION_POLICY_REGISTRY="${bootstrap_addresses[17]}"
-export SETRYN_TRADING_SESSION_POLICY="${bootstrap_addresses[18]}"
-export SETRYN_ORDER_STATE="${bootstrap_addresses[19]}"
-export SETRYN_ATOMIC_CLEARING_ENGINE="${bootstrap_addresses[20]}"
-export SETRYN_PRIVATE_RFQ_VALIDATION_GATE="${bootstrap_addresses[21]}"
-export SETRYN_PRIVATE_RFQ_BOOK="${bootstrap_addresses[22]}"
-export SETRYN_PUBLIC_ORDER_BOOK="${bootstrap_addresses[23]}"
-export SETRYN_POSITION_ENGINE="${bootstrap_addresses[24]}"
-export SETRYN_LIFECYCLE_POLICY_VALIDATOR="${bootstrap_addresses[25]}"
-export SETRYN_SIGNED_LIFECYCLE_ENGINE="${bootstrap_addresses[26]}"
+eval "$bootstrap_environment"
 export SETRYN_RUNTIME_OUTPUT="$deployment_directory/runtime.tmp.json"
-# Every market in the terminal catalog is registered as its own onchain market and series, projected from the catalog.
-export SETRYN_DEVNET_MARKETS="$deployment_directory/devnet-markets.json"
-node --no-warnings "$repository_root/scripts/generate-devnet-markets.mjs" --output "$SETRYN_DEVNET_MARKETS"
+export SETRYN_SESSION_DAYS_OUTPUT="$deployment_directory/session-days.tmp.json"
+export SETRYN_MARKET_LISTING="$market_listing"
+# The local oracle publisher set defaults to the operator alone with a threshold of one, so the operator worker's
+# chainlink-signed relay (signing with the anvil operator key) attests fixings. Override both to rehearse a quorum.
+export SETRYN_ORACLE_SIGNERS="${SETRYN_ORACLE_SIGNERS:-$SETRYN_GOVERNANCE_OPERATOR}"
+export SETRYN_ORACLE_THRESHOLD="${SETRYN_ORACLE_THRESHOLD:-1}"
 
-forge script "$repository_root/contracts/script/BootstrapSetrynDevnet.s.sol:BootstrapSetrynDevnet" \
+# Every listing market is registered as its own onchain market and dated range forward series.
+forge script "$repository_root/contracts/script/BootstrapSetrynMarkets.s.sol:BootstrapSetrynMarkets" \
     --root "$repository_root/contracts" \
     --rpc-url "$rpc_url" \
     --sender "$SETRYN_GOVERNANCE_OPERATOR" \
@@ -388,20 +368,22 @@ forge script "$repository_root/contracts/script/BootstrapSetrynDevnet.s.sol:Boot
     --slow \
     --broadcast
 
-if [[ ! -s "$deployment_directory/runtime.tmp.json" ]]; then
-    printf 'Devnet bootstrap completed without producing runtime evidence.\n' >&2
+if [[ ! -s "$deployment_directory/runtime.tmp.json" ]] || [[ ! -s "$deployment_directory/session-days.tmp.json" ]]; then
+    printf 'Market bootstrap completed without producing the runtime and session-day files.\n' >&2
     exit 1
 fi
-SETRYN_RUNTIME="$deployment_directory/runtime.tmp.json" node -e '
+SETRYN_RUNTIME="$deployment_directory/runtime.tmp.json" SETRYN_SESSION_DAYS="$deployment_directory/session-days.tmp.json" node -e '
     const runtime = require(process.env.SETRYN_RUNTIME);
-    const catalog = require(process.env.SETRYN_DEVNET_MARKETS);
+    const sessionDays = require(process.env.SETRYN_SESSION_DAYS);
+    const listing = require(require("node:path").resolve(process.env.SETRYN_MARKET_LISTING));
     const hash = /^0x[0-9a-fA-F]{64}$/;
-    const fail = (reason) => { process.stderr.write(`Invalid devnet runtime: ${reason}\n`); process.exit(1); };
-    if (runtime.schemaVersion !== 9 || runtime.chainId !== 31337) fail("schema version or chain");
-    if (!Array.isArray(runtime.markets) || runtime.markets.length !== catalog.markets.length) fail("market count");
+    const address = /^0x[0-9a-fA-F]{40}$/;
+    const fail = (reason) => { process.stderr.write(`Invalid local runtime: ${reason}\n`); process.exit(1); };
+    if (runtime.schemaVersion !== 11 || runtime.chainId !== 31337 || runtime.network !== "local") fail("schema version, chain, or network");
+    if (!Array.isArray(runtime.markets) || runtime.markets.length !== listing.markets.length) fail("market count");
     const seen = new Set();
     runtime.markets.forEach((market, index) => {
-        const spec = catalog.markets[index];
+        const spec = listing.markets[index];
         if (market.marketKey !== spec.marketKey) fail(`market ${index} is ${market.marketKey}, expected ${spec.marketKey}`);
         for (const field of ["marketId", "instrumentId", "seriesId", "benchmarkId"]) {
             if (!hash.test(market[field] ?? "")) fail(`${spec.marketKey}.${field}`);
@@ -411,26 +393,29 @@ SETRYN_RUNTIME="$deployment_directory/runtime.tmp.json" node -e '
         seen.add(market.marketId.toLowerCase());
         if (!/^0x(?:[0-9a-fA-F]{2})+$/.test(market.payoffTerms ?? "")) fail(`${spec.marketKey}.payoffTerms`);
         if (market.tickSizeMinor !== spec.tickSizeMinor || market.priceScale !== spec.priceScale || market.maxOrderLots !== spec.maxOrderLots) {
-            fail(`${spec.marketKey} economics differ from the catalog`);
+            fail(`${spec.marketKey} economics differ from the listing`);
         }
-        if (market.maxLongDebitMinorPerLot !== spec.bandMinor || market.maxShortDebitMinorPerLot !== spec.bandMinor) {
-            fail(`${spec.marketKey} debit bounds differ from the payoff band`);
+        if (market.maxLongDebitMinorPerLot !== 0 || String(market.maxShortDebitMinorPerLot) !== spec.bandMinor) {
+            fail(`${spec.marketKey} debit bounds are not [0, band]`);
+        }
+        if (market.priceOffset !== spec.floor || market.expiryAt !== spec.expiryAt || market.lastTradingAt !== spec.expiryAt - 7200) {
+            fail(`${spec.marketKey} price offset or schedule differs from the listing`);
         }
     });
     const primary = runtime.markets[0];
     for (const field of ["marketId", "marketVersion", "seriesId", "seriesVersion", "payoffTerms", "tickSizeMinor", "maxOrderLots", "maxLongDebitMinorPerLot", "maxShortDebitMinorPerLot", "instrumentId", "benchmarkId"]) {
         if (runtime[field] !== primary[field]) fail(`top-level ${field} does not name the primary market`);
     }
-    const version = (value) => Number.isSafeInteger(value) && value > 0;
-    runtime.markets.forEach((market) => {
-        if (!version(market.marketVersion) || !version(market.seriesVersion)) fail(`${market.marketKey} market or series version`);
-    });
-    if (!version(runtime.feeScheduleVersion)) fail("feeScheduleVersion");
-    if (!hash.test(runtime.feeRecipientAccountId ?? "")) fail("feeRecipientAccountId");
-    if (!/^0x[0-9a-fA-F]{40}$/.test(runtime.treasuryController ?? "")) fail("treasuryController");
+    for (const field of ["fixingAdapter", "riskAdapter", "settlementToken", "treasuryController"]) {
+        if (!address.test(runtime[field] ?? "")) fail(field);
+    }
+    if (runtime.fixingAdapterKind !== "signed-observation" || runtime.referenceChainId !== 42161) fail("fixing adapter kind or reference chain");
+    if (!Array.isArray(runtime.oracleSigners) || runtime.oracleSigners.length < runtime.oracleThreshold || runtime.oracleThreshold < 1) fail("oracle signers");
     if (runtime.treasuryController.toLowerCase() === String(runtime.operator).toLowerCase()) fail("treasuryController is the operator");
     if (runtime.treasuryController.toLowerCase() !== process.env.SETRYN_TREASURY_CONTROLLER.toLowerCase()) fail("treasuryController differs from SETRYN_TREASURY_CONTROLLER");
+    if (sessionDays.sessionId !== runtime.sessionId || sessionDays.days.length !== sessionDays.throughDay - sessionDays.fromDay + 1) fail("session days");
 '
+mv "$deployment_directory/session-days.tmp.json" "$deployment_directory/session-days.json"
 mv "$deployment_directory/runtime.tmp.json" "$deployment_directory/runtime.json"
 
 trap - ERR INT TERM

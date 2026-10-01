@@ -140,6 +140,9 @@ contract DeploySetryn is ArtifactDeployer {
 
     bytes32 private constant LOCAL_ENVIRONMENT = keccak256("local");
     bytes32 private constant ARBITRUM_SEPOLIA_ENVIRONMENT = keccak256("arbitrum-sepolia");
+    /// SETRYN_SEQUENCER_UPTIME_FEED value that deploys the static DevnetSequencerUptimeFeed. Accepted on Arbitrum Sepolia
+    /// only, which has no Chainlink L2 sequencer uptime feed; every other public chain must name a real feed.
+    bytes32 private constant TESTNET_STATIC_SEQUENCER_FEED = keccak256("testnet-static");
     bytes32 private constant PRIVATE_RFQ_CLEARING_CAPABILITY = keccak256("SetrynPrivateRfqClearingChannelV1");
     bytes32 private constant SEALED_AUCTION_CLEARING_CAPABILITY = keccak256("SetrynSealedAuctionClearingChannelV1");
 
@@ -152,6 +155,7 @@ contract DeploySetryn is ArtifactDeployer {
     error Uint48EnvironmentValueOutOfRange(string name, uint256 value);
     error Uint64EnvironmentValueOutOfRange(string name, uint256 value);
     error InvalidSequencerUptimeFeed(address feed);
+    error TestnetStaticSequencerFeedRefused(uint256 chainId);
     error InvalidStatusGovernance(address statusGovernance);
     error LocalOnlyStatusShortcut(uint256 chainId);
     error RegistryStatusRoleMisassigned(address registry, bytes32 role, address holder);
@@ -298,6 +302,7 @@ contract DeploySetryn is ArtifactDeployer {
         if (localEnvironment) {
             sequencerFeed = ISequencerUptimeFeed(address(0));
         } else {
+            // Zero only for Arbitrum Sepolia's explicit `testnet-static` choice; the static feed is then deployed below.
             sequencerFeed = _deployOrResolveSequencerFeed(environment);
         }
 
@@ -1553,9 +1558,16 @@ contract DeploySetryn is ArtifactDeployer {
         }
     }
 
-    function _deployOrResolveSequencerFeed(string memory environment) private returns (ISequencerUptimeFeed feed) {
-        if (keccak256(bytes(environment)) == LOCAL_ENVIRONMENT) {
-            return ISequencerUptimeFeed(address(DevnetSequencerUptimeFeed(_create("DevnetSequencerUptimeFeed", ""))));
+    /// Public environments name their Chainlink L2 sequencer uptime feed. Arbitrum Sepolia has none, so it alone may
+    /// pass `testnet-static`: the zero feed this returns makes `_deployAndWire` create the always-up
+    /// DevnetSequencerUptimeFeed exactly as on a local devnet. The choice is refused on every other chain.
+    function _deployOrResolveSequencerFeed(string memory environment) private view returns (ISequencerUptimeFeed feed) {
+        if (keccak256(bytes(vm.envOr("SETRYN_SEQUENCER_UPTIME_FEED", string("")))) == TESTNET_STATIC_SEQUENCER_FEED) {
+            if (
+                keccak256(bytes(environment)) != ARBITRUM_SEPOLIA_ENVIRONMENT
+                    || block.chainid != ARBITRUM_SEPOLIA_CHAIN_ID
+            ) revert TestnetStaticSequencerFeedRefused(block.chainid);
+            return ISequencerUptimeFeed(address(0));
         }
         address configuredFeed = vm.envAddress("SETRYN_SEQUENCER_UPTIME_FEED");
         if (configuredFeed == address(0) || configuredFeed.code.length == 0) {
