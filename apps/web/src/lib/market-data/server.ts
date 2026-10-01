@@ -1,4 +1,4 @@
-import { createPublicClient, http, type Hex, type PublicClient } from "viem";
+import { BaseError, ContractFunctionRevertedError, createPublicClient, http, type Hex, type PublicClient } from "viem";
 import { readActiveFeeSchedule, marketTradingVersions, type ActiveFeeSchedule } from "@/lib/internal-gateway/fee-schedule";
 import { orderStateAbi, publicOrderBookAbi, seriesRegistryAbi } from "@/lib/internal-gateway/protocol";
 import type { SetrynRuntime, SetrynRuntimeMarket } from "@/lib/internal-gateway/runtime";
@@ -349,13 +349,21 @@ async function readBookSide(
   chainTime: bigint,
 ): Promise<BookRow[]> {
   const rows: BookRow[] = [];
-  let levelId = await client.readContract({
-    address: runtime.publicOrderBook,
-    abi: publicOrderBookAbi,
-    functionName: "bestLevel",
-    args: [bookId, side],
-    blockNumber,
-  });
+  // A book exists only once its first order rests; until then the book contract reverts, which reads as empty.
+  // Transport failures still propagate so the snapshot reports the chain as unavailable.
+  let levelId: Hex;
+  try {
+    levelId = await client.readContract({
+      address: runtime.publicOrderBook,
+      abi: publicOrderBookAbi,
+      functionName: "bestLevel",
+      args: [bookId, side],
+      blockNumber,
+    });
+  } catch (error) {
+    if (error instanceof BaseError && error.walk((cause) => cause instanceof ContractFunctionRevertedError)) return rows;
+    throw error;
+  }
   for (let index = 0; index < MAX_LEVELS && levelId !== ZERO_HASH; index += 1) {
     const level = await client.readContract({
       address: runtime.publicOrderBook,
@@ -591,6 +599,7 @@ async function buildSnapshot(): Promise<MarketDataSnapshot> {
       servedAt: Math.floor(Date.now() / 1000),
     };
   } catch (error) {
+    console.error("[market-data]", error instanceof Error ? error.message.split("\n").slice(0, 4).join(" ") : error);
     return unavailable(errorReason(error, "CHAIN_READ_FAILED"), await referencesPromise, network, runtime.chainId);
   }
 }

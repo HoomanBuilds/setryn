@@ -54,7 +54,6 @@ const HASH_FIELDS = [
 ] as const;
 
 const POSITIVE_INTEGER_FIELDS = [
-  "maxLongDebitMinorPerLot",
   "maxShortDebitMinorPerLot",
   "tickSizeMinor",
   "maxOrderLots",
@@ -78,10 +77,14 @@ const MARKET_HASH_FIELDS = ["marketId", "instrumentId", "seriesId", "benchmarkId
 const MARKET_INTEGER_FIELDS = [
   "tickSizeMinor",
   "priceScale",
-  "maxLongDebitMinorPerLot",
   "maxShortDebitMinorPerLot",
   "maxOrderLots",
 ] as const;
+/**
+ * A range forward's long side owes nothing at settlement (it pays its consideration at the fill), so its terminal debit
+ * bound is zero; it must still be a non-negative safe integer.
+ */
+const NON_NEGATIVE_DEBIT_FIELD = "maxLongDebitMinorPerLot";
 /** Schema 11 market schedule fields, unix seconds. */
 const MARKET_TIME_FIELDS = [
   "tradingStartsAt",
@@ -212,6 +215,7 @@ function validateMarkets(record: Record<string, unknown>): void {
     for (const field of MARKET_INTEGER_FIELDS) {
       if (!isPositiveInteger(market[field])) throw new Error("INVALID_RUNTIME");
     }
+    if (!Number.isSafeInteger(market[NON_NEGATIVE_DEBIT_FIELD]) || Number(market[NON_NEGATIVE_DEBIT_FIELD]) < 0) throw new Error("INVALID_RUNTIME");
     for (const field of ["marketVersion", "seriesVersion"] as const) optional(market, field, isPositiveInteger);
     // Package prices carry at most six decimals, so a price scale is a power of ten.
     if (!/^10{0,6}$/.test(String(market.priceScale))) throw new Error("INVALID_RUNTIME");
@@ -256,6 +260,7 @@ function validateRuntime(candidate: unknown, network: SetrynNetwork): Omit<Setry
   for (const field of POSITIVE_INTEGER_FIELDS) {
     if (!isPositiveInteger(record[field])) throw new Error("INVALID_RUNTIME");
   }
+  if (!Number.isSafeInteger(record[NON_NEGATIVE_DEBIT_FIELD]) || Number(record[NON_NEGATIVE_DEBIT_FIELD]) < 0) throw new Error("INVALID_RUNTIME");
   for (const field of FEE_RATE_FIELDS) {
     if (!Number.isSafeInteger(record[field]) || Number(record[field]) < 0 || Number(record[field]) >= 1_000_000) {
       throw new Error("INVALID_RUNTIME");
