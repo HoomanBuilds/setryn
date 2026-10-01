@@ -20,6 +20,14 @@ const MINOR_PER_UNIT = 10n ** 6n;
 const MIN_DAYS_TO_EXPIRY = 14;
 const EXPIRY_HOUR_UTC = 8;
 const MAX_ORDER_LOTS = 100;
+/** Faucet-sized lots for the Arbitrum Sepolia testnet; local and Arbitrum One keep the family defaults. */
+const SEPOLIA_LOT_SIZES = {
+  BTC: "0.00001",
+  ETH: "0.0001",
+  ARB: "1",
+  EUR: "1",
+  XAU: "0.0001",
+};
 
 /**
  * Families, their Chainlink aggregators on Arbitrum One (verified 2026-10-01), and contract parameters. Prices are
@@ -165,6 +173,7 @@ const families = [];
 const markets = [];
 for (const [index, family] of FAMILIES.entries()) {
   const { answerE8, updatedAt } = await latestRound(referenceRpcUrl, family.referenceFeed);
+  const lotSize = network === "arbitrum-sepolia" ? (SEPOLIA_LOT_SIZES[family.symbol] ?? family.lotSize) : family.lotSize;
   const unitE8 = scaled(family.roundTo, FIXING_DECIMALS);
   const floorE8 = roundToUnit((answerE8 * family.floorBps) / 10_000n, unitE8);
   const capE8 = roundToUnit((answerE8 * family.capBps) / 10_000n, unitE8);
@@ -172,7 +181,7 @@ for (const [index, family] of FAMILIES.entries()) {
   const tickE8 = scaled(family.tickPrice, FIXING_DECIMALS);
   if (floorE8 % tickE8 !== 0n || capE8 % tickE8 !== 0n) throw new Error(`${family.symbol} floor or cap is off the tick grid`);
   // Consideration per tick per lot: lot x tick price in USDC minor units; the payoff pays lot x (fixing - floor).
-  const lotE8 = scaled(family.lotSize, FIXING_DECIMALS);
+  const lotE8 = scaled(lotSize, FIXING_DECIMALS);
   const tickSizeMinor = (lotE8 * tickE8 * MINOR_PER_UNIT) / (E8 * E8);
   if ((lotE8 * tickE8 * MINOR_PER_UNIT) % (E8 * E8) !== 0n || tickSizeMinor <= 0n) throw new Error(`${family.symbol} tick size is not whole minor units`);
   const priceScale = E8 / tickE8;
@@ -202,7 +211,7 @@ for (const [index, family] of FAMILIES.entries()) {
       capE8: capE8.toString(),
       floor: decimal(floorE8, FIXING_DECIMALS),
       cap: decimal(capE8, FIXING_DECIMALS),
-      lotSize: family.lotSize,
+      lotSize,
       tickPrice: family.tickPrice,
       priceDecimals: family.priceDecimals,
       priceScale: Number(priceScale),
