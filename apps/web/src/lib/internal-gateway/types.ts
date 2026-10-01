@@ -35,7 +35,7 @@ export interface RuntimeEnvironment {
    * Where the snapshot's state comes from: always chain state on a deployed runtime. "DEMO" is never produced; it stays
    * in the union only until lib/activity/types.ts stops comparing against it.
    */
-  evidence: "ONCHAIN" | "TESTNET" | "MAINNET" | "DEMO";
+  evidence: "ONCHAIN" | "TESTNET" | "MAINNET";
 }
 
 export interface GatewayAccount {

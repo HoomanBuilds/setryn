@@ -97,7 +97,7 @@ export function EmptyDetail({ children }: { children: ReactNode }) {
 }
 
 export function AttemptDetail({ attempt }: { attempt: ActivityAttemptView }) {
-  const referenceLabel = attempt.result === "SIMULATED" ? "Attempt reference" : "Transaction reference";
+  const referenceLabel = "Transaction reference";
   const side = sideLabel(attempt.packageSide);
   const partial = attempt.cancelledLots > 1e-9;
   const steps: TimelineStep[] = attempt.steps.map((step, index) => ({
@@ -162,15 +162,13 @@ export function AttemptDetail({ attempt }: { attempt: ActivityAttemptView }) {
 
         {attempt.receipt ? (
           <div className="border-b border-line px-4 py-3">
-            <SectionHead right={attempt.result === "SIMULATED" ? "not onchain" : "onchain"}>{referenceLabel}</SectionHead>
+            <SectionHead right="onchain">{referenceLabel}</SectionHead>
             <span className="mt-1 flex min-w-0 items-center gap-1.5">
-              {attempt.result === "SIMULATED" ? null : <TxChainMark size={13} />}
+              <TxChainMark size={13} />
               <Hash value={attempt.receipt.transactionReference} label={referenceLabel.toLowerCase()} head={14} tail={10} />
             </span>
             <p className="mt-1.5 text-[11px] leading-relaxed text-faint">
-              {attempt.result === "SIMULATED"
-                ? "This identifier names an attempt that never reached the chain; it is not an onchain transaction."
-                : "This is the transaction reference recorded by the settlement chain."}
+              This is the transaction reference recorded by the settlement chain.
             </p>
             <Link href={attempt.receipt.href} className={`${BUTTON_QUIET} mt-2.5 h-9 w-full`}>
               <FileCheck2 size={13} aria-hidden="true" />

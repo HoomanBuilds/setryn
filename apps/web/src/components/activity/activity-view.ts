@@ -4,7 +4,7 @@ import { formatNumber, priceUnitSuffix } from "@/lib/terminal/format";
 import { findMarket } from "@/lib/terminal/markets";
 import type { ChipTone } from "./ledger-ui";
 
-export type AttemptFilter = "ALL" | "TERMINAL" | "SIMULATED" | "UNKNOWN";
+export type AttemptFilter = "ALL" | "TERMINAL" | "UNKNOWN";
 export type OrderFilter = "ALL" | "OPEN" | "FILLED" | "CLOSED";
 
 export const ATTEMPT_FILTERS: Array<{ id: AttemptFilter; label: string }> = [
@@ -22,9 +22,8 @@ export const ORDER_FILTERS: Array<{ id: OrderFilter; label: string }> = [
 
 export function matchesAttemptFilter(attempt: ActivityAttemptView, filter: AttemptFilter): boolean {
   if (filter === "ALL") return true;
-  if (filter === "SIMULATED") return attempt.result === "SIMULATED";
   if (filter === "UNKNOWN") return attempt.result === "UNKNOWN";
-  return attempt.result === "COMPLETE" || attempt.result === "SIMULATED" || attempt.result === "FAILED";
+  return attempt.result === "COMPLETE" || attempt.result === "FAILED";
 }
 
 export function matchesOrderFilter(order: RestingPackageOrder, filter: OrderFilter): boolean {
@@ -36,14 +35,12 @@ export function matchesOrderFilter(order: RestingPackageOrder, filter: OrderFilt
 
 export const RESULT_LABEL: Record<ActivityResultState, string> = {
   COMPLETE: "Complete",
-  SIMULATED: "Not onchain",
   FAILED: "Failed",
   UNKNOWN: "Unknown",
 };
 
 export const RESULT_TONE: Record<ActivityResultState, ChipTone> = {
   COMPLETE: "up",
-  SIMULATED: "brand",
   FAILED: "down",
   UNKNOWN: "neutral",
 };

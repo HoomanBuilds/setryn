@@ -212,7 +212,7 @@ export function ActivityWorkspace() {
   const selected = visibleAttempts.find((attempt) => attempt.id === selectedId) ?? visibleAttempts[0] ?? null;
   const selectedOrder = visibleOrders.find((order) => order.id === selectedOrderId) ?? visibleOrders[0] ?? null;
 
-  const terminal = attempts.filter((attempt) => attempt.result === "COMPLETE" || attempt.result === "SIMULATED").length;
+  const terminal = attempts.filter((attempt) => attempt.result === "COMPLETE").length;
   const unknown = attempts.filter((attempt) => attempt.result === "UNKNOWN").length;
   const receipts = attempts.filter((attempt) => attempt.receipt).length;
   const filledLots = attempts.reduce((sum, attempt) => sum + attempt.filledLots, 0);
