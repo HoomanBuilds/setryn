@@ -79,6 +79,8 @@ library NetworkRuntimeOutput {
         address sealedAuctionHouse;
         address streamingQuoteEngine;
         address batchClearingEngine;
+        address quoteSettlementRouter;
+        address streamCapacityManager;
     }
 
     /// Reads the optional extras from the environment `scripts/network-bootstrap-env.mjs` prints.
@@ -91,6 +93,8 @@ library NetworkRuntimeOutput {
         extras.sealedAuctionHouse = vm.envOr("SETRYN_SEALED_AUCTION_HOUSE", address(0));
         extras.streamingQuoteEngine = vm.envOr("SETRYN_STREAMING_QUOTE_ENGINE", address(0));
         extras.batchClearingEngine = vm.envOr("SETRYN_BATCH_CLEARING_ENGINE", address(0));
+        extras.quoteSettlementRouter = vm.envOr("SETRYN_QUOTE_SETTLEMENT_ROUTER", address(0));
+        extras.streamCapacityManager = vm.envOr("SETRYN_STREAM_CAPACITY_MANAGER", address(0));
     }
 
     function writeRuntime(
@@ -235,6 +239,8 @@ library NetworkRuntimeOutput {
         _serializeOptional(key, "sealedAuctionHouse", extras.sealedAuctionHouse);
         _serializeOptional(key, "streamingQuoteEngine", extras.streamingQuoteEngine);
         _serializeOptional(key, "batchClearingEngine", extras.batchClearingEngine);
+        _serializeOptional(key, "quoteSettlementRouter", extras.quoteSettlementRouter);
+        _serializeOptional(key, "streamCapacityManager", extras.streamCapacityManager);
     }
 
     function _serializeOptional(string memory key, string memory field, address value) private {

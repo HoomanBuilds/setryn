@@ -47,6 +47,8 @@ const OPTIONAL = {
   PositionLifecycleExecutor: "SETRYN_POSITION_LIFECYCLE_EXECUTOR",
   SealedAuctionHouse: "SETRYN_SEALED_AUCTION_HOUSE",
   StreamingQuoteEngine: "SETRYN_STREAMING_QUOTE_ENGINE",
+  QuoteSettlementRouter: "SETRYN_QUOTE_SETTLEMENT_ROUTER",
+  VaultBackedStreamCapacityManager: "SETRYN_STREAM_CAPACITY_MANAGER",
   BatchClearingEngine: "SETRYN_BATCH_CLEARING_ENGINE",
 };
 

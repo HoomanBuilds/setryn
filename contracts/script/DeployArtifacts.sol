@@ -220,6 +220,7 @@ library DeployArtifacts {
             return "PublicBookEligibilityGate.sol:PublicBookEligibilityGate";
         }
         if (key == keccak256("PublicOrderBook")) return "PublicOrderBook.sol:PublicOrderBook";
+        if (key == keccak256("QuoteSettlementRouter")) return "QuoteSettlementRouter.sol:QuoteSettlementRouter";
         if (key == keccak256("RateCapPayoffModule")) return "ProductionPayoffModules.sol:RateCapPayoffModule";
         if (key == keccak256("RateCollarPayoffModule")) return "ProductionPayoffModules.sol:RateCollarPayoffModule";
         if (key == keccak256("RateFloorPayoffModule")) return "ProductionPayoffModules.sol:RateFloorPayoffModule";

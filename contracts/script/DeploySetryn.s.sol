@@ -15,6 +15,7 @@ import {VaultBackedStreamCapacityManager} from "../src/capacity/VaultBackedStrea
 import {SealedAuctionHouse} from "../src/auction/SealedAuctionHouse.sol";
 import {BatchClearingEngine} from "../src/batch/BatchClearingEngine.sol";
 import {StreamingQuoteEngine} from "../src/stream/StreamingQuoteEngine.sol";
+import {QuoteSettlementRouter} from "../src/quote/QuoteSettlementRouter.sol";
 import {CollateralAwareRouteEngine} from "../src/routing/CollateralAwareRouteEngine.sol";
 import {ProtocolRouteLiquiditySource} from "../src/routing/ProtocolRouteLiquiditySource.sol";
 import {AuctionValidationGate} from "../src/policy/AuctionValidationGate.sol";
@@ -222,6 +223,7 @@ contract DeploySetryn is ArtifactDeployer {
         AuctionValidationGate auctionValidationGate;
         SealedAuctionHouse sealedAuctionHouse;
         StreamingQuoteEngine streamingQuoteEngine;
+        QuoteSettlementRouter quoteSettlementRouter;
         BatchClearingEngine batchClearingEngine;
         ProtocolRouteLiquiditySource routeLiquiditySource;
         CollateralAwareRouteEngine routeEngine;
@@ -970,6 +972,9 @@ contract DeploySetryn is ArtifactDeployer {
         d.streamingQuoteEngine = StreamingQuoteEngine(
             _create("StreamingQuoteEngine", abi.encode(d.atomicClearingEngine, d.streamCapacityManager))
         );
+        d.quoteSettlementRouter = QuoteSettlementRouter(
+            _create("QuoteSettlementRouter", abi.encode(d.atomicClearingEngine, d.streamCapacityManager))
+        );
         d.batchClearingEngine = BatchClearingEngine(
             _create(
                 "BatchClearingEngine", abi.encode(d.atomicClearingEngine, d.sealedAuctionHouse, d.batchCapacityManager)
@@ -1210,6 +1215,14 @@ contract DeploySetryn is ArtifactDeployer {
             .grantRole(d.capacityReservationRegistry.CAPACITY_CLAIMANT_ROLE(), address(d.batchCapacityManager));
         d.capacityReservationRegistry.grantRole(d.capacityReservationRegistry.CAPACITY_CLAIMANT_ROLE(), liquiditySource);
         d.streamCapacityManager.grantRole(d.streamCapacityManager.STREAM_ENGINE_ROLE(), address(d.streamingQuoteEngine));
+        // The quote settlement router settles offchain firm quotes for any caller, so it holds the capacity, execution,
+        // risk-consumer and collateral roles itself and no submitter needs one. It has no admin of its own.
+        address quoteRouter = address(d.quoteSettlementRouter);
+        d.streamCapacityManager.grantRole(d.streamCapacityManager.STREAM_ENGINE_ROLE(), quoteRouter);
+        d.atomicClearingEngine.grantRole(d.atomicClearingEngine.MATCH_EXECUTOR_ROLE(), quoteRouter);
+        d.portfolioRiskEngine.grantRole(d.portfolioRiskEngine.RISK_CONSUMER_ROLE(), quoteRouter);
+        d.collateralVault.grantRole(d.collateralVault.COLLATERAL_LOCKER_ROLE(), quoteRouter);
+        d.collateralVault.grantRole(d.collateralVault.COLLATERAL_SETTLER_ROLE(), quoteRouter);
         d.streamCapacityManager.revokeRole(d.streamCapacityManager.STREAM_ENGINE_ROLE(), bootstrap);
         d.batchCapacityManager.grantRole(d.batchCapacityManager.BATCH_ENGINE_ROLE(), address(d.batchClearingEngine));
         d.batchCapacityManager.revokeRole(d.batchCapacityManager.BATCH_ENGINE_ROLE(), bootstrap);

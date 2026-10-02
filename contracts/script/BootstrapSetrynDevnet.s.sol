@@ -146,6 +146,9 @@ contract BootstrapSetrynDevnet is Script {
         address positionEngine;
         address lifecyclePolicyValidator;
         address signedLifecycleEngine;
+        /// Optional: the firm-quote settlement router and its capacity manager; zero leaves them out of the runtime.
+        address quoteSettlementRouter;
+        address streamCapacityManager;
     }
 
     struct Runtime {
@@ -923,6 +926,8 @@ contract BootstrapSetrynDevnet is Script {
         c.positionEngine = _dependency("SETRYN_POSITION_ENGINE");
         c.lifecyclePolicyValidator = _dependency("SETRYN_LIFECYCLE_POLICY_VALIDATOR");
         c.signedLifecycleEngine = _dependency("SETRYN_SIGNED_LIFECYCLE_ENGINE");
+        c.quoteSettlementRouter = vm.envOr("SETRYN_QUOTE_SETTLEMENT_ROUTER", address(0));
+        c.streamCapacityManager = vm.envOr("SETRYN_STREAM_CAPACITY_MANAGER", address(0));
     }
 
     function _dependency(string memory name) private view returns (address dependency) {
@@ -969,6 +974,12 @@ contract BootstrapSetrynDevnet is Script {
         vm.serializeAddress(objectKey, "positionEngine", c.positionEngine);
         vm.serializeAddress(objectKey, "lifecyclePolicyValidator", c.lifecyclePolicyValidator);
         vm.serializeAddress(objectKey, "signedLifecycleEngine", c.signedLifecycleEngine);
+        if (c.quoteSettlementRouter != address(0)) {
+            vm.serializeAddress(objectKey, "quoteSettlementRouter", c.quoteSettlementRouter);
+        }
+        if (c.streamCapacityManager != address(0)) {
+            vm.serializeAddress(objectKey, "streamCapacityManager", c.streamCapacityManager);
+        }
         vm.serializeBytes32(objectKey, "baseAssetId", AssetId.unwrap(runtime.baseAssetId));
         vm.serializeBytes32(objectKey, "settlementAssetId", AssetId.unwrap(runtime.settlementAssetId));
         vm.serializeBytes32(objectKey, "benchmarkAdapterId", AdapterId.unwrap(runtime.benchmarkAdapterId));
