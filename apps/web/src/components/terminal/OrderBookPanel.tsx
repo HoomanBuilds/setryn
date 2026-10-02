@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, ChevronDown, Info } from "lucide-react";
 import { AssetIcon } from "@/components/icons/AssetIcon";
 import { FlashValue } from "@/components/terminal/motion";
-import { useMarketFeed, useMarketTrades } from "@/components/market-data/MarketDataProvider";
+import { useFirmQuotes, useMarketFeed, useMarketTrades } from "@/components/market-data/MarketDataProvider";
 import { FIRMNESS_LABEL, SOURCE_LABEL, SourceMark } from "@/components/terminal/primitives";
 import type { MarketTrade } from "@/lib/market-data/types";
 import {
@@ -314,6 +314,32 @@ function BookNotes() {
   );
 }
 
+/**
+ * The maker stream's state for this market in one line: live with the quotes' remaining validity, or why the market has
+ * no firm quote right now, so an indicative or reference price is never mistaken for executable liquidity.
+ */
+function QuoteStreamLine({ market }: { market: PackageMarket }) {
+  const { status } = useFirmQuotes();
+  const state = market.firmQuotes;
+  if (!state) return null;
+  // The merged rows carry each quote's remaining validity on the provider's clock, so render stays pure.
+  const quoteRows = market.book.filter((row) => row.source === "STREAM_FIRM");
+  const secondsLeft = quoteRows.length > 0 ? Math.min(...quoteRows.map((row) => row.ttlSeconds ?? 0)) : 0;
+  const live = state.status === "FIRM" && quoteRows.length > 0;
+  const text =
+    status === "RECONNECTING"
+      ? "Maker stream reconnecting. Shown quotes still expire on time."
+      : live
+        ? `Maker stream live. Firm quotes valid ${secondsLeft}s, settled in one transaction.`
+        : `Maker stream: ${state.status === "INDICATIVE" ? "indicative only" : "unavailable"}. ${state.reason ?? ""}`.trim();
+  return (
+    <p className="flex h-6 shrink-0 items-center gap-1.5 truncate px-3 text-[11px] text-faint" role="status" title={text}>
+      <SourceMark source="STREAM_FIRM" />
+      <span className={`truncate ${live && status !== "RECONNECTING" ? "text-dim" : ""}`}>{text}</span>
+    </p>
+  );
+}
+
 export function OrderBookPanel({
   market,
   directOrders,
@@ -430,6 +456,7 @@ export function OrderBookPanel({
             />
             <BookNotes />
           </div>
+          <QuoteStreamLine market={market} />
 
           <div className={`${ROW} h-6 shrink-0 text-[11px] text-faint`} aria-hidden="true">
             <span />
