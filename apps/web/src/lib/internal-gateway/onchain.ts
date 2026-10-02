@@ -9,6 +9,7 @@ import {
   getAddress,
   http,
   isAddress,
+  hashTypedData,
   keccak256,
   maxUint256,
   parseUnits,
@@ -18,15 +19,28 @@ import {
   type Address,
   type EIP1193Provider,
   type Hex,
+  type Log,
 } from "viem";
 import { executableAction, limitCrosses } from "@/lib/terminal/economics";
 import { platformNow, setChainClockOffset } from "@/lib/terminal/clock";
 import { formatLotCount } from "@/lib/terminal/format";
+import { parseRiskAuthorization, quoteExecutable, type FirmQuote } from "@/lib/quotes/firm-quote";
+import {
+  orderRiskAuthorizationTypes,
+  quoteSettlementRouterAbi,
+  setrynDomain,
+  takerSettlementTermsHash,
+  ZERO_ADDRESS,
+  type OrderRiskAuthorization,
+  type TakerSettlementTerms,
+} from "@/lib/quotes/protocol";
+import { serializeQuoteSettlement, type QuoteSettlementArgs } from "@/lib/quotes/settlement";
 import {
   accountFeesPaidMinor,
   cashSettlementAbi,
   fixingEngineAbi,
   orderStateAbi,
+  parsePublicOrder,
   payoffModuleAbi,
   positionTerminalAbi,
   seriesRegistryAbi,
@@ -119,10 +133,6 @@ function netConsiderationUsd(events: readonly LedgerFlow[], fillId: string, acco
 }
 /** Seconds a maker order must remain live past the latest block so it cannot expire before the match lands. */
 const MAKER_DEADLINE_MARGIN_SECONDS = BigInt(15);
-/** Consecutive full-refresh requests one page makes while the server still reports markets pending. */
-const MAKER_SEED_ROUNDS = 6;
-/** Keep public books seeded even when every visitor is browsing before connecting a wallet. */
-const PUBLIC_MAKER_REFRESH_MS = 120_000;
 const PUBLIC_SERIES_POLICY = keccak256(stringToHex("SETRYN_POLICY_PUBLIC_SERIES_V1"));
 
 /** Formats a fill price on the market's own decimal grid. */
@@ -670,9 +680,6 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   private orderFills = new Map<string, { fillIds: string[]; receiptIds: string[]; closedPositionId: string | null }>();
   private pollingTimer: number | null = null;
   private polling = false;
-  /** The page's in-flight full maker refresh, shared by connect and polling. */
-  private makerRefresh: Promise<void> | null = null;
-  private lastPublicMakerRefresh = 0;
   /** Book orders already seen filled, cancelled, or expired. None of them can rest again, so they are not re-read. */
   private readonly retiredBookOrders = new Set<string>();
   /** Series terminal schedules and fixing slots; both are fixed at qualification, so each is read once. */
@@ -692,8 +699,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
 
   /**
    * Reads the deployment, series economics, and public book before any wallet connects, as an exchange shows its book
-   * to logged-out visitors. It also asks the configured server-side maker to maintain public liquidity; the browser
-   * never signs or holds an operator key.
+   * to logged-out visitors. Maker liquidity streams as signed firm quotes (lib/quotes), so browsing writes nothing
+   * onchain; the browser never signs or holds an operator or maker key.
    */
   private startPublicReads(): void {
     if (this.publicReadsStarted || typeof window === "undefined") return;
@@ -701,13 +708,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const read = () => {
       if (this.snapshot.wallet.status === "CONNECTED") return;
       void this.runtime()
-        .then(async () => {
-          if (Date.now() - this.lastPublicMakerRefresh >= PUBLIC_MAKER_REFRESH_MS) {
-            await this.requestMakerLiquidity();
-            this.lastPublicMakerRefresh = Date.now();
-          }
-          await this.refreshPublicBook();
-        })
+        .then(() => this.refreshPublicBook())
         .catch(() => undefined);
     };
     read();
@@ -852,9 +853,6 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     this.walletClient = createWalletClient({ account: address, chain: this.chain(setryn), transport: custom(provider) });
     this.startPolling();
     this.publish({ ...this.snapshot, wallet: { status: "CONNECTED", address, chainId } });
-    // Seeding every market's book takes a while on a fresh deployment, so it runs behind the account reads and the book
-    // is re-read once it lands. An order that finds its book empty asks for that market's quotes itself.
-    void this.requestMakerLiquidity().then(() => this.refreshPublicBook()).catch(() => undefined);
     try {
       await this.refreshAccount();
       await Promise.all([this.refreshOrders(), this.refreshPublicBook(), this.refreshActivity(), this.refreshRfqs()]);
@@ -1026,27 +1024,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
 
     const accountId = await this.accountId(address);
     if (intent.accountId.toLowerCase() !== accountId.toLowerCase()) throw new Error("ACCOUNT_MISMATCH");
-    // A match locks the taker's collateral twice: the clearing engine reserves consideration and the position
-    // engine reserves terminal liability. Both must be approved lock operators on the account, as for the maker.
-    for (const operator of [setryn.atomicClearingEngine, setryn.positionEngine]) {
-      const approved = await publicClient.readContract({
-        address: setryn.collateralVault,
-        abi: vaultAbi,
-        functionName: "isLockOperator",
-        args: [accountId, operator],
-      });
-      if (approved) continue;
-      const approvalHash = await walletClient.writeContract({
-        account: address,
-        chain: this.chain(setryn),
-        address: setryn.collateralVault,
-        abi: vaultAbi,
-        functionName: "setLockOperator",
-        args: [accountId, operator, true],
-      });
-      const approvalReceipt = await publicClient.waitForTransactionReceipt({ hash: approvalHash });
-      if (approvalReceipt.status !== "success") throw new Error("CLEARING_APPROVAL_FAILED");
-    }
+    await this.ensureClearingOperators(accountId);
     const block = await publicClient.getBlock({ blockTag: "pending" });
     let lifetime = BigInt(240);
     if (intent.timeInForce === "GTD") {
@@ -1249,10 +1227,9 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         orderRecord.order.deadline > latest.timestamp + MAKER_DEADLINE_MARGIN_SECONDS;
       return { hash: level.headOrderHash, bookOrder, orderRecord, live };
     };
-    let head = await readHead();
-    if (!head || !head.live) {
-      if (await this.requestMakerLiquidity(market.marketKey)) head = await readHead();
-    }
+    // The book holds only orders people chose to rest; the designated maker streams firm quotes instead of resting
+    // orders here, and the ticket routes to them when they are better.
+    const head = await readHead();
     if (!head) {
       await this.cancelUnmatchedOrder(authorization);
       throw new Error("NO_ONCHAIN_LIQUIDITY");
@@ -1361,12 +1338,6 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       logs: matchReceipt.logs,
       strict: true,
     });
-    const ledgerEvents = parseEventLogs({
-      abi: atomicClearingAbi,
-      eventName: "FillLedgerEntry",
-      logs: matchReceipt.logs,
-      strict: true,
-    });
     const fillId = matchEvents[0]?.args.fillId;
     const positionId = positionEvents[0]?.args.positionId;
     if (!fillId || !positionId) {
@@ -1391,7 +1362,306 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     } else if (remainingLots > 0 && order.timeInForce === 3) {
       await this.releaseRiskReservation(authorization);
     }
-    const executionPrice = ticksToPrice(market, makerBookOrder.priceTicks);
+    return this.recordFill({
+      authorization,
+      order,
+      market,
+      fillId,
+      positionId,
+      executionPriceTicks: makerBookOrder.priceTicks,
+      filledLots,
+      requestedLots,
+      transactionHash: matchHash,
+      logs: matchReceipt.logs,
+      routeLabel: "Direct package book",
+      leadingUpdates: [
+        { step: "AUTHORIZED", label: "Order authorized", detail: "Signature and risk admission are bound." },
+        { step: "SUBMITTED", label: "Order registered", detail: "Signed order registered onchain.", transactionHash: registrationHash },
+        { step: "INCLUDED", label: "Match included", detail: "Best public liquidity cleared atomically.", transactionHash: matchHash },
+      ],
+      onUpdate,
+    });
+  }
+
+  /**
+   * Settles a firm streaming quote: the taker signs an opposite fill-or-kill order at the quote's price and its risk
+   * authorization (typed data only, no transaction), and the signed settlement goes to QuoteSettlementRouter in one
+   * atomic transaction: through Setryn's relayer when it is available, which costs the taker no gas, else straight from
+   * the wallet. Entries and exits take the same path. The router re-verifies everything; a quote that expired or was
+   * taken meanwhile reverts the whole transaction and nothing is left behind.
+   */
+  async settleFirmQuote(
+    intent: PackageOrderIntent,
+    quote: FirmQuote,
+    onUpdate: (update: SubmissionUpdate) => void,
+  ): Promise<PackageExecutionResult> {
+    const { setryn, address, walletClient, publicClient } = await this.connected();
+    const router = setryn.quoteSettlementRouter;
+    if (!router) throw new Error("FIRM_QUOTES_UNAVAILABLE");
+    const market = runtimeMarketByKey(setryn, intent.marketId);
+    if (!market) throw new Error("MARKET_NOT_ONCHAIN_ENABLED");
+    if (quote.marketId !== intent.marketId) throw new Error("QUOTE_MARKET_MISMATCH");
+    if (intent.recipient.toLowerCase() !== address.toLowerCase()) throw new Error("RECIPIENT_MISMATCH");
+    const action = executableAction(intent.side, intent.packageSide);
+    if ((action === "BUY") !== (quote.side === "ASK")) throw new Error("QUOTE_SIDE_MISMATCH");
+    if (!Number.isInteger(intent.lots) || intent.lots < 1 || intent.lots > quote.lots) throw new Error("QUOTE_SIZE_EXCEEDED");
+    if (Number.isFinite(intent.limitPrice) && (action === "BUY" ? quote.price > intent.limitPrice : quote.price < intent.limitPrice)) {
+      throw new Error("ORDER_NOT_MARKETABLE");
+    }
+    if (!quoteExecutable(quote, platformNow())) throw new Error("QUOTE_EXPIRED");
+    if (intent.side === "EXIT") {
+      const closing = this.snapshot.positions.find((position) => position.id === intent.closePositionId);
+      if (!closing) throw new Error("CLOSE_POSITION_NOT_FOUND");
+      if (closing.marketId !== intent.marketId || closing.side !== intent.packageSide) throw new Error("CLOSE_POSITION_MISMATCH");
+      if (closing.lots !== intent.lots) throw new Error("FULL_POSITION_EXIT_REQUIRED");
+      // A full exit unwinds both positions with the counterparty's consent, which only the designated maker gives.
+      const { makerAddress } = await this.operatorStatus();
+      if (!makerAddress || quote.maker.toLowerCase() !== makerAddress.toLowerCase()) throw new Error("EXIT_REQUIRES_COUNTERPARTY_MAKER");
+    }
+
+    const accountId = await this.accountId(address);
+    if (intent.accountId.toLowerCase() !== accountId.toLowerCase()) throw new Error("ACCOUNT_MISMATCH");
+    await this.ensureClearingOperators(accountId);
+    const fees = await this.refreshFeeSchedule(0);
+    if (!fees.active && fees.source === "CHAIN") throw new Error("FEE_SCHEDULE_INACTIVE");
+    const versions = marketTradingVersions(fees, market.seriesId);
+    if (versions.seriesVersion !== Number(quote.order.targetVersion)) throw new Error("QUOTE_VERSION_STALE");
+
+    const lots = BigInt(intent.lots);
+    const priceTicks = BigInt(quote.priceTicks);
+    const deadline = BigInt(quote.expiresAt);
+    const nonce = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(crypto.getRandomValues(new Uint32Array(1))[0]);
+    const feeMinor = this.toMinorUnits(intent.feeCap);
+    const order: OnchainPublicOrder = {
+      signer: address,
+      accountId,
+      policyId: PUBLIC_SERIES_POLICY,
+      policyContextHash: keccak256(stringToHex(`${intent.marketId}:FIRM_QUOTE:${intent.packageSide}:FOK:${intent.settlementGuarantee}`)),
+      actionId: setryn.enterActionId,
+      targetKind: 1,
+      seriesId: market.seriesId,
+      packageId: EMPTY_ID,
+      targetVersion: versions.seriesVersion,
+      side: action === "BUY" ? 1 : 2,
+      lots,
+      priceTicks,
+      timeInForce: 4,
+      deadline,
+      executionModeId: setryn.executionModeId,
+      feeScheduleId: setryn.feeScheduleId,
+      feeScheduleVersion: versions.feeScheduleVersion,
+      maxFeeMinor: feeMinor > BigInt(0) ? feeMinor : BigInt(1),
+      recipient: address,
+      permittedExecutor: setryn.atomicClearingEngine,
+      nonce,
+      salt: keccak256(stringToHex(`${address}:${nonce}:${intent.marketId}:${crypto.randomUUID()}`)),
+      allowPartialFills: false,
+      minimumFillLots: lots,
+      remainderPolicy: 2,
+      postOnly: false,
+      reduceOnly: false,
+    };
+    const orderDomain = setrynDomain(setryn.chainId, setryn.orderState);
+    const orderHash = hashTypedData({ domain: orderDomain, types: publicOrderTypedData, primaryType: "PublicOrder", message: order });
+    const orderSignature = await walletClient.signTypedData({
+      account: address,
+      domain: orderDomain,
+      types: publicOrderTypedData,
+      primaryType: "PublicOrder",
+      message: order,
+    });
+    // No relayer is named and no fee is offered, so the same signatures settle through Setryn's relayer, any other
+    // relayer, or the wallet itself.
+    const terms: TakerSettlementTerms = {
+      quoteOrderHash: quote.id,
+      relayer: ZERO_ADDRESS,
+      relayerAccountId: EMPTY_ID,
+      maxRelayerFeeMinor: BigInt(0),
+    };
+    const perLot = BigInt(action === "BUY" ? market.maxLongDebitMinorPerLot : market.maxShortDebitMinorPerLot);
+    const risk: OrderRiskAuthorization = {
+      orderHash,
+      accountId,
+      riskDomainId: setryn.riskDomainId,
+      riskDomainVersion: 1,
+      maxOpenInterestBaseUnits: lots,
+      maxTerminalLiabilityBaseUnits: lots * perLot,
+      maxAdmissionDeadline: deadline + BigInt(60),
+      binder: router,
+      binderTerms: takerSettlementTermsHash(terms),
+      nonce,
+      deadline,
+    };
+    const riskSignature = await walletClient.signTypedData({
+      account: address,
+      domain: setrynDomain(setryn.chainId, setryn.riskAdmissionBindingRegistry),
+      types: orderRiskAuthorizationTypes,
+      primaryType: "SetrynOrderRiskAuthorizationV1",
+      message: risk,
+    });
+    const authorized: SubmissionUpdate = {
+      step: "AUTHORIZED",
+      label: "Order signed",
+      detail: "Your fill-or-kill order and its risk authorization are signed as typed data. No transaction yet.",
+    };
+    onUpdate(authorized);
+
+    const settlement: QuoteSettlementArgs = {
+      quote: {
+        order: parsePublicOrder(quote.order),
+        orderSignature: quote.orderSignature,
+        risk: parseRiskAuthorization(quote.risk),
+        riskSignature: quote.riskSignature,
+        terms: { capacityId: quote.capacityId },
+      },
+      taker: { order, orderSignature, risk, riskSignature, terms },
+      fillLots: lots,
+      relayerFeeMinor: BigInt(0),
+      payoffTerms: market.payoffTerms,
+    };
+    let transactionHash: Hex | null = null;
+    try {
+      const response = await fetch("/api/quotes/settle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(serializeQuoteSettlement(settlement)),
+      });
+      const body = (await response.json().catch(() => null)) as { transactionHash?: unknown; reason?: unknown } | null;
+      if (response.ok && typeof body?.transactionHash === "string" && /^0x[0-9a-fA-F]{64}$/.test(body.transactionHash)) {
+        transactionHash = body.transactionHash as Hex;
+      } else if (response.status === 422) {
+        // The router itself refused it in simulation; the wallet would only pay to see the same revert.
+        throw new Error(`SETTLEMENT_REJECTED:${typeof body?.reason === "string" ? body.reason : "REVERTED"}`);
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("SETTLEMENT_REJECTED")) throw error;
+    }
+    const relayed = transactionHash !== null;
+    if (!transactionHash) {
+      transactionHash = await walletClient.writeContract({
+        account: address,
+        chain: this.chain(setryn),
+        address: router,
+        abi: quoteSettlementRouterAbi,
+        functionName: "settle",
+        args: [settlement],
+      });
+    }
+    const submitted: SubmissionUpdate = {
+      step: "SUBMITTED",
+      label: relayed ? "Settlement relayed" : "Settlement submitted",
+      detail: relayed
+        ? "Setryn's relayer submitted your signed settlement; it pays the gas."
+        : "Submitted from your wallet: one transaction settles both sides.",
+      transactionHash,
+    };
+    onUpdate(submitted);
+    const receipt = await publicClient.waitForTransactionReceipt({ hash: transactionHash });
+    if (receipt.status !== "success") throw new Error("SETTLEMENT_REVERTED");
+    const settled = parseEventLogs({ abi: quoteSettlementRouterAbi, eventName: "QuoteSettled", logs: receipt.logs, strict: true });
+    const positionEvents = parseEventLogs({ abi: atomicClearingAbi, eventName: "FillPositionCreated", logs: receipt.logs, strict: true });
+    const fillId = settled[0]?.args.fillId;
+    const positionId = positionEvents[0]?.args.positionId;
+    if (!fillId || !positionId) throw new Error("CLEARING_EVIDENCE_MISSING");
+    const included: SubmissionUpdate = {
+      step: "INCLUDED",
+      label: "Settlement included",
+      detail: "Both signed orders, both risk admissions and the maker's capacity settled atomically in one transaction.",
+      transactionHash,
+    };
+    onUpdate(included);
+    const authorization: SignedOrderAuthorization = {
+      orderHash,
+      signature: orderSignature,
+      signer: address,
+      nonce: nonce.toString(),
+      deadline: new Date(Number(deadline) * 1000).toISOString(),
+      intent,
+      onchainOrder: order,
+      riskAdmissionId: settled[0].args.receipt.takerAdmissionId,
+    };
+    this.authorizations.set(orderHash.toLowerCase(), authorization);
+    return this.recordFill({
+      authorization,
+      order,
+      market,
+      fillId,
+      positionId,
+      executionPriceTicks: priceTicks,
+      filledLots: intent.lots,
+      requestedLots: intent.lots,
+      transactionHash,
+      logs: receipt.logs,
+      routeLabel: "Firm maker quote",
+      leadingUpdates: [authorized, submitted, included],
+      onUpdate,
+    });
+  }
+
+  /**
+   * A fill locks the taker's collateral twice: the clearing engine reserves consideration and the position engine
+   * reserves terminal liability. Both must be approved lock operators on the account (once per account, as for the
+   * maker); a missing approval is given here, which is the only transaction an order may need before it is signed.
+   */
+  private async ensureClearingOperators(accountId: Hex): Promise<void> {
+    const { setryn, address, walletClient, publicClient } = await this.connected();
+    for (const operator of [setryn.atomicClearingEngine, setryn.positionEngine]) {
+      const approved = await publicClient.readContract({
+        address: setryn.collateralVault,
+        abi: vaultAbi,
+        functionName: "isLockOperator",
+        args: [accountId, operator],
+      });
+      if (approved) continue;
+      const approvalHash = await walletClient.writeContract({
+        account: address,
+        chain: this.chain(setryn),
+        address: setryn.collateralVault,
+        abi: vaultAbi,
+        functionName: "setLockOperator",
+        args: [accountId, operator, true],
+      });
+      const approvalReceipt = await publicClient.waitForTransactionReceipt({ hash: approvalHash });
+      if (approvalReceipt.status !== "success") throw new Error("CLEARING_APPROVAL_FAILED");
+    }
+  }
+
+  /**
+   * Records a cleared fill the same way for every route (the public book and firm quotes): an exit first unwinds both
+   * positions with the maker's consent; then the position, the fees paid, the receipt and the execution steps are
+   * published to the snapshot and the account reads refresh.
+   */
+  private async recordFill(fill: {
+    authorization: SignedOrderAuthorization;
+    order: OnchainPublicOrder;
+    market: SetrynRuntimeMarket;
+    fillId: Hex;
+    positionId: Hex;
+    executionPriceTicks: bigint;
+    filledLots: number;
+    requestedLots: number;
+    transactionHash: Hex;
+    logs: Log[];
+    routeLabel: string;
+    leadingUpdates: SubmissionUpdate[];
+    onUpdate: (update: SubmissionUpdate) => void;
+  }): Promise<PackageExecutionResult> {
+    const {
+      authorization,
+      order,
+      market,
+      fillId,
+      positionId,
+      executionPriceTicks,
+      filledLots,
+      requestedLots,
+      transactionHash,
+      logs,
+      routeLabel,
+      leadingUpdates,
+      onUpdate,
+    } = fill;
+    const executionPrice = ticksToPrice(market, executionPriceTicks);
     const packageSide = authorization.intent.packageSide;
     const createdPositionSide: "LONG" | "SHORT" = order.side === 1 ? "LONG" : "SHORT";
     let lifecycleHash: Hex | null = null;
@@ -1401,7 +1671,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         step: "POSITION_UPDATED",
         label: "Close hedge filled",
         detail: "The opposite-side fill is complete. Releasing both position liabilities.",
-        transactionHash: matchHash,
+        transactionHash,
       });
       lifecycleHash = await this.completeFullExit(
         authorization.intent.closePositionId as Hex,
@@ -1418,10 +1688,11 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       state: "ACTIVE" as const,
       createdAt: new Date().toISOString(),
     };
+    const ledgerEvents = parseEventLogs({ abi: atomicClearingAbi, eventName: "FillLedgerEntry", logs, strict: true });
     const feeEvents = parseEventLogs({
       abi: fundedFeeLedgerAbi,
       eventName: "FeeLedgerEntryRecorded",
-      logs: matchReceipt.logs,
+      logs: logs,
       strict: true,
     });
     const takerFeeMinor = (ledgerEvents.find(
@@ -1437,11 +1708,11 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       id: fillId,
       orderHash: authorization.orderHash,
       fillId,
-      transactionHash: matchHash,
+      transactionHash,
       marketId: authorization.intent.marketId,
       packageCode: authorization.intent.packageCode,
       packageSide,
-      routeLabel: "Direct package book",
+      routeLabel,
       lots: filledLots,
       requestedLots,
       filledLots,
@@ -1466,14 +1737,12 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       receipt,
     };
     const updates: SubmissionUpdate[] = [
-      { step: "AUTHORIZED", label: "Order authorized", detail: "Signature and risk admission are bound." },
-      { step: "SUBMITTED", label: "Order registered", detail: "Signed order registered onchain.", transactionHash: registrationHash },
-      { step: "INCLUDED", label: "Match included", detail: "Best public liquidity cleared atomically.", transactionHash: matchHash },
-      { step: "FILLED", label: "Package filled", detail: `${formatLotCount(filledLots)} filled at ${formatTicksPrice(market, executionPrice)}.`, transactionHash: matchHash },
+      ...leadingUpdates,
+      { step: "FILLED", label: "Package filled", detail: `${formatLotCount(filledLots)} filled at ${formatTicksPrice(market, executionPrice)}.`, transactionHash },
       authorization.intent.side === "EXIT"
-        ? { step: "POSITION_CLOSED", label: "Position closed", detail: "Original and close-fill positions were fully unwound onchain.", transactionHash: lifecycleHash ?? matchHash }
-        : { step: "POSITION_CREATED", label: "Position created", detail: `Position ${positionId} is active.`, transactionHash: matchHash },
-      { step: "RECEIPT_READY", label: "Receipt ready", detail: `Fill ${fillId} is verifiable onchain.`, transactionHash: matchHash },
+        ? { step: "POSITION_CLOSED", label: "Position closed", detail: "Original and close-fill positions were fully unwound onchain.", transactionHash: lifecycleHash ?? transactionHash }
+        : { step: "POSITION_CREATED", label: "Position created", detail: `Position ${positionId} is active.`, transactionHash },
+      { step: "RECEIPT_READY", label: "Receipt ready", detail: `Fill ${fillId} is verifiable onchain.`, transactionHash },
     ];
     const execution = { id: fillId, orderHash: authorization.orderHash, updates, result, createdAt: receipt.createdAt };
     this.publish({
@@ -2206,47 +2475,6 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     });
     this.operatorStatusRead = { at: Date.now(), status };
     return status;
-  }
-
-  /**
-   * Asks the designated maker to refresh its resting quotes, on one market or on every market. Resolves true when a
-   * maker runs and was asked, false when the deployment has none.
-   */
-  private async requestMakerLiquidity(marketKey?: string): Promise<boolean> {
-    if (!(await this.operatorStatus()).makerEnabled) return false;
-    if (marketKey) {
-      await this.postMakerLiquidity({ marketId: marketKey });
-      return true;
-    }
-    // One full refresh at a time per page. The server works through the markets inside a time budget and reports the
-    // ones it did not reach, so a fresh deployment is seeded over a few consecutive requests.
-    this.makerRefresh ??= (async () => {
-      try {
-        for (let round = 0; round < MAKER_SEED_ROUNDS; round += 1) {
-          const pending = await this.postMakerLiquidity({});
-          if (pending === 0) break;
-        }
-      } finally {
-        this.makerRefresh = null;
-      }
-    })();
-    await this.makerRefresh;
-    return true;
-  }
-
-  /** One liquidity request; resolves the number of markets the server left pending (0 when unknown or failed). */
-  private async postMakerLiquidity(body: { marketId?: string }): Promise<number> {
-    try {
-      const response = await fetch("/api/internal/operator/liquidity", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const result = (await response.json().catch(() => null)) as { pending?: unknown } | null;
-      return response.ok && Array.isArray(result?.pending) ? result.pending.length : 0;
-    } catch {
-      return 0;
-    }
   }
 
   private chain(setryn: SetrynRuntime) {
@@ -3944,8 +4172,6 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     this.pollingTimer = window.setInterval(() => {
       if (this.polling || this.snapshot.wallet.status !== "CONNECTED") return;
       this.polling = true;
-      // Maker quotes refresh beside the reads (single flight), and the book is re-read once they land.
-      void this.requestMakerLiquidity().then(() => this.refreshPublicBook()).catch(() => undefined);
       void Promise.all([
         this.refreshAccount(),
         this.refreshOrders(),

@@ -33,6 +33,7 @@ import { usePersistentState } from "@/lib/terminal/use-persistent-state";
 import type { BookRow, ConsoleTabId, PackageMarket } from "@/lib/terminal/types";
 import type { OnchainMarket, OrderExecutionProgress } from "@/lib/internal-gateway/types";
 import { platformNow } from "@/lib/terminal/clock";
+import { acceptableQuote } from "@/lib/quotes/firm-quote";
 import { useConfirmationPrefs, useDisclosurePrefs } from "@/lib/settings/preferences";
 
 type MobileTab = "market" | "book" | "order" | "positions";
@@ -85,6 +86,17 @@ function executionError(error: unknown): string {
   if (error.message === "POST_ONLY_WOULD_CROSS") return "The book moved and this post-only order would take liquidity, so it was cancelled without a fill. Reprice behind the touch.";
   if (error.message === "RESTING_ORDER_WOULD_CROSS") return "The book moved and this limit now crosses, so it was cancelled without a fill. Resubmit to execute against the book.";
   if (error.message === "EXIT_REQUIRES_COUNTERPARTY_MAKER") return "The close must use the qualified maker that owns the original counterparty position.";
+  if (error.message === "QUOTE_UNAVAILABLE" || error.message === "QUOTE_EXPIRED") {
+    return "The firm quote expired or was replaced before you signed. Nothing was submitted; review the new quote and try again.";
+  }
+  if (error.message === "QUOTE_SIZE_EXCEEDED") return "The firm quote covers fewer lots than requested. Reduce the size or use the public book.";
+  if (error.message === "QUOTE_VERSION_STALE") return "The series was re-versioned since this quote was signed. Wait a moment for a fresh quote.";
+  if (error.message === "FIRM_QUOTES_UNAVAILABLE") return "This deployment has no firm-quote router. Use the public book.";
+  if (error.message.startsWith("SETTLEMENT_REJECTED")) {
+    const reason = error.message.split(":")[1] ?? "REVERTED";
+    return `The settlement router refused this fill (${reason}) in simulation, so nothing was submitted. The quote may have been taken; try the next one.`;
+  }
+  if (error.message === "SETTLEMENT_REVERTED") return "The settlement transaction reverted onchain. Nothing settled and nothing was left reserved.";
   if (error.message === "COUNTERPARTY_CONSENT_REQUIRED") return "The counterparty has not consented to this close yet. Nothing was submitted; try again shortly.";
   if (error.message === "INSUFFICIENT_WALLET_BALANCE") return "The wallet does not hold enough USDC for this deposit or fee. Nothing was submitted.";
   if (error.message === "MAKER_SIGNER_UNCONFIGURED") return "No designated maker is configured on this network, so no maker quote or counterparty is available.";
@@ -851,7 +863,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       const packageSide: PackageSide = isExit
         ? (selectedClosePosition?.side ?? ticket.side)
         : ticket.side;
-      const authorization = await gateway.authorizeOrder({
+      const intent = {
         accountId: account.id,
         marketId: liveMarket.id,
         packageCode: liveMarket.code,
@@ -876,7 +888,32 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         disclosure: route.requiresPrivate && ticket.privateRfq ? "PRIVATE_RFQ" : "PUBLIC",
         settlementGuarantee: preview.settlementGuarantee,
         postOnly: ticket.postOnly === true,
-      });
+      } as const;
+
+      if (route.id === "FIRM_QUOTE" && !replacingId) {
+        // A firm quote fills immediately or not at all: the trader signs typed data and one router transaction
+        // settles both sides. The quote is re-checked here, at the moment of signing, against the live stream.
+        const quote = acceptableQuote(
+          ticketMarket.firmQuotes ?? undefined,
+          executableAction(ticket.intent, packageSide),
+          preview.requestedLots,
+          preview.limitPrice,
+          platformNow(),
+        );
+        if (!quote) throw new Error("QUOTE_UNAVAILABLE");
+        setExecution({ status: "SUBMITTING", updates: [] });
+        const result = await gateway.settleFirmQuote(intent, quote, (update) => {
+          setExecution((current) => ({ ...current, status: "SUBMITTING", updates: [...current.updates, update] }));
+        });
+        const recorded = gateway.getSnapshot().executions.find((candidate) => candidate.result.receipt.id === result.receipt.id);
+        setExecution((current) => ({ ...current, status: "COMPLETED", result, updates: recorded?.updates ?? current.updates }));
+        setStage({ kind: "COMPLETED", reference, receiptId: result.receipt.id });
+        setConsoleTab("strategies");
+        setConsoleScoped(true);
+        return;
+      }
+
+      const authorization = await gateway.authorizeOrder(intent);
 
       if (replacingId) {
         const replacement = await gateway.replaceRestingOrder(replacingId, authorization);

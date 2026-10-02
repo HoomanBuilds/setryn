@@ -1,3 +1,4 @@
+import type { FirmQuote } from "@/lib/quotes/firm-quote";
 import type { ActiveFeeSchedule } from "./fee-schedule";
 import type { Intent, PackageSide, TimeInForce } from "@/lib/terminal/economics";
 import type { BookRow, PackageMarket } from "@/lib/terminal/types";
@@ -477,6 +478,12 @@ export interface InternalTradingGateway {
   authorizeOrder(intent: PackageOrderIntent): Promise<SignedOrderAuthorization>;
   submitAuthorizedOrder(
     authorization: SignedOrderAuthorization,
+    onUpdate: (update: SubmissionUpdate) => void,
+  ): Promise<PackageExecutionResult>;
+  /** Signs a taker order against a firm streaming quote and settles both in one transaction through the router. */
+  settleFirmQuote(
+    intent: PackageOrderIntent,
+    quote: FirmQuote,
     onUpdate: (update: SubmissionUpdate) => void,
   ): Promise<PackageExecutionResult>;
   placeRestingOrder(authorization: SignedOrderAuthorization): Promise<RestingPackageOrder>;

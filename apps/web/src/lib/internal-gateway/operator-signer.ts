@@ -22,16 +22,18 @@ import { readRuntime } from "./runtime-server";
  * Server-side signers for the platform's own roles (docs/plans/network-runtime-real-data.md, section 5).
  *
  *   operator  risk admission, RFQ handoff execution, lifecycle witness staging, keeper calls
- *   maker     the optional designated maker: resting quotes, RFQ answers, counterparty consent
+ *   maker     the optional designated maker: signed firm quotes (offchain), quote capacity, RFQ answers, consent
+ *   relayer   the optional gasless relayer: submits users' signed quote settlements to the permissionless router
  *
- * Locally both are the runtime operator's unlocked anvil account, sent through the node. On a network each is a
- * configured private key (SETRYN_OPERATOR_PRIVATE_KEY, SETRYN_MAKER_PRIVATE_KEY); without one the role is unavailable.
- * Keys are read here only, never logged, never returned.
+ * Locally all are the runtime operator's unlocked anvil account, sent through the node. On a network each is a
+ * configured private key (SETRYN_OPERATOR_PRIVATE_KEY, SETRYN_MAKER_PRIVATE_KEY, SETRYN_RELAYER_PRIVATE_KEY); without
+ * one the role is unavailable. Each key is its own account, so each role has its own send queue and nonce sequence and
+ * no role's transactions can take another's nonce. Keys are read here only, never logged, never returned.
  */
 
-export type SignerRole = "operator" | "maker";
+export type SignerRole = "operator" | "maker" | "relayer";
 
-export type SignerErrorCode = "OPERATOR_SIGNER_UNCONFIGURED" | "MAKER_SIGNER_UNCONFIGURED";
+export type SignerErrorCode = "OPERATOR_SIGNER_UNCONFIGURED" | "MAKER_SIGNER_UNCONFIGURED" | "RELAYER_SIGNER_UNCONFIGURED";
 
 /** A role's signer is not configured on this network. The message is the code, so routes can return it as is. */
 export class SignerUnavailableError extends Error {
@@ -64,13 +66,20 @@ export interface SignerStatus {
 }
 
 const KEY_PATTERN = /^(?:0x)?[0-9a-fA-F]{64}$/;
-const ROLE_ENV: Record<SignerRole, "SETRYN_OPERATOR_PRIVATE_KEY" | "SETRYN_MAKER_PRIVATE_KEY"> = {
+const ROLE_ENV: Record<SignerRole, "SETRYN_OPERATOR_PRIVATE_KEY" | "SETRYN_MAKER_PRIVATE_KEY" | "SETRYN_RELAYER_PRIVATE_KEY"> = {
   operator: "SETRYN_OPERATOR_PRIVATE_KEY",
   maker: "SETRYN_MAKER_PRIVATE_KEY",
+  relayer: "SETRYN_RELAYER_PRIVATE_KEY",
 };
 const ROLE_CODE: Record<SignerRole, SignerErrorCode> = {
   operator: "OPERATOR_SIGNER_UNCONFIGURED",
   maker: "MAKER_SIGNER_UNCONFIGURED",
+  relayer: "RELAYER_SIGNER_UNCONFIGURED",
+};
+const ROLE_MISSING: Record<SignerRole, string> = {
+  operator: "No operator key is configured (SETRYN_OPERATOR_PRIVATE_KEY).",
+  maker: "No designated maker key is configured (SETRYN_MAKER_PRIVATE_KEY).",
+  relayer: "No relayer key is configured (SETRYN_RELAYER_PRIVATE_KEY); users submit their own settlements.",
 };
 
 /** Arbitrum One sends nothing from the server until mainnet writes are explicitly authorized. */
@@ -166,11 +175,7 @@ function networkRefusal(network: SetrynNetwork, role: SignerRole): string | null
   if (network === "arbitrum-one" && !mainnetWritesAuthorized()) {
     return "Server-side writes on Arbitrum One are not authorized (set SETRYN_MAINNET_WRITES=authorized).";
   }
-  if (!configuredKey(role)) {
-    return role === "operator"
-      ? "No operator key is configured (SETRYN_OPERATOR_PRIVATE_KEY)."
-      : "No designated maker key is configured (SETRYN_MAKER_PRIVATE_KEY).";
-  }
+  if (!configuredKey(role)) return ROLE_MISSING[role];
   return null;
 }
 
@@ -239,6 +244,11 @@ export function makerSigner(runtime?: SetrynRuntime): Promise<RoleSigner> {
   return roleSigner("maker", runtime);
 }
 
+/** The optional settlement relayer's signer, or SignerUnavailableError("RELAYER_SIGNER_UNCONFIGURED"). */
+export function relayerSigner(runtime?: SetrynRuntime): Promise<RoleSigner> {
+  return roleSigner("relayer", runtime);
+}
+
 function roleStatus(setryn: SetrynRuntime, role: SignerRole): SignerStatus {
   const network = setryn.network ?? "local";
   if (network === "local") return { available: true, address: getAddress(setryn.operator), reason: null };
@@ -250,7 +260,11 @@ function roleStatus(setryn: SetrynRuntime, role: SignerRole): SignerStatus {
 
 /** Which roles can sign on this deployment, with their public addresses, for status reporting. No secrets. */
 export function signerAvailability(setryn: SetrynRuntime): Record<SignerRole, SignerStatus> {
-  return { operator: roleStatus(setryn, "operator"), maker: roleStatus(setryn, "maker") };
+  return {
+    operator: roleStatus(setryn, "operator"),
+    maker: roleStatus(setryn, "maker"),
+    relayer: roleStatus(setryn, "relayer"),
+  };
 }
 
 /** A route's refusal for an unavailable role: 503 with the role's code, nothing else. */
