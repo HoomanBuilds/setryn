@@ -837,6 +837,12 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     const reference = stage.reference;
     const shouldRest = preview.rests;
     const replacingId = amendmentOrderId;
+    // A firm quote only takes liquidity now; a limit that would rest, or a replacement, goes to the public book.
+    const takesFirmQuote = route.id === "FIRM_QUOTE" && !shouldRest && !replacingId;
+    const submitRoute =
+      route.id === "FIRM_QUOTE" && !takesFirmQuote
+        ? (ticketMarket.routes.find((candidate) => candidate.id === "DIRECT_BOOK") ?? route)
+        : route;
     if (replacingId && route.requiresPrivate) {
       const message = "Solver RFQ routes cannot rest as replacements. Select a public book route.";
       setExecution((current) => ({ ...current, status: "FAILED", error: message }));
@@ -867,8 +873,8 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         accountId: account.id,
         marketId: liveMarket.id,
         packageCode: liveMarket.code,
-        routeId: route.id,
-        routeLabel: route.label,
+        routeId: submitRoute.id,
+        routeLabel: submitRoute.label,
         side: ticket.intent,
         packageSide,
         lots: preview.requestedLots,
@@ -890,7 +896,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         postOnly: ticket.postOnly === true,
       } as const;
 
-      if (route.id === "FIRM_QUOTE" && !replacingId) {
+      if (takesFirmQuote) {
         // A firm quote fills immediately or not at all: the trader signs typed data and one router transaction
         // settles both sides. The quote is re-checked here, at the moment of signing, against the live stream.
         const quote = acceptableQuote(

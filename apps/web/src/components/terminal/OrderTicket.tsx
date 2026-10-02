@@ -276,13 +276,18 @@ export function OrderTicket({
   const bestRouteId = bestRoute?.id ?? null;
   // Wall clock for the GTD picker bounds, refreshed when GTD is chosen rather than read during render.
   const [gtdClockMs, setGtdClockMs] = useState(() => platformNow());
-  // Smart default: the best executable route is preselected and stays editable in the route selector.
-  // A route that is no longer offered (for example once the onchain market's routes load) is replaced the same way.
+  // Smart default: the best executable route is preselected and stays editable in the route selector. Until the
+  // trader picks a route in this market the ticket keeps following the best one, so liquidity that arrives after the
+  // first render (the onchain market's routes, the maker stream's firm quotes) is not hidden behind an empty book.
+  // A route that is no longer offered is replaced the same way.
+  const [routePickedFor, setRoutePickedFor] = useState<string | null>(null);
+  const followBest = routePickedFor !== market.id && !state.privateRfq;
   const routeOffered = state.routeId !== null && usableRoutes.some((candidate) => candidate.id === state.routeId);
   useEffect(() => {
-    if (!routeOffered && bestRouteId && !locked && !isAmending) onChange({ routeId: bestRouteId });
+    if (!bestRouteId || locked || isAmending) return;
+    if (!routeOffered || (followBest && state.routeId !== bestRouteId)) onChange({ routeId: bestRouteId });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeOffered, bestRouteId, locked, isAmending]);
+  }, [routeOffered, bestRouteId, locked, isAmending, followBest, state.routeId]);
   const requestedLots = Number.parseFloat(state.lotsInput) || 0;
   // Without a connected account there is no collateral to size against, so the share controls stay inert.
   const sizingKnown = wallet.connected || state.intent === "EXIT";
@@ -698,7 +703,10 @@ export function OrderTicket({
             bestRoute={bestRoute}
             privateRfq={state.privateRfq}
             selectedId={state.routeId}
-            onSelect={(routeId) => onChange({ routeId })}
+            onSelect={(routeId) => {
+              setRoutePickedFor(market.id);
+              onChange({ routeId });
+            }}
             amendmentMode={isAmending}
           />
 
