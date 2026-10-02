@@ -30,6 +30,11 @@ require_command() {
 require_command cast
 require_command jq
 
+if [[ "$broadcast" == true && -z "${ETH_PASSWORD:-}" ]]; then
+  printf 'Set ETH_PASSWORD for the setryn-governance keystore before --broadcast.\n' >&2
+  exit 1
+fi
+
 case "$manifest" in
   /*) ;;
   *) manifest="$repository_root/$manifest";;
