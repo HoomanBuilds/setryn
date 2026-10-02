@@ -1,4 +1,5 @@
 import type { MarkSource, SeriesStatus } from "@/lib/market-data/types";
+import type { MarketQuoteState } from "@/lib/quotes/firm-quote";
 
 /** Every listed market quotes its forward level in USD; leg marks may carry other units. */
 export type PriceUnit = "BP" | "PTS" | "USD";
@@ -15,7 +16,7 @@ export type Qualification = "QUALIFIED" | "CONDITIONAL" | "SUSPENDED";
 
 export type Provenance = "OBSERVED" | "EXECUTABLE" | "ESTIMATED" | "MODELED";
 
-export type LiquiditySource = "DIRECT" | "IMPLIED" | "SOLVER_FIRM";
+export type LiquiditySource = "DIRECT" | "IMPLIED" | "SOLVER_FIRM" | "STREAM_FIRM";
 
 export type Firmness = "FIRM" | "CAPACITY_BACKED" | "INDICATIVE";
 
@@ -131,6 +132,12 @@ export interface PackageMarket {
   legs: PackageLeg[];
   book: BookRow[];
   routes: RouteQuote[];
+  /**
+   * The designated maker's firm streaming quotes for this market (lib/quotes): signed offchain, capacity-backed,
+   * settled through the quote router. Absent until the quote stream answers; INDICATIVE or UNAVAILABLE with a reason
+   * when the market has no firm quote right now.
+   */
+  firmQuotes?: MarketQuoteState | null;
   /** Recent fill prices, oldest first; empty without fills. */
   priceHistory: number[];
   payoffMoveUnit: string;

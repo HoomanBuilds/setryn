@@ -28,16 +28,21 @@ interface LevelRow extends BookRow {
   cumulative: number;
 }
 
+/**
+ * Aggregates a side into price levels. Firm streaming quotes never merge with resting orders: a level holds one source
+ * class, so the source label, firmness and quote expiry of every row stay true.
+ */
 function groupLevels(rows: BookRow[], step: number, side: "BID" | "ASK", decimals: number): BookRow[] {
   if (step <= 0) return rows;
-  const buckets = new Map<number, BookRow & { weight: number }>();
+  const buckets = new Map<string, BookRow & { weight: number }>();
   for (const row of rows) {
     const scaled = row.price / step;
     const bucket = Number((side === "ASK" ? Math.ceil(scaled - 1e-9) : Math.floor(scaled + 1e-9)) * step);
     const price = Number(bucket.toFixed(decimals));
-    const current = buckets.get(price);
+    const key = `${price}:${row.source === "STREAM_FIRM" ? "STREAM" : "BOOK"}`;
+    const current = buckets.get(key);
     if (!current) {
-      buckets.set(price, { ...row, id: `${side}-${price}`, price, weight: row.lots });
+      buckets.set(key, { ...row, id: `${side}-${key}`, price, weight: row.lots });
       continue;
     }
     current.lots += row.lots;
@@ -289,12 +294,19 @@ function BookNotes() {
         <>
           <button type="button" aria-label="Close book notes" className="fixed inset-0 z-40 cursor-default" onClick={() => setOpen(false)} />
           <div className="absolute top-full right-0 z-50 mt-1.5 w-[min(300px,calc(100vw-24px))] space-y-2 rounded-lg border border-line-strong bg-raised p-3 text-xs leading-snug text-dim shadow-[0_24px_48px_rgba(0,0,0,0.55)]">
-            <p className="text-ink">The onchain public book of the active series.</p>
+            <p className="text-ink">Firm maker quotes and the onchain public book of the active series.</p>
+            <p className="flex items-center gap-2">
+              <SourceMark source="STREAM_FIRM" /> Firm maker quotes: signed offchain, backed by onchain capacity, each
+              with its expiry. Taking one settles both sides in one transaction.
+            </p>
             <p className="flex items-center gap-2">
               <SourceMark source="DIRECT" /> Signed orders resting onchain, aggregated by price level.
             </p>
-            <p>Only open, unexpired orders count. Private RFQ quotes are not shown here; request them from the ticket.</p>
-            <p className="text-faint">The book refreshes every few seconds from the chain.</p>
+            <p>
+              Only unexpired quotes and open orders count; a quote within seconds of expiry shows as not executable. Private
+              RFQ quotes are not shown here; request them from the ticket.
+            </p>
+            <p className="text-faint">Quotes stream continuously; the resting book refreshes every few seconds from the chain.</p>
           </div>
         </>
       ) : null}

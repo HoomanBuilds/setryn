@@ -2,7 +2,8 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { platformNow } from "@/lib/terminal/clock";
-import { overlaySnapshot } from "@/lib/market-data/overlay";
+import { applyFirmQuotes, overlaySnapshot } from "@/lib/market-data/overlay";
+import type { FirmQuoteBook } from "@/lib/quotes/firm-quote";
 import { MARKETS } from "@/lib/terminal/markets";
 import type { PackageMarket } from "@/lib/terminal/types";
 import type {
@@ -30,12 +31,17 @@ const STALE_MS = 15_000;
 /** Reference bars move with the aggregator, not with blocks, so they refresh on a timer. */
 const REFERENCE_CANDLES_REFRESH_MS = 60_000;
 
+/** LIVE while the quote stream is connected; RECONNECTING keeps the last quotes, which still expire on time. */
+export type QuoteStreamStatus = "CONNECTING" | "LIVE" | "RECONNECTING";
+
 interface MarketDataContextValue {
   markets: PackageMarket[];
   snapshot: MarketDataSnapshot | null;
   status: MarketFeedStatus;
   receivedAt: number;
   refresh: () => void;
+  quotes: FirmQuoteBook | null;
+  quoteStatus: QuoteStreamStatus;
 }
 
 const MarketDataContext = createContext<MarketDataContextValue | null>(null);
@@ -91,12 +97,43 @@ export function MarketDataProvider({ children }: { children: ReactNode }) {
     return () => window.clearInterval(timer);
   }, [receivedAt, status]);
 
-  const markets = useMemo(() => (snapshot ? overlaySnapshot(MARKETS, snapshot) : MARKETS), [snapshot]);
+  // Firm maker quotes stream separately from the chain snapshot: signed offchain, they change many times a minute
+  // without a transaction. The last quotes stay through a reconnect, and every quote still expires on its own clock.
+  const [quotes, setQuotes] = useState<FirmQuoteBook | null>(null);
+  const [quoteStatus, setQuoteStatus] = useState<QuoteStreamStatus>("CONNECTING");
+  const [quoteClock, setQuoteClock] = useState(() => platformNow());
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof EventSource === "undefined") return;
+    const source = new EventSource("/api/quotes/stream");
+    source.addEventListener("quotes", (event) => {
+      try {
+        setQuotes(JSON.parse((event as MessageEvent<string>).data) as FirmQuoteBook);
+        setQuoteStatus("LIVE");
+      } catch {
+        // A malformed frame is skipped; the next one replaces it.
+      }
+    });
+    source.onerror = () => setQuoteStatus("RECONNECTING");
+    return () => source.close();
+  }, []);
+  const hasQuotes = quotes !== null && Object.values(quotes.markets).some((market) => market.bid || market.ask);
+  useEffect(() => {
+    if (!hasQuotes) return;
+    // Quote expiry is shown in seconds, so the overlay re-evaluates each second while any quote is live.
+    const timer = window.setInterval(() => setQuoteClock(platformNow()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [hasQuotes]);
+
+  const markets = useMemo(() => {
+    const base = snapshot ? overlaySnapshot(MARKETS, snapshot) : MARKETS;
+    if (!quotes) return base;
+    return base.map((market) => applyFirmQuotes(market, quotes.markets[market.id], quoteClock));
+  }, [snapshot, quotes, quoteClock]);
 
   const refresh = useCallback(() => loadRef.current(), []);
   const value = useMemo<MarketDataContextValue>(
-    () => ({ markets, snapshot, status, receivedAt, refresh }),
-    [markets, snapshot, status, receivedAt, refresh],
+    () => ({ markets, snapshot, status, receivedAt, refresh, quotes, quoteStatus }),
+    [markets, snapshot, status, receivedAt, refresh, quotes, quoteStatus],
   );
   return <MarketDataContext.Provider value={value}>{children}</MarketDataContext.Provider>;
 }
@@ -143,6 +180,12 @@ export function useMarketFeed(): {
     fees: snapshot?.fees ?? null,
     referenceCount: snapshot ? Object.keys(snapshot.references).length : 0,
   };
+}
+
+/** The firm quote stream: its connection state and the latest book of signed maker quotes. */
+export function useFirmQuotes(): { quotes: FirmQuoteBook | null; status: QuoteStreamStatus } {
+  const { quotes, quoteStatus } = useMarketDataContext();
+  return { quotes, status: quoteStatus };
 }
 
 /** Re-reads the feed now, for example right after the viewer's own order changes the book. */

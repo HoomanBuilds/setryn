@@ -1,6 +1,7 @@
 import { platformNow } from "@/lib/terminal/clock";
 import { clampToRange, deriveMarketReadings } from "@/lib/terminal/markets";
 import type { BookRow, PackageMarket, Qualification, RouteQuote } from "@/lib/terminal/types";
+import { firmQuoteRows, quoteExecutable, quoteSecondsLeft, type MarketQuoteState } from "@/lib/quotes/firm-quote";
 import type { LiveMarketData, MarketDataSnapshot, MarketFeeSchedule, ReferenceQuote } from "./types";
 
 /*
@@ -148,4 +149,58 @@ export function overlaySnapshot(markets: readonly PackageMarket[], snapshot: Mar
   const live = new Map(snapshot.markets.map((market) => [market.marketKey, market]));
   const context: LiveMarketContext = { references: snapshot.references, fees: snapshot.fees, asOf: snapshot.asOf };
   return markets.map((market) => applyLiveMarket(market, live.get(market.id), context));
+}
+
+/**
+ * Adds a market's firm streaming quotes to its book, best prices and routes. Quote rows are labelled STREAM_FIRM and
+ * keep their own expiry; a quote too close to its deadline stays visible but not executable, an expired one is gone,
+ * so the book never shows an expired quote as liquidity and never contradicts the quote route the ticket offers.
+ */
+export function applyFirmQuotes(market: PackageMarket, state: MarketQuoteState | null | undefined, nowMs: number): PackageMarket {
+  if (!state) return market;
+  const rows = firmQuoteRows(state, nowMs);
+  const book = rows.length > 0 ? [...rows, ...market.book] : market.book;
+  const executableAsks = book.filter((row) => row.side === "ASK" && row.executable).map((row) => row.price);
+  const executableBids = book.filter((row) => row.side === "BID" && row.executable).map((row) => row.price);
+  const ask = state.status === "FIRM" && state.ask && quoteExecutable(state.ask, nowMs) ? state.ask : null;
+  const bid = state.status === "FIRM" && state.bid && quoteExecutable(state.bid, nowMs) ? state.bid : null;
+  const routes = ask || bid ? [firmQuoteRoute(market, ask, bid, nowMs), ...market.routes] : market.routes;
+  return {
+    ...market,
+    book,
+    bestAsk: executableAsks.length > 0 ? Math.min(...executableAsks) : market.bestAsk,
+    bestBid: executableBids.length > 0 ? Math.max(...executableBids) : market.bestBid,
+    firmDepthLots: book.reduce((total, row) => total + (row.executable ? row.lots : 0), 0),
+    routes,
+    firmQuotes: state,
+  };
+}
+
+function firmQuoteRoute(
+  market: PackageMarket,
+  ask: MarketQuoteState["ask"],
+  bid: MarketQuoteState["bid"],
+  nowMs: number,
+): RouteQuote {
+  const ttl = Math.floor(Math.min(...[ask, bid].filter((quote) => quote !== null).map((quote) => quoteSecondsLeft(quote, nowMs))));
+  const protocolFeeBps = market.routes.find((route) => route.id === "DIRECT_BOOK")?.protocolFeeBps ?? Number.NaN;
+  return {
+    id: "FIRM_QUOTE",
+    label: "Firm maker quote",
+    source: "STREAM_FIRM",
+    enterPrice: ask ? ask.price : Number.NaN,
+    exitPrice: bid ? bid.price : Number.NaN,
+    protocolFeeBps,
+    counterpartyFeeBps: 0,
+    counterpartyFeeLabel: "Maker fee",
+    guarantee: "PACKAGE_ATOMIC",
+    etaLabel: "1 transaction",
+    availableLots: (ask?.lots ?? 0) + (bid?.lots ?? 0),
+    enterLots: ask?.lots ?? 0,
+    exitLots: bid?.lots ?? 0,
+    requiresPrivate: false,
+    intermediateExposureRate: 0,
+    collateralMultiple: 1,
+    note: `Signed by the designated maker and backed by its onchain capacity, valid ${ttl}s. You sign typed data; one transaction settles both sides, gasless through Setryn's relayer or from your wallet.`,
+  };
 }

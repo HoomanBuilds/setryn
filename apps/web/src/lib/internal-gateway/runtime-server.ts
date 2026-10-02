@@ -69,6 +69,8 @@ const OPTIONAL_ADDRESS_FIELDS = [
   "marketRegistry",
   "fixingAdapter",
   "riskAdapter",
+  "quoteSettlementRouter",
+  "streamCapacityManager",
 ] as const;
 /** Schema 11 top-level unix-second and count fields. */
 const OPTIONAL_TOP_INTEGER_FIELDS = ["listedAt", "referenceChainId", "deploymentBlock"] as const;

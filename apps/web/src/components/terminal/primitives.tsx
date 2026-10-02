@@ -8,6 +8,7 @@ export const SOURCE_LABEL: Record<LiquiditySource, string> = {
   DIRECT: "Direct",
   IMPLIED: "Implied",
   SOLVER_FIRM: "Solver",
+  STREAM_FIRM: "Maker stream",
 };
 
 export const FIRMNESS_LABEL: Record<Firmness, string> = {
@@ -38,6 +39,14 @@ export function SourceMark({ source }: { source: LiquiditySource }) {
     return (
       <svg width="7" height="7" viewBox="0 0 8 8" aria-hidden="true" className="shrink-0">
         <rect x="0.75" y="0.75" width="6.5" height="6.5" fill="none" stroke="currentColor" />
+      </svg>
+    );
+  }
+  if (source === "STREAM_FIRM") {
+    // A circle: signed offchain and streamed, settled only when taken.
+    return (
+      <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true" className="shrink-0">
+        <circle cx="4" cy="4" r="3.4" fill="currentColor" />
       </svg>
     );
   }
