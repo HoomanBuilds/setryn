@@ -1430,7 +1430,9 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const closedPosition = authorization.intent.side === "EXIT"
       ? this.snapshot.positions.find((candidate) => candidate.id === authorization.intent.closePositionId) ?? null
       : null;
-    const realizedPnlUsd = closedPosition ? await this.exitRealizedPnlUsd(closedPosition.id, fillId) : undefined;
+    const realizedPnlUsd = closedPosition
+      ? await this.exitRealizedPnlUsd(closedPosition.id, fillId, ledgerEvents)
+      : undefined;
     const receipt: ExecutionReceipt = {
       id: fillId,
       orderHash: authorization.orderHash,
@@ -1922,7 +1924,17 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const closedPosition = authorization.intent.side === "EXIT"
       ? this.snapshot.positions.find((candidate) => candidate.id === authorization.intent.closePositionId) ?? null
       : null;
-    const realizedPnlUsd = closedPosition ? await this.exitRealizedPnlUsd(closedPosition.id, body.fillId as Hex) : undefined;
+    let realizedPnlUsd: number | undefined;
+    if (closedPosition && this.publicClient) {
+      const exitReceipt = await this.publicClient.getTransactionReceipt({ hash: body.transactionHash as Hex });
+      const exitLedgerEvents = parseEventLogs({
+        abi: atomicClearingAbi,
+        eventName: "FillLedgerEntry",
+        logs: exitReceipt.logs,
+        strict: true,
+      });
+      realizedPnlUsd = await this.exitRealizedPnlUsd(closedPosition.id, body.fillId as Hex, exitLedgerEvents);
+    }
     const receipt: ExecutionReceipt = {
       id: body.fillId,
       orderHash: authorization.orderHash,
@@ -2547,21 +2559,28 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   }
 
   /** Realized PnL of a full exit: the account's net consideration over the fill that opened the position and the close fill. */
-  private async exitRealizedPnlUsd(closePositionId: string, exitFillId: Hex): Promise<number | undefined> {
+  private async exitRealizedPnlUsd(
+    closePositionId: string,
+    exitFillId: Hex,
+    exitLedgerEvents: readonly LedgerFlow[],
+  ): Promise<number | undefined> {
     if (!this.setryn || !this.publicClient || !this.walletAddress) return undefined;
-    const entryFillId = this.snapshot.executions.find((execution) => execution.result?.position?.id === closePositionId)
-      ?.result?.fillId as Hex | undefined;
-    if (!entryFillId) return undefined;
+    const entryExecution = this.snapshot.executions.find(
+      (execution) => execution.result?.position?.id === closePositionId,
+    );
+    const entryFillId = entryExecution?.result?.fillId as Hex | undefined;
+    const entryTransactionHash = entryExecution?.result?.receipt.transactionHash as Hex | undefined;
+    if (!entryFillId || !entryTransactionHash) return undefined;
     const accountId = await this.accountId(this.walletAddress);
-    const events = await this.publicClient.getContractEvents({
-      address: this.setryn.atomicClearingEngine,
+    const entryReceipt = await this.publicClient.getTransactionReceipt({ hash: entryTransactionHash });
+    const entryLedgerEvents = parseEventLogs({
       abi: atomicClearingAbi,
       eventName: "FillLedgerEntry",
-      args: { fillId: [entryFillId, exitFillId], kind: CONSIDERATION_ENTRY },
-      fromBlock: this.fromBlock(),
-      toBlock: "latest",
+      logs: entryReceipt.logs,
+      strict: true,
     });
-    return netConsiderationUsd(events, entryFillId, accountId) + netConsiderationUsd(events, exitFillId, accountId);
+    return netConsiderationUsd(entryLedgerEvents, entryFillId, accountId)
+      + netConsiderationUsd(exitLedgerEvents, exitFillId, accountId);
   }
 
   private async refreshActivity(): Promise<void> {
