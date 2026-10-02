@@ -16,6 +16,7 @@ import {ICollateralVault} from "../../src/interfaces/ICollateralVault.sol";
 import {IFeeScheduleRegistry} from "../../src/interfaces/IFeeScheduleRegistry.sol";
 import {IInstrumentRegistry} from "../../src/interfaces/IInstrumentRegistry.sol";
 import {IMarketRegistry} from "../../src/interfaces/IMarketRegistry.sol";
+import {IOffsetUnwindCoordinator} from "../../src/interfaces/IOffsetUnwindCoordinator.sol";
 import {IPortfolioRiskEngine} from "../../src/interfaces/IPortfolioRiskEngine.sol";
 import {IQuoteSettlementRouter} from "../../src/interfaces/IQuoteSettlementRouter.sol";
 import {IRiskDomainRegistry} from "../../src/interfaces/IRiskDomainRegistry.sol";
@@ -29,7 +30,15 @@ import {ExecutionPolicyRegistry} from "../../src/policy/ExecutionPolicyRegistry.
 import {RiskAdmissionBindingRegistry} from "../../src/policy/RiskAdmissionBindingRegistry.sol";
 import {StreamCapacityState} from "../../src/types/CapacityManagerTypes.sol";
 import {Side} from "../../src/types/Enums.sol";
-import {AccountId, AssetId, CollateralId, FillId, PackageId, SeriesId} from "../../src/types/Identifiers.sol";
+import {
+    AccountId,
+    AssetId,
+    CollateralId,
+    FillId,
+    PackageId,
+    PositionId,
+    SeriesId
+} from "../../src/types/Identifiers.sol";
 import {
     OrderActionId,
     OrderStatus,
@@ -46,6 +55,7 @@ import {
     SignedTakerOrder,
     TakerSettlementTerms
 } from "../../src/types/QuoteSettlementTypes.sol";
+import {PositionLifecycle, PositionStatus} from "../../src/types/PositionTypes.sol";
 import {OrderRiskAuthorization, RiskAdmissionId} from "../../src/types/RiskTypes.sol";
 import {SeriesDefinition} from "../../src/types/SeriesDefinition.sol";
 import {StreamId} from "../../src/types/StreamTypes.sol";
@@ -88,6 +98,7 @@ contract QuoteSettlementRouterIntegrationTest is Test {
     Trader internal maker;
     Trader internal alice;
     Trader internal relayer;
+    Trader internal bob;
     StreamId internal capacityId;
     uint256 internal nonce;
 
@@ -111,6 +122,7 @@ contract QuoteSettlementRouterIntegrationTest is Test {
         maker = _trader("quote-maker");
         alice = _trader("quote-alice");
         relayer = _trader("quote-relayer");
+        bob = _trader("quote-bob");
         capacityId = _openCapacity(perLot * 20, 1 hours);
     }
 
@@ -141,15 +153,79 @@ contract QuoteSettlementRouterIntegrationTest is Test {
         assertEq(d.streamCapacityManager.getStreamCapacity(capacityId).consumedSequence, 1);
     }
 
-    /// Exit uses the same path: the buyer later sells into the maker's bid quote.
-    function test_EntryAndExitSettleThroughTheSamePath() public {
-        vm.prank(bot);
-        router.settle(_settlement(_ask(5, ASK), alice, Side.Buy, 2, ASK, 0));
+    /// Exit uses the same path and is atomic: the buyer sells into the maker's bid naming its position, and the one
+    /// settlement transaction leaves it flat, both positions closed and both sides' collateral released.
+    function test_ExitClosesThePositionInTheSameTransaction() public {
+        CollateralId collateralId = d.collateralVault.deriveCollateralId(settlementAssetId, 1);
+        (, uint128 lockedBefore,) = d.collateralVault.balanceOf(alice.account, collateralId);
+        (, uint128 makerLockedBefore,) = d.collateralVault.balanceOf(maker.account, collateralId);
+        PositionId entry = _enter(alice, 2);
+
         vm.warp(block.timestamp + 5);
+        QuoteSettlement memory exit = _closing(_bid(5, BID), alice, Side.Sell, 2, BID, entry);
         vm.prank(bot);
-        FillId exitFill = router.settle(_settlement(_bid(5, BID), alice, Side.Sell, 2, BID, 0));
-        assertEq(d.atomicClearingEngine.fillPositions(exitFill).length, 1);
-        assertEq(d.streamCapacityManager.getStreamCapacity(capacityId).consumedSequence, 2);
+        uint256 gasBefore = gasleft();
+        FillId exitFill = router.settle(exit);
+        emit log_named_uint("exit settle gas", gasBefore - gasleft());
+
+        PositionId mirror = d.atomicClearingEngine.fillPositions(exitFill)[0];
+        (, PositionLifecycle memory closed) = d.positionEngine.getPosition(entry);
+        (, PositionLifecycle memory offset) = d.positionEngine.getPosition(mirror);
+        assertEq(uint8(closed.status), uint8(PositionStatus.ClosedByUnwind));
+        assertEq(uint8(offset.status), uint8(PositionStatus.ClosedByUnwind));
+        assertEq(Lots.unwrap(closed.remainingLots), 0);
+        assertEq(Lots.unwrap(offset.remainingLots), 0);
+        (, uint128 lockedAfter,) = d.collateralVault.balanceOf(alice.account, collateralId);
+        (, uint128 makerLockedAfter,) = d.collateralVault.balanceOf(maker.account, collateralId);
+        assertEq(lockedAfter, lockedBefore);
+        // The maker keeps only its capacity lock, drawn down by both fills.
+        assertEq(makerLockedAfter, makerLockedBefore - perLot * 4);
+    }
+
+    /// Without the maker's signed consent in its quote terms an exit does not happen, and nothing is left behind.
+    function test_ExitNeedsTheMakersConsent() public {
+        PositionId entry = _enter(alice, 2);
+        SignedMakerQuote memory quote = _quoteWith(Side.Buy, 5, BID, false);
+        QuoteSettlement memory exit = _closing(quote, alice, Side.Sell, 2, BID, entry);
+        vm.expectRevert(IQuoteSettlementRouter.OffsetUnwindNotConsented.selector);
+        vm.prank(bot);
+        router.settle(exit);
+        _assertUntouched(entry, quote);
+    }
+
+    /// An exit must mirror the whole position: a partial size, someone else's position, or the same side all revert
+    /// the entire settlement, so a failed exit never leaves the taker holding both positions.
+    function test_ExitThatIsNotAnExactMirrorRevertsWholly() public {
+        PositionId entry = _enter(alice, 2);
+
+        SignedMakerQuote memory partialQuote = _bid(5, BID);
+        QuoteSettlement memory partialExit = _closing(partialQuote, alice, Side.Sell, 1, BID, entry);
+        vm.expectRevert();
+        vm.prank(bot);
+        router.settle(partialExit);
+        _assertUntouched(entry, partialQuote);
+
+        SignedMakerQuote memory foreignQuote = _bid(5, BID);
+        QuoteSettlement memory foreignExit = _closing(foreignQuote, bob, Side.Sell, 2, BID, entry);
+        vm.expectRevert();
+        vm.prank(bot);
+        router.settle(foreignExit);
+        _assertUntouched(entry, foreignQuote);
+
+        SignedMakerQuote memory sameSideQuote = _ask(5, ASK);
+        QuoteSettlement memory sameSide = _closing(sameSideQuote, alice, Side.Buy, 2, ASK, entry);
+        vm.expectRevert();
+        vm.prank(bot);
+        router.settle(sameSide);
+        _assertUntouched(entry, sameSideQuote);
+    }
+
+    /// Only the router may unwind through the coordinator; no externally owned account can.
+    function test_OffsetUnwindIsRouterOnly() public {
+        PositionId entry = _enter(alice, 2);
+        vm.expectRevert();
+        vm.prank(bot);
+        d.offsetUnwindCoordinator.unwindOffset(entry, entry, alice.account, bytes32(uint256(1)));
     }
 
     function test_QuoteCannotSettleTwice() public {
@@ -256,11 +332,30 @@ contract QuoteSettlementRouterIntegrationTest is Test {
     }
 
     function _quote(Side side, uint128 lots, int128 price) internal returns (SignedMakerQuote memory quote) {
+        return _quoteWith(side, lots, price, true);
+    }
+
+    function _quoteWith(Side side, uint128 lots, int128 price, bool allowsOffsetUnwind)
+        internal
+        returns (SignedMakerQuote memory quote)
+    {
         quote.order = _order(maker, side, lots, price, TimeInForce.GTD, uint64(block.timestamp + 20));
         quote.orderSignature = _sign(maker, d.orderState.hashOrder(quote.order));
-        quote.terms = MakerQuoteTerms({capacityId: capacityId});
+        quote.terms = MakerQuoteTerms({capacityId: capacityId, allowsOffsetUnwind: allowsOffsetUnwind});
         quote.risk = _authorization(quote.order, router.hashMakerQuoteTerms(quote.terms));
         quote.riskSignature = _sign(maker, bindings.hashOrderRiskAuthorization(quote.risk));
+    }
+
+    function _enter(Trader memory taker, uint128 lots) internal returns (PositionId) {
+        vm.prank(bot);
+        FillId fillId = router.settle(_settlement(_ask(5, ASK), taker, Side.Buy, lots, ASK, 0));
+        return d.atomicClearingEngine.fillPositions(fillId)[0];
+    }
+
+    function _assertUntouched(PositionId position, SignedMakerQuote memory quote) internal view {
+        (, PositionLifecycle memory lifecycle) = d.positionEngine.getPosition(position);
+        assertEq(uint8(lifecycle.status), uint8(PositionStatus.Live));
+        assertEq(uint8(d.orderState.statusOf(d.orderState.hashOrder(quote.order))), uint8(OrderStatus.Unspecified));
     }
 
     function _settlement(
@@ -270,6 +365,29 @@ contract QuoteSettlementRouterIntegrationTest is Test {
         uint128 lots,
         int128 limit,
         uint128 maxRelayerFee
+    ) internal returns (QuoteSettlement memory) {
+        return _settlementFor(quote, taker, side, lots, limit, maxRelayerFee, PositionId.wrap(bytes32(0)));
+    }
+
+    function _closing(
+        SignedMakerQuote memory quote,
+        Trader memory taker,
+        Side side,
+        uint128 lots,
+        int128 limit,
+        PositionId closePositionId
+    ) internal returns (QuoteSettlement memory) {
+        return _settlementFor(quote, taker, side, lots, limit, 0, closePositionId);
+    }
+
+    function _settlementFor(
+        SignedMakerQuote memory quote,
+        Trader memory taker,
+        Side side,
+        uint128 lots,
+        int128 limit,
+        uint128 maxRelayerFee,
+        PositionId closePositionId
     ) internal returns (QuoteSettlement memory settlement) {
         SignedTakerOrder memory order;
         order.order = _order(taker, side, lots, limit, TimeInForce.FOK, uint64(block.timestamp + 60));
@@ -278,7 +396,8 @@ contract QuoteSettlementRouterIntegrationTest is Test {
             quoteOrderHash: d.orderState.hashOrder(quote.order),
             relayer: maxRelayerFee == 0 ? address(0) : relayer.signer,
             relayerAccountId: maxRelayerFee == 0 ? AccountId.wrap(bytes32(0)) : relayer.account,
-            maxRelayerFeeMinor: maxRelayerFee
+            maxRelayerFeeMinor: maxRelayerFee,
+            closePositionId: closePositionId
         });
         order.risk = _authorization(order.order, router.hashTakerSettlementTerms(order.terms));
         order.riskSignature = _sign(taker, bindings.hashOrderRiskAuthorization(order.risk));

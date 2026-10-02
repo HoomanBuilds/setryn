@@ -9,7 +9,7 @@ import {
     QuoteSettlementReceipt,
     TakerSettlementTerms
 } from "../types/QuoteSettlementTypes.sol";
-import {AccountId, FillId, SeriesId} from "../types/Identifiers.sol";
+import {AccountId, FillId, PositionId, SeriesId} from "../types/Identifiers.sol";
 import {StreamId} from "../types/StreamTypes.sol";
 
 /// @notice Permissionless settlement of offchain firm quotes. Makers lock capacity occasionally and stream signed
@@ -33,6 +33,8 @@ interface IQuoteSettlementRouter {
     error RelayerFeeAboveMaximum(uint128 maximum, uint128 charged);
     error RelayerAccountMismatch(AccountId relayerAccountId);
     error SettlementFillMismatch(FillId expected, FillId actual);
+    error OffsetUnwindNotConsented();
+    error UnexpectedFillPositions(FillId fillId, uint256 count);
 
     event QuoteCapacityOpened(
         StreamId indexed capacityId,

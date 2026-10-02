@@ -107,6 +107,7 @@ import {CashSettlementCoordinator} from "../src/settlement/CashSettlementCoordin
 import {PositionLifecycleExecutor} from "../src/lifecycle/PositionLifecycleExecutor.sol";
 import {SignedLifecycleEngine} from "../src/lifecycle/SignedLifecycleEngine.sol";
 import {CompressionCoordinator} from "../src/lifecycle/CompressionCoordinator.sol";
+import {OffsetUnwindCoordinator} from "../src/lifecycle/OffsetUnwindCoordinator.sol";
 import {PrivacyCommitmentRegistry} from "../src/privacy/PrivacyCommitmentRegistry.sol";
 import {IRegistryStatusController} from "../src/interfaces/IRegistryStatusController.sol";
 import {RegistryStatusController} from "../src/policy/RegistryStatusController.sol";
@@ -199,6 +200,7 @@ contract DeploySetryn is ArtifactDeployer {
         LifecyclePolicyValidator lifecyclePolicyValidator;
         SignedLifecycleEngine signedLifecycleEngine;
         CompressionCoordinator compressionCoordinator;
+        OffsetUnwindCoordinator offsetUnwindCoordinator;
         DefaultBidderGate defaultBidderGate;
         DefaultProcessEngine defaultProcessEngine;
         CashSettlementCoordinator cashSettlementCoordinator;
@@ -702,6 +704,12 @@ contract DeploySetryn is ArtifactDeployer {
                 )
             )
         );
+        deployment.offsetUnwindCoordinator = OffsetUnwindCoordinator(
+            _create(
+                "OffsetUnwindCoordinator",
+                abi.encode(config.defaultAdminDelay, config.bootstrapAdmin, deployment.signedLifecycleEngine)
+            )
+        );
         deployment.defaultBidderGate = DefaultBidderGate(
             _create(
                 "DefaultBidderGate",
@@ -973,7 +981,10 @@ contract DeploySetryn is ArtifactDeployer {
             _create("StreamingQuoteEngine", abi.encode(d.atomicClearingEngine, d.streamCapacityManager))
         );
         d.quoteSettlementRouter = QuoteSettlementRouter(
-            _create("QuoteSettlementRouter", abi.encode(d.atomicClearingEngine, d.streamCapacityManager))
+            _create(
+                "QuoteSettlementRouter",
+                abi.encode(d.atomicClearingEngine, d.streamCapacityManager, d.offsetUnwindCoordinator)
+            )
         );
         d.batchClearingEngine = BatchClearingEngine(
             _create(
@@ -1223,6 +1234,8 @@ contract DeploySetryn is ArtifactDeployer {
         d.portfolioRiskEngine.grantRole(d.portfolioRiskEngine.RISK_CONSUMER_ROLE(), quoteRouter);
         d.collateralVault.grantRole(d.collateralVault.COLLATERAL_LOCKER_ROLE(), quoteRouter);
         d.collateralVault.grantRole(d.collateralVault.COLLATERAL_SETTLER_ROLE(), quoteRouter);
+        // Exits close the taker's position and the fill's mirror of it in the settlement transaction.
+        d.offsetUnwindCoordinator.grantRole(d.offsetUnwindCoordinator.OFFSET_UNWINDER_ROLE(), quoteRouter);
         d.streamCapacityManager.revokeRole(d.streamCapacityManager.STREAM_ENGINE_ROLE(), bootstrap);
         d.batchCapacityManager.grantRole(d.batchCapacityManager.BATCH_ENGINE_ROLE(), address(d.batchClearingEngine));
         d.batchCapacityManager.revokeRole(d.batchCapacityManager.BATCH_ENGINE_ROLE(), bootstrap);
@@ -1332,6 +1345,13 @@ contract DeploySetryn is ArtifactDeployer {
             .grantRole(
                 deployment.positionLifecycleExecutor.COMPRESSION_COORDINATOR_ROLE(),
                 address(deployment.compressionCoordinator)
+            );
+        // The offset unwind coordinator executes full unwinds of exact mirror pairs through the same executor entry
+        // as the signed lifecycle engine; it accepts nothing else.
+        deployment.positionLifecycleExecutor
+            .grantRole(
+                deployment.positionLifecycleExecutor.SIGNED_LIFECYCLE_ENGINE_ROLE(),
+                address(deployment.offsetUnwindCoordinator)
             );
         deployment.positionLifecycleExecutor
             .grantRole(
@@ -1458,6 +1478,7 @@ contract DeploySetryn is ArtifactDeployer {
         _beginAdminTransfer(address(d.positionLifecycleExecutor), governanceAdmin);
         _beginAdminTransfer(address(d.signedLifecycleEngine), governanceAdmin);
         _beginAdminTransfer(address(d.compressionCoordinator), governanceAdmin);
+        _beginAdminTransfer(address(d.offsetUnwindCoordinator), governanceAdmin);
         _beginAdminTransfer(address(d.privacyCommitmentRegistry), governanceAdmin);
         _beginAdminTransfer(address(d.executionPolicyRegistry), governanceAdmin);
         _beginAdminTransfer(address(d.orderState), governanceAdmin);
@@ -1673,6 +1694,7 @@ contract DeploySetryn is ArtifactDeployer {
         console2.log("LifecyclePolicyValidator", address(deployment.lifecyclePolicyValidator));
         console2.log("SignedLifecycleEngine", address(deployment.signedLifecycleEngine));
         console2.log("CompressionCoordinator", address(deployment.compressionCoordinator));
+        console2.log("OffsetUnwindCoordinator", address(deployment.offsetUnwindCoordinator));
         console2.log("DefaultBidderGate", address(deployment.defaultBidderGate));
         console2.log("DefaultProcessEngine", address(deployment.defaultProcessEngine));
         console2.log("CashSettlementCoordinator", address(deployment.cashSettlementCoordinator));

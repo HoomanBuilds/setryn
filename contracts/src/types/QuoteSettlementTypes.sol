@@ -2,7 +2,7 @@
 pragma solidity 0.8.37;
 
 import {Side} from "./Enums.sol";
-import {AccountId, FillId, SeriesId} from "./Identifiers.sol";
+import {AccountId, FillId, PositionId, SeriesId} from "./Identifiers.sol";
 import {PublicOrder} from "./OrderTypes.sol";
 import {OrderRiskAuthorization, RiskAdmissionId} from "./RiskTypes.sol";
 import {StreamId} from "./StreamTypes.sol";
@@ -25,19 +25,24 @@ struct QuoteCapacityTerms {
 
 /// @notice The router-side terms of a maker quote. Their hash is the `binderTerms` of the maker's risk authorization,
 /// so the maker's one authorization signature commits the quote to this capacity and to this router.
+/// `allowsOffsetUnwind` is the maker's consent that a taker may use this quote to exit a position it holds against the
+/// maker: the fill's mirror position and the taker's position are closed together in the same transaction.
 struct MakerQuoteTerms {
     StreamId capacityId;
+    bool allowsOffsetUnwind;
 }
 
 /// @notice The router-side terms of a taker order. Their hash is the `binderTerms` of the taker's risk authorization.
 /// `quoteOrderHash` pins the one maker quote accepted (zero accepts any compatible quote at or inside the taker's limit);
 /// `relayer` restricts the submitter (zero lets anyone submit); the relayer fee is charged to the taker's account and
-/// paid to `relayerAccountId`, never above `maxRelayerFeeMinor`.
+/// paid to `relayerAccountId`, never above `maxRelayerFeeMinor`. A non-zero `closePositionId` makes the settlement a
+/// full exit: the fill must exactly mirror that position, and both are closed in the same transaction or nothing is.
 struct TakerSettlementTerms {
     bytes32 quoteOrderHash;
     address relayer;
     AccountId relayerAccountId;
     uint128 maxRelayerFeeMinor;
+    PositionId closePositionId;
 }
 
 /// @notice A firm maker quote as streamed offchain: the maker's signed public order (its price, size, expiry, nonce and
@@ -101,4 +106,8 @@ struct QuoteSettlementReceipt {
     address submitter;
     AccountId relayerAccountId;
     uint128 relayerFeeMinor;
+    /// @dev The position the fill opened; on an exit it is closed in the same transaction together with
+    /// `closedPositionId`, which is zero on an entry.
+    PositionId fillPositionId;
+    PositionId closedPositionId;
 }

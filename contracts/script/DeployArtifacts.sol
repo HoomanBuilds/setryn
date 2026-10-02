@@ -187,6 +187,7 @@ library DeployArtifacts {
         }
         if (key == keccak256("MarketRegistry")) return "MarketRegistry.sol:MarketRegistry";
         if (key == keccak256("NdfPayoffModule")) return "ProductionPayoffModules.sol:NdfPayoffModule";
+        if (key == keccak256("OffsetUnwindCoordinator")) return "OffsetUnwindCoordinator.sol:OffsetUnwindCoordinator";
         if (key == keccak256("OperationalAdapterExecutor")) {
             return "OperationalAdapterExecutor.sol:OperationalAdapterExecutor";
         }

@@ -7,6 +7,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IAtomicClearingEngine} from "../interfaces/IAtomicClearingEngine.sol";
 import {ICollateralVault} from "../interfaces/ICollateralVault.sol";
 import {IMarketRegistry} from "../interfaces/IMarketRegistry.sol";
+import {IOffsetUnwindCoordinator} from "../interfaces/IOffsetUnwindCoordinator.sol";
 import {IOrderState} from "../interfaces/IOrderState.sol";
 import {IPortfolioRiskEngine} from "../interfaces/IPortfolioRiskEngine.sol";
 import {IQuoteSettlementRouter} from "../interfaces/IQuoteSettlementRouter.sol";
@@ -58,6 +59,10 @@ interface ICapacityVaultSource {
     function collateralVault() external view returns (ICollateralVault);
 }
 
+interface IOffsetPositionSource {
+    function positionSource() external view returns (address);
+}
+
 /// @notice Settles offchain firm quotes in one permissionless, atomic transaction.
 ///
 /// @dev A maker locks collateral once per series through `openQuoteCapacity` (the stream capacity manager holds the
@@ -72,13 +77,19 @@ interface ICapacityVaultSource {
 ///
 /// @dev A quote settles at most once: its order is registered by the first settlement, and the maker admission is
 /// sized to that fill and fully consumed by it. The same holds for the taker order. Re-quoting is free offchain.
+///
+/// @dev Entry and exit take the same path. A taker exits a position held against the quote's maker by naming it in its
+/// signed settlement terms; when the maker's signed quote terms allow it, the fill's mirror position and the named
+/// position are closed together through the offset unwind coordinator in the same transaction, so an exit either
+/// leaves the taker flat or does not happen at all.
 contract QuoteSettlementRouter is IQuoteSettlementRouter, ReentrancyGuard {
     bytes32 private constant CAPACITY_TERMS_TYPEHASH = keccak256(
         "SetrynQuoteCapacityV1(address maker,bytes32 makerAccountId,bytes32 seriesId,uint32 seriesVersion,uint128 maximumLiability,uint128 liabilityPerLot,uint128 maximumAbsoluteInventoryLots,uint64 expiry,uint256 nonce)"
     );
-    bytes32 private constant MAKER_QUOTE_TERMS_TYPEHASH = keccak256("SetrynMakerQuoteTermsV1(bytes32 capacityId)");
+    bytes32 private constant MAKER_QUOTE_TERMS_TYPEHASH =
+        keccak256("SetrynMakerQuoteTermsV1(bytes32 capacityId,bool allowsOffsetUnwind)");
     bytes32 private constant TAKER_SETTLEMENT_TERMS_TYPEHASH = keccak256(
-        "SetrynTakerSettlementTermsV1(bytes32 quoteOrderHash,address relayer,bytes32 relayerAccountId,uint128 maxRelayerFeeMinor)"
+        "SetrynTakerSettlementTermsV1(bytes32 quoteOrderHash,address relayer,bytes32 relayerAccountId,uint128 maxRelayerFeeMinor,bytes32 closePositionId)"
     );
     bytes32 private constant CAPACITY_ID_TAG = keccak256("SETRYN_QUOTE_CAPACITY_ID_V1");
     bytes32 private constant RISK_NONCE_TAG = keccak256("SETRYN_QUOTE_RISK_NONCE_V1");
@@ -96,6 +107,7 @@ contract QuoteSettlementRouter is IQuoteSettlementRouter, ReentrancyGuard {
     ISeriesRegistry public immutable seriesRegistry;
     IMarketRegistry public immutable marketRegistry;
     ICollateralVault public immutable collateralVault;
+    IOffsetUnwindCoordinator public immutable offsetUnwinder;
 
     mapping(StreamId capacityId => QuoteCapacityRecord record) private _capacities;
     mapping(address maker => mapping(uint256 nonce => bool used)) private _usedCapacityNonces;
@@ -117,11 +129,21 @@ contract QuoteSettlementRouter is IQuoteSettlementRouter, ReentrancyGuard {
         bytes32 makerResultHash;
         RiskAdmissionId takerAdmissionId;
         bytes32 takerResultHash;
+        PositionId fillPositionId;
     }
 
-    constructor(IAtomicClearingEngine clearingEngine_, IStreamCapacityManager capacityManager_) {
+    constructor(
+        IAtomicClearingEngine clearingEngine_,
+        IStreamCapacityManager capacityManager_,
+        IOffsetUnwindCoordinator offsetUnwinder_
+    ) {
         _requireDependency(address(clearingEngine_));
         _requireDependency(address(capacityManager_));
+        _requireDependency(address(offsetUnwinder_));
+        // Exits close positions of the same engine the clearing engine opens them in.
+        _requireSame(
+            address(clearingEngine_.positionEngine()), IOffsetPositionSource(address(offsetUnwinder_)).positionSource()
+        );
         IOrderState orderState_ = clearingEngine_.orderState();
         IRiskAdmissionBindingRegistry riskBindings_ =
             IRiskBindingsSource(address(clearingEngine_.admissionGate())).riskBindings();
@@ -146,6 +168,7 @@ contract QuoteSettlementRouter is IQuoteSettlementRouter, ReentrancyGuard {
         seriesRegistry = seriesRegistry_;
         marketRegistry = seriesRegistry_.marketRegistry();
         collateralVault = collateralVault_;
+        offsetUnwinder = offsetUnwinder_;
     }
 
     // ------------------------------------------------------------------------------------------------------------
@@ -246,6 +269,15 @@ contract QuoteSettlementRouter is IQuoteSettlementRouter, ReentrancyGuard {
         if (FillId.unwrap(fillId) != FillId.unwrap(context.fillId)) {
             revert SettlementFillMismatch(context.fillId, fillId);
         }
+        PositionId[] memory created = clearingEngine.fillPositions(fillId);
+        if (created.length != 1) revert UnexpectedFillPositions(fillId, created.length);
+        context.fillPositionId = created[0];
+        // An exit closes the named position and the fill's mirror of it together; the coordinator accepts only an
+        // exact mirror, so the taker ends flat against this maker or the whole settlement reverts.
+        PositionId closePositionId = settlement.taker.terms.closePositionId;
+        if (PositionId.unwrap(closePositionId) != bytes32(0)) {
+            offsetUnwinder.unwindOffset(closePositionId, context.fillPositionId, taker.accountId, FillId.unwrap(fillId));
+        }
         _payRelayer(settlement, context, fillId);
         _emitSettled(settlement, context, fillId);
     }
@@ -270,7 +302,10 @@ contract QuoteSettlementRouter is IQuoteSettlementRouter, ReentrancyGuard {
     }
 
     function hashMakerQuoteTerms(MakerQuoteTerms calldata terms) public pure returns (bytes32) {
-        return keccak256(abi.encode(MAKER_QUOTE_TERMS_TYPEHASH, StreamId.unwrap(terms.capacityId)));
+        return
+            keccak256(
+                abi.encode(MAKER_QUOTE_TERMS_TYPEHASH, StreamId.unwrap(terms.capacityId), terms.allowsOffsetUnwind)
+            );
     }
 
     function hashTakerSettlementTerms(TakerSettlementTerms calldata terms) public pure returns (bytes32) {
@@ -280,7 +315,8 @@ contract QuoteSettlementRouter is IQuoteSettlementRouter, ReentrancyGuard {
                 terms.quoteOrderHash,
                 terms.relayer,
                 AccountId.unwrap(terms.relayerAccountId),
-                terms.maxRelayerFeeMinor
+                terms.maxRelayerFeeMinor,
+                PositionId.unwrap(terms.closePositionId)
             )
         );
     }
@@ -338,6 +374,9 @@ contract QuoteSettlementRouter is IQuoteSettlementRouter, ReentrancyGuard {
         }
         if (settlement.relayerFeeMinor > terms.maxRelayerFeeMinor) {
             revert RelayerFeeAboveMaximum(terms.maxRelayerFeeMinor, settlement.relayerFeeMinor);
+        }
+        if (PositionId.unwrap(terms.closePositionId) != bytes32(0) && !settlement.quote.terms.allowsOffsetUnwind) {
+            revert OffsetUnwindNotConsented();
         }
 
         SeriesVersion memory series = seriesRegistry.getSeries(maker.seriesId, maker.targetVersion);
@@ -517,7 +556,9 @@ contract QuoteSettlementRouter is IQuoteSettlementRouter, ReentrancyGuard {
                 relayerAccountId: settlement.relayerFeeMinor == 0
                     ? AccountId.wrap(bytes32(0))
                     : settlement.taker.terms.relayerAccountId,
-                relayerFeeMinor: settlement.relayerFeeMinor
+                relayerFeeMinor: settlement.relayerFeeMinor,
+                fillPositionId: context.fillPositionId,
+                closedPositionId: settlement.taker.terms.closePositionId
             })
         );
     }
