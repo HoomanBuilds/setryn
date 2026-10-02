@@ -45,12 +45,7 @@ import {
     QuoteSettlementReceipt,
     TakerSettlementTerms
 } from "../types/QuoteSettlementTypes.sol";
-import {
-    PortfolioPositionWitness,
-    RiskAdmissionId,
-    RiskAdmissionRequest,
-    RiskObservation
-} from "../types/RiskTypes.sol";
+import {PortfolioPositionWitness, RiskAdmissionId, RiskAdmissionRequest, RiskObservation} from "../types/RiskTypes.sol";
 import {SeriesVersion} from "../types/SeriesDefinition.sol";
 import {StreamCapacityConsumption, StreamId, StreamPolicy} from "../types/StreamTypes.sol";
 import {Lots, PriceTicks} from "../types/Units.sol";
@@ -138,7 +133,9 @@ contract QuoteSettlementRouter is IQuoteSettlementRouter, ReentrancyGuard {
         IPortfolioRiskEngine riskEngine_ = clearingEngine_.riskEngine();
         _requireSame(address(riskEngine_), address(riskBindings_.riskEngine()));
         ICollateralVault collateralVault_ = clearingEngine_.collateralVault();
-        _requireSame(address(collateralVault_), address(ICapacityVaultSource(address(capacityManager_)).collateralVault()));
+        _requireSame(
+            address(collateralVault_), address(ICapacityVaultSource(address(capacityManager_)).collateralVault())
+        );
         ISeriesRegistry seriesRegistry_ = clearingEngine_.seriesRegistry();
 
         clearingEngine = clearingEngine_;
@@ -230,10 +227,12 @@ contract QuoteSettlementRouter is IQuoteSettlementRouter, ReentrancyGuard {
         // position's liability from it. The fill id is fixed by the two fresh orders, so it is known in advance.
         _drawCapacity(settlement, context);
 
-        (context.makerAdmissionId, context.makerResultHash) =
-            _reserveRisk(maker, context.makerHash, settlement.fillLots, maker.priceTicks, context.makerLiability, context);
-        (context.takerAdmissionId, context.takerResultHash) =
-            _reserveRisk(taker, context.takerHash, settlement.fillLots, maker.priceTicks, context.takerLiability, context);
+        (context.makerAdmissionId, context.makerResultHash) = _reserveRisk(
+            maker, context.makerHash, settlement.fillLots, maker.priceTicks, context.makerLiability, context
+        );
+        (context.takerAdmissionId, context.takerResultHash) = _reserveRisk(
+            taker, context.takerHash, settlement.fillLots, maker.priceTicks, context.takerLiability, context
+        );
         riskBindings.bindOrderRiskWithAuthorization(
             maker, context.makerAdmissionId, settlement.quote.risk, settlement.quote.riskSignature
         );
@@ -244,7 +243,9 @@ contract QuoteSettlementRouter is IQuoteSettlementRouter, ReentrancyGuard {
         orderState.registerSignedOrder(taker, settlement.taker.orderSignature);
 
         fillId = clearingEngine.clearSeries(_clearingRequest(settlement, context));
-        if (FillId.unwrap(fillId) != FillId.unwrap(context.fillId)) revert SettlementFillMismatch(context.fillId, fillId);
+        if (FillId.unwrap(fillId) != FillId.unwrap(context.fillId)) {
+            revert SettlementFillMismatch(context.fillId, fillId);
+        }
         _payRelayer(settlement, context, fillId);
         _emitSettled(settlement, context, fillId);
     }
@@ -469,8 +470,10 @@ contract QuoteSettlementRouter is IQuoteSettlementRouter, ReentrancyGuard {
         if (fee == 0) return;
         AccountId recipient = settlement.taker.terms.relayerAccountId;
         (address controller,) = collateralVault.getAccount(recipient);
-        if (controller == address(0) || AccountId.unwrap(recipient) == AccountId.unwrap(settlement.taker.order.accountId))
-        {
+        if (
+            controller == address(0)
+                || AccountId.unwrap(recipient) == AccountId.unwrap(settlement.taker.order.accountId)
+        ) {
             revert RelayerAccountMismatch(recipient);
         }
         CollateralLockId lockId = collateralVault.createLock(

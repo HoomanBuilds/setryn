@@ -214,7 +214,9 @@ contract QuoteSettlementRouterIntegrationTest is Test {
         router.settle(settlement);
 
         settlement.relayerFeeMinor = 50_000;
-        vm.expectRevert(abi.encodeWithSelector(IQuoteSettlementRouter.RelayerNotAuthorized.selector, relayer.signer, bot));
+        vm.expectRevert(
+            abi.encodeWithSelector(IQuoteSettlementRouter.RelayerNotAuthorized.selector, relayer.signer, bot)
+        );
         vm.prank(bot);
         router.settle(settlement);
 
@@ -311,10 +313,8 @@ contract QuoteSettlementRouterIntegrationTest is Test {
             timeInForce: tif,
             deadline: deadline,
             executionModeId: EXECUTION_MODE_PUBLIC_BOOK,
-            feeScheduleId: d.marketRegistry
-                .getMarket(d.seriesRegistry.getSeries(seriesId, 1).definition.marketId, 1)
-                .definition
-                .feeScheduleId,
+            feeScheduleId: d.marketRegistry.getMarket(d.seriesRegistry.getSeries(seriesId, 1).definition.marketId, 1)
+                .definition.feeScheduleId,
             feeScheduleVersion: 1,
             maxFeeMinor: MAX_FEE,
             recipient: trader.signer,

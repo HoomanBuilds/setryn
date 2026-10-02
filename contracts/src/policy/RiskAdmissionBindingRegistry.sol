@@ -139,9 +139,10 @@ contract RiskAdmissionBindingRegistry is IRiskAdmissionBindingRegistry {
                 || admission.terminalLiabilityBaseUnits > authorization.maxTerminalLiabilityBaseUnits
                 || admission.deadline > authorization.maxAdmissionDeadline
         ) revert InvalidRiskAuthorization();
-        if (!SignatureChecker.isValidSignatureNowCalldata(
-                order.signer, _authorizationDigest(authorization), signature
-            )) revert InvalidRiskAuthorization();
+        if (!SignatureChecker.isValidSignatureNowCalldata(order.signer, _authorizationDigest(authorization), signature))
+        {
+            revert InvalidRiskAuthorization();
+        }
         _usedAuthorizationNonces[order.signer][authorization.nonce] = true;
         _bind(orderHash, admissionId, order);
         emit OrderRiskAuthorizationUsed(
