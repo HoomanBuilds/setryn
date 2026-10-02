@@ -307,6 +307,48 @@ bootstrap registers as the publisher. The worker prices with the runtime's `pric
 zero terminal debit; such a long cannot back a private RFQ quote (whose liability must be positive), so the solver
 quotes only the short side. The first listed expiry is in late December.
 
+Maker refresher. With no page connected, maker quotes expire after 290 seconds because each risk reservation admits
+deadlines up to the immutable 300 second risk window, so books empty until the next visit. The maker refresher closes
+that gap for the nearest expiry only: `scripts/run-sepolia-maker-refresh.mjs` selects the nearest currently tradable
+market per underlying from `runtime.json` (both `lastTradingAt` and `expiryAt` in the future, earliest expiry per
+`underlying`, sorted by underlying), then refreshes exactly one selection per run in round-robin order through Vercel
+`POST /api/internal/operator/liquidity` with `{ "marketId": "<marketKey>" }`. Only the nearest expiry per underlying
+is continuously maintained because each onchain refresh signs, reserves risk, and rests two sides inside the fixed 300
+second window; cycling every expiry would let quotes lapse. Other expiries remain on-demand through the trading app
+full refresh on connect and single-market refresh on an empty book.
+
+Environment (`/etc/setryn/maker-refresh.env`, mode 600):
+
+```bash
+SETRYN_PUBLIC_ORIGIN=https://<vercel-app>
+# Optional overrides:
+# SETRYN_RUNTIME_PATH=/home/ubuntu/setryn/deployments/arbitrum-sepolia/runtime.json
+# SETRYN_MAKER_REFRESH_STATE_PATH=/var/lib/setryn/maker-refresh.cursor
+```
+
+Install on the Ubuntu host that holds the checkout at `/home/ubuntu/setryn`:
+
+```bash
+sudo install -m 644 deploy/systemd/setryn-maker-refresh.service deploy/systemd/setryn-maker-refresh.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now setryn-maker-refresh.timer
+```
+
+Both the maker refresher and the daily operator wrap their node command with
+`/usr/bin/flock --wait 180 /run/lock/setryn-wallet.lock`, so the two signers never run concurrently. The refresher
+writes the next round-robin cursor before its 55 second `no-store` request, so one failing market does not starve the
+others; a run fails on non-2xx, nonempty `failed` or `pending`, or when the requested market is absent from `markets`.
+
+Status and logs:
+
+```bash
+systemctl status setryn-maker-refresh.timer
+systemctl list-timers setryn-maker-refresh.timer setryn-operator.timer
+journalctl -u setryn-maker-refresh.service -n 50
+journalctl -u setryn-operator.service -n 50
+cat /var/lib/setryn/maker-refresh.cursor
+```
+
 Fee updates. On public chains `UpdateFeeSchedule.s.sol` never broadcasts; it prints the unsigned calls (qualifier
 registration, witness install, and the governance `govern` calls that deprecate the active version and activate the new
 one). Retiring a fee version closes every market pinned to it, so successor market and series versions must be

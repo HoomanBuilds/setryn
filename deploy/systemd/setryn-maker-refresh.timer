@@ -1,0 +1,12 @@
+[Unit]
+Description=Setryn Arbitrum Sepolia maker refresh timer
+
+[Timer]
+OnBootSec=1min
+OnUnitInactiveSec=5s
+AccuracySec=1s
+Persistent=true
+Unit=setryn-maker-refresh.service
+
+[Install]
+WantedBy=timers.target

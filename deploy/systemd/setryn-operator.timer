@@ -1,5 +1,5 @@
 [Unit]
-Description=Run the Setryn Arbitrum Sepolia operator every five minutes
+Description=Run the Setryn Arbitrum Sepolia operator daily
 
 [Timer]
 OnCalendar=*-*-* 00:05:00 UTC
