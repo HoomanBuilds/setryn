@@ -110,16 +110,25 @@ export class AdvisoryLockTimeoutError extends Error {
  * Runs `work` while holding a transaction-scoped Postgres advisory lock named for this scope, so one critical section
  * runs at a time across every server instance sharing the database. The lock needs no table; it is released when the
  * transaction ends, including when `work` throws or the connection drops. Waiting longer than `timeoutMs` throws
- * AdvisoryLockTimeoutError.
+ * AdvisoryLockTimeoutError. `idleTimeoutMs` can bound a lock held by work that is suspended outside Postgres.
  */
-export async function withAdvisoryLock<T>(name: string, work: () => Promise<T>, timeoutMs = 25_000): Promise<T> {
+export async function withAdvisoryLock<T>(
+  name: string,
+  work: () => Promise<T>,
+  timeoutMs = 25_000,
+  idleTimeoutMs?: number,
+): Promise<T> {
   if (!NAME.test(name)) throw new Error(`invalid Setryn advisory lock name ${name}`);
   const key = `${databaseScope()}:${name}`;
   const timeout = `${Math.max(1, Math.round(timeoutMs))}ms`;
+  const idleTimeout = idleTimeoutMs === undefined ? null : `${Math.max(1, Math.round(idleTimeoutMs))}ms`;
   let acquired = false;
   try {
     const result = await database().begin(async (transaction) => {
       await transaction`select set_config('lock_timeout', ${timeout}, true)`;
+      if (idleTimeout !== null) {
+        await transaction`select set_config('idle_in_transaction_session_timeout', ${idleTimeout}, true)`;
+      }
       await transaction`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
       acquired = true;
       return { value: await work() };

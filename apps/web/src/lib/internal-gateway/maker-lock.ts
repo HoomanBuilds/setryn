@@ -13,6 +13,8 @@ const LOCK_KEY = Symbol.for("setryn.maker-lock");
 const ADVISORY_LOCK_NAME = "designated-maker";
 /** How long a critical section waits for another instance before giving up with MAKER_BUSY. */
 const ADVISORY_LOCK_TIMEOUT_MS = 25_000;
+/** Releases a database lock if a serverless instance freezes while waiting on an external RPC. */
+const ADVISORY_LOCK_IDLE_TIMEOUT_MS = 60_000;
 
 type LockHolder = { [LOCK_KEY]?: Promise<unknown> };
 
@@ -21,7 +23,7 @@ export async function withMakerLock<T>(work: () => Promise<T>): Promise<T> {
   const previous = holder[LOCK_KEY] ?? Promise.resolve();
   const guarded = databaseConfigured()
     ? () =>
-        withAdvisoryLock(ADVISORY_LOCK_NAME, work, ADVISORY_LOCK_TIMEOUT_MS).catch((error: unknown) => {
+        withAdvisoryLock(ADVISORY_LOCK_NAME, work, ADVISORY_LOCK_TIMEOUT_MS, ADVISORY_LOCK_IDLE_TIMEOUT_MS).catch((error: unknown) => {
           if (error instanceof Error && error.message.startsWith("ADVISORY_LOCK_TIMEOUT")) throw new Error("MAKER_BUSY");
           throw error;
         })
