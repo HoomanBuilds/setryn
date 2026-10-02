@@ -198,7 +198,28 @@ cast calldata "acceptController(bytes32)" "$(jq -r .feeRecipientAccountId deploy
 # send to $(jq -r .collateralVault deployments/arbitrum-sepolia/runtime.json) from SETRYN_TREASURY_CONTROLLER
 ```
 
-Governance should also accept the pending default admin transfers DeploySetryn began (after `SETRYN_DEFAULT_ADMIN_DELAY`).
+### 6. Governance handoff
+
+DeploySetryn begins delayed default-admin transfers to `SETRYN_GOVERNANCE_ADMIN`. Inspect every compatible deployed
+contract without signing or broadcasting:
+
+```bash
+set -a; source .env.arbitrum-sepolia; set +a
+./scripts/accept-sepolia-admin-transfers.sh
+```
+
+The command reports transfers that are already accepted, ready, or still waiting for their acceptance schedule. It
+refuses unexpected administrators and every chain except Arbitrum Sepolia. After all schedules have elapsed, unlock the
+`setryn-governance` Foundry keystore through the environment and explicitly broadcast:
+
+```bash
+export ETH_PASSWORD="$SETRYN_TESTNET_KEYSTORE_PASSWORD"
+./scripts/accept-sepolia-admin-transfers.sh --broadcast
+unset ETH_PASSWORD
+```
+
+The broadcast is idempotent: already accepted contracts are skipped, every receipt is awaited, and each resulting
+`defaultAdmin` is checked against `SETRYN_GOVERNANCE_ADMIN`.
 
 ## Web app
 
