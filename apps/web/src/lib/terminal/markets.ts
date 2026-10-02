@@ -1,3 +1,4 @@
+import { cappedForwardMark } from "@/lib/pricing/mark";
 import catalogJson from "./catalog.generated.json";
 import { rangeForwardValue, referencePairLabel } from "@/lib/market-data/analytics";
 import type { PackageLeg, PackageMarket, PayoffPoint, Qualification, StrategyKind } from "./types";
@@ -197,7 +198,13 @@ function buildMarket(entry: CatalogMarket): PackageMarket {
   const qualification: Qualification = "QUALIFIED";
   const bounds = { floor: entry.floor, cap: entry.cap, tickSize, priceDecimals: entry.priceDecimals };
   const listingReference = entry.referencePrice ?? Number.NaN;
-  const mark = clampToRange(bounds, listingReference);
+  // Marked with the platform model at the listing's own reading and time, so the static catalog is deterministic.
+  const listed = cappedForwardMark(
+    { ...bounds, underlying: entry.underlying, expiryAt: entry.expiryAt },
+    listingReference,
+    entry.referenceAt ?? Number.NaN,
+  );
+  const mark = listed?.price ?? Number.NaN;
   const name = entry.displayName.split(" · ")[0] || entry.displayName;
   const base = {
     id: entry.id,
@@ -220,7 +227,7 @@ function buildMarket(entry: CatalogMarket): PackageMarket {
     priceDecimals: entry.priceDecimals,
     tickSize,
     netPrice: mark,
-    priorNetPrice: mark,
+    priorNetPrice: Number.NaN,
     bestBid: Number.NaN,
     bestAsk: Number.NaN,
     expiryIso: expiry.toISOString().slice(0, 10),
@@ -246,7 +253,8 @@ function buildMarket(entry: CatalogMarket): PackageMarket {
     priceOffset: entry.floor,
     lastTradingAt: entry.lastTradingAt ?? entry.expiryAt - LAST_TRADING_BEFORE_EXPIRY_SECONDS,
     ...scheduleOf(entry),
-    markSource: Number.isFinite(mark) ? "REFERENCE" : "NONE",
+    markSource: listed ? "MODEL" : "NONE",
+    markModel: listed?.model ?? null,
     markAsOf: entry.referenceAt ?? 0,
     referencePrice: listingReference,
     referenceAsOf: entry.referenceAt ?? 0,
@@ -254,6 +262,15 @@ function buildMarket(entry: CatalogMarket): PackageMarket {
     listedOnchain: false,
     ...deriveMarketReadings(base, mark, listingReference),
   };
+}
+
+/**
+ * The most recent onchain fill price, or NaN before the market trades. Market-implied readings (carry, basis) use it;
+ * the modeled mark would only echo the model's own inputs back.
+ */
+export function lastTradedPrice(market: Pick<PackageMarket, "priceHistory">): number {
+  const last = market.priceHistory[market.priceHistory.length - 1];
+  return last !== undefined && Number.isFinite(last) ? last : Number.NaN;
 }
 
 /** Every listed market in catalog order (family, then expiry). */

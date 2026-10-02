@@ -16,5 +16,9 @@ export const CHART_THEME = {
   downFill: "rgba(255, 93, 122, 0.14)",
   upVolume: "rgba(63, 217, 164, 0.32)",
   downVolume: "rgba(255, 93, 122, 0.32)",
+  /** The Chainlink spot overlay: faint, so it reads as context beside the mark. */
+  spot: "rgba(170, 166, 160, 0.5)",
+  /** Floor and cap of the payoff band. */
+  band: "rgba(242, 240, 237, 0.46)",
   transparent: "rgba(0, 0, 0, 0)",
 } as const;

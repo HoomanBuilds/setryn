@@ -110,11 +110,9 @@ export function ExpiryLadder({ markets }: { markets: PackageMarket[] }) {
   );
 }
 
-/** The 24-hour move of a traded mark, or "Reference" for a market that has not traded. */
+/** The 24-hour move of the modeled mark; "—" for a market without a mark. */
 function MoveCell({ market, className }: { market: PackageMarket; className: string }) {
-  if (market.markSource === "REFERENCE" || market.markSource === "NONE") {
-    return <span className={`text-off ${className}`}>{market.markSource === "REFERENCE" ? "Reference" : "—"}</span>;
-  }
+  if (market.markSource === "NONE") return <span className={`text-off ${className}`}>—</span>;
   return <Delta value={changePercent(market.netPrice, market.priorNetPrice)} className={className} />;
 }
 
@@ -165,8 +163,8 @@ function DenseRung({ market }: { market: PackageMarket }) {
       </span>
 
       <span
-        className={`tnum truncate text-right font-mono text-xs ${market.markSource === "REFERENCE" ? "text-dim" : "text-ink"}`}
-        title={market.markSource === "REFERENCE" ? "No book or trades yet: marked at the Chainlink reference" : undefined}
+        className={`tnum truncate text-right font-mono text-xs ${market.markSource === "NONE" ? "text-dim" : "text-ink"}`}
+        title={market.markSource === "MODEL" ? "Modeled mark: the capped-forward model from the Chainlink spot" : "No mark"}
       >
         {formatNumber(market.netPrice, market.priceDecimals)}
       </span>

@@ -1,3 +1,4 @@
+import type { MarkModel } from "@/lib/pricing/mark";
 import type { BookRow } from "@/lib/terminal/types";
 
 /*
@@ -40,8 +41,12 @@ export interface MarketCandle {
   volume: number;
 }
 
-/** Where a market's mark came from, most to least direct. */
-export type MarkSource = "MID" | "LAST" | "REFERENCE" | "NONE";
+/**
+ * Where a market's mark came from. MODEL: the versioned capped-forward methodology (lib/pricing/mark.ts) from the
+ * Chainlink spot and the series terms; NONE: no spot to model from. Book prices and fills are shown beside the mark but
+ * never become it.
+ */
+export type MarkSource = "MODEL" | "NONE";
 
 export type SeriesStatus = "ACTIVE" | "PAUSED" | "DEPRECATED" | "EXPIRED" | "UNKNOWN";
 
@@ -73,8 +78,13 @@ export interface LiveMarketData {
   bestBid: number | null;
   bestAsk: number | null;
   last: number | null;
+  /** The modeled mark (see `markSource` and `markModel`); null without a spot to model from. */
   mark: number | null;
   markSource: MarkSource;
+  /** The inputs and methodology behind `mark`, so it can be traced and labelled MODELED. */
+  markModel: MarkModel | null;
+  /** The same methodology's mark 24 hours earlier, from the Chainlink spot then; null until that history is read. */
+  markPrior24h: number | null;
   /** First fill price at or after 24 hours ago, for the day's change; null without fills in the window. */
   open24h: number | null;
   high24h: number | null;
@@ -84,7 +94,7 @@ export interface LiveMarketData {
   openInterestLots: number | null;
   /** Most recent fills, newest first (at most 80). */
   trades: MarketTrade[];
-  /** Unix seconds of the reading the mark comes from: the snapshot block, the last fill, or the reference update. */
+  /** Unix seconds of the Chainlink reading the mark was modeled from. */
   markAsOf: number;
 }
 
@@ -124,15 +134,32 @@ export interface MarketDataSnapshot {
   servedAt: number;
 }
 
-/** `GET /api/market-data/candles` response. */
+/** One onchain fill drawn on the chart, at its own price and time. */
+export interface ChartTrade {
+  time: number;
+  price: number;
+  lots: number;
+  /** Aggressor side; `sideInferred` when it came from the tick rule rather than the taker order. */
+  side: "BUY" | "SELL";
+  sideInferred: boolean;
+}
+
+/** `GET /api/market-data/candles` response: the market's own modeled mark, with its fills and the spot beside it. */
 export interface MarketCandlesResponse {
   marketKey: string;
   interval: ChartInterval;
-  /** "FILLS" when the bars are onchain fills; "REFERENCE" when the market has none and the bars are the underlying's. */
-  source: "FILLS" | "REFERENCE";
+  /** The bars are always the expiry's modeled mark, before and after any trade. */
+  source: "MODEL_MARK";
+  /** Mark OHLC per bar; `volume` is the lots actually traded in that bar (zero when nothing traded). */
   candles: MarketCandle[];
-  /** For reference bars: the underlying and its Chainlink pair label ("BTC / USD"). */
-  reference?: { underlying: string; pair: string; feed: `0x${string}`; chainId: number };
+  /** Fills inside the charted window, oldest first, drawn as markers at their own prices. */
+  trades: ChartTrade[];
+  /** The Chainlink spot of the underlying, one close per bar, drawn as a faint overlay; it is not the forward. */
+  reference: { underlying: string; pair: string; feed: `0x${string}`; chainId: number; line: { time: number; value: number }[] } | null;
+  band: { floor: number; cap: number };
+  expiryAt: number;
+  /** The methodology and inputs of the latest mark; null when the underlying has no spot or no model inputs. */
+  model: MarkModel | null;
 }
 
 export type MarketFeedStatus = "LOADING" | "LIVE" | "STALE" | "ERROR";

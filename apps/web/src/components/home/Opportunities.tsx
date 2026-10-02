@@ -53,9 +53,8 @@ function EmptyRow({ children }: { children: ReactNode }) {
 
 /** Movers and depth from the market-data feed, so every figure matches the terminal, charts, and ticker. */
 export function Opportunities({ markets }: { markets: readonly PackageMarket[] }) {
-  // Only traded marks move; a market marked at its reference has no 24-hour change to rank.
-  const move = (market: PackageMarket) =>
-    market.markSource === "MID" || market.markSource === "LAST" ? changePercent(market.netPrice, market.priorNetPrice) : Number.NaN;
+  // The 24-hour move of the modeled mark; NaN (unranked) while the day-old mark is unknown.
+  const move = (market: PackageMarket) => changePercent(market.netPrice, market.priorNetPrice);
   const movers = markets
     .filter((market) => Number.isFinite(move(market)) && move(market) !== 0)
     .sort((a, b) => Math.abs(move(b)) - Math.abs(move(a)))

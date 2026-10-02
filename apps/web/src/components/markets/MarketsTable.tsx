@@ -26,7 +26,7 @@ import {
 } from "@/lib/terminal/format";
 import { formatAnalytic, strategyAnalytic } from "@/lib/market-data/analytics";
 import { settlementShort, sourceClasses, spreadOf } from "@/lib/terminal/discovery";
-import { tradeHref } from "@/lib/terminal/markets";
+import { lastTradedPrice, tradeHref } from "@/lib/terminal/markets";
 import type { PackageMarket } from "@/lib/terminal/types";
 
 type SortDirection = "asc" | "desc";
@@ -48,9 +48,8 @@ function unit(market: PackageMarket) {
   return priceUnitSuffix(market.priceUnit);
 }
 
-/** The 24-hour move of a traded mark; NaN for a market marked at its reference, which has not traded. */
+/** The 24-hour move of the modeled mark; NaN while the day-old mark is unknown. */
 function change(market: PackageMarket) {
-  if (market.markSource === "REFERENCE" || market.markSource === "NONE") return Number.NaN;
   return changePercent(market.netPrice, market.priorNetPrice);
 }
 
@@ -59,22 +58,21 @@ function sortable(value: number): number {
   return Number.isFinite(value) ? value : Number.NaN;
 }
 
-const MARK_TAG: Record<PackageMarket["markSource"], string> = { MID: "mid", LAST: "last", REFERENCE: "ref", NONE: "" };
-
 const MARK_TITLE: Record<PackageMarket["markSource"], string> = {
-  MID: "Mid of the best bid and offer on the onchain book.",
-  LAST: "Last onchain fill.",
-  REFERENCE: "No book or trades yet: the Chainlink reference, held inside the payoff range.",
+  MODEL: "Modeled mark: the capped-forward model from the Chainlink spot, with MODELED volatility, rate and carry.",
   NONE: "No mark is available.",
 };
 
-/** The strategy view (implied carry, basis, forward points) from a traded mark against the live reference. */
+/**
+ * The market-implied view (implied carry, basis, forward points) from the last traded price against the live reference.
+ * The modeled mark would only echo the model's own inputs back, so a market that has not traded shows none.
+ */
 function analyticOf(market: PackageMarket) {
-  return strategyAnalytic(market, market.netPrice, market.referencePrice, platformNowSeconds());
+  return strategyAnalytic(market, lastTradedPrice(market), market.referencePrice, platformNowSeconds());
 }
 
 function analyticText(market: PackageMarket): string {
-  if (market.markSource === "REFERENCE" || market.markSource === "NONE") return "—";
+  if (!Number.isFinite(lastTradedPrice(market))) return "—";
   return formatAnalytic(analyticOf(market));
 }
 
@@ -108,7 +106,7 @@ export function ChangePill({ market }: { market: PackageMarket }) {
       title={known ? undefined : MARK_TITLE[market.markSource]}
       className={`tnum inline-flex h-[22px] min-w-[64px] items-center justify-center rounded-sm px-1.5 font-mono text-xs font-medium ${tone}`}
     >
-      {known ? `${sign}${Math.abs(value).toFixed(2)}%` : market.markSource === "REFERENCE" ? "Reference" : "—"}
+      {known ? `${sign}${Math.abs(value).toFixed(2)}%` : "—"}
     </span>
   );
 }
@@ -147,25 +145,25 @@ const COLUMNS: Column[] = [
   {
     id: "price",
     label: "Mark",
-    title: "Forward level in USD: the book mid, else the last fill, else the Chainlink reference (ref).",
+    title: "Modeled mark in USD: the capped-forward model of this expiry from the Chainlink spot.",
     numeric: true,
     key: (market) => sortable(market.netPrice),
     cell: (market) => (
       <span className="flex items-baseline justify-end gap-1 whitespace-nowrap" title={MARK_TITLE[market.markSource]}>
         <Flash
           value={market.netPrice}
-          className={`tnum px-1 font-mono text-[13px] ${market.markSource === "REFERENCE" ? "text-dim" : "text-ink"}`}
+          className={`tnum px-1 font-mono text-[13px] ${market.markSource === "NONE" ? "text-dim" : "text-ink"}`}
         >
           {formatNumber(market.netPrice, market.priceDecimals)}
         </Flash>
-        <span className="w-[22px] text-left text-[10.5px] text-off">{MARK_TAG[market.markSource] || unit(market)}</span>
+        <span className="w-[22px] text-left text-[10.5px] text-off">{unit(market)}</span>
       </span>
     ),
   },
   {
     id: "change",
     label: "24h",
-    title: "Change of the mark against the first fill of the last 24 hours.",
+    title: "Change of the modeled mark against the same model 24 hours earlier.",
     numeric: true,
     key: (market) => sortable(change(market)),
     cell: (market) => <ChangeText market={market} className="text-xs" />,
@@ -174,9 +172,9 @@ const COLUMNS: Column[] = [
     id: "analytic",
     label: "Carry / basis",
     title:
-      "Strategy view from the mark against the live Chainlink reference: implied annualized carry for carry markets, F - S for basis, forward points for FX.",
+      "Market-implied view from the last traded price against the live Chainlink reference: implied annualized carry for carry markets, F - S for basis, forward points for FX. Shown only once the market has traded.",
     numeric: true,
-    key: (market) => (market.markSource === "REFERENCE" ? Number.NaN : sortable(analyticOf(market).value)),
+    key: (market) => (Number.isFinite(lastTradedPrice(market)) ? sortable(analyticOf(market).value) : Number.NaN),
     hide: "hidden xl:table-cell",
     cell: (market) => (
       <span className="tnum font-mono text-xs whitespace-nowrap text-dim" title={analyticOf(market).describe}>
@@ -598,7 +596,7 @@ function MobileMarketList({
                     <Flash value={market.netPrice} className="tnum font-mono text-[13px] text-ink">
                       {formatNumber(market.netPrice, market.priceDecimals)}
                     </Flash>
-                    <span className="text-[10px] text-off">{MARK_TAG[market.markSource] || unit(market)}</span>
+                    <span className="text-[10px] text-off">{unit(market)}</span>
                   </span>
                   <ChangePill market={market} />
                 </span>

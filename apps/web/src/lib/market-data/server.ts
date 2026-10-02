@@ -4,11 +4,13 @@ import { orderStateAbi, publicOrderBookAbi, seriesRegistryAbi } from "@/lib/inte
 import type { SetrynRuntime, SetrynRuntimeMarket } from "@/lib/internal-gateway/runtime";
 import { deriveSeriesBookId, ticksToPrice } from "@/lib/internal-gateway/runtime-markets";
 import { readRuntime } from "@/lib/internal-gateway/runtime-server";
+import { cappedForwardMark, runtimeMarkTerms, type MarkTerms, type MarkValue } from "@/lib/pricing/mark";
 import type { BookRow } from "@/lib/terminal/types";
-import { aggregateCandles, INTERVAL_SECONDS, MAX_BARS, stepCandles, type PricePoint } from "./intervals";
+import { barOpenTime, INTERVAL_SECONDS, MAX_BARS, stepCandles, type PricePoint } from "./intervals";
 import { readReferenceQuotes, referenceClient, REFERENCE_CHAIN_ID, REFERENCE_FEEDS } from "./reference";
 import type {
   ChartInterval,
+  ChartTrade,
   LiveMarketData,
   MarketCandlesResponse,
   MarketDataSnapshot,
@@ -439,15 +441,10 @@ function feeView(fees: ActiveFeeSchedule): MarketFeeSchedule {
   };
 }
 
-/** The reference spot clamped into the payoff range on the tick grid: what a market marks at with no book or fills. */
-function referenceMark(market: SetrynRuntimeMarket, reference: ReferenceQuote | undefined): number | null {
-  if (!reference) return null;
-  const floor = Number(market.floor);
-  const cap = Number(market.cap);
-  const tick = 1 / market.priceScale;
-  const decimals = market.priceDecimals ?? Math.round(Math.log10(market.priceScale));
-  const clamped = Math.min(cap - tick, Math.max(floor + tick, reference.price));
-  return Number((Math.round(clamped / tick) * tick).toFixed(decimals));
+/** The market's modeled mark from a spot reading at `atSeconds` (lib/pricing/mark.ts), or null without one. */
+function modelMark(market: SetrynRuntimeMarket, spot: number | undefined, atSeconds: number): MarkValue | null {
+  const terms = runtimeMarkTerms(market);
+  return terms && spot !== undefined ? cappedForwardMark(terms, spot, atSeconds) : null;
 }
 
 async function readLiveMarket(
@@ -457,6 +454,7 @@ async function readLiveMarket(
   fees: ActiveFeeSchedule,
   block: { number: bigint; timestamp: bigint },
   references: Record<string, ReferenceQuote>,
+  priorSpots: Record<string, number>,
 ): Promise<LiveMarketData> {
   const state = holder().state;
   const versions = marketTradingVersions(fees, market.seriesId);
@@ -474,23 +472,13 @@ async function readLiveMarket(
   const bestAsk = asks[0]?.price ?? null;
   const lastFill = fills[fills.length - 1] ?? null;
   const reference = market.underlying ? references[market.underlying] : undefined;
-  let mark: number | null;
-  let markSource: LiveMarketData["markSource"];
-  let markAsOf: number;
-  if (bestBid !== null && bestAsk !== null) {
-    const decimals = market.priceDecimals ?? Math.round(Math.log10(market.priceScale));
-    mark = Number(((bestBid + bestAsk) / 2).toFixed(decimals + 1));
-    markSource = "MID";
-    markAsOf = chainTime;
-  } else if (lastFill) {
-    mark = lastFill.price;
-    markSource = "LAST";
-    markAsOf = lastFill.time;
-  } else {
-    mark = referenceMark(market, reference);
-    markSource = mark === null ? "NONE" : "REFERENCE";
-    markAsOf = reference?.updatedAt ?? 0;
-  }
+  // One mark per expiry, from the versioned model only: book prices and fills sit beside it and never become it.
+  const modeled = modelMark(market, reference?.price, chainTime);
+  const mark = modeled?.price ?? null;
+  const markSource: LiveMarketData["markSource"] = mark === null ? "NONE" : "MODEL";
+  const markAsOf = reference?.updatedAt ?? 0;
+  const priorSpot = market.underlying ? priorSpots[market.underlying] : undefined;
+  const markPrior24h = modelMark(market, priorSpot, chainTime - DAY_SECONDS)?.price ?? null;
   let openInterestLots: number | null = null;
   if (state?.fromDeployment) {
     const seriesKey = market.seriesId.toLowerCase();
@@ -514,6 +502,8 @@ async function readLiveMarket(
     last: lastFill?.price ?? null,
     mark,
     markSource,
+    markModel: modeled?.model ?? null,
+    markPrior24h,
     open24h: dayFills[0]?.price ?? null,
     high24h: dayFills.length > 0 ? Math.max(...dayFills.map((fill) => fill.price)) : null,
     low24h: dayFills.length > 0 ? Math.min(...dayFills.map((fill) => fill.price)) : null,
@@ -584,8 +574,10 @@ async function buildSnapshot(): Promise<MarketDataSnapshot> {
       referencesPromise,
       syncEvents(client, runtime, head),
     ]);
+    const listed = rangeForwardMarkets(runtime);
+    const priorSpots = cachedSpotsAt(listed, Number(head.timestamp) - DAY_SECONDS);
     const markets = await Promise.all(
-      rangeForwardMarkets(runtime).map((market) => readLiveMarket(client, runtime, market, fees, head, references)),
+      listed.map((market) => readLiveMarket(client, runtime, market, fees, head, references, priorSpots)),
     );
     return {
       network,
@@ -741,34 +733,117 @@ async function referenceHistory(underlying: string, since: number): Promise<Pric
   return entry.points;
 }
 
+/** The reading in force at `time` (the last one at or before it), or undefined when the points do not reach back. */
+function spotAt(points: readonly PricePoint[], time: number): number | undefined {
+  if (points.length === 0 || points[0].time > time) return undefined;
+  let low = 0;
+  let high = points.length - 1;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (points[middle].time <= time) low = middle;
+    else high = middle - 1;
+  }
+  return points[low].price;
+}
+
 /**
- * OHLCV bars for one market: from its onchain fills, or, when it has none, from the Chainlink history of its
- * underlying (labelled REFERENCE).
+ * Each underlying's spot at `time` from the reference history already in memory, without waiting on any read. A
+ * missing or short history is refreshed in the background, so the snapshot is never slowed by it; until then the
+ * market simply has no prior mark.
+ */
+function cachedSpotsAt(markets: readonly SetrynRuntimeMarket[], time: number): Record<string, number> {
+  const spots: Record<string, number> = {};
+  for (const underlying of new Set(markets.map((market) => market.underlying).filter((value): value is string => Boolean(value)))) {
+    const history = holder().referenceHistory.get(underlying);
+    const spot = history ? spotAt(history.points, time) : undefined;
+    if (spot !== undefined) spots[underlying] = spot;
+    if (!history || spot === undefined || Date.now() - history.at > REFERENCE_HISTORY_TTL_MS) {
+      void referenceHistory(underlying, time - DAY_SECONDS).catch(() => undefined);
+    }
+  }
+  return spots;
+}
+
+/** Most fills a candles response draws as markers. */
+const MAX_CHART_TRADES = 500;
+
+/**
+ * Chart data for one market: OHLC bars of its own modeled mark over the window, evaluated from every Chainlink round
+ * at that round's time to expiry; the lots actually traded in each bar as its volume; the fills themselves as markers;
+ * and the Chainlink spot as a separate line. The bars never switch source after a trade. A market past expiry ends at
+ * its expiry.
  */
 export async function readMarketCandles(
   marketKey: string,
   interval: ChartInterval,
-  underlying: string | null,
+  catalog: MarkTerms,
 ): Promise<MarketCandlesResponse> {
   const snapshot = await readMarketDataSnapshot();
-  const fills = holder().state?.fills.get(marketKey) ?? [];
-  const listed = snapshot.markets.some((market) => market.marketKey === marketKey);
-  if (listed && fills.length > 0) {
-    const points = fills
-      .filter((fill) => fill.blockNumber <= snapshot.blockNumber)
-      .map((fill) => ({ time: fill.time, price: fill.price, lots: fill.lots }));
-    return { marketKey, interval, source: "FILLS", candles: aggregateCandles(points, interval) };
-  }
-  if (!underlying || !REFERENCE_FEEDS[underlying]) return { marketKey, interval, source: "REFERENCE", candles: [] };
-  const until = Math.floor(Date.now() / 1000);
-  const since = until - INTERVAL_SECONDS[interval] * MAX_BARS[interval];
-  const points = await referenceHistory(underlying, since).catch(() => [] as PricePoint[]);
-  const [base, quote] = underlying.includes("/") ? underlying.split("/") : [underlying, "USD"];
-  return {
+  const runtime = await readRuntime().catch(() => null);
+  const listedMarket = runtime ? rangeForwardMarkets(runtime).find((market) => market.marketKey === marketKey) : undefined;
+  const terms = (listedMarket ? runtimeMarkTerms(listedMarket) : null) ?? catalog;
+  const band = { floor: terms.floor, cap: terms.cap };
+  const empty: MarketCandlesResponse = {
     marketKey,
     interval,
-    source: "REFERENCE",
-    candles: stepCandles(points, interval, until),
-    reference: { underlying, pair: `${base} / ${quote}`, feed: REFERENCE_FEEDS[underlying], chainId: REFERENCE_CHAIN_ID },
+    source: "MODEL_MARK",
+    candles: [],
+    trades: [],
+    reference: null,
+    band,
+    expiryAt: terms.expiryAt,
+    model: null,
+  };
+  const underlying = terms.underlying;
+  const feed = REFERENCE_FEEDS[underlying];
+  if (!feed) return empty;
+
+  const now = snapshot.asOf > 0 ? snapshot.asOf : Math.floor(Date.now() / 1000);
+  const until = Math.min(now, terms.expiryAt);
+  const since = until - INTERVAL_SECONDS[interval] * MAX_BARS[interval];
+  // Rounds after the window's end (after expiry, for an expired market) are not part of its history.
+  const points = (await referenceHistory(underlying, since).catch(() => [] as PricePoint[])).filter((point) => point.time <= until);
+  if (points.length === 0) return empty;
+
+  // Every round is marked at its own time to expiry; the latest spot is marked again at the window's end, so the
+  // last bar closes exactly at the mark the headers show.
+  const markPoints: PricePoint[] = [];
+  for (const point of points) {
+    const value = cappedForwardMark(terms, point.price, point.time);
+    if (value) markPoints.push({ time: point.time, price: value.price, lots: 0 });
+  }
+  const latestSpot = (until === now ? snapshot.references[underlying]?.price : undefined) ?? points[points.length - 1].price;
+  const latest = cappedForwardMark(terms, latestSpot, until);
+  if (latest) markPoints.push({ time: until, price: latest.price, lots: 0 });
+  const candles = stepCandles(markPoints, interval, until);
+  const spotBars = stepCandles(points, interval, until);
+
+  const firstBar = candles[0]?.time ?? until;
+  const fills = (holder().state?.fills.get(marketKey) ?? []).filter(
+    (fill) => fill.blockNumber <= snapshot.blockNumber && fill.time >= firstBar && fill.time <= until + INTERVAL_SECONDS[interval],
+  );
+  const volumeByBar = new Map<number, number>();
+  for (const fill of fills) {
+    const bar = barOpenTime(fill.time, interval);
+    volumeByBar.set(bar, (volumeByBar.get(bar) ?? 0) + fill.lots);
+  }
+  for (const candle of candles) candle.volume = volumeByBar.get(candle.time) ?? 0;
+  const trades: ChartTrade[] = fills
+    .slice(-MAX_CHART_TRADES)
+    .map((fill) => ({ time: fill.time, price: fill.price, lots: fill.lots, side: fill.side, sideInferred: fill.sideInferred === true }));
+
+  const [base, quote] = underlying.includes("/") ? underlying.split("/") : [underlying, "USD"];
+  return {
+    ...empty,
+    candles,
+    trades,
+    reference: {
+      underlying,
+      pair: `${base} / ${quote}`,
+      feed,
+      chainId: REFERENCE_CHAIN_ID,
+      line: spotBars.map((bar) => ({ time: bar.time, value: bar.close })),
+    },
+    model: latest?.model ?? null,
   };
 }

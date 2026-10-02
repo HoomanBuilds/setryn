@@ -10,9 +10,9 @@ import { platformTradeHref } from "./embed-params";
 /** One market: live mark, 24h change, mini chart and best bid/offer, all from the market-data feed. */
 export function MarketWidget({ marketId, partner }: { marketId: string; partner: string | null }) {
   const { market: liveMarket } = useLiveMarket(marketId);
-  const traded = liveMarket.markSource === "MID" || liveMarket.markSource === "LAST";
-  const change = traded ? liveMarket.netPrice - liveMarket.priorNetPrice : Number.NaN;
-  const pct = traded ? changePercent(liveMarket.netPrice, liveMarket.priorNetPrice) : Number.NaN;
+  const change = liveMarket.netPrice - liveMarket.priorNetPrice;
+  const pct = changePercent(liveMarket.netPrice, liveMarket.priorNetPrice);
+  const moved = Number.isFinite(pct);
   const tone = change > 0 ? "text-up" : change < 0 ? "text-down" : "text-dim";
   const unit = priceUnitSuffix(liveMarket.priceUnit);
   const spread = liveMarket.bestAsk - liveMarket.bestBid;
@@ -41,17 +41,12 @@ export function MarketWidget({ marketId, partner }: { marketId: string; partner:
       <div className="flex min-w-0 items-baseline gap-2 px-3 pt-2" aria-live="polite" aria-atomic="true">
         <span className="tnum font-mono text-2xl text-ink">{formatPrice(liveMarket.netPrice, liveMarket)}</span>
         <span className="text-xs text-faint">{unit}</span>
-        {traded ? (
+        {moved ? (
           <span className={`tnum ml-auto font-mono text-xs ${tone}`}>
             {formatSigned(change, liveMarket.priceDecimals)} ({formatPercent(pct, 2)})
           </span>
         ) : (
-          <span
-            className="ml-auto text-[11px] text-faint"
-            title={`No book or trades yet: marked at the Chainlink ${liveMarket.referencePair} reference.`}
-          >
-            {liveMarket.markSource === "REFERENCE" ? "Reference" : "No mark"}
-          </span>
+          <span className="ml-auto text-[11px] text-faint">{liveMarket.markSource === "MODEL" ? "Modeled mark" : "No mark"}</span>
         )}
       </div>
       <div className="px-3 pt-2 pb-1">

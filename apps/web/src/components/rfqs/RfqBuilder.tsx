@@ -410,9 +410,7 @@ function Economics({
     expectedSource === "BOOK"
       ? `Book ${action === "BUY" ? "offer" : "bid"}, onchain`
       : expectedSource === "MARK"
-        ? market.markSource === "REFERENCE"
-          ? "Chainlink reference mark"
-          : "Live mark"
+        ? "Modeled mark"
         : "No quote yet";
   const bound = (isExit ? 0 : preview.totalCollateral) + (Number.isFinite(preview.totalFees) ? preview.totalFees : 0);
   const alternatives = market.routes.filter((candidate) => candidate.id !== "SOLVER_RFQ");

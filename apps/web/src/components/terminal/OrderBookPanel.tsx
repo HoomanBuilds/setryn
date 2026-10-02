@@ -391,9 +391,9 @@ export function OrderBookPanel({
   const last = trades[0];
   const lastUp = last ? last.side === "BUY" : true;
   const bidPercent = Math.round(book.bidShare * 100);
-  // The centre price: the last fill, else the mid, else the mark with its source named.
+  // The centre price: the last fill, else the mid, else the modeled mark, with its source named.
   const centrePrice = last?.price ?? (Number.isFinite(mid) ? mid : market.netPrice);
-  const centreLabel = last ? null : Number.isFinite(mid) ? "Mid" : market.markSource === "REFERENCE" ? "Reference" : null;
+  const centreLabel = last ? null : Number.isFinite(mid) ? "Mid" : market.markSource === "MODEL" ? "Mark" : null;
   const empty = book.asks.length === 0 && book.bids.length === 0;
 
   return (

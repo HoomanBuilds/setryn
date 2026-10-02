@@ -64,11 +64,7 @@ export function StatusStrip() {
         <UnderlyingIcon underlying={market.underlying} size={12} className="self-center" />
         <span className="text-dim">{market.id}</span>
         <span className="tnum font-mono text-ink">{formatNumber(market.netPrice, market.priceDecimals)}</span>
-        {market.markSource === "REFERENCE" ? (
-          <span className="text-off" title="No book or trades yet: marked at the Chainlink reference">
-            ref
-          </span>
-        ) : Number.isFinite(change) ? (
+        {Number.isFinite(change) ? (
           <span className={`tnum font-mono ${change >= 0 ? "text-up" : "text-down"}`}>
             {`${change >= 0 ? "+" : ""}${change.toFixed(2)}%`}
           </span>

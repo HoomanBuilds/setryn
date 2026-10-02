@@ -115,7 +115,7 @@ export function MarketsDirectory() {
   }, [markets, effective, activeCategory, favourites]);
   const summary = useMemo(() => summarize(visible), [visible]);
   const board = useMemo(() => summarize(markets), [markets]);
-  const referenceMarked = useMemo(() => markets.filter((market) => market.markSource === "REFERENCE").length, [markets]);
+  const unmarked = useMemo(() => markets.filter((market) => market.markSource === "NONE").length, [markets]);
   const breadth = useMemo(() => {
     let up = 0;
     let down = 0;
@@ -207,11 +207,13 @@ export function MarketsDirectory() {
                   <span className="tnum font-mono">{`${formatUtcStamp(feed.asOf)} UTC`}</span>
                 </Chip>
               ) : null}
-              {referenceMarked > 0 ? (
-                <Chip tone="muted" title="Markets with no book or trades yet are marked at their Chainlink reference.">
-                  {`${referenceMarked} at reference`}
-                </Chip>
-              ) : null}
+              <Chip
+                tone="muted"
+                title="Every expiry is marked by the versioned capped-forward model from the Chainlink spot. Its volatility, rate and carry inputs are MODELED testnet assumptions, not observed market data."
+              >
+                Modeled marks
+              </Chip>
+              {unmarked > 0 ? <Chip tone="muted" title="Markets without a Chainlink spot or model inputs.">{`${unmarked} unmarked`}</Chip> : null}
             </span>
           </div>
 

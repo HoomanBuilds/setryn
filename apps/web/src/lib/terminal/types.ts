@@ -1,3 +1,4 @@
+import type { MarkModel } from "@/lib/pricing/mark";
 import type { MarkSource, SeriesStatus } from "@/lib/market-data/types";
 import type { MarketQuoteState } from "@/lib/quotes/firm-quote";
 
@@ -98,9 +99,9 @@ export interface PackageMarket {
   priceUnit: PriceUnit;
   priceDecimals: number;
   tickSize: number;
-  /** The mark: book mid, else last fill, else the Chainlink reference clamped into the payoff range (see `markSource`). */
+  /** The modeled mark (lib/pricing/mark.ts): every expiry priced from spot, band, time to expiry and versioned inputs. */
   netPrice: number;
-  /** The first fill of the last 24 hours, else the mark (no change). */
+  /** The same methodology's mark 24 hours earlier; NaN until that history is read, so no change is ever invented. */
   priorNetPrice: number;
   /** Best resting bid on the public book; NaN when no bid rests. */
   bestBid: number;
@@ -166,7 +167,9 @@ export interface PackageMarket {
   referencePair: string;
   /* Live overlay (market-data feed). */
   markSource: MarkSource;
-  /** Unix seconds of the reading the mark comes from; 0 when unknown. */
+  /** The methodology and inputs behind the mark; absent before the market is first marked. */
+  markModel?: MarkModel | null;
+  /** Unix seconds of the Chainlink reading the mark was modeled from; 0 when unknown. */
   markAsOf: number;
   /** Live Chainlink reference of the underlying; NaN when it could not be read. */
   referencePrice: number;

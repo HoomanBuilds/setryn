@@ -318,9 +318,9 @@ export function buildPreview(
       guarantee?.detail ?? "Pick a route to see which settlement guarantee applies to this package.",
     freshnessLabel: route
       ? `${route.label}, onchain snapshot`
-      : market.markSource === "REFERENCE"
-        ? "Chainlink reference"
-        : "Market mark, onchain snapshot",
+      : market.markSource === "MODEL"
+        ? "Modeled mark from the Chainlink spot"
+        : "No mark",
     freshnessSeconds: market.snapshotAgeSeconds,
     marketable,
     rests,

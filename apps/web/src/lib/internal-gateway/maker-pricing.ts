@@ -1,16 +1,18 @@
 import { readReferenceQuotes } from "@/lib/market-data/reference";
 import type { ReferenceQuote } from "@/lib/market-data/types";
+import { cappedForwardMark, runtimeMarkTerms, type MarkModel } from "@/lib/pricing/mark";
 import type { SetrynRuntimeMarket } from "./runtime";
 import { priceOffset } from "./runtime-markets";
 
 /*
- * The designated maker's two-sided price for a dated range forward, from the live Chainlink reference of its underlying
- * and nothing else: fair forward F = reference spot, bid and ask at F x (1 -/+ 0.001) or at least two ticks apart, on
- * the market's tick grid and strictly inside its (floor, cap) range. A market without a listing (schema 9 or 10
- * runtime) or without a fresh reference is not quoted.
+ * The designated maker's two-sided price for a dated range forward: centred on the platform's modeled mark (the same
+ * capped-forward methodology every screen shows, lib/pricing/mark.ts), so each expiry is quoted at its own fair value
+ * rather than at spot. Bid and ask sit at mark x (1 -/+ 0.001) or at least two ticks apart, on the market's tick grid
+ * and strictly inside its (floor, cap) range. A market without a listing, without a fresh Chainlink spot, or without
+ * model inputs for its underlying is not quoted.
  */
 
-/** Half-spread around the reference, as a fraction of it. */
+/** Half-spread around the mark, as a fraction of it. */
 export const MAKER_HALF_SPREAD = 0.001;
 /**
  * A reference older than this is not quoted against. The Arbitrum One aggregators update on a deviation threshold with
@@ -20,7 +22,7 @@ export const MAKER_HALF_SPREAD = 0.001;
 export const MAX_REFERENCE_AGE_SECONDS = 26 * 60 * 60;
 const MIN_SPREAD_TICKS = BigInt(2);
 
-export type MakerPricingErrorCode = "LISTING_UNSUPPORTED" | "REFERENCE_UNAVAILABLE" | "QUOTE_OUTSIDE_RANGE";
+export type MakerPricingErrorCode = "LISTING_UNSUPPORTED" | "REFERENCE_UNAVAILABLE" | "QUOTE_OUTSIDE_RANGE" | "MARK_UNAVAILABLE";
 
 export class MakerPricingError extends Error {
   readonly code: MakerPricingErrorCode;
@@ -39,6 +41,9 @@ export class MakerPricingError extends Error {
 export interface MakerQuote {
   marketKey: string;
   reference: ReferenceQuote;
+  /** The modeled mark the quote is centred on, and its inputs. */
+  mark: number;
+  markModel: MarkModel;
   /** Onchain price ticks (relative to the floor) of the maker's bid and ask. */
   bidTicks: bigint;
   askTicks: bigint;
@@ -65,7 +70,11 @@ export function quoteFromReference(market: SetrynRuntimeMarket, reference: Refer
   const top = capTicks(market);
   // Floor and cap are excluded, and a two-tick spread needs room: bid >= 1, ask <= top - 1, ask - bid >= 2.
   if (top < BigInt(4)) throw new MakerPricingError("QUOTE_OUTSIDE_RANGE", `${market.marketKey} has no room between floor and cap.`);
-  const fair = reference.price;
+  // The quote is centred on the modeled mark, never on spot: a capped forward's fair value depends on its expiry.
+  const terms = runtimeMarkTerms(market);
+  const modeled = terms ? cappedForwardMark(terms, reference.price, nowSeconds) : null;
+  if (!modeled) throw new MakerPricingError("MARK_UNAVAILABLE", `${market.marketKey} has no model inputs for ${market.underlying}.`);
+  const fair = modeled.price;
   const fairTicks = BigInt(Math.round((fair - offset) * scale));
   // The bid rounds down and the ask up, so rounding never narrows the spread.
   let bid = BigInt(Math.floor((fair * (1 - MAKER_HALF_SPREAD) - offset) * scale + 1e-9));
@@ -81,7 +90,7 @@ export function quoteFromReference(market: SetrynRuntimeMarket, reference: Refer
   if (bid > maxAsk - MIN_SPREAD_TICKS) bid = maxAsk - MIN_SPREAD_TICKS;
   if (ask < bid + MIN_SPREAD_TICKS) ask = bid + MIN_SPREAD_TICKS;
   if (ask > maxAsk) ask = maxAsk;
-  return { marketKey: market.marketKey, reference, bidTicks: bid, askTicks: ask };
+  return { marketKey: market.marketKey, reference, mark: modeled.price, markModel: modeled.model, bidTicks: bid, askTicks: ask };
 }
 
 /** The maker's quotes for every requested market from one reference read; a market that cannot be priced maps to its error. */

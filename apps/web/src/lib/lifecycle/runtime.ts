@@ -103,8 +103,8 @@ function legsFor(market: PackageMarket, quote: LiveQuote): LifecycleLeg[] {
       ratio: leg.ratio,
       mark,
       markLabel: mark === null ? "No reading" : formatNumber(mark, forward ? market.priceDecimals : Math.max(2, market.priceDecimals)),
-      source: forward ? (quote.markSource === "MID" ? "Public book mid" : quote.markSource === "LAST" ? "Last onchain fill" : quote.markSource === "REFERENCE" ? "Reference, no book or fills" : "No mark") : "Chainlink aggregator",
-      provenance: forward ? (quote.markSource === "MID" || quote.markSource === "LAST" ? "EXECUTABLE" : "REFERENCE") : "OBSERVED",
+      source: forward ? (quote.markSource === "MODEL" ? "Modeled mark (capped-forward model)" : "No mark") : "Chainlink aggregator",
+      provenance: forward ? "MODELED" : "OBSERVED",
       dependency: forward
         ? "Settles in cash at the expiry fixing; exits close the whole position on the public book or by private request."
         : "Not held and not settled. It prices the carry, basis and forward-point views only.",

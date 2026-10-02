@@ -43,7 +43,7 @@ class QuoteRefusal extends Error {
 
 /**
  * The designated maker answers a collecting RFQ with a firm, capacity-backed quote: a risk-bound backing order, the
- * signed quote, and its reserved capacity. The price is the maker's own side of the reference-priced quote
+ * signed quote, and its reserved capacity. The price is the maker's own side of the quote centred on the modeled mark
  * (lib/internal-gateway/maker-pricing.ts); a caller may ask for a price only at or beyond that side, never better for
  * the taker, so the route cannot be used to make the house maker trade off-market.
  */

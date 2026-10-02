@@ -19,8 +19,8 @@ export function TickerWidget({ marketIds, partner }: { marketIds: string[]; part
     >
       <ul className="flex min-w-max items-stretch">
         {shown.map((market) => {
-          const traded = market.markSource === "MID" || market.markSource === "LAST";
-          const change = traded ? changePercent(market.netPrice, market.priorNetPrice) : Number.NaN;
+          const change = changePercent(market.netPrice, market.priorNetPrice);
+          const moved = Number.isFinite(change);
           const tone = change > 0 ? "text-up" : change < 0 ? "text-down" : "text-dim";
           return (
             <li key={market.id} className="border-r border-line last:border-r-0">
@@ -39,8 +39,8 @@ export function TickerWidget({ marketIds, partner }: { marketIds: string[]; part
                     {formatPrice(market.netPrice, market)}
                     <span className="ml-0.5 text-[11px] text-faint">{priceUnitSuffix(market.priceUnit)}</span>
                   </span>
-                  <span className={`tnum font-mono text-[11px] ${traded ? tone : "text-faint"}`}>
-                    {traded ? formatPercent(change, 2) : market.markSource === "REFERENCE" ? "ref" : "—"}
+                  <span className={`tnum font-mono text-[11px] ${moved ? tone : "text-faint"}`}>
+                    {moved ? formatPercent(change, 2) : "—"}
                   </span>
                 </span>
               </a>

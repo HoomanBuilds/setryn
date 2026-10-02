@@ -34,7 +34,7 @@ export interface LifecycleLeg {
   mark: number | null;
   markLabel: string;
   source: string;
-  provenance: "EXECUTABLE" | "OBSERVED" | "REFERENCE";
+  provenance: "EXECUTABLE" | "OBSERVED" | "REFERENCE" | "MODELED";
   dependency: string;
 }
 

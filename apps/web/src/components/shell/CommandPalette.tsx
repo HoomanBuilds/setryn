@@ -70,8 +70,7 @@ export function CommandPalette() {
       router.push(href);
     };
     const marketEntries: Entry[] = markets.map((market) => {
-      const traded = market.markSource === "MID" || market.markSource === "LAST";
-      const change = traded ? changePercent(market.netPrice, market.priorNetPrice) : Number.NaN;
+      const change = changePercent(market.netPrice, market.priorNetPrice);
       return {
         id: `market-${market.id}`,
         section: "Markets",
@@ -89,8 +88,8 @@ export function CommandPalette() {
             <span className="tnum text-ink">
               {`${formatNumber(market.netPrice, market.priceDecimals)} ${priceUnitSuffix(market.priceUnit)}`}
             </span>
-            <span className={`tnum w-14 text-right ${!traded ? "text-off" : change >= 0 ? "text-up" : "text-down"}`}>
-              {traded ? `${change >= 0 ? "+" : ""}${change.toFixed(2)}%` : "ref"}
+            <span className={`tnum w-14 text-right ${!Number.isFinite(change) ? "text-off" : change >= 0 ? "text-up" : "text-down"}`}>
+              {Number.isFinite(change) ? `${change >= 0 ? "+" : ""}${change.toFixed(2)}%` : "—"}
             </span>
           </span>
         ),

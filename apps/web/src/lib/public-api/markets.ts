@@ -11,7 +11,8 @@ import { deriveBookId } from "./chain";
  * Market catalog projection. The catalog is the deployment's listing (`catalog.generated.json`), and every listed
  * market executes onchain on its own series, tick grid, payoff bounds and collateral; `onchain` carries the identifiers
  * once the deployment's runtime is readable. Quotes come from the platform's one market-data feed (`liveCatalog`): the
- * onchain book and fills, else the Chainlink reference, labelled by `quote.markSource`. A missing bid or offer is null.
+ * modeled mark of each expiry (the versioned capped-forward model from the Chainlink spot, `quote.markSource` MODEL), with
+ * the onchain book beside it. A missing bid or offer is null.
  */
 
 export type ExecutionVenue = "ONCHAIN";
@@ -71,9 +72,12 @@ export interface ApiMarket {
   quote: {
     /** MARKET_DATA once the feed has been read; LISTING_REFERENCE for the catalog alone. */
     source: "MARKET_DATA" | "LISTING_REFERENCE";
-    /** The mark: book mid, last fill, or the Chainlink reference (see markSource). */
+    /** The modeled mark of this expiry (see markSource and markModel). */
     netPrice: number | null;
     markSource: PackageMarket["markSource"];
+    /** Methodology, version and parameter set of the mark; its inputs are MODELED, not observed market data. */
+    markModel: { methodology: string; version: number; parameterSet: string; provenance: "MODELED" } | null;
+    /** The same model 24 hours earlier, null while that spot is not known. */
     priorNetPrice: number | null;
     bestBid: number | null;
     bestAsk: number | null;
@@ -152,6 +156,14 @@ export function projectMarket(market: PackageMarket, deployment: { setryn: Setry
       source: market.listedOnchain || market.referenceAsOf !== (CATALOG_MARKETS.get(market.id)?.referenceAt ?? 0) ? "MARKET_DATA" : "LISTING_REFERENCE",
       netPrice: finiteOrNull(market.netPrice),
       markSource: market.markSource,
+      markModel: market.markModel
+        ? {
+            methodology: market.markModel.methodology,
+            version: market.markModel.version,
+            parameterSet: market.markModel.parameterSet,
+            provenance: market.markModel.provenance,
+          }
+        : null,
       priorNetPrice: finiteOrNull(market.priorNetPrice),
       bestBid: finiteOrNull(market.bestBid),
       bestAsk: finiteOrNull(market.bestAsk),

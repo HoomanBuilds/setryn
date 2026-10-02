@@ -76,7 +76,7 @@ export function LegGraph({ market }: { market: PackageMarket }) {
           {formatPriceWithUnit(market.netPrice, market)}
         </text>
         <text x={20} y={pkgY + 77} fill="var(--color-faint)" fontSize={12}>
-          {`mark, ${market.markSource === "REFERENCE" ? "reference" : market.markSource === "MID" ? "book mid" : market.markSource === "LAST" ? "last fill" : "none"}`}
+          {`mark, ${market.markSource === "MODEL" ? "modeled" : "none"}`}
         </text>
 
         {legs.map((leg, index) => {

@@ -120,7 +120,7 @@ function priceRule(context: RuleContext, rule: PriceCrossRule): void {
   const market = context.input.markets.find((candidate) => candidate.id === rule.marketId);
   if (!market) return;
   const mark = liveMark(market, context.input.live);
-  const source = context.input.live ? markOf(liveIndex(context.input.live).get(market.id)).source : "MID";
+  const source = context.input.live ? markOf(liveIndex(context.input.live).get(market.id)).source : "NONE";
   const active = mark !== null && (rule.direction === "ABOVE" ? mark >= rule.level : mark <= rule.level);
   const current = mark === null ? null : priceText(market, mark);
   emitRule(context, rule, market.id, active, current, (value) => ({
@@ -130,7 +130,7 @@ function priceRule(context: RuleContext, rule: PriceCrossRule): void {
       rule.direction === "ABOVE" ? "rising" : "falling"
     } trigger of ${priceText(market, rule.level)}. ${current === null ? "No mark now." : `Mark ${current} now.`}`,
     source: `${MARK_SOURCE_LABEL[source]}, market-data feed`,
-    provenance: "OBSERVED",
+    provenance: "MODELED",
     href: tradeHref(market),
     actionLabel: "Open terminal",
   }));

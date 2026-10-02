@@ -199,9 +199,9 @@ export function MarketSwitcher({
                         </span>
                         <span className="flex items-baseline gap-2">
                           <span className="text-xs text-off">{candidate.tenorLabel}</span>
-                          {candidate.markSource === "REFERENCE" ? (
-                            <span className="text-xs text-off" title="Marked at the Chainlink reference: no book or trades yet">
-                              Reference
+                          {candidate.markSource === "NONE" ? (
+                            <span className="text-xs text-off" title="No mark: no Chainlink spot or model inputs">
+                              —
                             </span>
                           ) : (
                             <Delta

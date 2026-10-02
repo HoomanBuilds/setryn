@@ -13,7 +13,7 @@ import { impliedCarry, longPayoffPerLot } from "@/lib/portfolio/forward";
 import { receiptHref, type LinkedFill, type PositionDossier } from "@/lib/positions/dossier";
 import type { PositionMetrics } from "@/lib/positions/economics";
 import { evidenceLabel, formatLots, formatNumber, priceUnitSuffix } from "@/lib/terminal/format";
-import { tradeHref } from "@/lib/terminal/markets";
+import { lastTradedPrice, tradeHref } from "@/lib/terminal/markets";
 import type { PackageMarket } from "@/lib/terminal/types";
 import { GUARANTEE_COPY } from "@/lib/terminal/economics";
 import { TrustRow, price, signedUsd, toneOf, usd } from "./parts";
@@ -351,7 +351,9 @@ export function TermsPanel({
   const unit = priceUnitSuffix(market.priceUnit);
   const base = market.underlying.split("/")[0];
   const days = Math.max(0, metrics.msToFixing / 86_400_000);
-  const carry = metrics.mark !== null && reference ? impliedCarry(metrics.mark, reference.price, days) : null;
+  // Market-implied, from the last traded price: the modeled mark would only return the model's own carry input.
+  const traded = lastTradedPrice(market);
+  const carry = Number.isFinite(traded) && reference ? impliedCarry(traded, reference.price, days) : null;
   const maxPayoff = terms.cap === null ? null : longPayoffPerLot(terms.cap, terms);
   return (
     <Panel label="Contract terms" className={className} delay={delay}>
@@ -383,7 +385,7 @@ export function TermsPanel({
           />
           <TrustRow
             label="Implied carry"
-            note="(mark / reference - 1) x 365 / days, display only"
+            note="(last traded / reference - 1) x 365 / days, display only; — before a trade"
             value={carry === null ? "—" : `${carry >= 0 ? "+" : "-"}${formatNumber(Math.abs(carry) * 100, 2)}% a year`}
             tone={carry === null ? "text-faint" : "text-ink"}
             provenance={carry === null ? undefined : "ESTIMATED"}

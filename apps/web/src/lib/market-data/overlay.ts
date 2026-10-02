@@ -1,5 +1,6 @@
 import { platformNow } from "@/lib/terminal/clock";
-import { clampToRange, deriveMarketReadings } from "@/lib/terminal/markets";
+import { cappedForwardMark } from "@/lib/pricing/mark";
+import { deriveMarketReadings } from "@/lib/terminal/markets";
 import type { BookRow, PackageMarket, Qualification, RouteQuote } from "@/lib/terminal/types";
 import { firmQuoteRows, quoteExecutable, quoteSecondsLeft, type MarketQuoteState } from "@/lib/quotes/firm-quote";
 import type { LiveMarketData, MarketDataSnapshot, MarketFeeSchedule, ReferenceQuote } from "./types";
@@ -7,7 +8,8 @@ import type { LiveMarketData, MarketDataSnapshot, MarketFeeSchedule, ReferenceQu
 /*
  * How a market-data snapshot overlays the static catalog. Shared by the client provider and server code (the public
  * API), so both read a market the same way. Nothing here invents a number: a missing quote stays NaN, a market without
- * live state keeps its catalog entry, and a mark without a book or fills is the Chainlink reference, labelled so.
+ * live state keeps its catalog entry, and every mark is the versioned capped-forward model (lib/pricing/mark.ts), labelled
+ * MODEL: book prices and fills are shown beside it and never replace it.
  */
 
 /** Context an overlay needs beyond the market's own live state; every field is optional. */
@@ -79,9 +81,8 @@ export function deriveRoutes(market: Pick<PackageMarket, "bestBid" | "bestAsk" |
 }
 
 /**
- * Overlays one market's live state on its catalog entry. Without live state the market marks at the live Chainlink
- * reference (clamped into its payoff range), else at the reference it was listed against; either way it is labelled
- * REFERENCE and carries no quotes, book, or routes.
+ * Overlays one market's live state on its catalog entry. Without live state the market is marked here with the same
+ * model from the live Chainlink spot, at the snapshot's time, and carries no quotes, book, or routes.
  */
 export function applyLiveMarket(base: PackageMarket, live: LiveMarketData | undefined, context: LiveMarketContext = {}): PackageMarket {
   const reference = context.references?.[base.underlying];
@@ -90,12 +91,15 @@ export function applyLiveMarket(base: PackageMarket, live: LiveMarketData | unde
 
   if (!live) {
     if (!reference) return base;
-    const mark = clampToRange(base, reference.price);
+    const modeled = cappedForwardMark(base, reference.price, context.asOf ?? reference.updatedAt);
+    if (!modeled) return { ...base, referencePrice, referenceAsOf };
+    const mark = modeled.price;
     return {
       ...base,
       netPrice: mark,
-      priorNetPrice: mark,
-      markSource: "REFERENCE",
+      priorNetPrice: Number.NaN,
+      markSource: "MODEL",
+      markModel: modeled.model,
       markAsOf: reference.updatedAt,
       referencePrice,
       referenceAsOf,
@@ -121,7 +125,7 @@ export function applyLiveMarket(base: PackageMarket, live: LiveMarketData | unde
   const merged: PackageMarket = {
     ...base,
     netPrice: mark,
-    priorNetPrice: live.open24h ?? mark,
+    priorNetPrice: live.markPrior24h ?? Number.NaN,
     bestBid,
     bestAsk,
     book,
@@ -132,6 +136,7 @@ export function applyLiveMarket(base: PackageMarket, live: LiveMarketData | unde
     qualification,
     qualificationNote: `${base.qualificationNote}${statusNote}`,
     markSource: live.markSource,
+    markModel: live.markModel,
     markAsOf: live.markAsOf,
     referencePrice,
     referenceAsOf,

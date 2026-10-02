@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Camera,
   Check,
@@ -32,23 +32,28 @@ import {
   PriceScaleMode,
   TickMarkType,
   createChart,
+  createSeriesMarkers,
   createTextWatermark,
+  type AutoscaleInfo,
   type BarData,
   type HistogramData,
   type IChartApi,
   type IPriceLine,
   type ISeriesApi,
+  type ISeriesMarkersPluginApi,
   type ITextWatermarkPluginApi,
   type LineData,
   type Logical,
   type MouseEventParams,
+  type SeriesMarker,
   type SeriesType,
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
 import { useChainNow, useMarketCandles } from "@/components/market-data/MarketDataProvider";
 import { barOpenTime, INTERVAL_SECONDS } from "@/lib/market-data/intervals";
-import type { ChartInterval, MarketCandle } from "@/lib/market-data/types";
+import type { ChartInterval, ChartTrade, MarketCandle } from "@/lib/market-data/types";
+import { describeMark } from "@/lib/pricing/mark";
 import { usePersistentState } from "@/lib/terminal/use-persistent-state";
 import {
   formatLots,
@@ -98,6 +103,55 @@ type IndicatorValues = Partial<Record<IndicatorId, Record<string, number>>>;
 interface ActiveSeries {
   style: ChartStyle;
   api: ISeriesApi<SeriesType>;
+}
+
+interface BarFills {
+  count: number;
+  lots: number;
+  notional: number;
+}
+
+/** Fills per bar open time, for the volume readout and the markers. */
+function fillsByBar(trades: readonly ChartTrade[], interval: ChartInterval): Map<number, BarFills> {
+  const bars = new Map<number, BarFills>();
+  for (const trade of trades) {
+    const time = barOpenTime(trade.time, interval);
+    const bar = bars.get(time) ?? { count: 0, lots: 0, notional: 0 };
+    bar.count += 1;
+    bar.lots += trade.lots;
+    bar.notional += trade.lots * trade.price;
+    bars.set(time, bar);
+  }
+  return bars;
+}
+
+/**
+ * One marker per bar and aggressor side, at the volume-weighted price the fills actually traded at and labelled with
+ * their lots. Fills sit on the mark's bars as markers; they never become the bars.
+ */
+function fillMarkers(trades: readonly ChartTrade[], interval: ChartInterval, bars: ReadonlySet<number>): SeriesMarker<Time>[] {
+  const groups = new Map<string, { time: number; side: ChartTrade["side"]; lots: number; notional: number }>();
+  for (const trade of trades) {
+    const time = barOpenTime(trade.time, interval);
+    if (!bars.has(time)) continue;
+    const key = `${time}:${trade.side}`;
+    const group = groups.get(key) ?? { time, side: trade.side, lots: 0, notional: 0 };
+    group.lots += trade.lots;
+    group.notional += trade.lots * trade.price;
+    groups.set(key, group);
+  }
+  return [...groups.values()]
+    .sort((a, b) => a.time - b.time || (a.side === b.side ? 0 : a.side === "BUY" ? -1 : 1))
+    .map((group) => ({
+      id: `${group.time}:${group.side}`,
+      time: group.time as UTCTimestamp,
+      position: "atPriceMiddle" as const,
+      price: group.notional / group.lots,
+      shape: "circle" as const,
+      color: group.side === "BUY" ? CHART_THEME.up : CHART_THEME.down,
+      text: formatLots(group.lots),
+      size: 0.8,
+    }));
 }
 
 const CHART_PREFS_KEY = "setryn:chart-prefs";
@@ -304,6 +358,8 @@ export function PackagePriceChart({
   const holder = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ActiveSeries | null>(null);
+  const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  const spotRef = useRef<{ chart: IChartApi; series: ISeriesApi<"Line"> } | null>(null);
   const primitiveRef = useRef<DrawingsPrimitive | null>(null);
   const watermarkRef = useRef<ITextWatermarkPluginApi<Time> | null>(null);
   const indicatorRefs = useRef<Map<IndicatorId, ISeriesApi<SeriesType>[]>>(new Map());
@@ -402,9 +458,11 @@ export function PackagePriceChart({
     });
   }, [magnet]);
 
-  /* Bars come from the market-data feed: onchain fills, or the underlying's Chainlink history while the market has
-     none. A new market, interval, or source loads a fresh set; later responses stream into the latest bars. */
-  const { candles: feedCandles, source, loading, reference } = useMarketCandles(market.id, interval);
+  /* Bars are this expiry's own modeled mark, before and after any trade. Fills (markers and volume), the Chainlink spot
+     and the floor and cap are drawn beside them and never replace them. A new market, interval, or source loads a fresh
+     set; later responses stream into the latest bars. */
+  const { candles: feedCandles, source, loading, reference, trades, model } = useMarketCandles(market.id, interval);
+  const [fitBand, setFitBand] = useState(false);
   const loadKey = `${market.id}:${interval}:${source ?? "pending"}`;
   const [loaded, setLoaded] = useState<{ key: string; candles: MarketCandle[] }>({ key: "", candles: [] });
   if (loaded.key !== loadKey) setLoaded({ key: loadKey, candles: source === null ? [] : feedCandles });
@@ -413,8 +471,8 @@ export function PackagePriceChart({
   const firstBar = history[0];
   const lastBar = history[history.length - 1];
   const rising = firstBar && lastBar ? lastBar.close >= firstBar.open : true;
-  // The 24-hour reference line belongs to fills; reference bars are the underlying's spot, not the forward.
-  const priorLine = source === "FILLS" && Number.isFinite(market.priorNetPrice) ? market.priorNetPrice : null;
+  // The same model 24 hours earlier: the base of the header's 24h change.
+  const priorLine = Number.isFinite(market.priorNetPrice) ? market.priorNetPrice : null;
 
   /** Fractional bar index of a timestamp, extrapolated past either end of the loaded bars. */
   const timeToLogical = useCallback((time: number): number | null => {
@@ -996,10 +1054,18 @@ export function PackagePriceChart({
         lineWidth: 1,
         lineStyle: LineStyle.Dotted,
         axisLabelVisible: true,
-        title: "24h open",
+        title: "24h mark",
       });
     }
+    for (const [price, title] of [
+      [market.floor, "Floor"],
+      [market.cap, "Cap"],
+    ] as const) {
+      if (!Number.isFinite(price)) continue;
+      api.createPriceLine({ price, color: CHART_THEME.band, lineWidth: 1, lineStyle: LineStyle.LargeDashed, axisLabelVisible: true, title });
+    }
     api.attachPrimitive(primitive);
+    markersRef.current = createSeriesMarkers(api, []);
     seriesRef.current = active;
     const last = displayed[displayed.length - 1];
     setLatest(last ? { candle: { ...last, volume: candles[candles.length - 1].volume }, previousClose: displayed[displayed.length - 2]?.close ?? last.open } : null);
@@ -1007,12 +1073,61 @@ export function PackagePriceChart({
 
     return () => {
       if (chartRef.current && seriesRef.current === active) {
+        markersRef.current?.detach();
+        markersRef.current = null;
         api.detachPrimitive(primitive);
         chart.removeSeries(api);
         seriesRef.current = null;
       }
     };
-  }, [market.priceDecimals, priorLine, history, style, rising]);
+  }, [market.priceDecimals, market.floor, market.cap, priorLine, history, style, rising]);
+
+  // Fitting the band widens the price scale to the floor and cap, so the mark reads against the payoff's bounds.
+  useEffect(() => {
+    const active = seriesRef.current;
+    if (!active) return;
+    const { floor, cap } = market;
+    active.api.applyOptions({
+      autoscaleInfoProvider:
+        fitBand && Number.isFinite(floor) && Number.isFinite(cap)
+          ? (original: () => AutoscaleInfo | null): AutoscaleInfo => {
+              const info = original();
+              const range = info?.priceRange;
+              return {
+                priceRange: { minValue: Math.min(range?.minValue ?? floor, floor), maxValue: Math.max(range?.maxValue ?? cap, cap) },
+                margins: info?.margins,
+              };
+            }
+          : undefined,
+    });
+  }, [fitBand, market, history, style, rising, priorLine]);
+
+  // The underlying's Chainlink spot: a faint, labelled line on the same scale, kept out of the autoscale so the mark's
+  // bars set the view. It is context for the mark, not the forward, and never part of the bars.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const line = reference?.line ?? [];
+    if (!reference || line.length === 0) {
+      if (spotRef.current?.chart === chart) chart.removeSeries(spotRef.current.series);
+      spotRef.current = null;
+      return;
+    }
+    if (spotRef.current?.chart !== chart) {
+      const series = chart.addSeries(LineSeries, {
+        color: CHART_THEME.spot,
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: true,
+        crosshairMarkerVisible: false,
+        autoscaleInfoProvider: () => null,
+        priceFormat: { type: "price", precision: market.priceDecimals, minMove: 10 ** -market.priceDecimals },
+      });
+      spotRef.current = { chart, series };
+    }
+    spotRef.current.series.applyOptions({ title: `${reference.pair} spot` });
+    spotRef.current.series.setData(line.map((point) => ({ time: point.time as UTCTimestamp, value: point.value })));
+  }, [reference, market.priceDecimals]);
 
   // Indicators are recomputed from the same raw bars the chart draws, on the price pane or their own panes.
   useEffect(() => {
@@ -1176,6 +1291,14 @@ export function PackagePriceChart({
     });
   }, [feedCandles, loadKey, loaded.key]);
 
+  // Fills on the bars they traded in; placed again when a fill lands, a bar streams in, or the series is rebuilt.
+  useEffect(() => {
+    const markers = markersRef.current;
+    if (!markers) return;
+    const bars = new Set(candlesRef.current.map((candle) => candle.time));
+    markers.setMarkers(fillMarkers(trades, interval, bars));
+  }, [trades, interval, feedCandles, history, style, rising, priorLine, market.floor, market.cap, market.priceDecimals]);
+
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
@@ -1275,8 +1398,11 @@ export function PackagePriceChart({
         ? orderOverlays.map((order) => ({ id: order.id, price: order.limitPrice }))
         : [],
       orderPreview,
+      band: Number.isFinite(market.floor) && Number.isFinite(market.cap) ? { floor: market.floor, cap: market.cap, color: CHART_THEME.band } : null,
     });
   }, [
+    market.floor,
+    market.cap,
     orderOverlays,
     onAmendOrderPrice,
     orderPreview,
@@ -1378,6 +1504,10 @@ export function PackagePriceChart({
   const change = readout && previousClose !== null ? readout.close - previousClose : 0;
   const changePercent = readout && previousClose ? (change / Math.abs(previousClose)) * 100 : 0;
   const changeTone = change >= 0 ? "text-up" : "text-down";
+  const barFills = useMemo(() => fillsByBar(trades, interval), [trades, interval]);
+  const spotByBar = useMemo(() => new Map((reference?.line ?? []).map((point) => [point.time, point.value])), [reference]);
+  const readoutFills = readout ? barFills.get(readout.time) : undefined;
+  const readoutSpot = readout ? spotByBar.get(readout.time) : undefined;
   const values = hoverValues ?? latestValues;
   const overlays = INDICATORS.filter((spec) => spec.placement === "overlay" && indicators.includes(spec.id));
   const inlineIntervals = FAVORITE_INTERVALS.includes(interval) ? FAVORITE_INTERVALS : [...FAVORITE_INTERVALS, interval];
@@ -1640,24 +1770,23 @@ export function PackagePriceChart({
             ref={holder}
             className="absolute inset-0"
             role="img"
-            aria-label={`${intervalName(interval)} ${activeStyle.label.toLowerCase()} chart for ${market.name}${
-              source === "REFERENCE" && reference ? `, showing the Chainlink ${reference.pair} reference while the market has no trades` : ""
-            }. Current mark ${formatNumber(market.netPrice, market.priceDecimals)} ${unit}.`}
+            aria-label={`${intervalName(interval)} ${activeStyle.label.toLowerCase()} chart of the modeled mark for ${market.name}, with fills as markers${
+              reference ? `, the Chainlink ${reference.pair} spot as a faint line` : ""
+            }, and the floor and cap. Current mark ${formatNumber(market.netPrice, market.priceDecimals)} ${unit}.`}
           />
-          {source === "REFERENCE" ? (
-            <div className="pointer-events-none absolute right-3 bottom-8 z-10 flex max-w-[calc(100%-24px)] items-center gap-1.5 rounded-sm border border-line-strong bg-panel/90 px-2 py-1 text-[11px] text-dim">
-              <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-faint" />
-              <span className="truncate">
-                {reference
-                  ? `No trades yet. Bars show the Chainlink ${reference.pair} reference, not the forward.`
-                  : "No trades yet, and no reference history is available."}
-              </span>
+          {model ? (
+            <div
+              title={`${describeMark(model)} These inputs are MODELED assumptions, not observed market data. Fills are drawn as markers with their lots as volume; they never replace the mark.`}
+              className="absolute bottom-8 left-3 z-10 flex max-w-[calc(100%-96px)] items-center gap-1.5 rounded-sm border border-line bg-panel/85 px-1.5 py-0.5 text-[10.5px] text-faint"
+            >
+              <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand" />
+              <span className="truncate">{`Modeled mark · capped-forward v${model.version} · ${model.parameterSet}`}</span>
             </div>
           ) : null}
           {history.length === 0 ? (
             <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center">
               <span className="text-xs text-faint">
-                {loading ? "Loading chart" : source === "FILLS" ? "No trades in this window" : "No chart history available"}
+                {loading ? "Loading chart" : "No mark history: the market has no Chainlink history or model inputs"}
               </span>
             </div>
           ) : null}
@@ -1666,7 +1795,7 @@ export function PackagePriceChart({
               <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 font-mono text-[11px]">
                 <span className="font-sans text-xs text-dim">
                   <span className="text-ink">{market.id}</span>
-                  {` · ${intervalLabel(interval)} · ${activeStyle.label}`}
+                  {` · Mark · ${intervalLabel(interval)} · ${activeStyle.label}`}
                 </span>
                 <span className="text-faint">
                   O <span className={changeTone}>{formatNumber(readout.open, market.priceDecimals)}</span>
@@ -1687,6 +1816,22 @@ export function PackagePriceChart({
               {indicators.includes("volume") ? (
                 <div className="font-mono text-[11px] text-faint">
                   Vol <span className="text-dim">{`${formatLots(readout.volume)} lots`}</span>
+                </div>
+              ) : null}
+              {readoutFills ? (
+                <div className="font-mono text-[11px] text-faint">
+                  Fills{" "}
+                  <span className="text-dim">
+                    {`${readoutFills.count} · ${formatLots(readoutFills.lots)} lots at ${formatNumber(readoutFills.notional / readoutFills.lots, market.priceDecimals)} avg`}
+                  </span>
+                </div>
+              ) : null}
+              {reference && readoutSpot !== undefined ? (
+                <div className="flex items-baseline gap-1.5 font-mono text-[11px] text-faint">
+                  <span aria-hidden="true" className="h-px w-3 self-center" style={{ background: CHART_THEME.spot }} />
+                  Spot
+                  <span className="text-dim">{`${reference.pair} ${formatNumber(readoutSpot, market.priceDecimals + 1)}`}</span>
+                  <span className="font-sans text-off">Chainlink</span>
                 </div>
               ) : null}
               {overlays.map((spec) => (
@@ -1805,6 +1950,15 @@ export function PackagePriceChart({
           className={`focus-ring h-6 rounded-[5px] px-1.5 font-mono text-[11px] transition-colors ${autoScale ? "text-brand" : "text-faint hover:text-ink"}`}
         >
           auto
+        </button>
+        <button
+          type="button"
+          onClick={() => setFitBand((value) => !value)}
+          aria-pressed={fitBand}
+          title={`Fit the floor (${formatNumber(market.floor, market.priceDecimals)}) and cap (${formatNumber(market.cap, market.priceDecimals)}) in the price scale`}
+          className={`focus-ring h-6 rounded-[5px] px-1.5 font-mono text-[11px] transition-colors ${fitBand ? "text-brand" : "text-faint hover:text-ink"}`}
+        >
+          band
         </button>
       </div>
     </div>

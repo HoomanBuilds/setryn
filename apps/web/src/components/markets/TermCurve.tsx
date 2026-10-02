@@ -20,7 +20,7 @@ import {
   spreadOf,
   type CurveFamily,
 } from "@/lib/terminal/discovery";
-import { tradeHref } from "@/lib/terminal/markets";
+import { lastTradedPrice, tradeHref } from "@/lib/terminal/markets";
 import { bounds, linePath, ticks } from "@/components/terminal/viz/chart-utils";
 import type { PackageMarket } from "@/lib/terminal/types";
 import { Chip, motion } from "@/components/markets/ui";
@@ -34,15 +34,17 @@ interface Plotted {
   /** Percent of the plot box, so the HTML marker layer can sit on the SVG. */
   left: number;
   top: number;
-  /** Whether the mark is traded (book mid or last fill); otherwise it sits on the reference. */
+  /** Whether the maturity has a modeled mark; one without a mark sits on the spot line and stays off the curve. */
+  marked: boolean;
+  /** Whether the maturity has traded on Setryn; a traded maturity's point is drawn solid. */
   traded: boolean;
 }
 
 function isTraded(market: PackageMarket): boolean {
-  return market.markSource === "MID" || market.markSource === "LAST";
+  return Number.isFinite(lastTradedPrice(market));
 }
 
-const SOURCE_SHORT: Record<PackageMarket["markSource"], string> = { MID: "Mid", LAST: "Last", REFERENCE: "Ref", NONE: "—" };
+const SOURCE_SHORT: Record<PackageMarket["markSource"], string> = { MODEL: "Model", NONE: "—" };
 
 /* Margins of the plot box, so an end maturity keeps its label inside it. */
 const PLOT_START = 8;
@@ -88,6 +90,7 @@ function plot(family: CurveFamily): {
           ? 50
           : PLOT_START + ((days[index] - minDay) / daySpan) * (PLOT_END - PLOT_START),
       top: toTop(Number.isFinite(market.netPrice) ? market.netPrice : spot),
+      marked: market.markSource === "MODEL",
       traded: isTraded(market),
     })),
     low: price.min,
@@ -120,10 +123,11 @@ function CurvePanel({ family }: { family: CurveFamily }) {
   const decimals = family.markets[0]?.priceDecimals ?? 1;
   /* Interior lines only: an edge tick would collide with the axis labels. */
   const gridLines = ticks(low, high, 4).slice(1, -1);
-  /* Only traded marks form a term structure; a maturity marked at the reference sits on the spot line. */
+  /* Every marked maturity is priced on its own expiry, so the modeled marks form the term structure. */
+  const marked = points.filter((point) => point.marked);
   const traded = points.filter((point) => point.traded);
-  const curved = traded.length > 1;
-  const line = traded.map((point) => ({
+  const curved = marked.length > 1;
+  const line = marked.map((point) => ({
     x: (point.left / 100) * VIEW_W,
     y: (point.top / 100) * VIEW_H,
   }));
@@ -146,7 +150,7 @@ function CurvePanel({ family }: { family: CurveFamily }) {
         <span className="flex items-center gap-3 text-[11px] text-faint">
           <span className="flex items-center gap-1.5">
             <span aria-hidden="true" className="h-[2px] w-4 rounded-full bg-brand" />
-            Traded marks
+            Modeled marks
           </span>
           <span className="flex items-center gap-1.5">
             <span aria-hidden="true" className="w-4 border-t border-dashed border-off" />
@@ -185,8 +189,8 @@ function CurvePanel({ family }: { family: CurveFamily }) {
             role="img"
             aria-label={
               curved
-                ? `Term structure of ${family.label}, traded forward levels in ${unit} from ${formatNumber(low, decimals)} to ${formatNumber(high, decimals)} across ${traded.length} maturities of ${family.underlying}. The dashed line is the Chainlink spot reference. The equivalent table follows.`
-                : `${family.label} has ${traded.length === 0 ? "no traded maturity" : "one traded maturity"}, so no term structure is drawn. The dashed line is the Chainlink spot reference. The equivalent table follows.`
+                ? `Term structure of ${family.label}, modeled marks in ${unit} from ${formatNumber(low, decimals)} to ${formatNumber(high, decimals)} across ${marked.length} maturities of ${family.underlying}. The dashed line is the Chainlink spot reference. The equivalent table follows.`
+                : `${family.label} has ${marked.length === 0 ? "no marked maturity" : "one marked maturity"}, so no term structure is drawn. The dashed line is the Chainlink spot reference. The equivalent table follows.`
             }
           >
             {Number.isFinite(spot) ? (
@@ -215,14 +219,14 @@ function CurvePanel({ family }: { family: CurveFamily }) {
               key={point.market.id}
               href={tradeHref(point.market)}
               title={`${point.market.name}, ${point.market.tenorLabel}, ${formatNumber(point.market.netPrice, point.market.priceDecimals)} ${unit}${
-                point.traded ? "" : ", marked at the reference: no book or trades yet"
+                !point.marked ? ", no mark" : point.traded ? ", modeled mark, traded" : ", modeled mark, no trades yet"
               }`}
               style={{ left: `${point.left}%`, top: `${point.top}%` }}
               className="focus-ring absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1 rounded-sm px-1.5 py-1"
             >
               <span
                 aria-hidden="true"
-                className={`h-[7px] w-[7px] rotate-45 border bg-panel ${point.traded ? "border-brand" : "border-off"}`}
+                className={`h-[7px] w-[7px] rotate-45 border ${point.traded ? "border-brand bg-brand" : point.marked ? "border-brand bg-panel" : "border-off bg-panel"}`}
               />
               <span
                 className={`tnum bg-panel px-1 whitespace-nowrap font-mono text-xs text-dim ${labelShift(point.left)}`}
@@ -316,14 +320,11 @@ function CurveTable({
               </td>
               <td className="px-2 text-right text-xs text-off">{SOURCE_SHORT[market.markSource]}</td>
               <td className="px-2 text-right">
-                <Delta
-                  value={isTraded(market) ? changePercent(market.netPrice, market.priorNetPrice) : Number.NaN}
-                  className="text-xs"
-                />
+                <Delta value={changePercent(market.netPrice, market.priorNetPrice)} className="text-xs" />
               </td>
               <td className="tnum px-2 text-right font-mono text-xs whitespace-nowrap text-dim">
                 {isTraded(market)
-                  ? formatAnalytic(strategyAnalytic(market, market.netPrice, market.referencePrice, platformNowSeconds()))
+                  ? formatAnalytic(strategyAnalytic(market, lastTradedPrice(market), market.referencePrice, platformNowSeconds()))
                   : "—"}
               </td>
               <td className="tnum px-2 text-right font-mono text-xs text-dim">

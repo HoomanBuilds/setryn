@@ -102,16 +102,13 @@ export interface MarkRead {
 export const NO_MARK: MarkRead = { price: null, source: "NONE" };
 
 export const MARK_SOURCE_LABEL: Record<MarkSource, string> = {
-  MID: "Book mid",
-  LAST: "Last fill",
-  REFERENCE: "Chainlink reference",
-  NONE: "No quote",
+  MODEL: "Modeled mark",
+  NONE: "No mark",
 };
 
-/** Trust class of a mark: a book mid is derived, a fill or reference is observed, nothing is nothing. */
+/** Trust class of a mark: every mark is the versioned capped-forward model, so it is MODELED, never observed. */
 export function markProvenance(source: MarkSource): Provenance {
-  if (source === "MID") return "ESTIMATED";
-  if (source === "LAST" || source === "REFERENCE") return "OBSERVED";
+  void source;
   return "MODELED";
 }
 

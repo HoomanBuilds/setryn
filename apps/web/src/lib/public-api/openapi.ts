@@ -442,9 +442,17 @@ export function openApiDocument(serverUrl: string) {
           ),
           quote: object({
             source: { type: "string", enum: ["MARKET_DATA", "LISTING_REFERENCE"], description: "MARKET_DATA once the live feed was read; LISTING_REFERENCE when only the listing is available." },
-            netPrice: nullable({ type: "number", description: "The mark: book mid, else the last fill, else the Chainlink reference (see markSource)." }),
-            markSource: { type: "string", enum: ["MID", "LAST", "REFERENCE", "NONE"] },
-            priorNetPrice: nullable({ type: "number", description: "First fill price in the last 24 hours." }),
+            netPrice: nullable({ type: "number", description: "The modeled mark of this expiry: the versioned capped-forward model from the Chainlink spot, floor, cap and time to expiry." }),
+            markSource: { type: "string", enum: ["MODEL", "NONE"], description: "MODEL when the mark comes from the capped-forward model; NONE when no mark is available." },
+            markModel: nullable(
+              object({
+                methodology: { type: "string", enum: ["SETRYN_CAPPED_FORWARD_MARK"] },
+                version: { type: "integer" },
+                parameterSet: { type: "string", description: "Id of the versioned model input set (volatility, rate, carry)." },
+                provenance: { type: "string", enum: ["MODELED"], description: "The model inputs are assumptions, not observed market data." },
+              }),
+            ),
+            priorNetPrice: nullable({ type: "number", description: "The same model 24 hours earlier; null while that spot is not known." }),
             bestBid: nullable({ type: "number" }),
             bestAsk: nullable({ type: "number" }),
             referencePrice: nullable({ type: "number", description: "Chainlink reference of the underlying on Arbitrum." }),

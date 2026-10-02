@@ -206,6 +206,8 @@ export interface DrawingScene {
   orderHandles: OrderHandle[];
   /** Live preview while a working order is dragged. */
   orderPreview: { price: number; label: string; color: string } | null;
+  /** The payoff band; a bound outside the visible price range is pinned to the pane's edge so it is never lost. */
+  band: { floor: number; cap: number; color: string } | null;
 }
 
 export interface OrderHandle {
@@ -240,6 +242,7 @@ const EMPTY_SCENE: DrawingScene = {
   countdown: null,
   orderHandles: [],
   orderPreview: null,
+  band: null,
 };
 
 function formatPrice(value: number, decimals: number): string {
@@ -425,6 +428,34 @@ function drawOne(
   }
 }
 
+/** A floor or cap outside the visible range, as a chip on the pane edge it lies beyond (the price line is off screen). */
+function drawBandEdges(
+  context: CanvasRenderingContext2D,
+  band: NonNullable<DrawingScene["band"]>,
+  projection: DrawingProjection,
+  scene: DrawingScene,
+) {
+  context.font = `10px ${scene.fontFamily}`;
+  context.textBaseline = "middle";
+  context.textAlign = "right";
+  const edge = (price: number, label: string, above: boolean) => {
+    const y = projection.y(price);
+    if (y === null || (above ? y >= 0 : y <= projection.height)) return;
+    const text = `${label} ${formatPrice(price, scene.priceDecimals)} ${above ? "↑" : "↓"}`;
+    const width = context.measureText(text).width + 10;
+    const right = projection.width - 8;
+    const middle = above ? 12 : projection.height - 12;
+    context.fillStyle = "rgba(23, 23, 26, 0.86)";
+    context.beginPath();
+    context.roundRect(right - width, middle - 8, width, 16, 3);
+    context.fill();
+    context.fillStyle = band.color;
+    context.fillText(text, right - 5, middle + 0.5);
+  };
+  edge(band.cap, "Cap", true);
+  edge(band.floor, "Floor", false);
+}
+
 class DrawingsRenderer implements IPrimitivePaneRenderer {
   constructor(
     private readonly scene: DrawingScene,
@@ -445,6 +476,7 @@ class DrawingsRenderer implements IPrimitivePaneRenderer {
         }
       }
       if (scene.draft) drawOne(context, scene.draft, projection, scene, "draft");
+      if (scene.band) drawBandEdges(context, scene.band, projection, scene);
       if (scene.orderPreview) {
         const y = projection.y(scene.orderPreview.price);
         if (y !== null) {

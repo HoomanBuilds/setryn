@@ -252,6 +252,8 @@ export function useReferencePrices(): Record<string, ReferenceQuote> {
 }
 
 /** OHLCV bars for one market and interval, refreshed with the feed. */
+const NO_CHART_TRADES: MarketCandlesResponse["trades"] = [];
+
 export function useMarketCandles(
   marketId: string,
   interval: ChartInterval,
@@ -260,6 +262,10 @@ export function useMarketCandles(
   source: MarketCandlesResponse["source"] | null;
   loading: boolean;
   reference: MarketCandlesResponse["reference"] | null;
+  trades: MarketCandlesResponse["trades"];
+  band: MarketCandlesResponse["band"] | null;
+  expiryAt: number | null;
+  model: MarketCandlesResponse["model"];
 } {
   const { snapshot } = useMarketDataContext();
   const [state, setState] = useState<{ key: string; response: MarketCandlesResponse | null }>({ key: "", response: null });
@@ -292,6 +298,10 @@ export function useMarketCandles(
     source: response?.source ?? null,
     loading: response === null,
     reference: response?.reference ?? null,
+    trades: response?.trades ?? NO_CHART_TRADES,
+    band: response?.band ?? null,
+    expiryAt: response?.expiryAt ?? null,
+    model: response?.model ?? null,
   };
 }
 

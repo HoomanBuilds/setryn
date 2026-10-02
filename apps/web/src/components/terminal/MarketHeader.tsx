@@ -8,6 +8,8 @@ import { MarketSwitcher } from "@/components/terminal/MarketSwitcher";
 import { FlashValue } from "@/components/terminal/motion";
 import { Delta, QUALIFICATION_LABEL, SectionLabel } from "@/components/terminal/primitives";
 import { formatAnalytic, strategyAnalytic } from "@/lib/market-data/analytics";
+import { describeMark } from "@/lib/pricing/mark";
+import { lastTradedPrice } from "@/lib/terminal/markets";
 import {
   changePercent,
   daysToExpiry,
@@ -22,21 +24,18 @@ import {
 import type { PackageMarket } from "@/lib/terminal/types";
 
 const MARK_SOURCE_LABEL: Record<PackageMarket["markSource"], string> = {
-  MID: "Mid",
-  LAST: "Last",
-  REFERENCE: "Reference",
+  MODEL: "Modeled",
   NONE: "No mark",
 };
 
 /** Where the mark comes from, in words, for the mark's tooltip. */
 export function markSourceDetail(market: PackageMarket): string {
-  const at = market.markAsOf > 0 ? ` at ${formatUtcStamp(market.markAsOf)} UTC` : "";
-  if (market.markSource === "MID") return `Mid of the best bid and offer on the onchain book${at}.`;
-  if (market.markSource === "LAST") return `Last onchain fill${at}; the book does not hold both sides.`;
-  if (market.markSource === "REFERENCE") {
-    return `No book or trades yet: the Chainlink ${market.referencePair} reference${at}, held inside the ${market.floor}–${market.cap} payoff range.`;
+  const at = market.markAsOf > 0 ? ` (spot at ${formatUtcStamp(market.markAsOf)} UTC)` : "";
+  if (market.markSource === "MODEL" && market.markModel) {
+    return `${describeMark(market.markModel)} From the Chainlink ${market.referencePair} spot${at}, the ${market.floor}–${market.cap} band and this expiry. Inputs are MODELED, not observed market data.`;
   }
-  return "No book, trades, or reference reading is available.";
+  if (market.markSource === "MODEL") return `Modeled capped-forward mark from the Chainlink ${market.referencePair} spot${at}.`;
+  return "No Chainlink spot is available to model a mark from.";
 }
 
 const SETTLEMENT_LABEL: Record<PackageMarket["settlementClass"], string> = {
@@ -97,7 +96,9 @@ function SpecRow({
 function statsFor(market: PackageMarket, nowSeconds: number) {
   const unit = priceUnitSuffix(market.priceUnit);
   const spread = market.bestAsk - market.bestBid;
-  const analytic = strategyAnalytic(market, market.netPrice, market.referencePrice, nowSeconds);
+  // Carry and basis are market readings, so they come from the last trade; the modeled mark would echo its own inputs.
+  const traded = lastTradedPrice(market);
+  const analytic = strategyAnalytic(market, traded, market.referencePrice, nowSeconds);
   return [
     { label: "Best bid", value: formatPrice(market.bestBid, market), tone: "up" as const },
     { label: "Best offer", value: formatPrice(market.bestAsk, market), tone: "down" as const },
@@ -121,12 +122,10 @@ function statsFor(market: PackageMarket, nowSeconds: number) {
     },
     {
       label: analytic.label,
-      // A market marked at its reference has no forward of its own yet, so its carry or basis is not a reading.
-      value: market.markSource === "MID" || market.markSource === "LAST" ? formatAnalytic(analytic) : "—",
-      title:
-        market.markSource === "MID" || market.markSource === "LAST"
-          ? `${analytic.describe} From the mark against the live reference.`
-          : `${analytic.describe} Shown once the market has a book or a trade.`,
+      value: Number.isFinite(traded) ? formatAnalytic(analytic) : "—",
+      title: Number.isFinite(traded)
+        ? `${analytic.describe} From the last trade against the live reference.`
+        : `${analytic.describe} Shown once the market trades; the mark is modeled, so it is not a market reading.`,
     },
     {
       label: "Expiry",
@@ -161,7 +160,7 @@ export function MarketHeader({
   const now = useChainNow();
   const change = changePercent(market.netPrice, market.priorNetPrice);
   const unit = priceUnitSuffix(market.priceUnit);
-  const reference = market.markSource === "REFERENCE" || market.markSource === "NONE";
+  const unmarked = market.markSource === "NONE";
 
   return (
     <div className="relative z-[35] flex h-[52px] shrink-0 items-stretch border-b border-line bg-panel lg:mx-1 lg:mt-1 lg:h-12 lg:rounded-lg lg:border lg:border-line">
@@ -175,17 +174,17 @@ export function MarketHeader({
             {formatPrice(market.netPrice, market)}
           </FlashValue>
           <span className="text-xs text-faint">{unit}</span>
-          {reference ? null : <Delta value={change} className="text-xs" />}
+          {unmarked ? null : <Delta value={change} className="text-xs" />}
         </span>
         <span
           className={`hidden shrink-0 items-center gap-1.5 rounded-sm border px-1.5 py-0.5 text-[11px] lg:flex ${
-            reference ? "border-line-strong text-faint" : "border-up/30 text-up"
+            unmarked ? "border-line-strong text-faint" : "border-line-strong text-dim"
           }`}
           title={`${markSourceDetail(market)}${
             onchain ? " Orders on this market are signed and settled on the connected chain." : " This market is not open for trading on the connected chain."
           }`}
         >
-          <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${reference ? "bg-faint" : "bg-up"}`} />
+          <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${unmarked ? "bg-faint" : "bg-brand"}`} />
           {MARK_SOURCE_LABEL[market.markSource]}
         </span>
       </div>
@@ -202,7 +201,7 @@ export function MarketHeader({
           <FlashValue value={market.netPrice}>{`${formatPrice(market.netPrice, market)} `}</FlashValue>
           <span className="text-xs text-faint">{unit}</span>
         </span>
-        {reference ? <span className="text-xs text-off">{MARK_SOURCE_LABEL[market.markSource]}</span> : <Delta value={change} className="text-xs" />}
+        {unmarked ? <span className="text-xs text-off">{MARK_SOURCE_LABEL[market.markSource]}</span> : <Delta value={change} className="text-xs" />}
       </div>
 
       <div className="hidden shrink-0 items-center border-l border-line px-2 lg:flex">

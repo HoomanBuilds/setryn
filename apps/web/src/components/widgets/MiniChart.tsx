@@ -6,18 +6,17 @@ import type { PackageMarket } from "@/lib/terminal/types";
 const BARS = 96;
 
 /**
- * Compact 24-hour line of 15-minute closes from the market-data feed: the market's onchain fills, or, while it has none,
- * its underlying's Chainlink reference (labelled as such). It reads the same bars as the terminal chart, so the two
- * never disagree. With no bars at all it says so instead of drawing a line.
+ * Compact 24-hour line of 15-minute closes of the market's modeled mark, the same bars the terminal chart draws, so the
+ * two never disagree. With no bars at all it says so instead of drawing a line.
  */
 export function MiniChart({ market, height = 72 }: { market: PackageMarket; height?: number }) {
-  const { candles, source, loading, reference } = useMarketCandles(market.id, "15m");
+  const { candles, loading } = useMarketCandles(market.id, "15m");
   const closes = candles.slice(-BARS).map((bar) => bar.close);
 
   if (closes.length < 2) {
     return (
       <div className="flex w-full items-center justify-center text-[11px] text-faint" style={{ height }}>
-        {loading ? "Loading" : "No trades yet"}
+        {loading ? "Loading" : "No mark history"}
       </div>
     );
   }
@@ -35,7 +34,7 @@ export function MiniChart({ market, height = 72 }: { market: PackageMarket; heig
   const up = change >= 0;
   const stroke = up ? "var(--color-up)" : "var(--color-down)";
   const fill = up ? "var(--color-up-soft)" : "var(--color-down-soft)";
-  const subject = source === "REFERENCE" && reference ? `Chainlink ${reference.pair} reference` : market.code;
+  const subject = `${market.code} modeled mark`;
 
   return (
     <div className="relative">
@@ -50,11 +49,6 @@ export function MiniChart({ market, height = 72 }: { market: PackageMarket; heig
         <polygon points={`0,${height} ${points.join(" ")} ${width},${height}`} fill={fill} />
         <polyline points={points.join(" ")} fill="none" stroke={stroke} strokeWidth={1.5} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
       </svg>
-      {source === "REFERENCE" && reference ? (
-        <span className="pointer-events-none absolute top-0 right-0 rounded-sm bg-panel/85 px-1 text-[10px] text-faint">
-          {`Reference · ${reference.pair}`}
-        </span>
-      ) : null}
     </div>
   );
 }

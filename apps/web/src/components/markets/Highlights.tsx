@@ -21,9 +21,8 @@ interface Card {
   figure: Figure;
 }
 
-/** The 24-hour move of a traded mark; a market marked at its reference has not moved by trading. */
-const move = (market: PackageMarket) =>
-  market.markSource === "MID" || market.markSource === "LAST" ? changePercent(market.netPrice, market.priorNetPrice) : Number.NaN;
+/** The 24-hour move of the modeled mark; NaN while the day-old mark is unknown. */
+const move = (market: PackageMarket) => changePercent(market.netPrice, market.priorNetPrice);
 
 const price: Figure = (market) => (
   <span className="flex items-baseline justify-end gap-1">
