@@ -93,6 +93,7 @@
       "DefaultBidderGate",
       "SignedLifecycleEngine",
       "CompressionCoordinator",
+      "OffsetUnwindCoordinator",
       "DefaultProcessEngine",
       "OrderReceiptAuthority",
       "RfqReceiptAuthority",
