@@ -208,6 +208,17 @@ export interface DrawingScene {
   orderPreview: { price: number; label: string; color: string } | null;
   /** The payoff band; a bound outside the visible price range is pinned to the pane's edge so it is never lost. */
   band: { floor: number; cap: number; color: string } | null;
+  /** Fills at the prices they traded, one per bar and aggressor side, drawn above the bars so a candle never hides one. */
+  fills: FillMark[];
+}
+
+export interface FillMark {
+  /** Open time of the bar the fills traded in. */
+  time: number;
+  /** Volume-weighted price of the fills. */
+  price: number;
+  color: string;
+  label: string;
 }
 
 export interface OrderHandle {
@@ -243,6 +254,7 @@ const EMPTY_SCENE: DrawingScene = {
   orderHandles: [],
   orderPreview: null,
   band: null,
+  fills: [],
 };
 
 function formatPrice(value: number, decimals: number): string {
@@ -456,6 +468,30 @@ function drawBandEdges(
   edge(band.floor, "Floor", false);
 }
 
+/** Each fill as a dot ringed in the panel colour, so it reads on a candle of its own colour, with its lots beside it. */
+function drawFills(context: CanvasRenderingContext2D, fills: FillMark[], projection: DrawingProjection, scene: DrawingScene) {
+  context.font = `10px ${scene.fontFamily}`;
+  context.textBaseline = "middle";
+  context.textAlign = "left";
+  context.lineJoin = "round";
+  for (const fill of fills) {
+    const x = projection.x(fill.time);
+    const y = projection.y(fill.price);
+    if (x === null || y === null) continue;
+    context.beginPath();
+    context.arc(x, y, 4, 0, Math.PI * 2);
+    context.fillStyle = fill.color;
+    context.fill();
+    context.lineWidth = 2;
+    context.strokeStyle = "#17171a";
+    context.stroke();
+    context.lineWidth = 3;
+    context.strokeText(fill.label, x + 8, y + 0.5);
+    context.fillStyle = fill.color;
+    context.fillText(fill.label, x + 8, y + 0.5);
+  }
+}
+
 class DrawingsRenderer implements IPrimitivePaneRenderer {
   constructor(
     private readonly scene: DrawingScene,
@@ -477,6 +513,7 @@ class DrawingsRenderer implements IPrimitivePaneRenderer {
       }
       if (scene.draft) drawOne(context, scene.draft, projection, scene, "draft");
       if (scene.band) drawBandEdges(context, scene.band, projection, scene);
+      if (scene.fills.length > 0) drawFills(context, scene.fills, projection, scene);
       if (scene.orderPreview) {
         const y = projection.y(scene.orderPreview.price);
         if (y !== null) {

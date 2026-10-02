@@ -32,7 +32,6 @@ import {
   PriceScaleMode,
   TickMarkType,
   createChart,
-  createSeriesMarkers,
   createTextWatermark,
   type AutoscaleInfo,
   type BarData,
@@ -40,12 +39,10 @@ import {
   type IChartApi,
   type IPriceLine,
   type ISeriesApi,
-  type ISeriesMarkersPluginApi,
   type ITextWatermarkPluginApi,
   type LineData,
   type Logical,
   type MouseEventParams,
-  type SeriesMarker,
   type SeriesType,
   type Time,
   type UTCTimestamp,
@@ -77,6 +74,7 @@ import {
   type DrawingHit,
   type DrawingKind,
   type DrawingPoint,
+  type FillMark,
 } from "./chart-drawings";
 import { ChartStyleIcon, CursorIcon, DrawingIcon } from "./chart-icons";
 import {
@@ -129,11 +127,10 @@ function fillsByBar(trades: readonly ChartTrade[], interval: ChartInterval): Map
  * One marker per bar and aggressor side, at the volume-weighted price the fills actually traded at and labelled with
  * their lots. Fills sit on the mark's bars as markers; they never become the bars.
  */
-function fillMarkers(trades: readonly ChartTrade[], interval: ChartInterval, bars: ReadonlySet<number>): SeriesMarker<Time>[] {
+function fillMarkers(trades: readonly ChartTrade[], interval: ChartInterval): FillMark[] {
   const groups = new Map<string, { time: number; side: ChartTrade["side"]; lots: number; notional: number }>();
   for (const trade of trades) {
     const time = barOpenTime(trade.time, interval);
-    if (!bars.has(time)) continue;
     const key = `${time}:${trade.side}`;
     const group = groups.get(key) ?? { time, side: trade.side, lots: 0, notional: 0 };
     group.lots += trade.lots;
@@ -143,14 +140,10 @@ function fillMarkers(trades: readonly ChartTrade[], interval: ChartInterval, bar
   return [...groups.values()]
     .sort((a, b) => a.time - b.time || (a.side === b.side ? 0 : a.side === "BUY" ? -1 : 1))
     .map((group) => ({
-      id: `${group.time}:${group.side}`,
-      time: group.time as UTCTimestamp,
-      position: "atPriceMiddle" as const,
+      time: group.time,
       price: group.notional / group.lots,
-      shape: "circle" as const,
       color: group.side === "BUY" ? CHART_THEME.up : CHART_THEME.down,
-      text: formatLots(group.lots),
-      size: 0.8,
+      label: `${group.side === "BUY" ? "B" : "S"} ${formatLots(group.lots)}`,
     }));
 }
 
@@ -358,7 +351,6 @@ export function PackagePriceChart({
   const holder = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ActiveSeries | null>(null);
-  const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const spotRef = useRef<{ chart: IChartApi; series: ISeriesApi<"Line"> } | null>(null);
   const primitiveRef = useRef<DrawingsPrimitive | null>(null);
   const watermarkRef = useRef<ITextWatermarkPluginApi<Time> | null>(null);
@@ -1065,7 +1057,6 @@ export function PackagePriceChart({
       api.createPriceLine({ price, color: CHART_THEME.band, lineWidth: 1, lineStyle: LineStyle.LargeDashed, axisLabelVisible: true, title });
     }
     api.attachPrimitive(primitive);
-    markersRef.current = createSeriesMarkers(api, []);
     seriesRef.current = active;
     const last = displayed[displayed.length - 1];
     setLatest(last ? { candle: { ...last, volume: candles[candles.length - 1].volume }, previousClose: displayed[displayed.length - 2]?.close ?? last.open } : null);
@@ -1073,8 +1064,6 @@ export function PackagePriceChart({
 
     return () => {
       if (chartRef.current && seriesRef.current === active) {
-        markersRef.current?.detach();
-        markersRef.current = null;
         api.detachPrimitive(primitive);
         chart.removeSeries(api);
         seriesRef.current = null;
@@ -1291,14 +1280,6 @@ export function PackagePriceChart({
     });
   }, [feedCandles, loadKey, loaded.key]);
 
-  // Fills on the bars they traded in; placed again when a fill lands, a bar streams in, or the series is rebuilt.
-  useEffect(() => {
-    const markers = markersRef.current;
-    if (!markers) return;
-    const bars = new Set(candlesRef.current.map((candle) => candle.time));
-    markers.setMarkers(fillMarkers(trades, interval, bars));
-  }, [trades, interval, feedCandles, history, style, rising, priorLine, market.floor, market.cap, market.priceDecimals]);
-
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
@@ -1369,6 +1350,7 @@ export function PackagePriceChart({
     [timeToLogical],
   );
   const countdownSeconds = barOpenTime(nowSeconds, interval) + INTERVAL_SECONDS[interval] - nowSeconds;
+  const fillMarks = useMemo(() => fillMarkers(trades, interval), [trades, interval]);
   const latestCandle = latest?.candle ?? null;
   useEffect(() => {
     primitiveRef.current?.setScene({
@@ -1399,8 +1381,10 @@ export function PackagePriceChart({
         : [],
       orderPreview,
       band: Number.isFinite(market.floor) && Number.isFinite(market.cap) ? { floor: market.floor, cap: market.cap, color: CHART_THEME.band } : null,
+      fills: fillMarks,
     });
   }, [
+    fillMarks,
     market.floor,
     market.cap,
     orderOverlays,
