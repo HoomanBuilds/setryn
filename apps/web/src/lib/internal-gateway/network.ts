@@ -87,6 +87,16 @@ export function networkEnvironment(network: SetrynNetwork): RuntimeEnvironment {
 }
 
 /**
+ * Whether the platform's test-collateral faucet runs: on the local chain, and on Arbitrum Sepolia when the deployment
+ * settles in the mintable Setryn test USDC. Never on Arbitrum One.
+ */
+export function testFundingAvailable(setryn: { network?: SetrynNetwork; settlementTokenMintable?: boolean }): boolean {
+  const network = setryn.network ?? "local";
+  if (network === "local") return true;
+  return network === "arbitrum-sepolia" && setryn.settlementTokenMintable === true;
+}
+
+/**
  * The chain viem signs and estimates for: Arbitrum One and Arbitrum Sepolia as viem defines them, and the local chain
  * on its own RPC. Wallets list the local chain under its own name; the product still presents it as Arbitrum One.
  */

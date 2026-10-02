@@ -1,5 +1,5 @@
 import { createPublicClient, http, type Address } from "viem";
-import { NETWORK_PROFILES } from "@/lib/internal-gateway/network";
+import { NETWORK_PROFILES, testFundingAvailable } from "@/lib/internal-gateway/network";
 import { signerAvailability } from "@/lib/internal-gateway/operator-signer";
 import { readRuntime } from "@/lib/internal-gateway/runtime-server";
 
@@ -42,7 +42,8 @@ export async function GET() {
     runtimeChainId: setryn.chainId,
     signers,
     maker: { enabled: signers.maker.available, address: signers.maker.address },
-    funding: { available: network === "local" },
+    // The test-collateral faucet: local, or Arbitrum Sepolia settling in the mintable test USDC; never Arbitrum One.
+    funding: { available: testFundingAvailable(setryn), mintableSettlementToken: setryn.settlementTokenMintable === true },
     feeChanges: network === "local" ? ("LOCAL_OPERATOR" as const) : ("GOVERNANCE_TIMELOCK" as const),
   };
   try {

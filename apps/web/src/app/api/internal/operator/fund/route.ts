@@ -1,5 +1,6 @@
 import { getAddress, isAddress, parseUnits } from "viem";
 import { localAccountSigner, operatorSigner, signerUnavailableResponse } from "@/lib/internal-gateway/operator-signer";
+import { testFundingAvailable } from "@/lib/internal-gateway/network";
 import { readRuntime } from "@/lib/internal-gateway/runtime-server";
 
 export const runtime = "nodejs";
@@ -12,7 +13,6 @@ const LOCAL_USDC_GRANT = parseUnits("100000", 6);
 const LOCAL_USDC_WALLET_LIMIT = parseUnits("1000000", 6);
 const SEPOLIA_USDC_GRANT = parseUnits("10000", 6);
 const TEST_USDC_MAXIMUM_BALANCE = parseUnits("10000000", 6);
-const CLAIM_COOLDOWN_MS = 3 * 60 * 1000;
 
 const tokenAbi = [
   { type: "function", name: "mint", stateMutability: "nonpayable", inputs: [{ name: "amount", type: "uint256" }], outputs: [] },
@@ -39,18 +39,6 @@ const tokenAbi = [
   { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "account", type: "address" }], outputs: [{ name: "", type: "uint256" }] },
 ] as const;
 
-const FAUCET_STATE_KEY = Symbol.for("setryn.test-usdc-faucet.state");
-
-interface FaucetState {
-  claims: Map<string, number>;
-}
-
-function faucetState(): FaucetState {
-  const holder = globalThis as unknown as Record<symbol, FaucetState | undefined>;
-  holder[FAUCET_STATE_KEY] ??= { claims: new Map() };
-  return holder[FAUCET_STATE_KEY];
-}
-
 async function rpc(url: string, method: string, params: unknown[]): Promise<unknown> {
   const response = await fetch(url, {
     method: "POST",
@@ -63,13 +51,16 @@ async function rpc(url: string, method: string, params: unknown[]): Promise<unkn
   return body.result;
 }
 
-/** Grants mintable test collateral locally or on Sepolia. Only the local chain can also top up native gas. */
+/**
+ * Grants mintable test collateral locally or on Arbitrum Sepolia (10,000 tUSDC per request there, with no cooldown; a
+ * wallet can hold at most 10M through the faucet, which the token itself also enforces). Only the local chain can also
+ * top up native gas; the Sepolia faucet never sends ETH, and the route does not exist on Arbitrum One.
+ */
 export async function POST(request: Request) {
-  let reservedClaim: { key: string; at: number } | null = null;
   try {
     const setryn = await readRuntime();
-    const local = setryn.network === "local";
-    const sepoliaFaucet = setryn.network === "arbitrum-sepolia" && setryn.settlementTokenMintable === true;
+    const local = (setryn.network ?? "local") === "local";
+    const sepoliaFaucet = !local && setryn.network === "arbitrum-sepolia" && testFundingAvailable(setryn);
     if (!local && !sepoliaFaucet) {
       return Response.json({ error: "NOT_AVAILABLE_ON_NETWORK" }, { status: 404, headers: NO_STORE });
     }
@@ -91,21 +82,6 @@ export async function POST(request: Request) {
       if (body.asset !== "USDC") return Response.json({ funded: true }, { headers: NO_STORE });
     }
 
-    if (sepoliaFaucet) {
-      const key = address.toLowerCase();
-      const now = Date.now();
-      const previous = faucetState().claims.get(key) ?? 0;
-      const retryAfterMs = previous + CLAIM_COOLDOWN_MS - now;
-      if (retryAfterMs > 0) {
-        return Response.json(
-          { error: "FAUCET_COOLDOWN", message: "Test USDC was already requested recently. Try again in a few minutes." },
-          { status: 429, headers: { ...NO_STORE, "Retry-After": String(Math.ceil(retryAfterMs / 1000)) } },
-        );
-      }
-      faucetState().claims.set(key, now);
-      reservedClaim = { key, at: now };
-    }
-
     const operator = local
       ? localAccountSigner(setryn, "operator", getAddress(setryn.operator))
       : await operatorSigner(setryn);
@@ -114,10 +90,6 @@ export async function POST(request: Request) {
     const grant = local ? LOCAL_USDC_GRANT : SEPOLIA_USDC_GRANT;
     const walletLimit = local ? LOCAL_USDC_WALLET_LIMIT : TEST_USDC_MAXIMUM_BALANCE;
     if (held > walletLimit - grant) {
-      if (reservedClaim && faucetState().claims.get(reservedClaim.key) === reservedClaim.at) {
-        faucetState().claims.delete(reservedClaim.key);
-        reservedClaim = null;
-      }
       return Response.json(
         { error: "FAUCET_LIMIT", message: "This wallet already holds the maximum test USDC available from the faucet." },
         { status: 409, headers: NO_STORE },
@@ -154,9 +126,6 @@ export async function POST(request: Request) {
     if ((await publicClient.waitForTransactionReceipt({ hash: transferHash })).status !== "success") throw new Error("FUNDING_FAILED");
     return Response.json({ funded: true, usdc: Number(grant) / 1e6, transactionHash: transferHash }, { headers: NO_STORE });
   } catch (error) {
-    if (reservedClaim && faucetState().claims.get(reservedClaim.key) === reservedClaim.at) {
-      faucetState().claims.delete(reservedClaim.key);
-    }
     const unavailable = signerUnavailableResponse(error);
     if (unavailable) return unavailable;
     return Response.json({ error: "FUNDING_FAILED", message: "The testnet faucet could not fund this wallet." }, { status: 503, headers: NO_STORE });
