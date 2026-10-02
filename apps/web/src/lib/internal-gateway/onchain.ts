@@ -2814,7 +2814,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   private async refreshActivity(): Promise<void> {
     if (!this.setryn || !this.publicClient || !this.walletAddress) return;
     const accountId = await this.accountId(this.walletAddress);
-    const [positionEvents, ledgerEvents, quantityEvents, feeEvents] = await Promise.all([
+    const router = this.setryn.quoteSettlementRouter;
+    const [positionEvents, ledgerEvents, quantityEvents, feeEvents, quoteEvents] = await Promise.all([
       this.publicClient.getContractEvents({
         address: this.setryn.atomicClearingEngine,
         abi: atomicClearingAbi,
@@ -2843,7 +2844,20 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         fromBlock: this.fromBlock(),
         toBlock: "latest",
       }),
+      router
+        ? this.publicClient.getContractEvents({
+            address: router,
+            abi: quoteSettlementRouterAbi,
+            eventName: "QuoteSettled",
+            fromBlock: this.fromBlock(),
+            toBlock: "latest",
+          })
+        : Promise.resolve([]),
     ]);
+    // Fills the quote settlement router cleared keep their own route and timeline when rebuilt from the chain.
+    const firmQuoteFills = new Set(
+      quoteEvents.flatMap((event) => (event.args.fillId ? [event.args.fillId.toLowerCase()] : [])),
+    );
     // A full exit closes the original position and the close-fill position in one lifecycle action, so both carry the
     // same transition reference on the event that takes them to zero remaining lots.
     const closings = new Map<string, { reference: Hex; transactionHash: Hex }>();
@@ -2941,6 +2955,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         createdAt,
         position,
         channelKind: fill.channelKind,
+        firmQuote: firmQuoteFills.has(fillId.toLowerCase()),
         transactionHash: positionEvent.transactionHash,
       });
     }
@@ -2986,7 +3001,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         marketId: market.marketKey,
         packageCode: market.marketKey,
         packageSide: record.packageSide,
-        routeLabel: record.channelKind === 2 ? "Private firm RFQ" : "Direct package book",
+        routeLabel: record.firmQuote ? "Firm maker quote" : record.channelKind === 2 ? "Private firm RFQ" : "Direct package book",
         lots: filledLots,
         requestedLots: record.requestedLots,
         filledLots,
@@ -3007,9 +3022,22 @@ export class OnchainTradingGateway implements InternalTradingGateway {
           ? { step: "POSITION_CREATED", label: "Position created", detail: `Position ${positionId} ${positionLive ? "is active" : "was opened"}.`, transactionHash }
           : { step: "POSITION_CLOSED", label: "Position closed", detail: `Position ${positionId} reached a terminal lifecycle state.`, transactionHash };
       const updates: SubmissionUpdate[] = [
-        { step: "AUTHORIZED", label: "Order authorized", detail: "Signature and risk admission were bound." },
-        { step: "SUBMITTED", label: "Order registered", detail: "Signed order registered onchain." },
-        { step: "INCLUDED", label: "Match included", detail: `${receipt.routeLabel} cleared atomically.`, transactionHash },
+        ...(record.firmQuote
+          ? [
+              { step: "AUTHORIZED", label: "Order signed", detail: "The fill-or-kill order and its risk authorization were signed as typed data." },
+              { step: "SUBMITTED", label: "Settlement submitted", detail: "One router transaction settled both sides.", transactionHash },
+              {
+                step: "INCLUDED",
+                label: "Settlement included",
+                detail: "Both signed orders, both risk admissions and the maker's capacity settled atomically in one transaction.",
+                transactionHash,
+              },
+            ] satisfies SubmissionUpdate[]
+          : ([
+              { step: "AUTHORIZED", label: "Order authorized", detail: "Signature and risk admission were bound." },
+              { step: "SUBMITTED", label: "Order registered", detail: "Signed order registered onchain." },
+              { step: "INCLUDED", label: "Match included", detail: `${receipt.routeLabel} cleared atomically.`, transactionHash },
+            ] satisfies SubmissionUpdate[])),
         { step: "FILLED", label: "Package filled", detail: `${formatLotCount(filledLots)} filled at ${formatTicksPrice(market, price)}.`, transactionHash },
         positionUpdate,
         { step: "RECEIPT_READY", label: "Receipt ready", detail: `Fill ${fillId} is verifiable onchain.`, transactionHash },
