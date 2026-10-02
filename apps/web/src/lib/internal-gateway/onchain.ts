@@ -1234,14 +1234,6 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const makerOrderHash = head.hash;
     const makerBookOrder = head.bookOrder;
     const makerOrderRecord = head.orderRecord;
-    if (authorization.intent.side === "EXIT") {
-      // A full exit unwinds both positions with the counterparty's consent, which only the designated maker gives.
-      const { makerAddress } = await this.operatorStatus();
-      if (!makerAddress || makerOrderRecord.order.signer.toLowerCase() !== makerAddress.toLowerCase()) {
-        await this.cancelUnmatchedOrder(authorization);
-        throw new Error("EXIT_REQUIRES_COUNTERPARTY_MAKER");
-      }
-    }
     const crosses = order.side === 1 ? order.priceTicks >= makerBookOrder.priceTicks : order.priceTicks <= makerBookOrder.priceTicks;
     if (!crosses) {
       await this.cancelUnmatchedOrder(authorization);
