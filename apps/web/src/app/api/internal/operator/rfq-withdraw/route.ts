@@ -1,4 +1,5 @@
 import { keccak256, stringToHex, type Hex } from "viem";
+import { withMakerLock } from "@/lib/internal-gateway/maker-lock";
 import { makerSigner, signerUnavailableResponse } from "@/lib/internal-gateway/operator-signer";
 import { capacityCancelTypedData, privateRfqBookAbi } from "@/lib/internal-gateway/protocol";
 import { readRuntime } from "@/lib/internal-gateway/runtime-server";
@@ -42,15 +43,19 @@ export async function POST(request: Request) {
       primaryType: "CapacityCancelAuthorization",
       message: cancellation,
     });
-    const hash = await walletClient.writeContract({
-      chain: null,
-      address: setryn.privateRfqBook,
-      abi: privateRfqBookAbi,
-      functionName: "cancelQuoteCapacity",
-      args: [cancellation, signature],
+    // Every maker send runs under the maker lock, so it never races the liquidity refresh for a nonce.
+    const hash = await withMakerLock(async () => {
+      const sent = await walletClient.writeContract({
+        chain: null,
+        address: setryn.privateRfqBook,
+        abi: privateRfqBookAbi,
+        functionName: "cancelQuoteCapacity",
+        args: [cancellation, signature],
+      });
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: sent });
+      if (receipt.status !== "success") throw new Error("QUOTE_WITHDRAWAL_FAILED");
+      return sent;
     });
-    const receipt = await publicClient.waitForTransactionReceipt({ hash });
-    if (receipt.status !== "success") throw new Error("QUOTE_WITHDRAWAL_FAILED");
     return Response.json({ quoteId, transactionHash: hash }, { headers: NO_STORE });
   } catch (error) {
     const unavailable = signerUnavailableResponse(error);

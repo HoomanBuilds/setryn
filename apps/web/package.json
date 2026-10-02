@@ -10,7 +10,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "sync:markets": "node scripts/sync-market-catalog.mjs"
+    "sync:markets": "node scripts/sync-market-catalog.mjs",
+    "test:maker": "node --experimental-strip-types --no-warnings --test test/maker-quote-plan.test.mjs"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",

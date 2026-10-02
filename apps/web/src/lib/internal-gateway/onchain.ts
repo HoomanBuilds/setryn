@@ -119,6 +119,8 @@ function netConsiderationUsd(events: readonly LedgerFlow[], fillId: string, acco
 }
 /** Seconds a maker order must remain live past the latest block so it cannot expire before the match lands. */
 const MAKER_DEADLINE_MARGIN_SECONDS = BigInt(15);
+/** Consecutive full-refresh requests one page makes while the server still reports markets pending. */
+const MAKER_SEED_ROUNDS = 6;
 const PUBLIC_SERIES_POLICY = keccak256(stringToHex("SETRYN_POLICY_PUBLIC_SERIES_V1"));
 
 /** Formats a fill price on the market's own decimal grid. */
@@ -666,6 +668,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   private orderFills = new Map<string, { fillIds: string[]; receiptIds: string[]; closedPositionId: string | null }>();
   private pollingTimer: number | null = null;
   private polling = false;
+  /** The page's in-flight full maker refresh, shared by connect and polling. */
+  private makerRefresh: Promise<void> | null = null;
   /** Book orders already seen filled, cancelled, or expired. None of them can rest again, so they are not re-read. */
   private readonly retiredBookOrders = new Set<string>();
   /** Series terminal schedules and fixing slots; both are fixed at qualification, so each is read once. */
@@ -1199,12 +1203,15 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     // The book prunes an expired maker order during matching instead of filling it, so the head order must still be
     // live on the chain clock. Where a designated maker runs, an empty or expired head asks it to quote once.
     const readHead = async () => {
-      const levelId = await publicClient.readContract({
-        address: setryn.publicOrderBook,
-        abi: publicOrderBookAbi,
-        functionName: "bestLevel",
-        args: [bookId, makerSide],
-      });
+      // A book exists only once its first order rests; until then bestLevel reverts, which reads as an empty side.
+      const levelId = await publicClient
+        .readContract({
+          address: setryn.publicOrderBook,
+          abi: publicOrderBookAbi,
+          functionName: "bestLevel",
+          args: [bookId, makerSide],
+        })
+        .catch(() => EMPTY_ID);
       if (levelId === EMPTY_ID) return null;
       const level = await publicClient.readContract({
         address: setryn.publicOrderBook,
@@ -2185,12 +2192,39 @@ export class OnchainTradingGateway implements InternalTradingGateway {
    */
   private async requestMakerLiquidity(marketKey?: string): Promise<boolean> {
     if (!(await this.operatorStatus()).makerEnabled) return false;
-    await fetch("/api/internal/operator/liquidity", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(marketKey ? { marketId: marketKey } : {}),
-    }).catch(() => undefined);
+    if (marketKey) {
+      await this.postMakerLiquidity({ marketId: marketKey });
+      return true;
+    }
+    // One full refresh at a time per page. The server works through the markets inside a time budget and reports the
+    // ones it did not reach, so a fresh deployment is seeded over a few consecutive requests.
+    this.makerRefresh ??= (async () => {
+      try {
+        for (let round = 0; round < MAKER_SEED_ROUNDS; round += 1) {
+          const pending = await this.postMakerLiquidity({});
+          if (pending === 0) break;
+        }
+      } finally {
+        this.makerRefresh = null;
+      }
+    })();
+    await this.makerRefresh;
     return true;
+  }
+
+  /** One liquidity request; resolves the number of markets the server left pending (0 when unknown or failed). */
+  private async postMakerLiquidity(body: { marketId?: string }): Promise<number> {
+    try {
+      const response = await fetch("/api/internal/operator/liquidity", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const result = (await response.json().catch(() => null)) as { pending?: unknown } | null;
+      return response.ok && Array.isArray(result?.pending) ? result.pending.length : 0;
+    } catch {
+      return 0;
+    }
   }
 
   private chain(setryn: SetrynRuntime) {
@@ -3881,14 +3915,15 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     this.pollingTimer = window.setInterval(() => {
       if (this.polling || this.snapshot.wallet.status !== "CONNECTED") return;
       this.polling = true;
-      void this.requestMakerLiquidity()
-        .then(() => Promise.all([
-          this.refreshAccount(),
-          this.refreshOrders(),
-          this.refreshPublicBook(),
-          this.refreshActivity(),
-          this.refreshRfqs(),
-        ]))
+      // Maker quotes refresh beside the reads (single flight), and the book is re-read once they land.
+      void this.requestMakerLiquidity().then(() => this.refreshPublicBook()).catch(() => undefined);
+      void Promise.all([
+        this.refreshAccount(),
+        this.refreshOrders(),
+        this.refreshPublicBook(),
+        this.refreshActivity(),
+        this.refreshRfqs(),
+      ])
         .catch(() => undefined)
         .finally(() => {
           this.polling = false;

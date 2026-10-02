@@ -98,6 +98,40 @@ export async function updateDocument<T, R>(
   return result as R;
 }
 
+/** Thrown by `withAdvisoryLock` when another holder kept the lock past the timeout. */
+export class AdvisoryLockTimeoutError extends Error {
+  constructor(name: string) {
+    super(`ADVISORY_LOCK_TIMEOUT:${name}`);
+    this.name = "AdvisoryLockTimeoutError";
+  }
+}
+
+/**
+ * Runs `work` while holding a transaction-scoped Postgres advisory lock named for this scope, so one critical section
+ * runs at a time across every server instance sharing the database. The lock needs no table; it is released when the
+ * transaction ends, including when `work` throws or the connection drops. Waiting longer than `timeoutMs` throws
+ * AdvisoryLockTimeoutError.
+ */
+export async function withAdvisoryLock<T>(name: string, work: () => Promise<T>, timeoutMs = 25_000): Promise<T> {
+  if (!NAME.test(name)) throw new Error(`invalid Setryn advisory lock name ${name}`);
+  const key = `${databaseScope()}:${name}`;
+  const timeout = `${Math.max(1, Math.round(timeoutMs))}ms`;
+  let acquired = false;
+  try {
+    const result = await database().begin(async (transaction) => {
+      await transaction`select set_config('lock_timeout', ${timeout}, true)`;
+      await transaction`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
+      acquired = true;
+      return { value: await work() };
+    });
+    return (result as { value: T }).value;
+  } catch (error) {
+    // 55P03 is lock_not_available: lock_timeout elapsed before the advisory lock was granted.
+    if (!acquired && (error as { code?: string } | null)?.code === "55P03") throw new AdvisoryLockTimeoutError(name);
+    throw error;
+  }
+}
+
 function validateNames(collection: string, documentKey: string): void {
   if (!NAME.test(collection)) throw new Error(`invalid Setryn database collection ${collection}`);
   if (!KEY.test(documentKey)) throw new Error(`invalid Setryn database document key ${documentKey}`);
