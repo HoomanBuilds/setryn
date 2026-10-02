@@ -214,8 +214,23 @@ SETRYN_MAKER_PRIVATE_KEY=<optional maker key>      # without it no house quotes 
 ```
 
 Restart the app; `sync-market-catalog` projects the runtime markets into the catalog on start. With Setryn Test USDC,
-users claim 10,000 tUSDC from the in-app faucet and deposit it into their trading account. They still need Arbitrum
-Sepolia ETH for gas. With the Circle override, users get test USDC from faucet.circle.com instead.
+users claim 10,000 tUSDC per request from the in-app faucet and deposit it into their trading account. The faucet has
+no cooldown; a wallet can hold at most 10M tUSDC through it (the token enforces the same cap), and it never sends ETH,
+so users still need Arbitrum Sepolia ETH for gas. The operator signs the faucet mint, so its key must hold Sepolia ETH.
+With the Circle override, users get test USDC from faucet.circle.com instead and the in-app faucet is off.
+
+Designated maker. With `SETRYN_MAKER_PRIVATE_KEY` set, the maker keeps one bid and one ask on every active market, priced
+from the Chainlink reference. Each quote lives 290 seconds (the risk reservation admits deadlines up to five minutes);
+a refresh reuses a live quote, renews one in its last 60 seconds or one the reference has moved away from, and clears
+expired quotes off the book and out of the risk engine. Refreshes are driven by the connected trading application: a
+full refresh when a wallet connects and every 20 seconds while one stays connected, and a single-market refresh when a
+taker finds a book empty. A request works through the markets for up to 30 seconds and reports the rest as pending,
+which the next request picks up first, so a fresh deployment is seeded over a few requests. Every maker transaction
+runs under one lock; with `SETRYN_DATABASE_URL` set it is a Postgres advisory lock shared by every server instance (no
+table or migration), otherwise it protects one server process only. The maker mints its own tUSDC collateral and
+needs Sepolia ETH for gas, as does the operator, which signs each quote's risk reservation. With no page connected,
+quotes expire and the books empty until the next visit; a persistent external maker scheduler will be added later for
+unattended operation.
 
 ## Operations
 
