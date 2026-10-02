@@ -36,8 +36,18 @@ the clearing engine consumes it in one transaction, so the 300 s bound no longer
    order signatures and consumes both nonces), clears through `AtomicClearingEngine.clearSeries`, pays any relayer fee
    the taker signed for, and emits `QuoteSettled` with the full receipt. Any failure reverts everything.
 
+5. **Exit (the same transaction).** To close a position held against the maker, the trader takes the opposite quote and
+   names the position in its signed terms (`closePositionId`). The maker's signed quote terms consent to it
+   (`SetrynMakerQuoteTermsV1{capacityId, allowsOffsetUnwind}`). After clearing, the router hands the named position and
+   the fill's new mirror position to `OffsetUnwindCoordinator`, which closes both as one full unwind through the
+   lifecycle executor. The pair must be an exact mirror (same series and version, the whole size, the same two accounts
+   on opposite sides, no exercise started, no package); anything else reverts the whole settlement, so a failed exit
+   leaves the trader exactly where it was and never holding both positions.
+
 A quote settles once: the first settlement registers its order and consumes an admission sized to that fill. Re-quoting
-is free.
+is free. The quote engine stops serving a settled quote as soon as it knows: the relayer marks it the moment it submits,
+every book build applies the router's `QuoteSettled` events since the last scanned block (a failed or over-long scan
+re-signs every quote instead), and the terminal drops a quote it settled or saw refused as taken.
 
 ## What the chain enforces
 
@@ -48,7 +58,8 @@ is free.
 | Margin, open-interest and liability caps for both accounts | `PortfolioRiskEngine.reserveNewRisk` (unchanged checks) |
 | Maker capacity: owner, series, remaining liability, inventory bound, expiry, sequential consumption | `VaultBackedStreamCapacityManager` via the router |
 | Price crossing, fill size, fees within each order's cap, positions, collateral locks | `AtomicClearingEngine` and its gates |
-| Quote replay, relayer restriction, relayer fee bound | `QuoteSettlementRouter` |
+| Quote replay, relayer restriction, relayer fee bound, maker consent to exits | `QuoteSettlementRouter` |
+| Exit is an exact mirror (series, version, lots, accounts, collateral, no exercise or package), lifecycle policy | `OffsetUnwindCoordinator` with `LifecyclePolicyValidator` |
 
 Postgres is not involved in any of it. The quote engine's cache is disposable: a restarted server derives the same
 capacity ids from the same terms and signs fresh quotes.
@@ -63,6 +74,7 @@ redeployed only because their immutable references change.
 | --- | --- | --- |
 | `RiskAdmissionBindingRegistry` | new source | signature-authorized binding |
 | `QuoteSettlementRouter` | new | permissionless settlement |
+| `OffsetUnwindCoordinator` | new | closes an exit's mirror pair in the settlement transaction |
 | `OrderValidationGate`, `ClearingAdmissionGate` | redeployed | `riskBindings` |
 | `OrderState` | redeployed | validation gate |
 | `AtomicClearingEngine` | redeployed | `OrderState`, admission gate |
@@ -75,8 +87,11 @@ redeployed only because their immutable references change.
 
 Contract-level roles the router holds (no externally owned account needs any of them per trade):
 `STREAM_ENGINE_ROLE` on the stream capacity manager, `MATCH_EXECUTOR_ROLE` on the clearing engine, `RISK_CONSUMER_ROLE`
-on the risk engine, and `COLLATERAL_LOCKER_ROLE` and `COLLATERAL_SETTLER_ROLE` on the vault (relayer fees only). The
-router has no admin.
+on the risk engine, `COLLATERAL_LOCKER_ROLE` and `COLLATERAL_SETTLER_ROLE` on the vault (relayer fees only), and
+`OFFSET_UNWINDER_ROLE` on the offset unwind coordinator. The router has no admin. The coordinator holds the lifecycle
+executor's `SIGNED_LIFECYCLE_ENGINE_ROLE` (the executor's one entry for lifecycle actions); it replaces the engine's
+actor and consent signatures with the router's signed terms, and so accepts only exact mirror pairs. Its admin moves to
+governance with the rest.
 
 `DeploySetryn` deploys the whole contract graph with these roles; `scripts/generate-deployment-evidence.mjs` verifies them.
 
@@ -123,7 +138,11 @@ first time capacity opens.
   at expiry, so a reconnect never shows an expired quote as executable.
 - **Firm or not.** A market without live capacity, without a fresh reference, with an inactive fee schedule, or whose
   maker collateral is committed is published as `INDICATIVE` or `UNAVAILABLE` with the reason, never with a quote.
-- **Gas.** One settlement is about 9.7M gas on the production graph, of which the clearing engine's `clearSeries` is
-  about 6.5M (the same path a public-book match takes).
+- **Gas.** One settlement is about 9.8M gas on the production graph, of which the clearing engine's `clearSeries` is
+  about 6.5M (the same path a public-book match takes); an exit adds the unwind, about 10M in all.
+- **Exits.** A position closes this way only against the maker it was opened with (positions opened through firm
+  quotes always are). The closing fill is margined like any fill before both positions close, so its side's liability
+  must be free for that moment; the terminal says how much when it is not. The terminal offers exits only through firm
+  quotes, the one route that closes in the same transaction.
 - **Revoking.** The maker stops quoting by closing a capacity (`closeQuoteCapacity`), which fails every quote drawing
   on it, or by retiring an authorization nonce (`invalidateAuthorizationNonce`).
