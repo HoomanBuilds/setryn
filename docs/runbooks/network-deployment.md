@@ -117,8 +117,7 @@ export SETRYN_DEPLOYMENT_ID=0x$(openssl rand -hex 32)
 # static always-up DevnetSequencerUptimeFeed; DeploySetryn refuses it on any other chain.
 export SETRYN_SEQUENCER_UPTIME_FEED=testnet-static
 
-forge build --root contracts
-node scripts/generate-deploy-artifacts.mjs --check
+pnpm run contracts:release:prepare
 forge script "$PWD/contracts/script/DeploySetryn.s.sol:DeploySetryn" --root contracts \
   --rpc-url "$ARBITRUM_SEPOLIA_RPC_URL" --chain 421614 \
   --sender "$SETRYN_DEPLOYER_ADDRESS" --private-key "$DEPLOYER_KEY" \
@@ -129,6 +128,11 @@ The run sends about 300 transactions. Optional overrides keep their defaults: `S
 `SETRYN_MAXIMUM_RISK_OBSERVATION_AGE` (300 s, the bootstrap must use the same value),
 `SETRYN_SEQUENCER_RECOVERY_GRACE` (1 h; the static feed reports the sequencer up since an hour before its deployment,
 so trading is open immediately).
+
+The release preparation refuses modified tracked contract inputs, deletes compiler output, performs a forced build, and
+checks the standalone deployment-artifact map. This prevents a deployment from reading bytecode left by an earlier
+source revision. Commit the reviewed contract source before running it. Deployment broadcasts remain untracked local
+evidence and do not block the check.
 
 ### 3. Manifest and bootstrap environment
 
