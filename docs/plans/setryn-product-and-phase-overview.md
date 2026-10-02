@@ -1,6 +1,6 @@
 # Setryn Product and Phase Overview
 
-Date: 2026-09-29
+Date: 2026-10-02
 
 Status: Canonical concise product overview
 
@@ -8,9 +8,9 @@ Production target: Arbitrum One
 
 Public release-candidate network: Arbitrum Sepolia
 
-Current build phase: Phase 4 gate passed; completing the first-party trading platform before the Arbitrum Sepolia release candidate
+Current build phase: Phase 5 Arbitrum Sepolia release candidate is live and completing operational qualification
 
-Current deployment status: the complete production graph deploys locally within the EIP-170 and EIP-3860 limits, with separated principals and generated evidence. The graph covers the public book, private RFQ, sealed auctions, request-for-stream, batch clearing, collateral-aware routing, and the verifiable receipt ledger with 18 subject authorities, backed by 29 linked libraries. It passes the pinned Arbitrum One fork suite and has a complete read-only unsigned Arbitrum One deployment intent and gas budget. Arbitrum Sepolia deployment is Phase 5 release-candidate work. Browser preview state is legacy scaffolding and is not an accepted platform execution path.
+Current deployment status: the production-shaped graph is deployed on Arbitrum Sepolia with 15 qualified markets, mintable Setryn test USDC, a working public book, designated-maker liquidity, operator health checks, and a live user faucet. The public application is available at `setryn.vercel.app`, and the deployed runtime and manifest are committed under `deployments/arbitrum-sepolia/`. Remaining release-candidate work is persistent operator hosting, delayed governance-admin acceptance, complete explorer source verification, a second independent maker and keeper identity, and the judge and recovery journeys. Arbitrum One remains read-only and requires separate explicit user authorization before any transaction.
 
 Detailed references:
 

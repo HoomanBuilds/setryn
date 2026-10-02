@@ -231,10 +231,12 @@ Explorer verification on Arbitrum Sepolia needs the deployed bytecode to equal t
 - Platform: asset, pair, USDC and Arbitrum marks across the terminal, markets, portfolio and activity; user-facing copy
   says "Arbitrum One" and "Index feed" rather than devnet or preview wording.
 
-### Phase 5 first-party platform: remaining
+### Phase 5 release candidate: remaining
 
-1. Arbitrum Sepolia release candidate, run by the owner: funded keys, deployment, explorer verification, faucet guidance,
-   and the scripted judge journey.
+The Arbitrum Sepolia protocol graph, 15 markets, mintable test collateral, public application, designated-maker path,
+operator status, and user faucet are live. Remaining work is persistent operator hosting, delayed governance-admin
+acceptance, complete explorer verification, a second independent maker and keeper identity, and the scripted judge and
+recovery journeys.
 
 Open items, none blocking the local product:
 
@@ -261,9 +263,11 @@ Open items, none blocking the local product:
 - Partner quotas: keys issued under a partner deployment share its `apiRequestsPerMinute` bucket, and a paused partner's keys are refused.
 - Position exits (paired lifecycle close) and private RFQ are in the public API and SDK.
 
-## Before you deploy
+## Deployment status
 
-The owner runs every deployment. Nothing has been deployed to Arbitrum Sepolia or Arbitrum One.
+The Arbitrum Sepolia release candidate is deployed and its public runtime evidence is committed under
+`deployments/arbitrum-sepolia/`. Arbitrum One has not been deployed and remains read-only until the user explicitly
+authorizes a mainnet transaction.
 
 - The Arbitrum One unsigned intent, bundle and gas report in `deployments/arbitrum-one/qualification/` predate the
   fee-engine change (zero-fee side) and the treasury controller. Regenerate them first, reading Arbitrum One only:
@@ -281,14 +285,14 @@ The owner runs every deployment. Nothing has been deployed to Arbitrum Sepolia o
 1. Phase 4 contract modularization, qualification, gas evidence and the unsigned deployment intent - done.
 2. Phase 5 first-party trading platform - done on the local chain.
 3. Phase 6 maker, solver, risk, operations and treasury workspaces - done on the local chain.
-4. Phase 7 Arbitrum Sepolia release candidate - waiting on the owner's deployment.
+4. Phase 7 Arbitrum Sepolia release candidate - deployed, with operational qualification in progress.
 5. Phase 8 public API, SDK, webhooks, widgets and partner tooling - built on the local chain.
 6. Mainnet activation is a separate owner-authorized launch with governance, audits, caps and explicit approval.
 
 ## Implementation prompt
 
-Setryn's product is complete on the local chain; the remaining step is the owner's deployment. Keep changes targeted:
-fix what is reported, keep user-facing copy presenting the live Arbitrum One product, and run only the tests for the
-surfaces you change. Never deploy, broadcast or transact on any public chain; the owner deploys. Before any contract
-change ships, regenerate the Arbitrum One unsigned intent as described in "Before you deploy". Make logical one-line
+Setryn's product and protocol are live on Arbitrum Sepolia. Keep changes targeted, run only the checks needed for the
+surfaces changed, and complete the remaining release-candidate gates. Testnet operations are allowed when needed for
+qualification. Never deploy, broadcast, or transact on Arbitrum One without explicit user authorization. Before any
+contract change ships, regenerate the read-only Arbitrum One unsigned intent described above. Make logical one-line
 conventional commits.
