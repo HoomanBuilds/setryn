@@ -84,6 +84,7 @@
       "AuctionValidationGate",
       "SealedAuctionHouse",
       "StreamingQuoteEngine",
+      "QuoteSettlementRouter",
       "BatchClearingEngine",
       "ProtocolRouteLiquiditySource",
       "CollateralAwareRouteEngine",
