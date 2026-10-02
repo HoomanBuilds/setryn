@@ -157,6 +157,25 @@ struct RiskAdmissionCancellation {
     bytes32 cancellationReference;
 }
 
+/// @notice An order signer's EIP-712 consent to have one reserved admission bound to one exact order, so the binding
+/// needs no transaction from the signer. The admission must belong to `accountId` in exactly `riskDomainId` and
+/// version, stay within the open-interest, liability and deadline bounds, and be submitted by `binder` (any caller
+/// when zero). `binderTerms` commits the binder's own settlement terms, which the binder checks; the registry only
+/// carries the commitment so one signature covers both.
+struct OrderRiskAuthorization {
+    bytes32 orderHash;
+    AccountId accountId;
+    RiskDomainId riskDomainId;
+    uint32 riskDomainVersion;
+    uint128 maxOpenInterestBaseUnits;
+    uint128 maxTerminalLiabilityBaseUnits;
+    uint64 maxAdmissionDeadline;
+    address binder;
+    bytes32 binderTerms;
+    uint256 nonce;
+    uint64 deadline;
+}
+
 struct DefaultRiskProof {
     PositionId positionId;
     RiskAdmissionId admissionId;
