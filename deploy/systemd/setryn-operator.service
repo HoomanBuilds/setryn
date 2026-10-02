@@ -1,0 +1,28 @@
+[Unit]
+Description=Setryn Arbitrum Sepolia operator sweep
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/setryn
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/setryn/operator.env
+ExecStart=/usr/bin/node --experimental-strip-types services/operator-runtime/src/bin/operator-worker.ts --environment arbitrum-sepolia --sweep true --max-wait-ms 120000
+TimeoutStartSec=4min
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryHigh=384M
+MemoryMax=768M
+

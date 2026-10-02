@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the Setryn Arbitrum Sepolia operator every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+AccuracySec=15s
+Persistent=true
+Unit=setryn-operator.service
+
+[Install]
+WantedBy=timers.target
