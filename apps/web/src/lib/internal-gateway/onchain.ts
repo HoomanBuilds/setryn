@@ -999,6 +999,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   }
 
   async authorizeOrder(intent: PackageOrderIntent): Promise<SignedOrderAuthorization> {
+    if (intent.side === "EXIT") throw new Error("EXIT_REQUIRES_FIRM_QUOTE");
     const { setryn, address, walletClient, publicClient } = await this.connected();
     const market = runtimeMarketByKey(setryn, intent.marketId);
     if (!market) throw new Error("MARKET_NOT_ONCHAIN_ENABLED");
@@ -1006,15 +1007,6 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     if (intent.packageCode !== intent.marketId) throw new Error("UNSUPPORTED_ONCHAIN_MARKET");
     if (!Number.isInteger(intent.lots) || intent.lots < 1 || intent.lots > market.maxOrderLots) {
       throw new Error("INVALID_LOTS");
-    }
-    if (intent.side === "EXIT") {
-      const closing = this.snapshot.positions.find((position) => position.id === intent.closePositionId);
-      if (!closing) throw new Error("CLOSE_POSITION_NOT_FOUND");
-      if (closing.marketId !== intent.marketId || closing.side !== intent.packageSide) {
-        throw new Error("CLOSE_POSITION_MISMATCH");
-      }
-      if (closing.lots !== intent.lots) throw new Error("FULL_POSITION_EXIT_REQUIRED");
-      if (intent.timeInForce !== "FOK") throw new Error("EXIT_REQUIRES_FOK");
     }
     if (!Number.isFinite(intent.limitPrice)) throw new Error("INVALID_LIMIT_PRICE");
     if (!["GTC", "GTD", "IOC", "FOK"].includes(intent.timeInForce)) throw new Error("INVALID_TIME_IN_FORCE");
@@ -1162,6 +1154,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     authorization: SignedOrderAuthorization,
     onUpdate: (update: SubmissionUpdate) => void,
   ): Promise<PackageExecutionResult> {
+    if (authorization.intent.side === "EXIT") throw new Error("EXIT_REQUIRES_FIRM_QUOTE");
     const { setryn, address, walletClient, publicClient } = await this.connected();
     const order = authorization.onchainOrder;
     if (!order || !authorization.riskAdmissionId) throw new Error("INVALID_ONCHAIN_AUTHORIZATION");
@@ -1794,6 +1787,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   }
 
   async placeRestingOrder(authorization: SignedOrderAuthorization): Promise<RestingPackageOrder> {
+    if (authorization.intent.side === "EXIT") throw new Error("EXIT_REQUIRES_FIRM_QUOTE");
     const { setryn, address, walletClient, publicClient } = await this.connected();
     const order = authorization.onchainOrder;
     if (!order || !authorization.riskAdmissionId) throw new Error("INVALID_ONCHAIN_AUTHORIZATION");
@@ -1892,6 +1886,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     oldOrderId: string,
     authorization: SignedOrderAuthorization,
   ): Promise<RestingPackageOrder> {
+    if (authorization.intent.side === "EXIT") throw new Error("EXIT_REQUIRES_FIRM_QUOTE");
     const cancelled = await this.cancelRestingOrder(oldOrderId);
     const replacement = await this.placeRestingOrder(authorization);
     const replacedAt = new Date().toISOString();
@@ -1957,6 +1952,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   }
 
   async requestRfq(authorization: SignedOrderAuthorization): Promise<RfqRequest> {
+    if (authorization.intent.side === "EXIT") throw new Error("EXIT_REQUIRES_FIRM_QUOTE");
     const { setryn, address, walletClient, publicClient } = await this.connected();
     if (authorization.intent.disclosure !== "PRIVATE_RFQ") throw new Error("PRIVATE_RFQ_AUTHORIZATION_REQUIRED");
     if (authorization.signer.toLowerCase() !== address.toLowerCase()) throw new Error("SIGNER_MISMATCH");
@@ -2080,6 +2076,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const { setryn, address, walletClient, publicClient } = await this.connected();
     const current = this.snapshot.rfqRequests.find((request) => request.id === requestId);
     if (!current || current.state !== "OPEN") throw new Error("RFQ_NOT_OPEN");
+    if (current.authorization.intent.side === "EXIT") throw new Error("EXIT_REQUIRES_FIRM_QUOTE");
     const selectedQuote = current.quotes.find((quote) => quote.id === quoteId);
     if (!selectedQuote) throw new Error("RFQ_QUOTE_NOT_FOUND");
     const block = await publicClient.getBlock({ blockTag: "pending" });
@@ -2158,6 +2155,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   ): Promise<PackageExecutionResult> {
     const current = this.snapshot.rfqRequests.find((request) => request.id === requestId);
     if (!current || current.state !== "SELECTED" || !current.selectedQuoteId) throw new Error("RFQ_NOT_SELECTED");
+    if (current.authorization.intent.side === "EXIT") throw new Error("EXIT_REQUIRES_FIRM_QUOTE");
     const quote = current.quotes.find((candidate) => candidate.id === current.selectedQuoteId);
     if (!quote) throw new Error("RFQ_QUOTE_NOT_FOUND");
     onUpdate({

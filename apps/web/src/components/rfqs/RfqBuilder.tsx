@@ -544,7 +544,28 @@ function BuilderContent() {
   const liveMarket = markets.find((market) => market.id === draft.marketId) ?? markets[0];
   const order = deriveOrder(draft, liveMarket, snapshot.positions, nowMs);
   const onchainMarketIds = new Set(Object.keys(snapshot.onchainMarkets));
-  const checks = preflight(draft, order, snapshot);
+  const checks = [
+    ...preflight(draft, order, snapshot),
+    ...(draft.intent === "EXIT"
+      ? [{
+          id: "atomic-exit-route",
+          label: "Use the atomic exit route",
+          state: "block" as const,
+          detail: "Private RFQ exits are disabled because they cannot close the fill and original position in one transaction.",
+          fix: {
+            kind: "LINK" as const,
+            href: `${tradeHref(liveMarket)}?${new URLSearchParams({
+              source: "lifecycle",
+              intent: "exit",
+              direction: draft.side.toLowerCase(),
+              lots: String(draft.lots),
+              ...(draft.closePositionId ? { lifecycle: draft.closePositionId } : {}),
+            }).toString()}`,
+            label: "Open the atomic exit ticket",
+          },
+        }]
+      : []),
+  ];
   const blockers = blockingChecks(checks);
   const walletBlocked = blockers.some((check) => check.id === "wallet");
   const otherBlockers = blockers.filter((check) => check.id !== "wallet");
@@ -766,8 +787,8 @@ function BuilderContent() {
                       {
                         id: "EXIT",
                         label: "Exit",
-                        disabled: positions.length === 0 && draft.intent !== "EXIT",
-                        title: positions.length === 0 ? "No active position in this market to exit" : undefined,
+                        disabled: true,
+                        title: "Full exits use the atomic firm maker route in the trading terminal",
                       },
                     ]}
                   />

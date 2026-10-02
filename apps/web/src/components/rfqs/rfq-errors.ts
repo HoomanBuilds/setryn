@@ -21,6 +21,8 @@ const COPY: Record<string, string> = {
   CLOSE_POSITION_MISMATCH: "The position to close does not match this market and side.",
   FULL_POSITION_EXIT_REQUIRED: "An exit must close the complete open quantity.",
   EXIT_REQUIRES_FOK: "An exit uses all-or-none so a partial close cannot strand a hedge.",
+  EXIT_REQUIRES_FIRM_QUOTE:
+    "Full exits use the atomic firm maker route in the trading terminal. Private RFQ exits are disabled.",
   CLEARING_APPROVAL_FAILED: "The clearing engine approval did not confirm. Nothing was requested.",
   RISK_RESERVATION_FAILED: "Risk admission refused the order, so no request was committed.",
   FEE_SCHEDULE_CHANGED:

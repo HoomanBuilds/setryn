@@ -83,6 +83,9 @@ function executionError(error: unknown): string {
   if (error.message === "EXIT_REQUIRES_ZERO_COLLATERAL") return "Exits require no new collateral. Review the ticket and try again.";
   if (error.message === "FULL_POSITION_EXIT_REQUIRED") return "Select the complete open quantity for this lifecycle exit.";
   if (error.message === "EXIT_REQUIRES_FOK") return "Lifecycle exits require fill-or-kill execution.";
+  if (error.message === "EXIT_REQUIRES_FIRM_QUOTE") {
+    return "Full exits use the atomic firm maker route. Wait for a firm quote or settle the position at expiry.";
+  }
   if (error.message === "POST_ONLY_WOULD_CROSS") return "The book moved and this post-only order would take liquidity, so it was cancelled without a fill. Reprice behind the touch.";
   if (error.message === "RESTING_ORDER_WOULD_CROSS") return "The book moved and this limit now crosses, so it was cancelled without a fill. Resubmit to execute against the book.";
   if (error.message === "EXIT_REQUIRES_COUNTERPARTY_MAKER") return "The close must use the qualified maker that owns the original counterparty position.";
@@ -857,6 +860,12 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     const replacingId = amendmentOrderId;
     // A firm quote only takes liquidity now; a limit that would rest, or a replacement, goes to the public book.
     const takesFirmQuote = route.id === "FIRM_QUOTE" && !shouldRest && !replacingId;
+    if (ticket.intent === "EXIT" && !takesFirmQuote) {
+      const message = "Full exits require an executable firm maker quote so the fill and unwind settle atomically.";
+      setExecution((current) => ({ ...current, status: "FAILED", error: message }));
+      setStage({ kind: "FAILED", reference, message });
+      return;
+    }
     const submitRoute =
       route.id === "FIRM_QUOTE" && !takesFirmQuote
         ? (ticketMarket.routes.find((candidate) => candidate.id === "DIRECT_BOOK") ?? route)
