@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "sync:markets": "node scripts/sync-market-catalog.mjs",
     "test:maker": "node --experimental-strip-types --no-warnings --test test/maker-quote-plan.test.mjs test/maker-quote-renewal.test.mjs",
-    "test:quotes": "node --experimental-strip-types --no-warnings --test test/firm-quote.test.mjs"
+    "test:quotes": "node --experimental-strip-types --no-warnings --test test/firm-quote.test.mjs",
+    "test:mark": "node --experimental-strip-types --no-warnings --test test/mark.test.mjs"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",
