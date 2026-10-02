@@ -234,7 +234,8 @@ SETRYN_RPC_URL=<Arbitrum Sepolia RPC>              # server reads
 NEXT_PUBLIC_SETRYN_RPC_URL=<Arbitrum Sepolia RPC>  # wallet and browser reads
 SETRYN_REFERENCE_RPC_URL=https://arb1.arbitrum.io/rpc
 SETRYN_OPERATOR_PRIVATE_KEY=<operator key>         # risk admission, witness staging, keeper calls
-SETRYN_MAKER_PRIVATE_KEY=<optional maker key>      # without it no house quotes are posted
+SETRYN_MAKER_PRIVATE_KEY=<optional maker key>      # signs firm quotes offchain; without it no house quotes stream
+SETRYN_RELAYER_PRIVATE_KEY=<optional relayer key>  # gasless settlement submission; without it users submit themselves
 # SETRYN_RUNTIME_PATH overrides deployments/arbitrum-sepolia/runtime.json
 ```
 
@@ -244,18 +245,15 @@ no cooldown; a wallet can hold at most 10M tUSDC through it (the token enforces 
 so users still need Arbitrum Sepolia ETH for gas. The operator signs the faucet mint, so its key must hold Sepolia ETH.
 With the Circle override, users get test USDC from faucet.circle.com instead and the in-app faucet is off.
 
-Designated maker. With `SETRYN_MAKER_PRIVATE_KEY` set, the maker keeps one bid and one ask on every active market, priced
-from the Chainlink reference. Each quote lives 290 seconds (the risk reservation admits deadlines up to five minutes);
-a refresh reuses a live quote, renews one in its last 60 seconds or one the reference has moved away from, and clears
-expired quotes off the book and out of the risk engine. Refreshes are driven by the connected trading application: a
-full refresh when a wallet connects and every 20 seconds while one stays connected, and a single-market refresh when a
-taker finds a book empty. A request works through the markets for up to 30 seconds and reports the rest as pending,
-which the next request picks up first, so a fresh deployment is seeded over a few requests. Every maker transaction
-runs under one lock; with `SETRYN_DATABASE_URL` set it is a Postgres advisory lock shared by every server instance (no
-table or migration), otherwise it protects one server process only. The maker mints its own tUSDC collateral and
-needs Sepolia ETH for gas, as does the operator, which signs each quote's risk reservation. With no page connected,
-quotes expire and the books empty until the next visit; a persistent external maker scheduler will be added later for
-unattended operation.
+Designated maker. With `SETRYN_MAKER_PRIVATE_KEY` set and a runtime that names `quoteSettlementRouter`, the maker
+streams a firm bid and ask on every market (docs/runbooks/firm-quotes.md). Quotes are EIP-712 signed orders priced from
+the Chainlink reference, valid 20 seconds and re-signed before they run low, so prices move with no transaction; the
+terminal receives them over `GET /api/quotes/stream`. A taker signs typed data and one `QuoteSettlementRouter.settle`
+transaction settles both sides, submitted by the optional relayer (`SETRYN_RELAYER_PRIVATE_KEY`, its own key and nonce
+lane, no fee) or by the taker's wallet when no relayer answers. The maker's only recurring transaction locks one
+series' quote capacity per three-day epoch, the first time the series is viewed; it mints its own tUSDC collateral and
+needs Sepolia ETH for those transactions, as the relayer does for the settlements it submits. Without a router in the
+runtime the terminal shows the public book only and says so.
 
 ## Operations
 
@@ -307,46 +305,27 @@ bootstrap registers as the publisher. The worker prices with the runtime's `pric
 zero terminal debit; such a long cannot back a private RFQ quote (whose liability must be positive), so the solver
 quotes only the short side. The first listed expiry is in late December.
 
-Maker refresher. With no page connected, maker quotes expire after 290 seconds because each risk reservation admits
-deadlines up to the immutable 300 second risk window, so books empty until the next visit. The maker refresher closes
-that gap for the nearest expiry only: `scripts/run-sepolia-maker-refresh.mjs` selects the nearest currently tradable
-market per underlying from `runtime.json` (both `lastTradingAt` and `expiryAt` in the future, earliest expiry per
-`underlying`, sorted by underlying), then refreshes exactly one selection per run in round-robin order through Vercel
-`POST /api/internal/operator/liquidity` with `{ "marketId": "<marketKey>" }`. Only the nearest expiry per underlying
-is continuously maintained because each onchain refresh signs, reserves risk, and rests two sides inside the fixed 300
-second window; cycling every expiry would let quotes lapse. Other expiries remain on-demand through the trading app
-full refresh on connect and single-market refresh on an empty book.
+Maker liquidity. The designated maker streams firm quotes offchain (docs/runbooks/firm-quotes.md): signed EIP-712
+orders backed by onchain capacity, settled only when a taker accepts one through `QuoteSettlementRouter`. Nothing
+refreshes quotes onchain, so there is no maker refresher timer and an idle market spends no gas. The maker's only
+recurring transaction opens a series' quote capacity once per three-day epoch, the first time that series is viewed.
 
-Environment (`/etc/setryn/maker-refresh.env`, mode 600):
+A host that installed the retired refresher removes it:
 
 ```bash
-SETRYN_PUBLIC_ORIGIN=https://<vercel-app>
-# Optional overrides:
-# SETRYN_RUNTIME_PATH=/home/ubuntu/setryn/deployments/arbitrum-sepolia/runtime.json
-# SETRYN_MAKER_REFRESH_STATE_PATH=/var/lib/setryn/maker-refresh.cursor
-```
-
-Install on the Ubuntu host that holds the checkout at `/home/ubuntu/setryn`:
-
-```bash
-sudo install -m 644 deploy/systemd/setryn-maker-refresh.service deploy/systemd/setryn-maker-refresh.timer /etc/systemd/system/
+sudo systemctl disable --now setryn-maker-refresh.timer setryn-maker-refresh.service
+sudo rm -f /etc/systemd/system/setryn-maker-refresh.service /etc/systemd/system/setryn-maker-refresh.timer
 sudo systemctl daemon-reload
-sudo systemctl enable --now setryn-maker-refresh.timer
+sudo rm -f /etc/setryn/maker-refresh.env /var/lib/setryn/maker-refresh.cursor
 ```
 
-Both the maker refresher and the daily operator wrap their node command with
-`/usr/bin/flock --wait 180 /run/lock/setryn-wallet.lock`, so the two signers never run concurrently. The refresher
-writes the next round-robin cursor before its 55 second `no-store` request, so one failing market does not starve the
-others; a run fails on non-2xx, nonempty `failed` or `pending`, or when the requested market is absent from `markets`.
+The daily operator keeps wrapping its node command with `/usr/bin/flock --wait 180 /run/lock/setryn-wallet.lock`.
 
 Status and logs:
 
 ```bash
-systemctl status setryn-maker-refresh.timer
-systemctl list-timers setryn-maker-refresh.timer setryn-operator.timer
-journalctl -u setryn-maker-refresh.service -n 50
+systemctl list-timers setryn-operator.timer
 journalctl -u setryn-operator.service -n 50
-cat /var/lib/setryn/maker-refresh.cursor
 ```
 
 Fee updates. On public chains `UpdateFeeSchedule.s.sol` never broadcasts; it prints the unsigned calls (qualifier
