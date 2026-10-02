@@ -11,7 +11,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "sync:markets": "node scripts/sync-market-catalog.mjs",
-    "test:maker": "node --experimental-strip-types --no-warnings --test test/maker-quote-plan.test.mjs"
+    "test:maker": "node --experimental-strip-types --no-warnings --test test/maker-quote-plan.test.mjs test/maker-quote-renewal.test.mjs"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",

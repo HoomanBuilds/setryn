@@ -3,7 +3,7 @@ import { ensureMakerAccount, MAKER_PUBLIC_POLICY_CONTEXT, PUBLIC_SERIES_POLICY, 
 import { marketTradingVersions, orderFeeCapMinor, readActiveFeeSchedule, type ActiveFeeSchedule } from "./fee-schedule";
 import { MakerPricingError, makerQuotes, type MakerQuote } from "./maker-pricing";
 import { withMakerLock } from "./maker-lock";
-import { planSide, type ScannedOrder, type Side } from "./maker-quote-plan";
+import { renewQuotes, ZERO_ID, type LevelHint, type MakerBookPort, type ScannedOrder, type SideScan, type Side } from "./maker-quote-plan";
 import { makerSigner, type RoleSigner } from "./operator-signer";
 import {
   orderStateAbi,
@@ -33,7 +33,8 @@ const STALE_FRACTION = 0.0025;
 const MAKER_LOTS = 10;
 /** Book orders read per side when looking for the maker's own quotes. */
 const MAX_SCAN_ORDERS = 32;
-const ZERO_ID = `0x${"0".repeat(64)}` as Hex;
+/** Price levels walked per side for an insertion hint; a new level past this many can only go between levels read. */
+const MAX_SCAN_LEVELS = 256;
 const BOOK_RESTING = 1;
 
 const riskExpiryAbi = [
@@ -139,49 +140,43 @@ async function refreshMarket(
   const bookId = deriveSeriesBookId(setryn, market.seriesId, versions);
   const block = await publicClient.getBlock({ blockTag: "pending" });
   const now = block.timestamp;
-  const outcome: MarketRefresh = { marketId: market.marketKey, created: [], kept: 0, withdrawn: 0, cleared: 0 };
   const tolerance = BigInt(Math.max(2, Math.ceil(quote.reference.price * STALE_FRACTION * market.priceScale)));
+  const port: MakerBookPort = {
+    scan: (side) => scanSide(maker, bookId, side, MAX_SCAN_ORDERS),
+    levels: (side) => scanSide(maker, bookId, side, 0),
+    withdraw: (order) => withdrawMakerOrder(maker, order.hash, order).then(() => undefined),
+    clearExpired: (order) => clearExpiredQuote(maker, order),
+    pruneHead: (side, order) => pruneHead(maker, bookId, side, order.hash),
+    prepare: (side, priceTicks) => prepareQuote(maker, accountId, fees, market, versions, side, priceTicks, now),
+    place: (orderHash, hint) => placeOnBook(maker, orderHash, hint),
+  };
   const targets: { side: Side; priceTicks: bigint }[] = [
     { side: 1, priceTicks: quote.bidTicks },
     { side: 2, priceTicks: quote.askTicks },
   ];
-  for (const target of targets) {
-    const plan = planSide(await scanSide(maker, bookId, target.side), maker.address, target, now, tolerance);
-    // A quote priced through the target can be picked off, so it comes down before anything else.
-    for (const order of plan.through) {
-      await withdrawMakerOrder(maker, order.hash, order);
-      outcome.withdrawn += 1;
-    }
-    if (plan.keep) {
-      outcome.kept += 1;
-    } else {
-      outcome.created.push(await placeQuote(maker, accountId, fees, market, versions, target.side, target.priceTicks, now));
-    }
-    // The replacement is up before the old quote comes down, so the side is never empty in between.
-    for (const order of plan.replace) {
-      await withdrawMakerOrder(maker, order.hash, order).catch(() => undefined);
-      outcome.withdrawn += 1;
-    }
-    for (const order of plan.expired) {
-      await clearExpiredQuote(maker, order);
-      outcome.cleared += 1;
-    }
-    if (plan.expiredHead) await pruneHead(maker, bookId, target.side, plan.expiredHead.hash);
-  }
-  return outcome;
+  return { marketId: market.marketKey, ...(await renewQuotes(port, maker.address, targets, now, tolerance)) };
 }
 
-/** Every resting order on one side of a book, best first, up to MAX_SCAN_ORDERS. An uncreated book reads as empty. */
-async function scanSide(maker: RoleSigner, bookId: Hex, side: Side): Promise<ScannedOrder[]> {
+/**
+ * One side of a book read now: its level chain best to worst (up to MAX_SCAN_LEVELS) and its first `maxOrders` resting
+ * orders. An uncreated book reads as empty.
+ */
+async function scanSide(maker: RoleSigner, bookId: Hex, side: Side, maxOrders: number): Promise<SideScan> {
   const { setryn, publicClient } = maker;
-  const orders: ScannedOrder[] = [];
+  const scan: SideScan = { levels: [], orders: [], complete: true };
+  const orders = scan.orders;
   let levelId = await publicClient
     .readContract({ address: setryn.publicOrderBook, abi: publicOrderBookAbi, functionName: "bestLevel", args: [bookId, side] })
     .catch(() => ZERO_ID);
-  while (levelId !== ZERO_ID && orders.length < MAX_SCAN_ORDERS) {
+  while (levelId !== ZERO_ID) {
+    if (scan.levels.length >= MAX_SCAN_LEVELS) {
+      scan.complete = false;
+      break;
+    }
     const level = await publicClient.readContract({ address: setryn.publicOrderBook, abi: publicOrderBookAbi, functionName: "getPriceLevel", args: [levelId] });
+    scan.levels.push({ id: levelId, priceTicks: level.priceTicks, previousLevelId: level.previousLevelId as Hex, nextLevelId: level.nextLevelId as Hex });
     let orderHash = level.headOrderHash as Hex;
-    while (orderHash !== ZERO_ID && orders.length < MAX_SCAN_ORDERS) {
+    while (orderHash !== ZERO_ID && orders.length < maxOrders) {
       const [bookOrder, record] = await Promise.all([
         publicClient.readContract({ address: setryn.publicOrderBook, abi: publicOrderBookAbi, functionName: "getBookOrder", args: [orderHash] }),
         publicClient.readContract({ address: setryn.orderState, abi: orderStateAbi, functionName: "getOrder", args: [orderHash] }),
@@ -199,10 +194,11 @@ async function scanSide(maker: RoleSigner, bookId: Hex, side: Side): Promise<Sca
     }
     levelId = level.nextLevelId as Hex;
   }
-  return orders;
+  return scan;
 }
 
-async function placeQuote(
+/** Signs a post-only maker quote, reserves and binds its risk, and registers it; it is not on the book yet. */
+async function prepareQuote(
   maker: RoleSigner,
   accountId: Hex,
   fees: ActiveFeeSchedule,
@@ -274,17 +270,19 @@ async function placeQuote(
     walletClient.writeContract({ chain: null, address: setryn.orderState, abi: orderStateAbi, functionName: "registerSignedOrder", args: [order, signature] }),
     "MAKER_ORDER_REGISTRATION_FAILED",
   );
-  await send(
-    walletClient.writeContract({
-      chain: null,
-      address: setryn.publicOrderBook,
-      abi: publicOrderBookAbi,
-      functionName: "placeSeriesOrder",
-      args: [orderHash, { previousLevelId: ZERO_ID, nextLevelId: ZERO_ID }],
-    }),
-    "MAKER_ORDER_PLACEMENT_FAILED",
-  );
   return orderHash;
+}
+
+/**
+ * Rests a registered quote on its book between the hinted levels. Simulated first so a level chain that moved since the
+ * hint was read surfaces as InvalidLevelHint (and is retried with a fresh hint) instead of as a reverted transaction.
+ */
+async function placeOnBook(maker: RoleSigner, orderHash: Hex, hint: LevelHint): Promise<void> {
+  const { setryn, publicClient, walletClient } = maker;
+  const placement = { address: setryn.publicOrderBook, abi: publicOrderBookAbi, functionName: "placeSeriesOrder", args: [orderHash, hint] } as const;
+  await publicClient.simulateContract({ account: maker.address, ...placement });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash: await walletClient.writeContract({ chain: null, ...placement }) });
+  if (receipt.status !== "success") throw new Error("MAKER_ORDER_PLACEMENT_FAILED");
 }
 
 /** An expired maker quote comes off the book (wherever it rests) and its risk admission is released. */
@@ -303,16 +301,16 @@ async function clearExpiredQuote(maker: RoleSigner, order: ScannedOrder): Promis
   await expireMakerAdmission(maker, order.hash);
 }
 
-/** Prunes someone else's expired order from the head of a side; best effort. */
-async function pruneHead(maker: RoleSigner, bookId: Hex, side: Side, orderHash: Hex): Promise<void> {
+/** Prunes someone else's expired order from the head of a side; best effort, true when it came off. */
+async function pruneHead(maker: RoleSigner, bookId: Hex, side: Side, orderHash: Hex): Promise<boolean> {
   const { setryn, publicClient, walletClient } = maker;
   const prunable = await publicClient
     .simulateContract({ account: maker.address, address: setryn.publicOrderBook, abi: publicOrderBookAbi, functionName: "pruneBest", args: [bookId, side, [orderHash]] })
     .then(() => true)
     .catch(() => false);
-  if (!prunable) return;
+  if (!prunable) return false;
   const hash = await walletClient.writeContract({ chain: null, address: setryn.publicOrderBook, abi: publicOrderBookAbi, functionName: "pruneBest", args: [bookId, side, [orderHash]] });
-  await publicClient.waitForTransactionReceipt({ hash });
+  return (await publicClient.waitForTransactionReceipt({ hash })).status === "success";
 }
 
 /** An expired maker quote no longer holds risk: its admission is released through the permissionless expiry. */
