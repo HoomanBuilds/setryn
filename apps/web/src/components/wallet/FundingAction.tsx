@@ -6,6 +6,7 @@ import { useGatewaySnapshot } from "@/components/gateway/InternalGatewayProvider
 
 /** Circle's public USDC test faucet; it serves Arbitrum Sepolia among other test networks. */
 const CIRCLE_FAUCET_URL = "https://faucet.circle.com";
+const ARBITRUM_SEPOLIA_FAUCET_URL = "https://ethglobal.com/faucet/arbitrum-sepolia-421614";
 
 const ACTION =
   "focus-ring inline-flex h-7 items-center gap-1 rounded-md border border-line px-2 text-[11px] text-dim transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60";
@@ -65,7 +66,13 @@ export function FundingAction({ className = "" }: { className?: string }) {
         {state.kind === "SENDING" ? "Adding USDC..." : "Get test USDC"}
       </button>
       {network === "arbitrum-sepolia" ? (
-        <p className="mt-1.5 text-[11px] leading-snug text-dim">You still need a small amount of Arbitrum Sepolia ETH for trading gas.</p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] leading-snug text-dim">
+          <span>You also need Arbitrum Sepolia ETH for trading gas.</span>
+          <a href={ARBITRUM_SEPOLIA_FAUCET_URL} target="_blank" rel="noopener noreferrer" className={ACTION}>
+            <ExternalLink size={12} aria-hidden="true" />
+            Get Sepolia ETH
+          </a>
+        </div>
       ) : null}
       {state.kind === "DONE" ? <p role="status" className="mt-1.5 text-[11px] leading-snug text-up">{state.message}</p> : null}
       {state.kind === "FAILED" ? <p role="alert" className="mt-1.5 text-[11px] leading-snug text-down">{state.message}</p> : null}

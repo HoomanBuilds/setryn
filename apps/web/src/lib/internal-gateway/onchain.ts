@@ -121,6 +121,8 @@ function netConsiderationUsd(events: readonly LedgerFlow[], fillId: string, acco
 const MAKER_DEADLINE_MARGIN_SECONDS = BigInt(15);
 /** Consecutive full-refresh requests one page makes while the server still reports markets pending. */
 const MAKER_SEED_ROUNDS = 6;
+/** Keep public books seeded even when every visitor is browsing before connecting a wallet. */
+const PUBLIC_MAKER_REFRESH_MS = 120_000;
 const PUBLIC_SERIES_POLICY = keccak256(stringToHex("SETRYN_POLICY_PUBLIC_SERIES_V1"));
 
 /** Formats a fill price on the market's own decimal grid. */
@@ -670,6 +672,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   private polling = false;
   /** The page's in-flight full maker refresh, shared by connect and polling. */
   private makerRefresh: Promise<void> | null = null;
+  private lastPublicMakerRefresh = 0;
   /** Book orders already seen filled, cancelled, or expired. None of them can rest again, so they are not re-read. */
   private readonly retiredBookOrders = new Set<string>();
   /** Series terminal schedules and fixing slots; both are fixed at qualification, so each is read once. */
@@ -689,7 +692,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
 
   /**
    * Reads the deployment, series economics, and public book before any wallet connects, as an exchange shows its book
-   * to logged-out visitors. It is read-only and keeps polling the book until a wallet connection takes over.
+   * to logged-out visitors. It also asks the configured server-side maker to maintain public liquidity; the browser
+   * never signs or holds an operator key.
    */
   private startPublicReads(): void {
     if (this.publicReadsStarted || typeof window === "undefined") return;
@@ -697,7 +701,13 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const read = () => {
       if (this.snapshot.wallet.status === "CONNECTED") return;
       void this.runtime()
-        .then(() => this.refreshPublicBook())
+        .then(async () => {
+          if (Date.now() - this.lastPublicMakerRefresh >= PUBLIC_MAKER_REFRESH_MS) {
+            await this.requestMakerLiquidity();
+            this.lastPublicMakerRefresh = Date.now();
+          }
+          await this.refreshPublicBook();
+        })
         .catch(() => undefined);
     };
     read();
