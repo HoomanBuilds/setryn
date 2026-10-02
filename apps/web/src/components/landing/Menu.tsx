@@ -135,7 +135,7 @@ export default function Menu({ open, onClose }: { open: boolean; onClose: () => 
             <span className={styles.chainMark}>
               <ArbitrumMark size={26} />
             </span>
-            Arbitrum One
+            Arbitrum
           </p>
         </div>
         <ul className={styles.socials}>

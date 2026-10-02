@@ -9,7 +9,7 @@ import styles from "./Chain.module.css";
 
 type MarkProps = { size?: number; className?: string };
 
-/** Arbitrum One's logomark. `mono` follows the surrounding text colour. */
+/** Arbitrum's logomark. `mono` follows the surrounding text colour. */
 export function ArbitrumMark({ size = 16, className, mono = false }: MarkProps & { mono?: boolean }) {
   return <NetworkArbitrumOne size={size} variant={mono ? "mono" : "branded"} className={className} aria-hidden="true" />;
 }

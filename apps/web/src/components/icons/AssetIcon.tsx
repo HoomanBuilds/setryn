@@ -95,7 +95,7 @@ export type ChainKey = "arbitrum-one" | "arbitrum-sepolia" | "local";
 const CHAIN_NAMES: Record<ChainKey, string> = {
   "arbitrum-one": "Arbitrum One",
   "arbitrum-sepolia": "Arbitrum Sepolia",
-  local: "Arbitrum One",
+  local: "Arbitrum",
 };
 
 /** Chain id to the chain Setryn runs on. The local devnet mirrors Arbitrum One, so it wears the Arbitrum mark too. */
@@ -105,10 +105,9 @@ export function chainKeyOf(chainId: number | null | undefined): ChainKey {
   return "local";
 }
 
-/** Display name per chain id. The local devnet (31337) mirrors Arbitrum One, so its label says so. */
+/** Display name per chain id. The local devnet (31337) mirrors Arbitrum One but is shown as plain Arbitrum. */
 export function chainLabelOf(chainId: number | null | undefined): string {
-  const key = chainKeyOf(chainId);
-  return key === "local" ? "Arbitrum One" : CHAIN_NAMES[key];
+  return CHAIN_NAMES[chainKeyOf(chainId)];
 }
 
 export function ChainIcon({ size = 16, className = "", mono = false }: { size?: number; className?: string; mono?: boolean }) {

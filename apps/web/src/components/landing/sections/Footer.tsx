@@ -50,7 +50,7 @@ const COLUMNS: { title: string; links: FooterLink[] }[] = [
   {
     title: "Network",
     links: [
-      { label: "Arbitrum One", href: "https://arbitrum.io", mark: "arbitrum" },
+      { label: "Arbitrum", href: "https://arbitrum.io", mark: "arbitrum" },
       { label: "Native USDC", href: "https://www.circle.com/usdc", mark: "usdc" },
     ],
   },
@@ -166,7 +166,7 @@ export default function Footer() {
           </span>
           <span>
             <span className="label">Built on</span>
-            <strong>Arbitrum One</strong>
+            <strong>Arbitrum</strong>
           </span>
         </a>
         <span className={styles.legalText}>

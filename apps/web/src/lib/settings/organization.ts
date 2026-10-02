@@ -41,11 +41,12 @@ export const ORGANIZATION_SCHEMA = "setryn.organization-control.v1";
 export const ORGANIZATION_ROLE_LIST: readonly OrganizationRole[] = ["admin", "trader", "approver", "accountant", "viewer"];
 
 /**
- * How each network is named in the product. The local chain is presented as Arbitrum One, the network it stands in
- * for; the testnet keeps its own name.
+ * How each network is named in the product. The local chain is presented as plain Arbitrum, never as mainnet; the
+ * testnet keeps its own name.
  */
 export function networkLabel(network: ControlEnvironment): string {
-  return network === "arbitrum-sepolia" ? "Arbitrum Sepolia" : "Arbitrum One";
+  if (network === "arbitrum-sepolia") return "Arbitrum Sepolia";
+  return network === "arbitrum-one" ? "Arbitrum One" : "Arbitrum";
 }
 
 export type Capability =

@@ -8,7 +8,7 @@ import styles from "./Faq.module.css";
 const QUESTIONS = [
   {
     q: "What is Setryn?",
-    a: "An exchange and clearing protocol for dated risk, built for Arbitrum One. It trades fixed-expiry forwards, options, rate and basis markets and multi-leg strategies on one instrument model, clears them against native USDC, and manages each position until it settles.",
+    a: "An exchange and clearing protocol for dated risk, built for Arbitrum. It trades fixed-expiry forwards, options, rate and basis markets and multi-leg strategies on one instrument model, clears them against native USDC, and manages each position until it settles.",
   },
   {
     q: "Is it a perp DEX with privacy added?",
@@ -20,7 +20,7 @@ const QUESTIONS = [
   },
   {
     q: "What do I need as collateral?",
-    a: "Native USDC on Arbitrum One, issued by Circle rather than bridged. Most contracts are cash-settled in USDC, so the asset you are hedging, whether gold, euros or BTC, does not need its own token on the chain.",
+    a: "Native USDC on Arbitrum, issued by Circle rather than bridged. Most contracts are cash-settled in USDC, so the asset you are hedging, whether gold, euros or BTC, does not need its own token on the chain.",
   },
   {
     q: "How are fixing and settlement decided?",

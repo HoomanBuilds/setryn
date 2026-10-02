@@ -4,7 +4,7 @@ import { OverviewView } from "@/components/portfolio/Overview";
 export const metadata: Metadata = {
   title: "Portfolio / Setryn",
   description:
-    "Account snapshot, open package positions, book health, and profit and loss attribution over the Arbitrum One fixture.",
+    "Account snapshot, open package positions, book health, and profit and loss attribution for the connected account.",
 };
 
 export default function PortfolioOverviewPage() {

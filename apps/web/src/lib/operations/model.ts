@@ -222,7 +222,7 @@ export function dependencies(input: OperationsInput): DependencyHealth[] {
       detail:
         references.length === 0
           ? "The reference RPC could not be read; marks without book or fills have no reference."
-          : "Aggregator answers on Arbitrum One. FX and metals feeds pause outside market hours.",
+          : "Aggregator answers on Arbitrum. FX and metals feeds pause outside market hours.",
     },
     {
       id: "evidence",

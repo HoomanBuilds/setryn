@@ -87,7 +87,7 @@
   line-height: 1.6;
 }
 
-/* The settlement layer: Arbitrum One and native USDC, in the execution board's frame */
+/* The settlement layer: Arbitrum and native USDC, in the execution board's frame */
 .chain {
   display: grid;
   grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);

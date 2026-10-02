@@ -112,7 +112,7 @@ export function HomeDashboard() {
               <ChainIcon size={12} />
               {`${chainLabelOf(snapshot.environment.chainId)} / ${evidenceLabel(snapshot.environment.evidence)} evidence`}
             </Chip>
-            <Chip tone="down" title="No wallet, operator, or deployment action writes to Arbitrum One from this platform.">
+            <Chip tone="down" title="No wallet, operator, or deployment action writes to mainnet from this platform.">
               Mainnet writes off
             </Chip>
           </>

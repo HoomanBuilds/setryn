@@ -28,7 +28,7 @@ export interface RuntimeEnvironment {
   id: "LOCAL" | "ARBITRUM_SEPOLIA" | "ARBITRUM_ONE";
   /** The deployment network (lib/internal-gateway/network.ts). */
   network: SetrynNetwork;
-  /** What the product calls the network; the local chain presents as Arbitrum One. */
+  /** What the product calls the network; the local chain presents as Arbitrum. */
   label: string;
   chainId: number;
   /**

@@ -931,7 +931,7 @@ function ProposalsPanel({ workspace, records }: { workspace: OrgWorkspace; recor
       <ErrorLine error={runner.error} />
       <p className="border-t border-line-soft px-3 py-2 text-[11px] leading-snug text-faint">
         Notional at or above the dual-control threshold needs two approvers, and a proposer never counts toward their own
-        approvals. Arbitrum One execution is refused by the write policy for new risk; terminal resolution needs no approval.
+        approvals. Mainnet execution is refused by the write policy for new risk; terminal resolution needs no approval.
       </p>
     </Panel>
   );

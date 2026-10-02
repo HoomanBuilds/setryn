@@ -13,7 +13,7 @@ export const SETRYN_NETWORKS: readonly SetrynNetwork[] = ["local", "arbitrum-sep
 export interface NetworkProfile {
   network: SetrynNetwork;
   chainId: number;
-  /** What the product calls the network. The local chain mirrors Arbitrum One and presents as it. */
+  /** What the product calls the network. The local chain mirrors Arbitrum One but presents as plain Arbitrum. */
   label: string;
   environmentId: RuntimeEnvironment["id"];
   evidence: RuntimeEnvironment["evidence"];
@@ -25,7 +25,7 @@ export const NETWORK_PROFILES: Record<SetrynNetwork, NetworkProfile> = {
   local: {
     network: "local",
     chainId: 31337,
-    label: "Arbitrum One",
+    label: "Arbitrum",
     environmentId: "LOCAL",
     evidence: "ONCHAIN",
     defaultRpcUrl: "http://127.0.0.1:8545",
@@ -98,7 +98,7 @@ export function testFundingAvailable(setryn: { network?: SetrynNetwork; settleme
 
 /**
  * The chain viem signs and estimates for: Arbitrum One and Arbitrum Sepolia as viem defines them, and the local chain
- * on its own RPC. Wallets list the local chain under its own name; the product still presents it as Arbitrum One.
+ * on its own RPC. Wallets list the local chain under its own name; the product presents it as Arbitrum.
  */
 export function networkChain(network: SetrynNetwork, rpcUrl: string): Chain {
   if (network === "arbitrum-one") return arbitrum;

@@ -116,7 +116,7 @@ function statsFor(market: PackageMarket, nowSeconds: number) {
       value: formatNumber(market.referencePrice, market.priceDecimals + (market.priceDecimals === 0 ? 0 : 1)),
       title:
         market.referenceAsOf > 0
-          ? `Chainlink ${market.referencePair} on Arbitrum One, updated ${formatUtcStamp(market.referenceAsOf)} UTC.`
+          ? `Chainlink ${market.referencePair} on Arbitrum, updated ${formatUtcStamp(market.referenceAsOf)} UTC.`
           : `Chainlink ${market.referencePair} could not be read.`,
     },
     {

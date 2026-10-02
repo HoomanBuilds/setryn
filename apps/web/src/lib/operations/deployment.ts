@@ -12,7 +12,7 @@ import type { PackageMarket } from "@/lib/terminal/types";
 
 export type NetworkKey = "local" | "arbitrum-sepolia" | "arbitrum-one";
 
-/** What the product calls each network (the local chain presents as Arbitrum One, lib/internal-gateway/network.ts). */
+/** What the product calls each network (the local chain presents as Arbitrum, lib/internal-gateway/network.ts). */
 export const NETWORK_LABEL: Record<NetworkKey, string> = {
   local: NETWORK_PROFILES.local.label,
   "arbitrum-sepolia": NETWORK_PROFILES["arbitrum-sepolia"].label,

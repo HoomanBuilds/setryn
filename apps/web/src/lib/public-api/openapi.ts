@@ -447,7 +447,7 @@ export function openApiDocument(serverUrl: string) {
             priorNetPrice: nullable({ type: "number", description: "First fill price in the last 24 hours." }),
             bestBid: nullable({ type: "number" }),
             bestAsk: nullable({ type: "number" }),
-            referencePrice: nullable({ type: "number", description: "Chainlink reference of the underlying on Arbitrum One." }),
+            referencePrice: nullable({ type: "number", description: "Chainlink reference of the underlying on Arbitrum." }),
           }),
           terms: object({
             floor: { type: "number" },
