@@ -106,7 +106,7 @@ export interface SetrynRuntime {
   feeScheduleVersion?: number;
   /** The address that controls the fee recipient account; read from CollateralVault when absent. */
   treasuryController?: Address;
-  /** Firm-quote settlement router (V2 release); absent on deployments without it, which then offer no firm quotes. */
+  /** Firm-quote settlement router; absent on deployments without it, which then offer no firm quotes. */
   quoteSettlementRouter?: Address;
   /** The stream capacity manager the router draws makers' quote capacity from. */
   streamCapacityManager?: Address;
