@@ -3053,7 +3053,14 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         createdAt: record.createdAt,
       };
       const positionUpdate: SubmissionUpdate = closedEntry
-        ? { step: "POSITION_CLOSED", label: "Position closed", detail: "Original and close-fill positions were fully unwound onchain.", transactionHash: closedEntry.transactionHash }
+        ? {
+            step: "POSITION_CLOSED",
+            label: "Position closed",
+            detail: closedEntry.transactionHash.toLowerCase() === transactionHash.toLowerCase()
+              ? "Your position and the closing fill's mirror were closed in the same transaction; both liabilities are released."
+              : "Original and close-fill positions were fully unwound onchain.",
+            transactionHash: closedEntry.transactionHash,
+          }
         : positionLive || openedAndClosed
           ? { step: "POSITION_CREATED", label: "Position created", detail: `Position ${positionId} ${positionLive ? "is active" : "was opened"}.`, transactionHash }
           : { step: "POSITION_CLOSED", label: "Position closed", detail: `Position ${positionId} reached a terminal lifecycle state.`, transactionHash };
