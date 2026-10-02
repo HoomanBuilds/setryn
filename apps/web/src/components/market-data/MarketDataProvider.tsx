@@ -42,9 +42,32 @@ interface MarketDataContextValue {
   refresh: () => void;
   quotes: FirmQuoteBook | null;
   quoteStatus: QuoteStreamStatus;
+  discardQuote: (quoteId: string) => void;
 }
 
 const MarketDataContext = createContext<MarketDataContextValue | null>(null);
+
+/** The streamed book with every discarded quote removed; a market left with no quote reads as momentarily indicative. */
+function withoutDiscarded(book: FirmQuoteBook | null, discarded: ReadonlySet<string>): FirmQuoteBook | null {
+  if (!book || discarded.size === 0) return book;
+  const markets: FirmQuoteBook["markets"] = {};
+  for (const [key, market] of Object.entries(book.markets)) {
+    const bid = market.bid && discarded.has(market.bid.id.toLowerCase()) ? null : market.bid;
+    const ask = market.ask && discarded.has(market.ask.id.toLowerCase()) ? null : market.ask;
+    const emptied = market.status === "FIRM" && !bid && !ask;
+    markets[key] =
+      bid === market.bid && ask === market.ask
+        ? market
+        : {
+            ...market,
+            bid,
+            ask,
+            status: emptied ? "INDICATIVE" : market.status,
+            reason: emptied ? "The quote was just taken; the maker's next quote is streaming." : market.reason,
+          };
+  }
+  return { ...book, markets };
+}
 
 export { applyLiveMarket, deriveRoutes, type LiveMarketContext } from "@/lib/market-data/overlay";
 
@@ -116,7 +139,14 @@ export function MarketDataProvider({ children }: { children: ReactNode }) {
     source.onerror = () => setQuoteStatus("RECONNECTING");
     return () => source.close();
   }, []);
-  const hasQuotes = quotes !== null && Object.values(quotes.markets).some((market) => market.bid || market.ask);
+  // A quote this browser just settled, or saw refused as already taken, is dropped at once rather than staying
+  // executable until the stream replaces it.
+  const [discarded, setDiscarded] = useState<ReadonlySet<string>>(() => new Set());
+  const discardQuote = useCallback((quoteId: string) => {
+    setDiscarded((current) => new Set(current).add(quoteId.toLowerCase()));
+  }, []);
+  const liveQuotes = useMemo(() => withoutDiscarded(quotes, discarded), [quotes, discarded]);
+  const hasQuotes = liveQuotes !== null && Object.values(liveQuotes.markets).some((market) => market.bid || market.ask);
   useEffect(() => {
     if (!hasQuotes) return;
     // Quote expiry is shown in seconds, so the overlay re-evaluates each second while any quote is live.
@@ -126,14 +156,14 @@ export function MarketDataProvider({ children }: { children: ReactNode }) {
 
   const markets = useMemo(() => {
     const base = snapshot ? overlaySnapshot(MARKETS, snapshot) : MARKETS;
-    if (!quotes) return base;
-    return base.map((market) => applyFirmQuotes(market, quotes.markets[market.id], quoteClock));
-  }, [snapshot, quotes, quoteClock]);
+    if (!liveQuotes) return base;
+    return base.map((market) => applyFirmQuotes(market, liveQuotes.markets[market.id], quoteClock));
+  }, [snapshot, liveQuotes, quoteClock]);
 
   const refresh = useCallback(() => loadRef.current(), []);
   const value = useMemo<MarketDataContextValue>(
-    () => ({ markets, snapshot, status, receivedAt, refresh, quotes, quoteStatus }),
-    [markets, snapshot, status, receivedAt, refresh, quotes, quoteStatus],
+    () => ({ markets, snapshot, status, receivedAt, refresh, quotes: liveQuotes, quoteStatus, discardQuote }),
+    [markets, snapshot, status, receivedAt, refresh, liveQuotes, quoteStatus, discardQuote],
   );
   return <MarketDataContext.Provider value={value}>{children}</MarketDataContext.Provider>;
 }
@@ -182,10 +212,14 @@ export function useMarketFeed(): {
   };
 }
 
-/** The firm quote stream: its connection state and the latest book of signed maker quotes. */
-export function useFirmQuotes(): { quotes: FirmQuoteBook | null; status: QuoteStreamStatus } {
-  const { quotes, quoteStatus } = useMarketDataContext();
-  return { quotes, status: quoteStatus };
+/** The firm quote stream: its connection state, the latest book of signed maker quotes, and a way to drop a taken one. */
+export function useFirmQuotes(): {
+  quotes: FirmQuoteBook | null;
+  status: QuoteStreamStatus;
+  discardQuote: (quoteId: string) => void;
+} {
+  const { quotes, quoteStatus, discardQuote } = useMarketDataContext();
+  return { quotes, status: quoteStatus, discardQuote };
 }
 
 /** Re-reads the feed now, for example right after the viewer's own order changes the book. */

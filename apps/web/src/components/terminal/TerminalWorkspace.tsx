@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useGatewaySnapshot, useInternalGateway } from "@/components/gateway/InternalGatewayProvider";
-import { useLiveMarket, useMarketBoard, useMarketDataRefresh } from "@/components/market-data/MarketDataProvider";
+import { useFirmQuotes, useLiveMarket, useMarketBoard, useMarketDataRefresh } from "@/components/market-data/MarketDataProvider";
 import { AnalysisPanel, type VizTab } from "@/components/terminal/AnalysisPanel";
 import { ConsolePanel } from "@/components/terminal/ConsolePanel";
 import { ContractSpec, MarketHeader, MarketStatGrid } from "@/components/terminal/MarketHeader";
@@ -31,7 +31,7 @@ import { parseHandoff, type HandoffContext } from "@/lib/terminal/handoff";
 import { tradeHref } from "@/lib/terminal/markets";
 import { usePersistentState } from "@/lib/terminal/use-persistent-state";
 import type { BookRow, ConsoleTabId, PackageMarket } from "@/lib/terminal/types";
-import type { OnchainMarket, OrderExecutionProgress } from "@/lib/internal-gateway/types";
+import type { OnchainMarket, OrderExecutionProgress, PackageExecutionResult } from "@/lib/internal-gateway/types";
 import { platformNow } from "@/lib/terminal/clock";
 import { acceptableQuote } from "@/lib/quotes/firm-quote";
 import { useConfirmationPrefs, useDisclosurePrefs } from "@/lib/settings/preferences";
@@ -351,6 +351,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   const { market: liveMarket } = useLiveMarket(market.id);
   const { markets } = useMarketBoard();
   const refreshFeed = useMarketDataRefresh();
+  const { discardQuote } = useFirmQuotes();
 
   /* Every listed market settles on its own deployed series, so the ticket prices collateral, fees, and order size
      from the chain's economics, and its routes execute against the onchain book the feed reads. */
@@ -925,9 +926,18 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         );
         if (!quote) throw new Error("QUOTE_UNAVAILABLE");
         setExecution({ status: "SUBMITTING", updates: [] });
-        const result = await gateway.settleFirmQuote(intent, quote, (update) => {
-          setExecution((current) => ({ ...current, status: "SUBMITTING", updates: [...current.updates, update] }));
-        });
+        let result: PackageExecutionResult;
+        try {
+          result = await gateway.settleFirmQuote(intent, quote, (update) => {
+            setExecution((current) => ({ ...current, status: "SUBMITTING", updates: [...current.updates, update] }));
+          });
+        } catch (error) {
+          // A quote the router refused (taken by someone else, or no longer valid) is never offered again.
+          if (error instanceof Error && error.message.startsWith("SETTLEMENT_REJECTED")) discardQuote(quote.id);
+          throw error;
+        }
+        // A quote settles once; drop it now rather than when the stream next replaces it.
+        discardQuote(quote.id);
         const recorded = gateway.getSnapshot().executions.find((candidate) => candidate.result.receipt.id === result.receipt.id);
         setExecution((current) => ({ ...current, status: "COMPLETED", result, updates: recorded?.updates ?? current.updates }));
         setStage({ kind: "COMPLETED", reference, receiptId: result.receipt.id });
@@ -999,7 +1009,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         replacementInFlightRef.current = null;
       }
     }
-  }, [amendmentOrderId, gateway, liveMarket, onchainInfo, preview, route, selectedClosePosition, slippageBps, stage, ticket, ticketMarket]);
+  }, [amendmentOrderId, discardQuote, gateway, liveMarket, onchainInfo, preview, route, selectedClosePosition, slippageBps, stage, ticket, ticketMarket]);
 
   useEffect(() => {
     if (ticket.intent !== "EXIT") return;

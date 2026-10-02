@@ -1,7 +1,9 @@
-import { BaseError, ContractFunctionRevertedError, type Address } from "viem";
+import { BaseError, ContractFunctionRevertedError, hashTypedData, type Address } from "viem";
 import { relayerSigner, signerUnavailableResponse } from "@/lib/internal-gateway/operator-signer";
+import { publicOrderTypedData } from "@/lib/internal-gateway/protocol";
 import { readRuntime } from "@/lib/internal-gateway/runtime-server";
-import { quoteSettlementRouterAbi } from "@/lib/quotes/protocol";
+import { noteQuoteConsumed } from "@/lib/quotes/quote-engine";
+import { quoteSettlementRouterAbi, setrynDomain } from "@/lib/quotes/protocol";
 import { parseQuoteSettlement } from "@/lib/quotes/settlement";
 
 export const runtime = "nodejs";
@@ -45,6 +47,13 @@ export async function POST(request: Request) {
     return Response.json({ error: "RELAYER_NOT_AUTHORIZED" }, { status: 403, headers: NO_STORE });
   }
   const router = setryn.quoteSettlementRouter as Address;
+  // The quote this settlement takes; once it is submitted (or found already taken) this process stops serving it.
+  const quoteOrderHash = hashTypedData({
+    domain: setrynDomain(setryn.chainId, setryn.orderState),
+    types: publicOrderTypedData,
+    primaryType: "PublicOrder",
+    message: settlement.quote.order,
+  });
   try {
     await relayer.publicClient.simulateContract({
       account: relayer.address,
@@ -54,7 +63,9 @@ export async function POST(request: Request) {
       args: [settlement],
     });
   } catch (error) {
-    return Response.json({ error: "SETTLEMENT_REJECTED", reason: revertName(error) }, { status: 422, headers: NO_STORE });
+    const reason = revertName(error);
+    if (reason === "QuoteAlreadyConsumed") noteQuoteConsumed(quoteOrderHash);
+    return Response.json({ error: "SETTLEMENT_REJECTED", reason }, { status: 422, headers: NO_STORE });
   }
   try {
     const transactionHash = await relayer.walletClient.writeContract({
@@ -64,6 +75,7 @@ export async function POST(request: Request) {
       functionName: "settle",
       args: [settlement],
     });
+    noteQuoteConsumed(quoteOrderHash);
     return Response.json({ transactionHash, relayer: relayer.address }, { headers: NO_STORE });
   } catch (error) {
     console.error("[quotes/settle] submit", error instanceof Error ? error.message.split("\n")[0] : error);

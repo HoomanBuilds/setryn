@@ -15,7 +15,14 @@ import {
   type FirmQuoteBook,
   type MarketQuoteState,
 } from "./firm-quote";
-import { makerQuoteTermsHash, orderRiskAuthorizationTypes, setrynDomain, ZERO_HASH, type OrderRiskAuthorization } from "./protocol";
+import {
+  makerQuoteTermsHash,
+  orderRiskAuthorizationTypes,
+  quoteSettlementRouterAbi,
+  setrynDomain,
+  ZERO_HASH,
+  type OrderRiskAuthorization,
+} from "./protocol";
 import { openCapacityInBackground, readSeriesCapacities, type CapacityView } from "./quote-capacity";
 
 /*
@@ -37,6 +44,10 @@ const BOOK_TTL_MS = 500;
 const QUOTE_LOTS = 10;
 /** Capacity and collateral reads are reused this long; settled fills show up within it. */
 const CHAIN_READ_TTL_MS = 4_000;
+/** A settlement scan longer than this is skipped: every kept quote is re-signed instead, which is always safe. */
+const MAX_SCAN_BLOCKS = BigInt(5_000);
+/** Consumed quote hashes are remembered this long, well past any quote's lifetime. */
+const CONSUMED_MEMORY_MS = 5 * 60_000;
 const SIDE_BUY = 1;
 const SIDE_SELL = 2;
 
@@ -97,6 +108,10 @@ interface EngineState {
   capacities: Map<string, { at: number; views: CapacityView[] }>;
   collateral: { at: number; value: MakerCollateral } | null;
   makerAccount: { maker: Address; accountId: Hex } | null;
+  /** Quote order hashes known to be settled (lowercase), with when they were learned. */
+  consumed: Map<string, number>;
+  /** The last block whose QuoteSettled events have been applied to the kept quotes. */
+  scannedBlock: bigint | null;
 }
 
 const STATE_KEY = Symbol.for("setryn.quote-engine.state");
@@ -111,8 +126,21 @@ function engine(): EngineState {
     capacities: new Map(),
     collateral: null,
     makerAccount: null,
+    consumed: new Map(),
+    scannedBlock: null,
   };
   return holder[STATE_KEY];
+}
+
+/**
+ * Records a quote as settled the moment this process submits it (the optional relayer), and drops the built book so
+ * the next tick re-signs that side instead of serving the consumed quote until the chain scan catches up.
+ */
+export function noteQuoteConsumed(quoteOrderHash: Hex): void {
+  const state = engine();
+  state.consumed.set(quoteOrderHash.toLowerCase(), Date.now());
+  forgetMarketOf(quoteOrderHash);
+  state.book = null;
 }
 
 /** The current firm quote book, built at most once per tick per server process. */
@@ -157,6 +185,7 @@ async function buildBook(): Promise<FirmQuoteBook> {
     makerQuotes(setryn.markets),
     readActiveFeeSchedule(setryn, { client: maker.publicClient }),
     cachedMakerAccount(maker),
+    syncSettledQuotes(maker.publicClient as PublicClient, setryn.quoteSettlementRouter as Address),
   ]);
   const collateral = await cachedCollateral(maker, accountId).catch(() => null);
   await Promise.all(
@@ -258,6 +287,60 @@ function collateralCovers(collateral: MakerCollateral, market: SetrynRuntimeMark
   return collateral.available + capacityPerLot * BigInt(lots) >= collateral.liability + sideLiability;
 }
 
+/**
+ * Applies every QuoteSettled event since the last scan to the kept quotes: a settled quote is never served again, and
+ * its market's capacity and the maker's collateral are re-read before the replacement is signed. A kept quote is
+ * therefore always one checked against every settlement up to the scanned block. When the scan cannot run (an RPC
+ * failure, or a gap too long to scan) every kept quote is dropped and re-signed with a fresh nonce instead, which is
+ * always safe: a new quote cannot have been settled before it existed.
+ */
+async function syncSettledQuotes(client: PublicClient, router: Address): Promise<void> {
+  const state = engine();
+  const now = Date.now();
+  for (const [hash, at] of state.consumed) if (now - at > CONSUMED_MEMORY_MS) state.consumed.delete(hash);
+  try {
+    const latest = await client.getBlockNumber({ cacheTime: 0 });
+    const from = state.scannedBlock;
+    if (from !== null && latest > from) {
+      if (latest - from > MAX_SCAN_BLOCKS) throw new Error("SCAN_GAP_TOO_LONG");
+      const events = await client.getContractEvents({
+        address: router,
+        abi: quoteSettlementRouterAbi,
+        eventName: "QuoteSettled",
+        fromBlock: from + BigInt(1),
+        toBlock: latest,
+        strict: true,
+      });
+      for (const event of events) {
+        state.consumed.set(event.args.quoteOrderHash.toLowerCase(), now);
+        forgetMarketOf(event.args.quoteOrderHash);
+      }
+    }
+    if (from === null || latest > from) state.scannedBlock = latest;
+  } catch (error) {
+    state.signed.clear();
+    state.capacities.clear();
+    state.collateral = null;
+    state.scannedBlock = null;
+    console.error("[quote-engine] settlement scan failed; re-signing every quote", error instanceof Error ? error.message.split("\n")[0] : error);
+  }
+}
+
+/** Drops the kept quotes of the market a quote belongs to, and the capacity and collateral its settlement changed. */
+function forgetMarketOf(quoteOrderHash: Hex): void {
+  const state = engine();
+  const hash = quoteOrderHash.toLowerCase();
+  for (const [marketKey, sides] of state.signed) {
+    if (sides.bid?.quote.id.toLowerCase() === hash || sides.ask?.quote.id.toLowerCase() === hash) {
+      state.signed.delete(marketKey);
+      for (const side of [sides.bid, sides.ask]) {
+        if (side) state.capacities.delete(`${side.quote.order.seriesId}:${side.quote.order.targetVersion}`);
+      }
+    }
+  }
+  state.collateral = null;
+}
+
 async function keepOrSign(
   previous: SignedSide | null,
   maker: RoleSigner,
@@ -273,6 +356,7 @@ async function keepOrSign(
 ): Promise<SignedSide> {
   if (
     previous &&
+    !engine().consumed.has(previous.quote.id.toLowerCase()) &&
     previous.priceTicks === priceTicks &&
     previous.capacityId === capacity.id &&
     previous.quote.lots === lots &&
