@@ -4,11 +4,11 @@
   "environment": "arbitrum-sepolia",
   "chainId": 421614,
   "status": "broadcast",
-  "generatedAt": "2026-10-01T17:14:08.466Z",
-  "sourceCommit": "04df568415bbc95988c315594563ef003c3eb536",
+  "generatedAt": "2026-10-02T15:45:43.410Z",
+  "sourceCommit": "c97ef9c43ef9a708d202da24ccbfd1b78e73255b",
   "blockReference": {
-    "number": 314703550,
-    "hash": "0xfdc3851f901ec23205a253e382c56eba65b755054cda48ad71459dcda64be8be",
+    "number": 315028868,
+    "hash": "0xce1affb8603e2e6517e489df2830d0c28c47dcf91149676eeadcf30e9fba7c01",
     "mode": "broadcast"
   },
   "compiler": {
@@ -25,7 +25,7 @@
   "broadcast": {
     "enabled": true,
     "signed": true,
-    "transactionCount": 83
+    "transactionCount": 85
   },
   "phase2": {
     "inventoryFile": "../phase2-contract-inventory.json",
@@ -120,12 +120,12 @@
       {
         "name": "DevnetSequencerUptimeFeed",
         "artifact": "contracts/out/DevnetSequencerUptimeFeed.sol/DevnetSequencerUptimeFeed.json",
-        "address": "0x7716a003d72abd255922a599ef18d74270e37858",
-        "runtimeCodeHash": "0x14704bd6d5b0a2b62dedd78ad5b06ac100c1c120196a8d3fabc1442e310f4ea2",
+        "address": "0x4caba63b7225075bc5f0b42720605c18dbeda112",
+        "runtimeCodeHash": "0xf91a3646249bd15081e5e821abc42ebe599bccc60e330802940df2cc77484cfb",
         "configurationHash": "0xde631a2de0279ab347df7637d6eeba882bcce3200f3e81d31a0bc60d0408762e",
         "capabilityHash": "0x8fe83bfeaebc41279425f0ebee3d615cf7e546169533a47d11c9b7795a37e1ab",
-        "transactionHash": "0xc7666443ce570e76ccb502fab76b6176cf2f975efb499a63a173b20f7e91f68b",
-        "blockNumber": 314700318,
+        "transactionHash": "0xb026ffc7c12715c16085257796b55d428af40d21a0655e79ea1a551f036d6600",
+        "blockNumber": 315025564,
         "constructorArguments": [],
         "linkedLibraries": [],
         "dependencies": [],
@@ -138,21 +138,21 @@
           "arbitrum-sepolia"
         ],
         "activation": "qualified",
-        "evidenceHash": "0x2ad1b33beed977edd713106618b20aaa9c6f924148dee2551b03eb2e95467d74"
+        "evidenceHash": "0xaf26e198f5bcb6e962f5a59551069c3c07f92dc2a52671284a9b5bdfda485ea5"
       },
       {
         "name": "PackageRegistry",
         "artifact": "contracts/out/PackageRegistry.sol/PackageRegistry.json",
-        "address": "0x5e08ced8e3b901b6a46e1488b7a7f52576ceb411",
-        "runtimeCodeHash": "0x92111dad814c2079788bb2d08a209591efba5fd8eba5e54016daedc508cda61d",
-        "configurationHash": "0xbf1b2e0611ec14552f9e0c794521f720fe9819026a665cfa87574bfab590ac3f",
+        "address": "0x73d6c995d2150687d3d57056544ea49d8241adf5",
+        "runtimeCodeHash": "0x743aac03e2900ef0a5af8201fda5e3feae2b0dca287e16f7f3cd27663fdf4d23",
+        "configurationHash": "0x17b73ea09f0f6e6695db5d21061e9ddcda9dcc3c7942f796df106feaab4425f9",
         "capabilityHash": "0xb082ad975c884681c6677fa2ebf7b49e3567c74849ce43a69b3490e207aa89b7",
-        "transactionHash": "0xdc027c307d2576e5fb8867203fa0471c296ea38cc0ac451075e3d2463565ac72",
-        "blockNumber": 314700493,
+        "transactionHash": "0xc61a4b3199a9a18965563b744d7cde186b09ecf43b0e5581dea42f1f4afb0f0e",
+        "blockNumber": 315025740,
         "constructorArguments": [
           "172800",
           "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C",
-          "0x23AaF326F53c38CC10a522257cF89746Ca915e0e"
+          "0xDC9563eAE3Aa03e8Dd93DbCf46f3E4e636b865Fa"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -167,17 +167,17 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x6ecc465d28f316a0ac8a949cfe460ed7df415c81d5e1bb135e3a15815722269d"
+        "evidenceHash": "0x4316b5ea3eda059a87e824fd89691c78749aa3fc627d9b0d574b86c7f0fb87b5"
       },
       {
         "name": "CanonicalStrategyCompiler",
         "artifact": "contracts/out/CanonicalStrategyCompiler.sol/CanonicalStrategyCompiler.json",
-        "address": "0xdec2df9497e03e19e2e947e6819a41f84351d71c",
+        "address": "0x74f43c2d2024c9dd11f3a002a8e497e89703b335",
         "runtimeCodeHash": "0x57ab9ce0dcbf496819020a0c51afb97b1eaa44de4c7894a08f71ee629e7a1c80",
         "configurationHash": "0x9a025a62a8f2966ded9e8f72160b992433b9e0e65d06afc4382140c5954b04ab",
         "capabilityHash": "0xf6fc59c44a874452f1d99833a1c4c30ae97352e9843ac6c23b63a0f0a1ac2a63",
-        "transactionHash": "0x9329ded0c687cc42d76c8a737c861e791ccaac0691b1d62bfc86c93c188d73fa",
-        "blockNumber": 314700509,
+        "transactionHash": "0xe06d7cd743cb8329870ae06deba3c4b3241d0343ea6da9776d483530212946a8",
+        "blockNumber": 315025755,
         "constructorArguments": [],
         "linkedLibraries": [],
         "dependencies": [],
@@ -187,21 +187,21 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0xa247975269e6fbab2bab7ab27241d2a126251ce7f6663164aca6646aad2f52d2"
+        "evidenceHash": "0xbcac0fab90c6e02aeaf4caf4e3d8582708f755f4a10b2733290ea85eb054621e"
       },
       {
         "name": "PositionEngine",
         "artifact": "contracts/out/PositionEngine.sol/PositionEngine.json",
-        "address": "0x2f8636fabcdee2879b7217fa894861bc51f0eac9",
-        "runtimeCodeHash": "0xb3bc6d6e4781bec4060862683591027cc434dda1615c3413acddf3cfaccea73e",
-        "configurationHash": "0x4651f9e19d137b8ffc1be27dfe7a37ec43103e576ba82484b7c0c180e6830041",
+        "address": "0x4e80cc89555efde78436feaf24f8d6c33c11e5b5",
+        "runtimeCodeHash": "0xd61db99aae7e10c6c27de7a6911f80850363430775f5a02f46c9e4ae79610de2",
+        "configurationHash": "0x798a6c904e4826e48550a35ebbdd5f1dda8a1dc435558902a1fd443783d5810e",
         "capabilityHash": "0x7a951cb65e4cc090e66ad722a14004317d3008adf40445ad3868f616477abfed",
-        "transactionHash": "0x39b5c88829a6faa5aace1b09609817fcf38d36d4b626e76f5ac2fdca5c65648c",
-        "blockNumber": 314700526,
+        "transactionHash": "0x345a52737093793b4b278a1b719c5622726a5442fecbd200cfe8adcc91abbe16",
+        "blockNumber": 315025769,
         "constructorArguments": [
           {
             "encoding": "abi",
-            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c00000000000000000000000023aaf326f53c38cc10a522257cf89746ca915e0e000000000000000000000000d8406895194b50d4b2587d267386ee3f8c17f522"
+            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c000000000000000000000000dc9563eae3aa03e8dd93dbcf46f3e4e636b865fa00000000000000000000000016344d20a4197927efe4545bb3962006629ff5f6"
           }
         ],
         "linkedLibraries": [
@@ -225,19 +225,19 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x0383220c3e1a670245d53cde110bf3a9c4a49e483639b98b8864d38f2a0deabf"
+        "evidenceHash": "0x37bbcc470a2dc50476d7c61d5dd7651a77d4e0eb61b22e417175d997c31d378f"
       },
       {
         "name": "FixingEngine",
         "artifact": "contracts/out/FixingEngine.sol/FixingEngine.json",
-        "address": "0xa346a91518a487709487a55804f5403209f538b2",
-        "runtimeCodeHash": "0xf78b0a9a2bc9c22feabd2a137c8d17d04161fbef6c7ab43a5ec4baa6030a06c6",
-        "configurationHash": "0xf048e15618cd86582b5f7294e457ce9ab5c92cd1787bb53752eeecf7c208f080",
+        "address": "0xccbe3a19fbeba1396dbf39a5ed13e614a70e8500",
+        "runtimeCodeHash": "0xac570960f1f5d0a17e3d06cb394ae6f41bba353602ec8a6238f168a90df84c9e",
+        "configurationHash": "0x2c66ff748247f5aaf682a1c9eb4c72847c03b429890e2933dc67d7137620aadb",
         "capabilityHash": "0x68764f0d0930ff9dfb34335a8f826c4f7a57f5486fe3fd77d551cfa1f6222e59",
-        "transactionHash": "0x8fd239c962685f488a4f3ce19cd434c75a33c9ba51c390d2b5e1d47b09b34e8e",
-        "blockNumber": 314700535,
+        "transactionHash": "0x2fa2ebd2e81c7dda64faddfa653fcc81d681de5c3a7ff799a7e253d138381d58",
+        "blockNumber": 315025783,
         "constructorArguments": [
-          "0x23AaF326F53c38CC10a522257cF89746Ca915e0e"
+          "0xDC9563eAE3Aa03e8Dd93DbCf46f3E4e636b865Fa"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -251,22 +251,22 @@
           "unqualified-adapters"
         ],
         "activation": "qualified",
-        "evidenceHash": "0x124d3e84fac96c0ecd6ee7545031205aa21b988595647450fff3b576a6bd93f1"
+        "evidenceHash": "0xfc14f85c1d721d7e5066225f5a36ae527e3c5f6b2a63bd43e469f7c42bb03cfc"
       },
       {
         "name": "FundedFeeEngine",
         "artifact": "contracts/out/FundedFeeEngine.sol/FundedFeeEngine.json",
-        "address": "0x4be64b29ddf2b09fb58372edd9257d327a386460",
-        "runtimeCodeHash": "0x3753ffb9c9b677b7c1a85422ebfd9f15e4e1f533e96d924dd1ef1e8a37d03208",
-        "configurationHash": "0xa266ccfb1e345c8f753b4f784dd66a225bfb6f85ed9d7aafd65662522c01f65c",
+        "address": "0x1d3c3cd7f71de4d51461a252bad0f97c6d516ebe",
+        "runtimeCodeHash": "0x71dee1bc9949df78a91638df2c7948b395dcc0492c3f1b16ce1cec3b5aec9bdc",
+        "configurationHash": "0x529bdca129a8488d8dddfb6ead58941b73fddaf79a5e9b30e684fc106c346fd6",
         "capabilityHash": "0xd6bf3151e1c093fd1355c617d4a4f173864acaa2f5b1a70827575c1e1277a454",
-        "transactionHash": "0xa5728cbb9da2cc00b1c4a8debd64c0f058130102f2d01717ce7b50f0e112e6c3",
-        "blockNumber": 314700552,
+        "transactionHash": "0x047cbec2c98bd17be57a1f6f7fff52e673fe1acfd3e27a3bbe2165b4a21ca947",
+        "blockNumber": 315025797,
         "constructorArguments": [
           "172800",
           "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C",
-          "0x6eBC600CaA027E546Bb2B1D9B0F4F47f543B091e",
-          "0xd8406895194b50d4B2587D267386ee3F8C17f522"
+          "0x02de354ee8d5D7CC9A29Ad32abd6365B22eB4365",
+          "0x16344d20A4197927efE4545Bb3962006629fF5f6"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -284,21 +284,21 @@
           "unfunded-credit"
         ],
         "activation": "qualified",
-        "evidenceHash": "0x9a3c4ce67da2f656267b35a812ef674bc7770ec075e726d2fc6c08862d7ce6b0"
+        "evidenceHash": "0xe0b7e3f18bec5dfec40e7b51f68e7d079191cb4a3cebff396ddff6c6f07fbddf"
       },
       {
         "name": "PortfolioRiskEngine",
         "artifact": "contracts/out/PortfolioRiskEngine.sol/PortfolioRiskEngine.json",
-        "address": "0x56bf9c8a9d3525e6c6e37dd984f106ecdf869185",
-        "runtimeCodeHash": "0xeccbc638b87e12c5ead63e6f48ae177b00eae155406813f129df50d96dd97c30",
-        "configurationHash": "0xdedf822b345e0ebc501e240be5ee782d6a9363523ca1ead8b6ca0e1871d23324",
+        "address": "0xc106c9ceb3a7a6d96279e9433bb59a45c807e1cd",
+        "runtimeCodeHash": "0x9374c4317412dd453b9e08841ca1b7b6936b9505be2b86dac163a33616aa8d49",
+        "configurationHash": "0x683471ae765dec2247aed3f55e5ef79aa37160b3ed8e7c8e7fc871e256773478",
         "capabilityHash": "0xa8177a46bd7092ecdbe3f8501815ec3d89f57d576facad8e7709f16cb533ccb1",
-        "transactionHash": "0x33789cda202ae4b6a0a0798feaaf13a7d17bf210767dd5648127d5bf24e1aed7",
-        "blockNumber": 314700569,
+        "transactionHash": "0x6f9ef99a826ff1b5c337c64f61f502be970a9cc66914ff87588ba777996df665",
+        "blockNumber": 315025811,
         "constructorArguments": [
           {
             "encoding": "abi",
-            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c000000000000000000000000674e76adf9159e23fa2ff50cac8708be2b75747d0000000000000000000000008e3927617b2787a7ca419c68c20735f0da9050a0000000000000000000000000d8406895194b50d4b2587d267386ee3f8c17f5220000000000000000000000002f8636fabcdee2879b7217fa894861bc51f0eac9000000000000000000000000000000000000000000000000000000000007a120000000000000000000000000000000000000000000000000000000000000012c"
+            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c000000000000000000000000ca5253257ad4d8b5873a11d4fae2ab8a12009445000000000000000000000000e1c141586149b73290db13abdd203d7a4e384b4100000000000000000000000016344d20a4197927efe4545bb3962006629ff5f60000000000000000000000004e80cc89555efde78436feaf24f8d6c33c11e5b5000000000000000000000000000000000000000000000000000000000007a120000000000000000000000000000000000000000000000000000000000000012c"
           }
         ],
         "linkedLibraries": [
@@ -324,17 +324,17 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x1f816c3261994907720eb18d3b087588815f3b37b904a554f89bd6d999d68b7b"
+        "evidenceHash": "0x19c290bdc5e2c5f2e93c3c6117ed16139c6e0f771e558f598e1bf8f032cfbfaf"
       },
       {
         "name": "ExecutionPolicyRegistry",
         "artifact": "contracts/out/ExecutionPolicyRegistry.sol/ExecutionPolicyRegistry.json",
-        "address": "0xd0a730988383589c65210f80a7902e4b11df8d42",
+        "address": "0x4125c0f26515e147468aa55c3abaa454f98b88b7",
         "runtimeCodeHash": "0x2f33c76b83cda198bf896583f19c257972bb59d2aad3ba27efae6a3e5ff734e5",
         "configurationHash": "0x1d249607366526deb2d97b879aa228cae3ca607694e88dc26c2992c59be3daba",
         "capabilityHash": "0x2e5001fc1438901205a41cf501b2310bb70856c5627d9c292cce7146dd9ded20",
-        "transactionHash": "0x5f3f80b8624b7979b6ee55a8204ffdf63503662a475e93ca785aafb4da57495e",
-        "blockNumber": 314700586,
+        "transactionHash": "0xdc98fa43ac1bdb479bd2b391f5892d43d495eb5e11a887085a39f3b8b145d194",
+        "blockNumber": 315025818,
         "constructorArguments": [
           "172800",
           "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C"
@@ -352,20 +352,20 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x13acfb958c5b77b1014c72c4482657ac90848d61a4a8fae925a3103268c689d6"
+        "evidenceHash": "0x3f74536ae367b129ceb4cf2557c71fe23b11dbdf1a73c83eaaeb14e32efa5f6e"
       },
       {
         "name": "TradingSessionPolicy",
         "artifact": "contracts/out/TradingSessionPolicy.sol/TradingSessionPolicy.json",
-        "address": "0xe2d998b8fb622d7f4311f6635a9a2f9871bff527",
-        "runtimeCodeHash": "0xf860642d2a493e821217ea0fdf2ea514b5129375a31fe67ed9dd67b645fa082e",
-        "configurationHash": "0xd4874308920df0131d8e52aff7000cd59b2e89414cd7e168836e397b5aa86541",
+        "address": "0xf823da94052254c8b4a362e7838dd4790147c9a7",
+        "runtimeCodeHash": "0x06e2257b9bafed1cf5da3e75132884151641d16ae45e3620ace23163d01f4cc8",
+        "configurationHash": "0x123385ff402ea6d63035c09453172557c04659bab480df7b55790f8cafd7d03b",
         "capabilityHash": "0xdddc6a47671e439ca7ea843002130fe5f8869bfd36fd468159ecce2c8a8e5cb7",
-        "transactionHash": "0x789d20ada7a8302ab5682bbb69dfc7ff597287f27852c893aaee476aa2023128",
-        "blockNumber": 314700602,
+        "transactionHash": "0x6e85c03f2b18bc7b0e7f3e9c5f9770d32431b4cb0ddd1f43e74db5e037527116",
+        "blockNumber": 315025832,
         "constructorArguments": [
-          "0x967686C35139D27A5b02f59CAe8d485F78400e2A",
-          "0x7716a003d72aBd255922A599EF18d74270E37858",
+          "0xa9670a116406556411B0c67dB7e32C7c00A97D15",
+          "0x4Caba63B7225075BC5F0B42720605c18DBEDa112",
           "0x3ea77533eb57ec34612def2c9ef304eacf8e2881059660bbb827426c730f9fe9",
           "0x4088dcb4df1e474e2bcf7184742fcdb1b1e2c83908ed94cdb195fa51939a5905",
           "3600"
@@ -382,19 +382,19 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0xf0c7621299c2571ef7f0b773090f400f8740b9025e8b7c382dc35988962273e8"
+        "evidenceHash": "0x955decee3236966b0b941dcd1a5c0c506cea3bb42d08f140900f85901702ee54"
       },
       {
         "name": "PackageWitnessRegistry",
         "artifact": "contracts/out/PackageWitnessRegistry.sol/PackageWitnessRegistry.json",
-        "address": "0x2d91653ecf4f894fa37bfd3c09c62e39666b5036",
-        "runtimeCodeHash": "0xfe2528f1bc9a056b3b43b62755b14ef6385dbef3fe7021b087087b59c47745e0",
-        "configurationHash": "0x5c540be09a3340d4f3e126b888d2a9c606f64e5ba6e14a2b307381a69562a305",
+        "address": "0xf9818f1f91cbd320d2d0e8a901df7bc7745bf503",
+        "runtimeCodeHash": "0xfbf2a8144f53b43c51b6327022a95ea871cbbdd3b40c8895a078f25dfc25ef84",
+        "configurationHash": "0x45bd0d7c13cb0c907f1b1d02a5808e30c1c49aa93dab05730119ee61deba420d",
         "capabilityHash": "0xd5aa28366429fa8f2395dfa6699a102cbdb06706d3e80f906cb4ba5b2279d5dd",
-        "transactionHash": "0x5f454e2750b803d29caa40ff5469991e3ac78e0b787cdbc2b65a1f2dd9b079cd",
-        "blockNumber": 314700615,
+        "transactionHash": "0x29b947a5fd837028c2c9cfd1763f4c5877d872494b7aa992fdc24dde9829b1f6",
+        "blockNumber": 315025845,
         "constructorArguments": [
-          "0x5e08CEd8e3b901B6A46e1488b7a7F52576ceb411"
+          "0x73D6c995D2150687D3D57056544Ea49d8241AdF5"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -406,19 +406,19 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x63d53d546584ec6815763de389ec9277330e39436359b294725c3d9de147236e"
+        "evidenceHash": "0xe52783cf8d492690511b99e92733a4ed045b9fe42682c064455167cd5eab7e43"
       },
       {
         "name": "RiskAdmissionBindingRegistry",
         "artifact": "contracts/out/RiskAdmissionBindingRegistry.sol/RiskAdmissionBindingRegistry.json",
-        "address": "0x51370b92a0de4295e077e5280f79a450e501c275",
-        "runtimeCodeHash": "0xd6ba9844ff67c511428ff3227e413545e6875626288c3fc5295aee21c857ef63",
-        "configurationHash": "0xe5101a816cb49f87c4b6f61dc341e52f6e1f90dada3a86281861337af7e89872",
+        "address": "0x96420a6ce5e12add08e2aac736d76787f159ccd2",
+        "runtimeCodeHash": "0x114128ad4eb7ea53cb35081008daf6767a653431b406857a540692338cec206b",
+        "configurationHash": "0xc8d60ae6ab42052151d6c5467675a89ad8c9c047af78a50a9d59c0777b590c14",
         "capabilityHash": "0xf45cbebfa2974d32b7b3a3653a947157f170ba44777f7ae385d8779b3b6b0e3a",
-        "transactionHash": "0xa1d7efc4d10d82e3bc40139d3a115d3b08f8e7786c5021ac5207a9dca74f0f0e",
-        "blockNumber": 314700633,
+        "transactionHash": "0x8a8f63355751f57844bca5a392ae589d7c78820f20640e94ed52900919dffbbc",
+        "blockNumber": 315025852,
         "constructorArguments": [
-          "0x56bF9C8A9D3525E6c6e37DD984f106eCDF869185",
+          "0xc106c9ceB3A7A6D96279e9433Bb59A45c807E1CD",
           "0x0000000000000000000000000000000000000000"
         ],
         "linkedLibraries": [],
@@ -434,24 +434,24 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x843a0ee98a4a3ec24f6ef2e160e5330a79f4bf7bd2734459041bc2f6bfbfd121"
+        "evidenceHash": "0xe1d7790ecc4b4bfbf0d4304a6f1030b6b383d01e97005077c9bc83c797832381"
       },
       {
         "name": "OrderValidationGate",
         "artifact": "contracts/out/OrderValidationGate.sol/OrderValidationGate.json",
-        "address": "0xed4a12cee66b063c719288faf0ec7d5c87a8fa57",
-        "runtimeCodeHash": "0xadbeb7cf78356f377aa160390a87011eec2905560d6df4c84035c901d3ec1068",
-        "configurationHash": "0x87b0fa2efa4bcd1fca4971adce3e0d0aecbe7f9145dafdace9cc0eba9c3b71ca",
+        "address": "0x4786113fcc4df0efaeac6ed33cafbdfe3e975465",
+        "runtimeCodeHash": "0x7c359bc5a89cee8749b6c188d45b0f3506dfccc2778fc79294a824ea5559a72f",
+        "configurationHash": "0xc84037fe691c7e8c8588e0fcfeb5e9ac30ec76bc6e430436839ca087803242bd",
         "capabilityHash": "0x9c355467f69a174ef02ac1f8676d6daeb51ad940b1f18663e3f7024f2346f0ba",
-        "transactionHash": "0xffc4c327be04b166181ec0df27e186b5163b9d220514cb23b9371f7cfde170c1",
-        "blockNumber": 314700651,
+        "transactionHash": "0x74074d792dde19f0bc8986948519c996d7e8bca409b645ed3bcdf8e41172c499",
+        "blockNumber": 315025865,
         "constructorArguments": [
-          "0x23AaF326F53c38CC10a522257cF89746Ca915e0e",
-          "0x5e08CEd8e3b901B6A46e1488b7a7F52576ceb411",
-          "0xd0A730988383589c65210f80A7902e4b11dF8d42",
-          "0xE2d998B8FB622D7f4311F6635a9a2f9871BFF527",
-          "0x2d91653Ecf4F894FA37BfD3C09c62e39666B5036",
-          "0x51370b92a0De4295E077e5280f79a450E501c275"
+          "0xDC9563eAE3Aa03e8Dd93DbCf46f3E4e636b865Fa",
+          "0x73D6c995D2150687D3D57056544Ea49d8241AdF5",
+          "0x4125c0f26515e147468aa55C3AbAa454f98b88B7",
+          "0xF823dA94052254c8B4A362e7838DD4790147c9a7",
+          "0xF9818F1f91cBD320d2d0e8A901df7bc7745bF503",
+          "0x96420A6ce5E12adD08e2aaC736d76787f159CCD2"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -469,21 +469,21 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x498147b41345dd4c2967f38e531b30163ca8651ab4bd87db66eeabbd7685346d"
+        "evidenceHash": "0xfefa8b2013888ab72e02876981fe41287b09274a011418537fa3e826586f69b4"
       },
       {
         "name": "OrderState",
         "artifact": "contracts/out/OrderState.sol/OrderState.json",
-        "address": "0x4344b3f525882999c5b6e225182ff3d8eba24655",
-        "runtimeCodeHash": "0xa77314b46061eff17b7e1bf8e73320e26c1ddb2f2b7c8d7757174f1d3b68b59b",
-        "configurationHash": "0xe725aa717a20047da8ce7bb8f7cad054b0006a34c6022f5f946afe6c1c710f7b",
+        "address": "0xa4504186cc265e3b3c19417edcac5dbe266f4c30",
+        "runtimeCodeHash": "0x9730884057282c1b3822b44d7a4a6a12d4803e03f81249b80a2094d14aacbc02",
+        "configurationHash": "0xc4b796eff88271847b8292d972d72ecbbcb139378130b3e47133f9c7c9e4c9af",
         "capabilityHash": "0xd087642db81e114c3a14deb6b6874d9df066032846404163f1f74e3662dd1a99",
-        "transactionHash": "0x223e04bcd32a6b5f136dcf776f8e9b638dcdbc6d673e95d5a4f5a86bd65f8c56",
-        "blockNumber": 314700667,
+        "transactionHash": "0xbfbc349442b6a052ec9b9495d3a14e0a236439669887221ce01dd84b84f9a5cd",
+        "blockNumber": 315025879,
         "constructorArguments": [
           "172800",
           "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C",
-          "0xED4A12cEE66B063c719288fAf0eC7D5C87A8FA57",
+          "0x4786113fCc4df0eFaEac6eD33cAFBdfE3e975465",
           "2592000"
         ],
         "linkedLibraries": [],
@@ -498,24 +498,24 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x3898cc49e78b5dc7bcde1733f9c4558ec50ee873989b8a877231604aee658974"
+        "evidenceHash": "0xe9ec8449a26b2067f7fe29072b4b833371143b3dacdda19156d25d365482681f"
       },
       {
         "name": "ClearingAdmissionGate",
         "artifact": "contracts/out/ClearingAdmissionGate.sol/ClearingAdmissionGate.json",
-        "address": "0x40fb8f76f05e7ecb5b68679e4b02e3fccf3e92e7",
-        "runtimeCodeHash": "0xcf475745f3dce415d56030eb454fb751298b46650576521eae0ae642c7da5562",
-        "configurationHash": "0xc0645eac8d781b8d931913ce569a7c1204da59424b32d2bd060c948f15719e72",
+        "address": "0x8dec13b2fc7de2de331f3aea07ec7d3046e1a53f",
+        "runtimeCodeHash": "0x03ab65f443ddb58bc2032cc23660a757d9c2e3de3b11c6caaf0cc3b0366023fa",
+        "configurationHash": "0xa98eee2dfd25447900ae5d646545b149116b0ac08ef7880e4e4e119b3249d2a3",
         "capabilityHash": "0x5eea4af13cc359c5598ac362f352836581613d55e7b91a9d67ce84f3841281a1",
-        "transactionHash": "0x9f99328cd8783de34d4f70f64148545ae227ec69499987fe88e416674c317289",
-        "blockNumber": 314700699,
+        "transactionHash": "0x61cc2b6105235c35c4cef282ee72db161c50af051d9d275d74c353c6cbc3337e",
+        "blockNumber": 315025900,
         "constructorArguments": [
-          "0x23AaF326F53c38CC10a522257cF89746Ca915e0e",
-          "0x5e08CEd8e3b901B6A46e1488b7a7F52576ceb411",
-          "0xd0A730988383589c65210f80A7902e4b11dF8d42",
-          "0xE2d998B8FB622D7f4311F6635a9a2f9871BFF527",
-          "0x2d91653Ecf4F894FA37BfD3C09c62e39666B5036",
-          "0x51370b92a0De4295E077e5280f79a450E501c275"
+          "0xDC9563eAE3Aa03e8Dd93DbCf46f3E4e636b865Fa",
+          "0x73D6c995D2150687D3D57056544Ea49d8241AdF5",
+          "0x4125c0f26515e147468aa55C3AbAa454f98b88B7",
+          "0xF823dA94052254c8B4A362e7838DD4790147c9a7",
+          "0xF9818F1f91cBD320d2d0e8A901df7bc7745bF503",
+          "0x96420A6ce5E12adD08e2aaC736d76787f159CCD2"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -532,21 +532,21 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x94cfeac48a4b64e4eb12e2ee8474d048cb3b530ef4f946ed69c25a0e1eeab1c0"
+        "evidenceHash": "0x07ad6a6bb7f632a88e310d4341b1b9afd2777e2a500e727a9c7cf95430eeff34"
       },
       {
         "name": "AtomicClearingEngine",
         "artifact": "contracts/out/AtomicClearingEngine.sol/AtomicClearingEngine.json",
-        "address": "0x9bfb6a05ec38d30209c4c7612997e19b3931c8dc",
-        "runtimeCodeHash": "0xdfa4cc2ced5e33eba7afe2c5de578fa87a99ddb36f6581a3e0f9afcd38bde408",
-        "configurationHash": "0xb7127f29235fd09c4691e74751d75083c4bf49375ed694f71643047ab7f37da7",
+        "address": "0x12681127db37ff96fef81f2685d1c0a3406e16d9",
+        "runtimeCodeHash": "0x963e5c275b66705df9bb4bd197fd4d634c9b7049ae1d45278c5081017325f27a",
+        "configurationHash": "0x04c876adc013f31a056341ada31b10e74a95a632995b662fdb498a9844e928e0",
         "capabilityHash": "0xfe04f381c3e1f87bc1af8f1a3cd785ea0637d7cf3db1e72a91607afa36b96dbd",
-        "transactionHash": "0x79e67ec8e8437a5502ddd7ed8c6a196d731f6dcc25e3ea3de066dd8cf5a6b92c",
-        "blockNumber": 314700716,
+        "transactionHash": "0x139ce1266fd7a78d5bc9995e800eeebe8a89dd7c17a078ec8177f27839a12ef0",
+        "blockNumber": 315025914,
         "constructorArguments": [
           {
             "encoding": "abi",
-            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c0000000000000000000000004344b3f525882999c5b6e225182ff3d8eba2465500000000000000000000000023aaf326f53c38cc10a522257cf89746ca915e0e0000000000000000000000005e08ced8e3b901b6a46e1488b7a7f52576ceb4110000000000000000000000002f8636fabcdee2879b7217fa894861bc51f0eac9000000000000000000000000d8406895194b50d4b2587d267386ee3f8c17f52200000000000000000000000040fb8f76f05e7ecb5b68679e4b02e3fccf3e92e70000000000000000000000004be64b29ddf2b09fb58372edd9257d327a386460"
+            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c000000000000000000000000a4504186cc265e3b3c19417edcac5dbe266f4c30000000000000000000000000dc9563eae3aa03e8dd93dbcf46f3e4e636b865fa00000000000000000000000073d6c995d2150687d3d57056544ea49d8241adf50000000000000000000000004e80cc89555efde78436feaf24f8d6c33c11e5b500000000000000000000000016344d20a4197927efe4545bb3962006629ff5f60000000000000000000000008dec13b2fc7de2de331f3aea07ec7d3046e1a53f0000000000000000000000001d3c3cd7f71de4d51461a252bad0f97c6d516ebe"
           }
         ],
         "linkedLibraries": [
@@ -572,23 +572,23 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x07c106317d7677131e68a32bebb6ccd34ba0d4469d49b178d81a4ad655d5c980"
+        "evidenceHash": "0x917ccf5e71fb8d58d693ec26537aa7b14a2c22e0dbb8ae188a1aff8b3e4b4e72"
       },
       {
         "name": "PrivateRfqValidationGate",
         "artifact": "contracts/out/PrivateRfqValidationGate.sol/PrivateRfqValidationGate.json",
-        "address": "0x03048a49c000e6b9908c009398f6cb25da0ca975",
-        "runtimeCodeHash": "0x808e7d917ac7ac2eac530aa5e9a3632a03cfe9db456c9ca3b2d6f84a5389b0cf",
-        "configurationHash": "0x536ce6ec6dfb5c7a3f0fed798251967ceab7ee5c02b6e82b5dfeaf5558b41db4",
+        "address": "0x2909136909ce69e7319a4d2fc1680f2495dffa7c",
+        "runtimeCodeHash": "0xc7329ea861b3579f15037c0cac5179c5a85ab2f0cc1f415f17168fd8e89e1db6",
+        "configurationHash": "0x0e499b95d2da766bdde7f0089f67c2baf9fa16a39a6bcf73ba239d528f6f9a0f",
         "capabilityHash": "0x8459819bfe1c396501443a7736248b5eb7d99bb094dcc13e18cb2725a5992e27",
-        "transactionHash": "0x35f2ae9fd434969f2302e0a167b794bd8d6443ec05fc9a321b241ab587f1071d",
-        "blockNumber": 314700724,
+        "transactionHash": "0x320835f4468b46c4b8ad5ebd5c1c065e5af5849cc30f506d31470b9a3648e179",
+        "blockNumber": 315025928,
         "constructorArguments": [
-          "0x23AaF326F53c38CC10a522257cF89746Ca915e0e",
-          "0x5e08CEd8e3b901B6A46e1488b7a7F52576ceb411",
-          "0xd0A730988383589c65210f80A7902e4b11dF8d42",
-          "0xE2d998B8FB622D7f4311F6635a9a2f9871BFF527",
-          "0x2d91653Ecf4F894FA37BfD3C09c62e39666B5036"
+          "0xDC9563eAE3Aa03e8Dd93DbCf46f3E4e636b865Fa",
+          "0x73D6c995D2150687D3D57056544Ea49d8241AdF5",
+          "0x4125c0f26515e147468aa55C3AbAa454f98b88B7",
+          "0xF823dA94052254c8B4A362e7838DD4790147c9a7",
+          "0xF9818F1f91cBD320d2d0e8A901df7bc7745bF503"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -604,21 +604,21 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0xe55a82b46e2637bd16b4251ebbb824716b9a6e98cdbb08089da713ce5efba757"
+        "evidenceHash": "0x3fe8631b38012eb0448cad8f304518e8e98525d6f7a8bab8ad2310c8bcd85ce3"
       },
       {
         "name": "PrivateRfqBook",
         "artifact": "contracts/out/PrivateRfqBook.sol/PrivateRfqBook.json",
-        "address": "0xabcb9f2e08c65a2834158efe70d15b13980987bd",
-        "runtimeCodeHash": "0x8364942c2df8385b5c2d87b4892f4b6f3d44d415692f9e9310c394b4043d336a",
-        "configurationHash": "0x9f687087dcf0f6082915d8dab3121b47fb6fe3356f3312e8e93c802cf3522895",
+        "address": "0x0a06bf70692ad5683d3f202d1657e47ff0454d7f",
+        "runtimeCodeHash": "0x35256169b0aba5b0d144494cd1417c4256726e14723ae1f68b0363a7f2835d81",
+        "configurationHash": "0x7814bbd1cd8f33f10c3e2a3829f30bf66a7991cd2ad18dd51222cdf119421dcb",
         "capabilityHash": "0xf8e3061cc90e1faa0a868d58232ea09e68e60c31dc2723a44170dea49ccd2bdf",
-        "transactionHash": "0x6633aab3fdaf4661df49c807f291222174e738ca72f797c0ec4571e628451cbc",
-        "blockNumber": 314700742,
+        "transactionHash": "0xa1347ac98ab1476b94a8e6b73153a8d98fa10f216b20a3735c1faf3b0badca13",
+        "blockNumber": 315025942,
         "constructorArguments": [
           {
             "encoding": "abi",
-            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c000000000000000000000000d8406895194b50d4b2587d267386ee3f8c17f52200000000000000000000000003048a49c000e6b9908c009398f6cb25da0ca9750000000000000000000000009bfb6a05ec38d30209c4c7612997e19b3931c8dc0000000000000000000000000000000000000000000000000000000000015180"
+            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c00000000000000000000000016344d20a4197927efe4545bb3962006629ff5f60000000000000000000000002909136909ce69e7319a4d2fc1680f2495dffa7c00000000000000000000000012681127db37ff96fef81f2685d1c0a3406e16d90000000000000000000000000000000000000000000000000000000000015180"
           }
         ],
         "linkedLibraries": [
@@ -644,24 +644,24 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0xd4935f3df8162bb76cf11db17cdbd58fdd1ec99bb2dcdf11c0f90abcbae3687d"
+        "evidenceHash": "0x840e39ffc876cca546e1932cce939b432f122042bdd0d708f00a338de0cfd96c"
       },
       {
         "name": "PublicBookEligibilityGate",
         "artifact": "contracts/out/PublicBookEligibilityGate.sol/PublicBookEligibilityGate.json",
-        "address": "0x41f29a775286dafc1e68e773cf21abf232ddc371",
-        "runtimeCodeHash": "0xfbd7d2f320751c4298f998e2367a7540738b016faa85d6d47b2a3a2c472a6f53",
-        "configurationHash": "0x7f7beb6c859c4b5c4d6460f12a45f3a14a59c2497109eead0430945bf29b02db",
+        "address": "0x8143d04551e22dfbb967a2e37befa56202d21843",
+        "runtimeCodeHash": "0x462f4f14d21bada8c528cb77a39b12b3a44870e26751eadc5f2027bceea88080",
+        "configurationHash": "0x454eb40eb3eba669d053bc20ab70ce67e0d82c5591f844a97c84f6214c9e2704",
         "capabilityHash": "0x240a89176999fd45e63a8ede6cf2a5556a55468f27fcdaa8eb743b51d404d1bf",
-        "transactionHash": "0xb490dddc0605a623b89f9be9736186b20051e8f296e7c398be5d1adf28b74927",
-        "blockNumber": 314700767,
+        "transactionHash": "0x4c055bdba5c750fd78bd6308c5f0956de38367e7db954b20095230b64469e6d3",
+        "blockNumber": 315025962,
         "constructorArguments": [
-          "0x4344b3f525882999c5b6e225182fF3d8eba24655",
-          "0x23AaF326F53c38CC10a522257cF89746Ca915e0e",
-          "0x5e08CEd8e3b901B6A46e1488b7a7F52576ceb411",
-          "0xd0A730988383589c65210f80A7902e4b11dF8d42",
-          "0xE2d998B8FB622D7f4311F6635a9a2f9871BFF527",
-          "0x2d91653Ecf4F894FA37BfD3C09c62e39666B5036"
+          "0xA4504186cc265e3b3C19417EDCaC5dbE266F4c30",
+          "0xDC9563eAE3Aa03e8Dd93DbCf46f3E4e636b865Fa",
+          "0x73D6c995D2150687D3D57056544Ea49d8241AdF5",
+          "0x4125c0f26515e147468aa55C3AbAa454f98b88B7",
+          "0xF823dA94052254c8B4A362e7838DD4790147c9a7",
+          "0xF9818F1f91cBD320d2d0e8A901df7bc7745bF503"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -678,21 +678,21 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x1a34cfff3f1628a503d9797319603c78485559e71e8b7fc5def9efbd162a2c14"
+        "evidenceHash": "0x6858e331e986ddca011b82aa92a351026db80e98f8e95da31a244534bc937900"
       },
       {
         "name": "PublicOrderBook",
         "artifact": "contracts/out/PublicOrderBook.sol/PublicOrderBook.json",
-        "address": "0x443997c4820190a1f269ba91740abb2e21ad1918",
-        "runtimeCodeHash": "0x99fe257be5712fb079f4c9b727bffe426f0719ab37285a38d4cefe4f5677be2b",
-        "configurationHash": "0x4f4f2ebb3c03889abe5f612e133cbb6ffae643975b6c95c93f085b2863d67cb5",
+        "address": "0x2dda32044026e562849228653fd56ba7a05ea8f1",
+        "runtimeCodeHash": "0x85ae57371edab769844f8a6a175a79dcbeb0e0c9ec49ccd24555ae80a6f7ced0",
+        "configurationHash": "0xf3a483bdbf4f871dc86ed5e5204b175cf7315fb0648aa2d1ffac9f037804c9b2",
         "capabilityHash": "0x62fff18fb24583076c66d58099012b0e8b510ee9ab4dd12c10dd040a8ec12c55",
-        "transactionHash": "0x34b024ed745cf39be163cb5bbe79b2d2a9d8e5a35c838398f40fd593a697f9a5",
-        "blockNumber": 314700777,
+        "transactionHash": "0x206fa8e2092bb28425f1fec99df5c38b82aa3ac8b7f2246c84daf3fff40097c0",
+        "blockNumber": 315025976,
         "constructorArguments": [
-          "0x4344b3f525882999c5b6e225182fF3d8eba24655",
-          "0x9bFB6a05eC38d30209c4C7612997E19b3931C8Dc",
-          "0x41F29a775286DAfc1e68E773CF21abf232dDc371"
+          "0xA4504186cc265e3b3C19417EDCaC5dbE266F4c30",
+          "0x12681127Db37Ff96FeF81F2685D1c0A3406E16D9",
+          "0x8143D04551E22dFBb967A2E37BeFa56202d21843"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -710,21 +710,21 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x6aa630ab02d4109edd4c43fc6ba7a5da8efbd459f3cec97ee87a7376ae99e661"
+        "evidenceHash": "0x26b4418c5acc2c1359f75d7fcd11e97382bf1c61ebf97faf8e2e2fdab4280b89"
       },
       {
         "name": "PositionLifecycleExecutor",
         "artifact": "contracts/out/PositionLifecycleExecutor.sol/PositionLifecycleExecutor.json",
-        "address": "0x929badff81f6981cd85869e2e815f62e4589a0aa",
-        "runtimeCodeHash": "0xe3bf7e85ee2c6ea979e3277557d8dcb64949d2801f4dd5e7b6a0278b0ca8db8b",
-        "configurationHash": "0x5cbb0e83219377e64a073e63bd39296790289c8742021751cf141a939d469ce2",
+        "address": "0x31b6e7f329d9baae490fd3c5557173e2c3017f21",
+        "runtimeCodeHash": "0x8fdfd245890dcc493d72d708943fb4fcc31f3889936c36d84b9952f291efe8a7",
+        "configurationHash": "0x30754967f398c17c344026f95e5e1e7684c4745c9b00813552040a1b59e44815",
         "capabilityHash": "0x7720b9463acf8dd0dee8b6ba434e635006a32ebfeacef1b5818b5a4e151faea1",
-        "transactionHash": "0x640395146108867424960bfb804cb82acd779ec0cffff6657ee9cca43e90bcb8",
-        "blockNumber": 314700792,
+        "transactionHash": "0x3a36e680173aea8b391ba1d7df2353e4555b7202ecbaf9f48b6e5367289f39ce",
+        "blockNumber": 315025990,
         "constructorArguments": [
           {
             "encoding": "abi",
-            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c0000000000000000000000002f8636fabcdee2879b7217fa894861bc51f0eac900000000000000000000000056bf9c8a9d3525e6c6e37dd984f106ecdf869185"
+            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c0000000000000000000000004e80cc89555efde78436feaf24f8d6c33c11e5b5000000000000000000000000c106c9ceb3a7a6d96279e9433bb59a45c807e1cd"
           }
         ],
         "linkedLibraries": [
@@ -744,19 +744,19 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x7f34b247cf1014d00755c4981badc80152db9590ab7dc63377492d89cab525d0"
+        "evidenceHash": "0x3184db3b55b7f8faf7aed7212f5d504f12294f5a1e09861bbecc684fd39a0b60"
       },
       {
         "name": "AccountPolicyAuthority",
         "artifact": "contracts/out/AccountPolicyAuthority.sol/AccountPolicyAuthority.json",
-        "address": "0x11b95d517c1245c5338a7c704995dca20265d64c",
-        "runtimeCodeHash": "0x035159389c01c79fbada6e6ce8a1760af220e85506c9aa6fdee9a9242ef105aa",
-        "configurationHash": "0xb082609f315eb05396b05bbde705fbc29b5a52df0d3e1cdd834ced5078e19fb0",
+        "address": "0xd164c61c502756cf8f18435179d5923d5b6b7fda",
+        "runtimeCodeHash": "0x312f672a9a339b959801907a02049a0b9cc4f735994f54dae0474325f94322f7",
+        "configurationHash": "0x0b10371b5f62192a415e2012a1375e8acbf23d393a77fa2848e9ffc6890e784d",
         "capabilityHash": "0xfa9d92a6ce404ce2cfd9a7dd15cc069857e2f38d31f24694d53fae0565d18956",
-        "transactionHash": "0x3a80f321d754dc574585303ddae4b2dc4895f4071b63fcb1486f48557b666287",
-        "blockNumber": 314700800,
+        "transactionHash": "0x7e06ff3e280207b8d3b77012cbd960b857576cbf7f4a440171ce5ed56c36fa64",
+        "blockNumber": 315026003,
         "constructorArguments": [
-          "0xd8406895194b50d4B2587D267386ee3F8C17f522"
+          "0x16344d20A4197927efE4545Bb3962006629fF5f6"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -773,20 +773,20 @@
           "uncommitted-delegates"
         ],
         "activation": "qualified",
-        "evidenceHash": "0xbc644493379790096043f31bb7d0da26e9ac6bc098302d9db17097ba2ee06287"
+        "evidenceHash": "0xacd19a14fa3740067abf0ae93953bf36f4078084dbdfb63970277b4a762c1589"
       },
       {
         "name": "LifecyclePolicyValidator",
         "artifact": "contracts/out/LifecyclePolicyValidator.sol/LifecyclePolicyValidator.json",
-        "address": "0xede4d36d4d978899fb55ae7ac6d9eca2ce19537a",
-        "runtimeCodeHash": "0xf33a4f7eb315bd58e0b8dd73a52009db169c1a96030ffb67e7dc57b300281d90",
-        "configurationHash": "0xec51830ccdaf0666e2ea1a7d7e747f66005451bc595fbd7e087d506fb57bd927",
+        "address": "0x4b618da20ddb0fb7b0d6f2c6d935d90aad305365",
+        "runtimeCodeHash": "0xb137a7f1281bca0360c0ed69341fbe0576eebc5eb358e84e6e601a57727125ae",
+        "configurationHash": "0xeeee5f3036c849c1b5ea5c013ab9f6b06098b259e75c76267c80146ce213c2a9",
         "capabilityHash": "0x28b5749cfdbdce8384e2d5713b5a4fb04e1f4fb965560fb7d6532a0ebb082c74",
-        "transactionHash": "0x7625672641a0ce6c425698469a840a2e1327495aa58075524c30d870217198a9",
-        "blockNumber": 314700808,
+        "transactionHash": "0x758d31249237e8d052f601e2c92fcfa623efcf3b9bb4ea9c606243e3db960e69",
+        "blockNumber": 315026017,
         "constructorArguments": [
-          "0x2F8636Fabcdee2879B7217fA894861bC51F0eAC9",
-          "0x5e08CEd8e3b901B6A46e1488b7a7F52576ceb411"
+          "0x4E80Cc89555efde78436FEAf24f8D6c33c11E5b5",
+          "0x73D6c995D2150687D3D57056544Ea49d8241AdF5"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -806,25 +806,25 @@
           "unresolved-package-provenance"
         ],
         "activation": "qualified",
-        "evidenceHash": "0x40f8ec0efa9dbeb79c024b15bbe4a8552830145ed3d01f410381e4c10b6bd64c"
+        "evidenceHash": "0xb36c96273d4c8c20c8d23016b1edbd208ba916a5d6d47a4f8c4a7212475d2738"
       },
       {
         "name": "SignedLifecycleEngine",
         "artifact": "contracts/out/SignedLifecycleEngine.sol/SignedLifecycleEngine.json",
-        "address": "0x676987e31b0e37a911ad5c7d3d5e0215eda5f58d",
-        "runtimeCodeHash": "0xb09a18e109f1f82d70565aa021d516e36ac4aabcc3266ff9b3ad24b964d5889f",
-        "configurationHash": "0x4345de0cae2bf4b2714d95a80cfca4f8c4d70338eb3634d871167cb3aa6b8f57",
+        "address": "0x02db309b2a52ae618bb24702d8be719b9e6fbf3d",
+        "runtimeCodeHash": "0x0c66b8b3dd938d18a09ec9848f7e6cd966fc16104d9f0e5f1bca21c73b0b93cf",
+        "configurationHash": "0x954fe2149b1c752e8190a19659f770e41e779d618f8d16c314d284faef62d15a",
         "capabilityHash": "0x595eaa4c9e1870337bad25543c1925693f3c8f4e26bf6327dda535440e0f2acd",
-        "transactionHash": "0x3e65afa72fc2fe31fb919ab22f3b843cac3a9847c7cb9ca68de209a34c31dc55",
-        "blockNumber": 314700817,
+        "transactionHash": "0xf24b4f78a9f6c129823663044d463b7d36b2938515fbc888f1ef287fd7f0c656",
+        "blockNumber": 315026032,
         "constructorArguments": [
           "172800",
           "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C",
-          "0x2F8636Fabcdee2879B7217fA894861bC51F0eAC9",
-          "0x11B95d517c1245c5338A7c704995dCa20265D64c",
-          "0xedE4d36D4D978899Fb55AE7AC6d9ECa2Ce19537a",
-          "0x929BaDFf81f6981cd85869e2e815F62E4589a0aA",
-          "0x674E76ADF9159E23fa2FF50cAC8708be2b75747D"
+          "0x4E80Cc89555efde78436FEAf24f8D6c33c11E5b5",
+          "0xd164C61c502756cF8F18435179d5923d5b6B7fdA",
+          "0x4b618da20Ddb0fb7b0d6F2C6D935d90AAD305365",
+          "0x31b6E7F329D9BAae490FD3C5557173E2C3017f21",
+          "0xCA5253257AD4d8B5873A11D4fAE2Ab8A12009445"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -842,24 +842,24 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0xeae2239411483f950dc147693e5174e0c306e6fd13e3c7c121975a60c795894b"
+        "evidenceHash": "0x348864ed8b0906426d805ab2a3e0a5b300a0e3febf7d5ed744eb2ab31263294c"
       },
       {
         "name": "CompressionCoordinator",
         "artifact": "contracts/out/CompressionCoordinator.sol/CompressionCoordinator.json",
-        "address": "0xb616296ccdee28ad46fac3b1f3073698f6f05e77",
-        "runtimeCodeHash": "0xb2e7571b61ff252a09a996b55fdcf44790d6cb6dca653914a3cee13e4952ae23",
-        "configurationHash": "0x3e33029cc792a3795dfc5b01f539b632ba416eb8e27328e3ee92005f20a24f1c",
+        "address": "0xf64ea07cc6eb99298a156005f185147a6dc7cf62",
+        "runtimeCodeHash": "0x5278e98f49a3be78ca259e0872794e846ccffd1bc422de721386978790748387",
+        "configurationHash": "0x1e54fc535d64a8a266e6db3b46050590d789e9eff575c75fb62348290f30cb2a",
         "capabilityHash": "0x79d10e3eedd88af9698462498b2d06f9fbf345348d970e8aacac29039b049369",
-        "transactionHash": "0x44bc2bac1a47a4bcaa4f175897407265070f3158d18705568a6d21f901180e06",
-        "blockNumber": 314700827,
+        "transactionHash": "0x128a115762895282e05d17f40f6e554d84b6ed9fe28b633f7579f326e8970520",
+        "blockNumber": 315026046,
         "constructorArguments": [
           "172800",
           "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C",
-          "0x2F8636Fabcdee2879B7217fA894861bC51F0eAC9",
-          "0x11B95d517c1245c5338A7c704995dCa20265D64c",
-          "0x929BaDFf81f6981cd85869e2e815F62E4589a0aA",
-          "0x674E76ADF9159E23fa2FF50cAC8708be2b75747D"
+          "0x4E80Cc89555efde78436FEAf24f8D6c33c11E5b5",
+          "0xd164C61c502756cF8F18435179d5923d5b6B7fdA",
+          "0x31b6E7F329D9BAae490FD3C5557173E2C3017f21",
+          "0xCA5253257AD4d8B5873A11D4fAE2Ab8A12009445"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -876,20 +876,49 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x755053bbe667ea227a9ac068e8e7a68dc5814e27700c281ab5fe1a6a51a028b7"
+        "evidenceHash": "0xc9fc11ccbd2a21c8e9f7a1bcf8082ddec6cf59f46eb31b53a1cc878ad2c48a81"
+      },
+      {
+        "name": "OffsetUnwindCoordinator",
+        "artifact": "contracts/out/OffsetUnwindCoordinator.sol/OffsetUnwindCoordinator.json",
+        "address": "0x0676f5ea5da072344e065a0807d8fa91a990ed55",
+        "runtimeCodeHash": "0x2cab7357fa377f1930d71359ed6f0bc44e9a98f3d2769d0ea834d709e1dc347c",
+        "configurationHash": "0x58e2ee2f044047530e2b83bbdecfb0fca6bfb87b73e00ebc9f2a158604cab551",
+        "capabilityHash": "0xa472a3d4e8f87d4cce8293236b833c618ee7551c3ff0d5137b7e2b804b31a99f",
+        "transactionHash": "0x0962c9fe53aeb268a12d61627fb14a732fd2f957f4b73567a280e048abf67653",
+        "blockNumber": 315026060,
+        "constructorArguments": [
+          "172800",
+          "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C",
+          "0x02db309b2a52AE618bb24702d8be719b9E6fBf3D"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "SignedLifecycleEngine",
+          "PositionEngine",
+          "LifecyclePolicyValidator",
+          "PositionLifecycleExecutor"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "offset-unwind"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0x943ca1070fe87a28eaefa9fabcdada63a5b6e66d1e5329ccfede2881c4b5c388"
       },
       {
         "name": "DefaultBidderGate",
         "artifact": "contracts/out/DefaultBidderGate.sol/DefaultBidderGate.json",
-        "address": "0x3ad0a4eb4fae8f01858e4bc58b0e682762ac4f9c",
-        "runtimeCodeHash": "0xedf7a8ec9b0121134ce7423043001166c08fa9627aec440fdc125fe2df3f15b5",
-        "configurationHash": "0x0564599f01a61e1025b84e7f9c829ccb334973a966723f66ad18d2fd3c0e59d7",
+        "address": "0xc8ad36b4af0a3fd0a3ce634ced1b44fc24b7b1d6",
+        "runtimeCodeHash": "0xe76de558ffecbe9507e2077e43dd601b8c0756dea30114aa31700391e2a01429",
+        "configurationHash": "0x599371319b771f16385fffd9ba98d477850f75dffff5d1910d42347e9ad12c40",
         "capabilityHash": "0xc1716764cc59d0b0a207c91099734e14615a90999e4b07dc59012e7e799fe8a2",
-        "transactionHash": "0xcde3085a1ba06830a68fc73ed2026200a2382e0e689d8601be926d72f398f05d",
-        "blockNumber": 314700842,
+        "transactionHash": "0x2c0928f1116b705f0b0fa8e1dc0b1023be76290e5cafd639c0ab8249f02534fe",
+        "blockNumber": 315026073,
         "constructorArguments": [
-          "0x674E76ADF9159E23fa2FF50cAC8708be2b75747D",
-          "0xd8406895194b50d4B2587D267386ee3F8C17f522"
+          "0xCA5253257AD4d8B5873A11D4fAE2Ab8A12009445",
+          "0x16344d20A4197927efE4545Bb3962006629fF5f6"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -904,21 +933,21 @@
           "operator-qualification"
         ],
         "activation": "qualified",
-        "evidenceHash": "0x172da4bd086f40c4f2994fd74155cb5633070dfdd47387c36ec7c9ee3fe640c4"
+        "evidenceHash": "0x520ce1a05ec3ce01de1f02fb84b2545552392f5dc1f0559d5a0b0fff0382cfc4"
       },
       {
         "name": "DefaultProcessEngine",
         "artifact": "contracts/out/DefaultProcessEngine.sol/DefaultProcessEngine.json",
-        "address": "0x8cd10454c49ac263c5eb609b4323dce53b2435d1",
-        "runtimeCodeHash": "0xe676a5bd58f47565154e7a7bfe7445d42bd8feb8d69665b5829b737e84ee1f05",
-        "configurationHash": "0xb1ebe5d5a459f28be8ef980b31381727db6d7ea0a84f4d5535ffaeb6bdbbf94d",
+        "address": "0xee89a72d9d541c89138b6e811989f3a84f44524a",
+        "runtimeCodeHash": "0x5295eb2bcbadc07372e19763136143100e2dc987b1eadd09981a35c93799088d",
+        "configurationHash": "0x9b1e9a11b704545bdf1eb5ffd0b78a1617655c505010f1bd41889de04e070352",
         "capabilityHash": "0xf85d8abd13958e79fea6f1ebba54aee290c7d47b8e982599912889ece6ac2dff",
-        "transactionHash": "0x524ae0de32045afcd4b08032b2f12a9e7cf77cefe5ada7221aba9eec9943404b",
-        "blockNumber": 314700858,
+        "transactionHash": "0x4cefd9236d133132349243b8460510aecd561d484bd6911e4fe0ed4655bb0617",
+        "blockNumber": 315026087,
         "constructorArguments": [
           {
             "encoding": "abi",
-            "data": "0x00000000000000000000000056bf9c8a9d3525e6c6e37dd984f106ecdf8691850000000000000000000000003ad0a4eb4fae8f01858e4bc58b0e682762ac4f9c000000000000000000000000929badff81f6981cd85869e2e815f62e4589a0aa"
+            "data": "0x000000000000000000000000c106c9ceb3a7a6d96279e9433bb59a45c807e1cd000000000000000000000000c8ad36b4af0a3fd0a3ce634ced1b44fc24b7b1d600000000000000000000000031b6e7f329d9baae490fd3c5557173e2c3017f21"
           }
         ],
         "linkedLibraries": [
@@ -938,21 +967,21 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0xd8d259fde652dfe40a612525050867f9630aa374df21a7719d545b0aa686f0ff"
+        "evidenceHash": "0x21f5147df0e0227e8fda2d1141dbea6cbb16ff45eb609323da604e52b4bc45d7"
       },
       {
         "name": "CashSettlementCoordinator",
         "artifact": "contracts/out/CashSettlementCoordinator.sol/CashSettlementCoordinator.json",
-        "address": "0x9fa306922032d5599ecf3ef730d605cf526734c9",
-        "runtimeCodeHash": "0x7f62aba05c8d6f5091cbdb028dea09dd76a85621300b599b730361ec7a1cf7f1",
-        "configurationHash": "0x0a84370973d11b9f292aba39219f44e5b306d27122ced2cc45e494d8b9f71101",
+        "address": "0x821f6464714495e05752b26a024f476a836d27bd",
+        "runtimeCodeHash": "0x579ef0b70f05dcf20171c4b13f0e4d4f5d4a5386b4235e63f5d786f1732e5443",
+        "configurationHash": "0xca294f95918a17bfe7ee99bafd5826c52ead875a6eb0c515b21636a138c90ae9",
         "capabilityHash": "0xe304a21e51ef30239998530957e44e4f1710ceee3ea75121789030b519177b89",
-        "transactionHash": "0xebc1ed1f2b97e67b4246c08dce98d81eb047d2459783c381254dde73151dec09",
-        "blockNumber": 314700867,
+        "transactionHash": "0x757f22a856e84f8c627568b24cf26fca7c6f3d7408026f7d595527befc685eae",
+        "blockNumber": 315026102,
         "constructorArguments": [
           {
             "encoding": "abi",
-            "data": "0x0000000000000000000000002f8636fabcdee2879b7217fa894861bc51f0eac9000000000000000000000000a346a91518a487709487a55804f5403209f538b20000000000000000000000004be64b29ddf2b09fb58372edd9257d327a38646000000000000000000000000056bf9c8a9d3525e6c6e37dd984f106ecdf869185"
+            "data": "0x0000000000000000000000004e80cc89555efde78436feaf24f8d6c33c11e5b5000000000000000000000000ccbe3a19fbeba1396dbf39a5ed13e614a70e85000000000000000000000000001d3c3cd7f71de4d51461a252bad0f97c6d516ebe000000000000000000000000c106c9ceb3a7a6d96279e9433bb59a45c807e1cd"
           }
         ],
         "linkedLibraries": [
@@ -974,17 +1003,17 @@
           "physical-delivery"
         ],
         "activation": "qualified",
-        "evidenceHash": "0x80f70e45d473da5876729d42f3db15b54cad21e71866adaa6efb1f2d85f072e2"
+        "evidenceHash": "0xd26df4103e982383f15d8ae8d814021d4f15fcecaaa3ae185170f22590fc769c"
       },
       {
         "name": "PrivacyCommitmentRegistry",
         "artifact": "contracts/out/PrivacyCommitmentRegistry.sol/PrivacyCommitmentRegistry.json",
-        "address": "0xc35c6081cec848cf991e7cb13143d60035693b8b",
+        "address": "0xc69977a314acc13950c8c42d3cad26968952d108",
         "runtimeCodeHash": "0x712f40a0e21ad668387b6b7afb8bd45b0917b1452b87991026f8da3b37ff53c4",
         "configurationHash": "0xc7310f0f0d55077229909dc27011dc5974a0ca464193a631ac8a722283e5dc82",
         "capabilityHash": "0x44a7dc44b97ce24763ecdcee361e8901a2e47c83b77f5d459ec3aba87eeea369",
-        "transactionHash": "0xf610a18d47d046f0a49e6ce1a542ebae4985094fdfa08688598a402a4f2a1bd7",
-        "blockNumber": 314700885,
+        "transactionHash": "0x8868f216662ee3fa0b20e7a8aae13bc6484bd060f4ac13d9ddb5cd5a04e85f50",
+        "blockNumber": 315026116,
         "constructorArguments": [
           "172800",
           "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C"
@@ -1003,21 +1032,21 @@
           "plaintext-secrecy"
         ],
         "activation": "qualified",
-        "evidenceHash": "0xdae3e3f61658f05e10dd3b6bbd21b85403d3e0f9dbb8d674aa591535e66c0d96"
+        "evidenceHash": "0x85cd8b25bdb5896f884e3efb8ddc248e78372fbd588945825ccc2578357fe2bf"
       },
       {
         "name": "OperationalAdapterExecutor",
         "artifact": "contracts/out/OperationalAdapterExecutor.sol/OperationalAdapterExecutor.json",
-        "address": "0x937f0cc306c76735d073da0d93eeebb393111d4f",
-        "runtimeCodeHash": "0xf108042047a545cadf3924d9b610c82a98fa3656aa1d198e1dd00f09c3ec6d10",
-        "configurationHash": "0xc07e6b2d385efa0e0c32ebc76f2aff15034ebb7f980129f705af78104aef5893",
+        "address": "0x779afe6fd93932fdb10b164bfaaaf13dabfb851a",
+        "runtimeCodeHash": "0x7da0d3dc99a706de5b46be3cd84b99f7baae7cbcd6762c572027f19721c9dc8d",
+        "configurationHash": "0x9b971459ca302ba4c4beea62fe9ccc2a46bd1b3f1e3b5e43edbe34a0a754df03",
         "capabilityHash": "0x4ea60c655cb0fe0e17ad64e4a7a3fad04802b24f3266be57dbf2860e54408a07",
-        "transactionHash": "0x69793f9951f4208873ee482bd10e72aa6f8ccf3f6135c6d024ac575b1f8bd4d3",
-        "blockNumber": 314700902,
+        "transactionHash": "0xbb9af0f80a517e2d9cbf814af895ba2188f6c98547ed0da94273d2c31abac5d2",
+        "blockNumber": 315026129,
         "constructorArguments": [
           {
             "encoding": "abi",
-            "data": "0x0000000000000000000000008e3927617b2787a7ca419c68c20735f0da9050a05dfe35c250eb24c98d03089229763ef66c215ee495f7ed882d3c5cba783eb0a5000000000000000000000000000000000000000000000000000000000007a12000000000000000000000000000000000000000000000000000000000000c3500"
+            "data": "0x000000000000000000000000e1c141586149b73290db13abdd203d7a4e384b417da21ffdaca28aa29792894fe509ace6747572895235d16e7e3d0f95f8a53991000000000000000000000000000000000000000000000000000000000007a12000000000000000000000000000000000000000000000000000000000000c3500"
           }
         ],
         "linkedLibraries": [
@@ -1037,17 +1066,17 @@
           "delegatecall"
         ],
         "activation": "qualified",
-        "evidenceHash": "0x1b6aaaa41fb0b3932178c709e92b52b706ecafcc42c86bb5c5076db6e8fbda3a"
+        "evidenceHash": "0x2c0e0d3e07f37f366eb4655d51667de4f637ce0d116bf9f67adc5fb2af0ffd8b"
       },
       {
         "name": "CappedForwardPayoffModule",
         "artifact": "contracts/out/ProductionPayoffModules.sol/CappedForwardPayoffModule.json",
-        "address": "0x590b6ff52a95718836637f756591618f9875f034",
+        "address": "0x233c0cbf948746dad72f90691136c8ab10da8e57",
         "runtimeCodeHash": "0xf32e3ac0b3390186fe44b1fc3153da9a8c85ca1a03768900987afbfa5f46c487",
         "configurationHash": "0xde4363d54cbe6e033c779069b99b72973886c7d209148c8174c1ab23b7abec84",
         "capabilityHash": "0x3558fbb78383699e97b9c9ca9d63829ba85cb4e5d1e9a3d4f664ea4c57f5e202",
-        "transactionHash": "0x1f16a02f1b4c6643fb88792d62a7bd340b838e3b38c376806d537a7d06ca198f",
-        "blockNumber": 314700919,
+        "transactionHash": "0x5f9bc17ff5dce7ae19d6b812614939aa718955764ef4109ea6a0c0a429954c2e",
+        "blockNumber": 315026137,
         "constructorArguments": [],
         "linkedLibraries": [],
         "dependencies": [],
@@ -1057,17 +1086,17 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x3d1ace1710bc58fe11e788c07f047fd49ed3dd047dee83a5291a892e856951bc"
+        "evidenceHash": "0x4ff0053cbed47a6caac0e521c96bf106c533ecc756fcde72eb0442e7957aaefd"
       },
       {
         "name": "NdfPayoffModule",
         "artifact": "contracts/out/ProductionPayoffModules.sol/NdfPayoffModule.json",
-        "address": "0x09e7ea176af68af2736583aa629c52913c0bf3de",
+        "address": "0x21231836733cde00604a614f584f38579a45d03f",
         "runtimeCodeHash": "0x6a39ddd246bf551d0fc1b5502c1530101375cedbe811a6b22d9ec30db9b3d1fb",
         "configurationHash": "0x7c4b2e8a9308157ab251947ee2eeb2ce688960dac3571f4bce2297b538360897",
         "capabilityHash": "0x293a0008b6a191af6d0199db50e5944624aad04a74c20d84502dfc883280a7c5",
-        "transactionHash": "0x317d03f3ba35053c49954dad50ab6eb5c5be1a7abe6e64d03625827eaea5b36e",
-        "blockNumber": 314700928,
+        "transactionHash": "0x5c8209d94828ad7349d10ac96c0398d989feda2a17c4a21dae3c9fe77ccc7f87",
+        "blockNumber": 315026153,
         "constructorArguments": [],
         "linkedLibraries": [],
         "dependencies": [],
@@ -1077,17 +1106,17 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x3999f95afedd617a2dc3db6dc8d874d6a668fd0d7b916faec4fe0f421af7c174"
+        "evidenceHash": "0x7f218953fa7aee3a54477bcf29aac256dd3ac591b1912af536e38768df12112f"
       },
       {
         "name": "EuropeanCallPayoffModule",
         "artifact": "contracts/out/ProductionPayoffModules.sol/EuropeanCallPayoffModule.json",
-        "address": "0x17d2c01532f5fc19ca4461b0b7147f16481f17fc",
+        "address": "0xf07544f44ac65cabc68f5b0734f74960eb7eba61",
         "runtimeCodeHash": "0x0dd7c63a46a3c945381acb3e054be63e31960a8457bf8f5828b837859a034589",
         "configurationHash": "0x5a0e1383776c779aed153267b466ec5aaefb58c729a95195750e242e955e2a25",
         "capabilityHash": "0x87029e533661accd02850fb2614dba3d9f1a2a10e3a765db88f3d27cee722451",
-        "transactionHash": "0xca874f9d8458803a587b3b3ea9aad466d559442fda055606b080f569de876da3",
-        "blockNumber": 314700937,
+        "transactionHash": "0x7f125914e3446355f66ad54902a53613381ca8c38ed86438d98fca1cc63cdaf5",
+        "blockNumber": 315026160,
         "constructorArguments": [],
         "linkedLibraries": [],
         "dependencies": [],
@@ -1097,17 +1126,17 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x92169c773687a6550b02272eb5257b4a375a5c6adeddf08be7f37049be58577f"
+        "evidenceHash": "0x6e0525e9ddd980a92f3c273b1853f1734b741c8517715d65ac60989880a077e0"
       },
       {
         "name": "EuropeanPutPayoffModule",
         "artifact": "contracts/out/ProductionPayoffModules.sol/EuropeanPutPayoffModule.json",
-        "address": "0x9eeae9abd26399f8a116c3446651875c437d9dad",
+        "address": "0x5a0b62d2ad194866ede2caa03d13d7cafd9280c1",
         "runtimeCodeHash": "0xd103862c96fe208b8beab5ab54ef77ab26512629df6386db3b7382444e87b351",
         "configurationHash": "0x39c49eb8ccf63cc0f40c067d7ac5021cf14448fe109c454c98bb29c9bd63c7f9",
         "capabilityHash": "0xbd285f957ed6aa164625ac203afd4d0c5580f07593ca9df9c9493435c3ec10d7",
-        "transactionHash": "0x5142eb2a3d4233fad5d64b7efeab228e969102efcb7ca22daa673685ae91451f",
-        "blockNumber": 314700953,
+        "transactionHash": "0x064b5fa60cea1fda76eed8fcfbd5b070bb190351928facfb6950f8ace85eaf77",
+        "blockNumber": 315026175,
         "constructorArguments": [],
         "linkedLibraries": [],
         "dependencies": [],
@@ -1117,17 +1146,17 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x27e2b0b7f4ba1f16fd7fab572a652e167df8aa1c0395475b9800e8de743b680d"
+        "evidenceHash": "0xeb21eabb210b6f717e9fa4ef0a62602a5221c8b1ca39b299dc7f6ec91ffb6ab2"
       },
       {
         "name": "CollarPayoffModule",
         "artifact": "contracts/out/ProductionPayoffModules.sol/CollarPayoffModule.json",
-        "address": "0xd01946ea347c9c636602251fd5580621cf9317e5",
+        "address": "0x77347c7934d2cc87b86b03ba37535485bc76707e",
         "runtimeCodeHash": "0xa61ad36b27db43ec9b78138dfdece4c44a77ee0e03291dee8996ef3a66f7ea39",
         "configurationHash": "0xb24019244ca722b024068b325ee82c205ca43f27b4435c46a123b823d923a2e1",
         "capabilityHash": "0x60b3e8acfbf6f7b86ecf0e14b86e375e349a69aa469aca8f01abf0786e6487f1",
-        "transactionHash": "0x0962624d6418ef6f247afda52c98683c7b05aea11ca7a02f6617a35fb2644d62",
-        "blockNumber": 314700966,
+        "transactionHash": "0x70e42e2ce063c90890fd484708b000c23a861ea69d739ee07882c0eba3e048d6",
+        "blockNumber": 315026183,
         "constructorArguments": [],
         "linkedLibraries": [],
         "dependencies": [],
@@ -1137,17 +1166,17 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x76e47cc16ae3b4e13ed05186fa9add4e4c66b015a5b4c7853e3c11f65bc678f9"
+        "evidenceHash": "0x576abb38f99acbb4de259ff173a94e7526909dd421ecd3950f08b7ba4b533ad8"
       },
       {
         "name": "RateForwardPayoffModule",
         "artifact": "contracts/out/ProductionPayoffModules.sol/RateForwardPayoffModule.json",
-        "address": "0xeff711d613f669998095f3dd9cfac6aaaa868194",
+        "address": "0x5968d26d244bfca69f6595b4b142fefae896215a",
         "runtimeCodeHash": "0x66d4fa969601ef05bdbf288794e6c9a935958eee34db31fff723db79cea285aa",
         "configurationHash": "0x5bc8cca6d311e7f4127bff7a77eded528a91d1a67399c9d592d1b4d4a994b210",
         "capabilityHash": "0x3474753f2521538d5bd07e3ef07cec14ab39bcad16e13a0e9f1bb621f7888c8b",
-        "transactionHash": "0xedcbb1d182d7983eb04c11bf3f912ef9e958741edb947a797a2de15885e1b61e",
-        "blockNumber": 314700980,
+        "transactionHash": "0x2bf5510c0ac460b0c5d5ea1093b852b585e99b2de371d02eb4d073a478c60f2a",
+        "blockNumber": 315026192,
         "constructorArguments": [],
         "linkedLibraries": [],
         "dependencies": [],
@@ -1157,17 +1186,17 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x5b65c0be14122647acda66f43b0aeeb9e4a495f6027cb81d3fb54fc541b3ffe4"
+        "evidenceHash": "0xe2e3f4ef78348a230c9ec607c4304af3e697167cf037d57626659cc3cfd218a6"
       },
       {
         "name": "RateCapPayoffModule",
         "artifact": "contracts/out/ProductionPayoffModules.sol/RateCapPayoffModule.json",
-        "address": "0xa1d239bbd035e035a35425d6a9a1799d4e447ede",
+        "address": "0x0c99d3f277846475121700e6ec469d2f7997f7c2",
         "runtimeCodeHash": "0xf6032f5d7ba235f0cec31cda6c0e98dbb0fe1fc4604d40a22cbcb21f9333890f",
         "configurationHash": "0x3c31b10303e1c1d86964c13243df0a744ef0ebb322e28362fad2723785a51da7",
         "capabilityHash": "0xd21f0a14ab3fe876446d79c08a5426567b1d3dc7befe4c4966da49569d42055b",
-        "transactionHash": "0x2adc9207ce621008596247498b2f1ecdb8c9134aeaa2fd1a58ea44f9642f4716",
-        "blockNumber": 314700997,
+        "transactionHash": "0x92e0251bf5aa9d4a6bd1981b861d8c0786974f3bafb5ab3fab597c7a40f47058",
+        "blockNumber": 315026207,
         "constructorArguments": [],
         "linkedLibraries": [],
         "dependencies": [],
@@ -1177,17 +1206,17 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x63142490982d4b300354ded89338507c98ba657d74a3ad88b9824ee372202c8a"
+        "evidenceHash": "0xc068008e259c4c8d49c8c22147ec08b1fed6cd483d44af13d3c9c011a6e4585d"
       },
       {
         "name": "RateFloorPayoffModule",
         "artifact": "contracts/out/ProductionPayoffModules.sol/RateFloorPayoffModule.json",
-        "address": "0x9512d84ac2fef8f8a6618d5305608f70d8179953",
+        "address": "0xf60fc3f8eb5dc98d3f6c39ae0ebeda180dd16751",
         "runtimeCodeHash": "0xe7c443ede38444dd4de08ac8d5e41538220c5302b208cac03d0461970c6f5370",
         "configurationHash": "0x0456ab2a7e94f7196ef947202378254106e3c33c26603d45bd34f0c7b978391e",
         "capabilityHash": "0xd01ea931dc4a7764a485995f6790b8d97e6e7ac3f23e608a6f96efbb3be14e11",
-        "transactionHash": "0xdee5f7b62dc7307f14b2c0abd2ac6455318bbe80ebeb4ba45dd047778d651c9d",
-        "blockNumber": 314701014,
+        "transactionHash": "0x4d2fcc26655dcf81aaa2bb78db8b46d6449f64b127ee1924dc28c5cffa77b20a",
+        "blockNumber": 315026222,
         "constructorArguments": [],
         "linkedLibraries": [],
         "dependencies": [],
@@ -1197,17 +1226,17 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0xe0fc54df2c64bee3fd229ed71de9b3628e1c42150281c4a8594b10325ffbae68"
+        "evidenceHash": "0xc5d72eecabda138fcfc1c912bf75c4d33dd5a3cb5f44ad301af2ebf574da9b5a"
       },
       {
         "name": "RateCollarPayoffModule",
         "artifact": "contracts/out/ProductionPayoffModules.sol/RateCollarPayoffModule.json",
-        "address": "0x5ce2706b946cede6d3724a6e795491224fd643f4",
+        "address": "0x593e8b1f616b39e4575a0ee147b6a068f1fab354",
         "runtimeCodeHash": "0xcedbd024a0b26d7ebcc3b95659296c612b63d641c0a6b10cd42019e0fd899757",
         "configurationHash": "0x2c0db7e6323af0b4c0bedcf85874b7d5e57fb3c9bb08ee40bba60555ca146ce5",
         "capabilityHash": "0x5bf46c2398c0cacfaaa60b2eef3b8bab12abad62bb6e09d8b1163ec362f87d4c",
-        "transactionHash": "0xdf480e0189f646b8796ee2d12f4e29ffbf1b7885f11e386bf6ffd372a10aeb7f",
-        "blockNumber": 314701038,
+        "transactionHash": "0x5083f86871bb54f64d79744c3062460f887336c82a58d5a2836cb699acff9105",
+        "blockNumber": 315026237,
         "constructorArguments": [],
         "linkedLibraries": [],
         "dependencies": [],
@@ -1217,17 +1246,17 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x831167f292d6a774ad90f4e95780962dbcb81cdfc546a9a3415ce826babe0e7f"
+        "evidenceHash": "0xe4fadb9235087f579529ed26a406aeb9f310a718dcbfb04c661c19c765665aee"
       },
       {
         "name": "BasisSpreadPayoffModule",
         "artifact": "contracts/out/ProductionPayoffModules.sol/BasisSpreadPayoffModule.json",
-        "address": "0xc08707aac99ef1cd603cb6fcc488c93a607eb096",
+        "address": "0xac28a92278383a3e53076d06669af171e3b16bd2",
         "runtimeCodeHash": "0x1b89b3661c089927a37b5612a0e70a9d99ab7714cb839fad4cdc77abd6386887",
         "configurationHash": "0xcfbe3a875572111cdf4f52fb95085676ce55f9e1f370bd252b85399b6c671487",
         "capabilityHash": "0x55aeade73be266fde2c85c1691e7bc8f1a7edd12e33809ff2042b31c7ad6a0a0",
-        "transactionHash": "0xa982144cdce7ad8717f85a02bd894a19a22ffcbb0d461edec2c444b28d2d433b",
-        "blockNumber": 314701060,
+        "transactionHash": "0x66fdd5b82344ae2292463481c83c2b2c024e68ce0efcb7f5d19aa6fe5b78595b",
+        "blockNumber": 315026251,
         "constructorArguments": [],
         "linkedLibraries": [],
         "dependencies": [],
@@ -1237,17 +1266,17 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x3712f041b53b86bb5d4b3472eb5f33578f1c92e6530eca2011a861f1d1fed63c"
+        "evidenceHash": "0x6445c84c2c3cbfa2b21937423845f9dceb5fedd688b1ab2c5f966a329eda2d71"
       },
       {
         "name": "CalendarSpreadPayoffModule",
         "artifact": "contracts/out/ProductionPayoffModules.sol/CalendarSpreadPayoffModule.json",
-        "address": "0x6f531c0a67c84364814d6be0b859547177c57f63",
+        "address": "0xe742d8d7780f831f0662792cd47512668c1a8a83",
         "runtimeCodeHash": "0x46c9830121abe823735eeaf7c13734763fda1127267818a68bc4fcd7717c0cb8",
         "configurationHash": "0xdf592292c2d04ff8d634b1a6b9e5ee437031836e819280d8811ec7453564517a",
         "capabilityHash": "0x349229f1af2467aa36401895d232567b3865b365abee0a09fd87ace9ac4475a1",
-        "transactionHash": "0xab6b87db08aea42697a99298808a4bb2f281bfe5d6d8a4dc0a0321407cd0ca75",
-        "blockNumber": 314701078,
+        "transactionHash": "0xa926630cf2c402c4856dfa0597965ffaec3445c15296da407f19b94627647e2e",
+        "blockNumber": 315026265,
         "constructorArguments": [],
         "linkedLibraries": [],
         "dependencies": [],
@@ -1257,17 +1286,17 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x22a12a5e1e1670c79edf0e9f8c407cd8511746188fc6455b717eb593d27f9a06"
+        "evidenceHash": "0x6bd7ec3b25fa17b22500f41a1c5b9774bb633e98a35a9d098eb2325c8ad1983c"
       },
       {
         "name": "WindowAverageScalarPayoffModule",
         "artifact": "contracts/out/ProductionPayoffModules.sol/WindowAverageScalarPayoffModule.json",
-        "address": "0xd291985ea507fe5667c23b29970b73d4b3bb18e1",
+        "address": "0x2a791031b2d040985407acec4019435bf5006f79",
         "runtimeCodeHash": "0x7cfd442fd54943040589e89c041a42f4a4fe9f7dca7e2f0fe721b9b45e75dafd",
         "configurationHash": "0xbebc442c9f5ce05af55a0c0a72016594294940b96ab878303930378d72a96b0e",
         "capabilityHash": "0xe1d0eb457865722421969c95c7f45498be30461358f31809be226acbc4308da7",
-        "transactionHash": "0xdfbe3651c78b0c6765510d18b0bbc7b85977b5bcfc47e8f978f6519fc28ff2f6",
-        "blockNumber": 314701095,
+        "transactionHash": "0x7d7727457325c6802b0a17ffb8670ed2cbf9f39f517ce1621594f9b3c33673d8",
+        "blockNumber": 315026272,
         "constructorArguments": [],
         "linkedLibraries": [],
         "dependencies": [],
@@ -1277,17 +1306,17 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x1886a239020645fa3958a059aab59334b1b17c30f2d87b640daadf831bc13328"
+        "evidenceHash": "0xc94b5cd831ba20688b64fd63de2a5b38b0fe066944ebb2e8a2b873f10cb0b2be"
       },
       {
         "name": "CorrelationDispersionScalarPayoffModule",
         "artifact": "contracts/out/ProductionPayoffModules.sol/CorrelationDispersionScalarPayoffModule.json",
-        "address": "0xc6ef353d9d989219f93355542e7d2368d2d0bd96",
+        "address": "0x50d304e0dfa5d7e6a2f01d522f6be2b298c4a5cf",
         "runtimeCodeHash": "0xc57abc0003a97ac9b1fa294e84e65f48ea63d3513df5b6c2df5ff387e26ef726",
         "configurationHash": "0xd95825fc3e6ce9ca078a5460c9d9c867100a27dbf3c99955fda4f08af0cff4dc",
         "capabilityHash": "0x34a5dc356846a26f2c84118365ff5a0318f3c8b88e7490f5aafca6b79d65758f",
-        "transactionHash": "0x9efacb0d3bb31d8c693aa7cc3cf6c9cffb01d1f9b7cfecd1af8b4bdf7696d5cc",
-        "blockNumber": 314701112,
+        "transactionHash": "0x5675845a1f448b076b84ec284b2307adaeab01677f1fd7b1f979df32ee168c43",
+        "blockNumber": 315026285,
         "constructorArguments": [],
         "linkedLibraries": [],
         "dependencies": [],
@@ -1297,17 +1326,17 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0xfbf4541d22f1995b2101fffd0ac8cf8944277df679d37657386934d471d80122"
+        "evidenceHash": "0x9b4c1a1392ecc6b6411e5a55a34a8d895af10154ffdc8cf317491b6d60f85f3e"
       },
       {
         "name": "CapacityReservationRegistry",
         "artifact": "contracts/out/CapacityReservationRegistry.sol/CapacityReservationRegistry.json",
-        "address": "0x667d40094b773c01156f1d6a3884db52319cb14f",
+        "address": "0x95fa1bd9ad5a9e4cf2d1f3a2caee9e3541adc375",
         "runtimeCodeHash": "0xf64d1569ca486258bf043c73e5ac7d037993a9f645a59d3ba1b8ef51cf31cf45",
         "configurationHash": "0x6609077ba9443443deae66e94196fc8b136adc2b91a8d420f802c2b5bd6a0b66",
         "capabilityHash": "0xbde9b3bed213ddd9f5ea64d543507fde0cd7402bb621835a45eda8f9df91632d",
-        "transactionHash": "0x0688f6f92f7ec037efc22f28fab0cf401f23fa4c1e993de8e208715723ddda98",
-        "blockNumber": 314701120,
+        "transactionHash": "0x0481854cb6a9dad89049bc33c564c6434cc211e652242ada4c60824a76a383b0",
+        "blockNumber": 315026292,
         "constructorArguments": [
           "172800",
           "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C"
@@ -1323,22 +1352,22 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x49c4e509028f2920e49079fee3649304bd8a24aecff14c358e4d22382a47f461"
+        "evidenceHash": "0xb813aa49be9f70fed25b59a5f5ac87b28b11f152dd17cbf3da9b52bf922a372d"
       },
       {
         "name": "VaultBackedStreamCapacityManager",
         "artifact": "contracts/out/VaultBackedStreamCapacityManager.sol/VaultBackedStreamCapacityManager.json",
-        "address": "0x7d00fc97163b7d2195a40d0d94d5e431bfb02ddf",
-        "runtimeCodeHash": "0x2f5f179c4c491ae9b55afdbcc48948b78b52ab79d98e78d0ffa28b0a1b37ca85",
-        "configurationHash": "0x08c4f5480a7d15954fe17b2851838961321a3e6c24340d72f458b5de86801fd0",
+        "address": "0x58d4c32c7dd84923513a67e335f71a72eeb0a7e0",
+        "runtimeCodeHash": "0xdd3a21fca7fd364f01362f1521978d9329bc1391c621ff1154f0eaa5122b2f50",
+        "configurationHash": "0x46ff59c3d3c2584102fed6c5f55cb58a3008667497fa97bf94458013917afeb5",
         "capabilityHash": "0x76162e704817ddecdd32c9412e6d6df81021cdf972dd0787d9ceeec326c0eea5",
-        "transactionHash": "0x428c960fcd57e7301a5e78fdc17838235e8d6358b535d5a2c1fe33d848ba9e24",
-        "blockNumber": 314701138,
+        "transactionHash": "0x13da5c8fb8153755fca7d4d676e44899e8101dcd8466dde561cfe46812b64cc0",
+        "blockNumber": 315026306,
         "constructorArguments": [
           "172800",
           "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C",
-          "0x2F8636Fabcdee2879B7217fA894861bC51F0eAC9",
-          "0x667D40094B773C01156f1d6A3884dB52319cB14f"
+          "0x4E80Cc89555efde78436FEAf24f8D6c33c11E5b5",
+          "0x95fA1bD9Ad5a9E4Cf2D1f3a2CAEE9e3541aDC375"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -1354,22 +1383,22 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x051cba972b5a1b953ce7c0c5b303c1097de958a393971110a0fadef38a2076a5"
+        "evidenceHash": "0x39285ee4adc90872449e6e72e468142a4f20deac0841eafcb0e0a6a4d9df4b19"
       },
       {
         "name": "VaultBackedBatchCapacityManager",
         "artifact": "contracts/out/VaultBackedBatchCapacityManager.sol/VaultBackedBatchCapacityManager.json",
-        "address": "0xa439396a1dc8216006f0c3589f85b9ef85630479",
-        "runtimeCodeHash": "0x88e1a0484e80d90a80e781d2e5603ad441fc36bd6b2495b1d8f9751345ae51a5",
-        "configurationHash": "0x5a6bb625de0f4d3187a46cb9391ee0d7510bf65fda2ec08630a5bc2ad9f411ee",
+        "address": "0x2fe5db2c5753ba6174fb32657573d70fe1ddbc16",
+        "runtimeCodeHash": "0xd2ab58e6274be9a897ca6bc0404d22ae8f3a692d84f5aecf9271b91b8919a87f",
+        "configurationHash": "0xdfc7d585e99b88264e68258bd924642b8e6513d2b8ba9ed675825e5aa438bf3e",
         "capabilityHash": "0x6e6b1305dfff64853f9821a917718220545937816ef46e7294467fd18e47315c",
-        "transactionHash": "0xe44fb73ef18d51fe616bc2d5d50c56f6c53fc4bf87360fb784ce36228e047006",
-        "blockNumber": 314701154,
+        "transactionHash": "0xf6e3ef7ebd6002e65e2b78f31724785b48404532dbaa4da776e9bc89a27610ad",
+        "blockNumber": 315026320,
         "constructorArguments": [
           "172800",
           "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C",
-          "0x2F8636Fabcdee2879B7217fA894861bC51F0eAC9",
-          "0x667D40094B773C01156f1d6A3884dB52319cB14f"
+          "0x4E80Cc89555efde78436FEAf24f8D6c33c11E5b5",
+          "0x95fA1bD9Ad5a9E4Cf2D1f3a2CAEE9e3541aDC375"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -1385,23 +1414,23 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x2f0932919e9b04f4c56891e024fc19d2a1dcabd952ff85111ae79c68b07b5607"
+        "evidenceHash": "0x75cfd4927c624df6b2ec88f8f9543fe0ecce95616e1231815da7f66cd76c92b2"
       },
       {
         "name": "AuctionValidationGate",
         "artifact": "contracts/out/AuctionValidationGate.sol/AuctionValidationGate.json",
-        "address": "0xe265345deb6b9e01f8cf775b6fdabceb25351251",
-        "runtimeCodeHash": "0x16d7465aa47bae1eee35807cd28ec36d52e7e32f7812f6c00310ccc5d6067401",
-        "configurationHash": "0x0232082dbfd6e28b63ae4ea78a98319f8a791cf8bae75f5a7742fd2e89950605",
+        "address": "0x2511a21ef65ea0f2963b0d546add65ba5a843cdf",
+        "runtimeCodeHash": "0x8587b85ca71c218026096e6bce52f1b0e3ef93262c41432f211390fe4b2a7b10",
+        "configurationHash": "0x3c6895a09dada7e44fe706266b0f8c330ed79dc5af00e73333b69e5cd3c173ff",
         "capabilityHash": "0xc958adc446e8c3d6c06d8021391d3ebd62e24b1fb992b50c378825b66165a5f9",
-        "transactionHash": "0x42851d8d892283824ab9cb78bc639534c6c134451176c35fc7c8fa93dd1ab264",
-        "blockNumber": 314701164,
+        "transactionHash": "0xe06edb1655799a796d9aa1cdc0c15c08d96407e89929ff45fa92b2d9f169b71d",
+        "blockNumber": 315026334,
         "constructorArguments": [
-          "0x23AaF326F53c38CC10a522257cF89746Ca915e0e",
-          "0x5e08CEd8e3b901B6A46e1488b7a7F52576ceb411",
-          "0xd0A730988383589c65210f80A7902e4b11dF8d42",
-          "0xE2d998B8FB622D7f4311F6635a9a2f9871BFF527",
-          "0x2d91653Ecf4F894FA37BfD3C09c62e39666B5036"
+          "0xDC9563eAE3Aa03e8Dd93DbCf46f3E4e636b865Fa",
+          "0x73D6c995D2150687D3D57056544Ea49d8241AdF5",
+          "0x4125c0f26515e147468aa55C3AbAa454f98b88B7",
+          "0xF823dA94052254c8B4A362e7838DD4790147c9a7",
+          "0xF9818F1f91cBD320d2d0e8A901df7bc7745bF503"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -1417,21 +1446,21 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x3f339718ebc8782f99e8f6d5e35e5fa6bd0de13cc70874b81db9f47d6afb65d6"
+        "evidenceHash": "0xa9b436e94da45b1e1dc2d89fc2f304762b79d9ba800ee61b79b7fdcfa1abbf0c"
       },
       {
         "name": "SealedAuctionHouse",
         "artifact": "contracts/out/SealedAuctionHouse.sol/SealedAuctionHouse.json",
-        "address": "0x61a3553e18cecebd6ee0adf692ed66b86dd3ecc9",
-        "runtimeCodeHash": "0x637e328925d3984f08c56f63904c284066ce26439dd05ccf0b6aeedb956b3a45",
-        "configurationHash": "0x5337ec40d8b8a59e46a4386c1c99d08e730338ea07f6e0ab5bf11dfd58a56df6",
+        "address": "0xc94d19b9a6ff17795c45239497182fe55b80dee7",
+        "runtimeCodeHash": "0x9818436a9b1679bd1fd048b88bf8bf6a705dd73a3ca8dcd910472d41dbad6f24",
+        "configurationHash": "0xff37304eafd093439b659fa516683619c5ef7178b3303e95b37187e5913df911",
         "capabilityHash": "0xcee8f3e42617f04d209cd2c63e9c4f4dc02b2b344fdb0b1ac861cd4903958c95",
-        "transactionHash": "0x82aeaa14752ed99421abed31309b7d23ab3907b430a154db0c82d50c6ac16074",
-        "blockNumber": 314701171,
+        "transactionHash": "0xa9b0d6facfc5796e65a68cb2f93ab8cf83f9bd6bb7c68886a45398f60851598a",
+        "blockNumber": 315026349,
         "constructorArguments": [
           {
             "encoding": "abi",
-            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c000000000000000000000000d8406895194b50d4b2587d267386ee3f8c17f522000000000000000000000000e265345deb6b9e01f8cf775b6fdabceb253512510000000000000000000000009bfb6a05ec38d30209c4c7612997e19b3931c8dc"
+            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c00000000000000000000000016344d20a4197927efe4545bb3962006629ff5f60000000000000000000000002511a21ef65ea0f2963b0d546add65ba5a843cdf00000000000000000000000012681127db37ff96fef81f2685d1c0a3406e16d9"
           }
         ],
         "linkedLibraries": [
@@ -1457,20 +1486,20 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x749035677696701309e1c4380fd21ea10e66690086bbac2b765a29b6a75c63d1"
+        "evidenceHash": "0x0b7a4ec3acd5e9a5cd9d67a7ef06527846a87698a965241e7ee18fc39a2ce5c6"
       },
       {
         "name": "StreamingQuoteEngine",
         "artifact": "contracts/out/StreamingQuoteEngine.sol/StreamingQuoteEngine.json",
-        "address": "0xbac8b83c649c1aa0680f85a97263776861a15eb6",
-        "runtimeCodeHash": "0x897cb1de5d10d1ed20a0f40bc01383a9f84a6ffbb4d6a71db1d84668e41f7e3a",
-        "configurationHash": "0x441ef42eefbd62a4b2ff4cc625e3664392db8b2ae2382ff6fcea16589d2da84c",
+        "address": "0x1903e9eed3f2ae3617349ffb3b8799c9d0efb536",
+        "runtimeCodeHash": "0xe895a5f64fd0cc6034796e273ccc812157c137bce80b8250add2d1e22268c004",
+        "configurationHash": "0xe1f06d8b992833de6bef6b1fa959a4b420e15fcf07d5404749a0bd8209ec2974",
         "capabilityHash": "0x954e8b91c81bae2f6597b30ccd5805e7f76d6460b29239ddfa1245baadbf2141",
-        "transactionHash": "0x174c02498c6c14595d75b4856cc6ad6106c86a2f734d53a7e1521bac19077540",
-        "blockNumber": 314701189,
+        "transactionHash": "0x64f1779da851395d531cea7f68fe7cbe1985ed0e6cc1b0cd72bdcec882d02afb",
+        "blockNumber": 315026377,
         "constructorArguments": [
-          "0x9bFB6a05eC38d30209c4C7612997E19b3931C8Dc",
-          "0x7D00fc97163B7D2195A40d0d94D5E431BFb02dDf"
+          "0x12681127Db37Ff96FeF81F2685D1c0A3406E16D9",
+          "0x58d4c32C7dD84923513a67E335f71A72eeB0a7e0"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -1486,21 +1515,53 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0xc48b60e3cf56e3cbebef1003644189e762f79134e7cae7877d48819d1d9139b7"
+        "evidenceHash": "0x49154f8e3bd7d5c54cfd22cbaebd0ed3ce6876a38ab388ec40b5cd4067cd0a9f"
+      },
+      {
+        "name": "QuoteSettlementRouter",
+        "artifact": "contracts/out/QuoteSettlementRouter.sol/QuoteSettlementRouter.json",
+        "address": "0xf2c404d67d6cd04e1dfa7f836ea3ab9401957286",
+        "runtimeCodeHash": "0x30019da7cee1d981021f2b57a8f90b97a19a754a6ed410649194364215b5fde6",
+        "configurationHash": "0x73aa86f1e6985cb7801d461594f5e3d86df16cb3f3f97907b2e2094120fb3cc1",
+        "capabilityHash": "0x476ffea556fd28adb66f0339250316ed9f762f182f40e88bdc0779ecd6610c6e",
+        "transactionHash": "0x744e468fbc90d6f0d7b475f9c1e67986f1fb61fb9c69cded1da52cdc792a11cd",
+        "blockNumber": 315026391,
+        "constructorArguments": [
+          "0x12681127Db37Ff96FeF81F2685D1c0A3406E16D9",
+          "0x58d4c32C7dD84923513a67E335f71A72eeB0a7e0",
+          "0x0676f5Ea5dA072344E065a0807d8Fa91a990ED55"
+        ],
+        "linkedLibraries": [],
+        "dependencies": [
+          "AtomicClearingEngine",
+          "VaultBackedStreamCapacityManager",
+          "RiskAdmissionBindingRegistry",
+          "OrderState",
+          "PortfolioRiskEngine",
+          "CollateralVault",
+          "OffsetUnwindCoordinator"
+        ],
+        "roleAuthority": [],
+        "supported": [
+          "firm-quote-settlement"
+        ],
+        "disabled": [],
+        "activation": "qualified",
+        "evidenceHash": "0xba00efee8366c8ed53edaa10c8d5e911171e21355002c833bfc04ab1d32ff516"
       },
       {
         "name": "BatchClearingEngine",
         "artifact": "contracts/out/BatchClearingEngine.sol/BatchClearingEngine.json",
-        "address": "0x8d0e269485c024f8181fcad8d8c0f47d1e929527",
-        "runtimeCodeHash": "0x440630970a62f81a17cb109268d628db2a108e021d0bb0dc57ea9b334bdd50b3",
-        "configurationHash": "0xd418961416131514fa88e6fbb0f4f0f5926c68e17308c87a8b714e1db229af29",
+        "address": "0xc98f4e37e4913f169fa06cf63b0682a1afeca9ca",
+        "runtimeCodeHash": "0xdc06e9dddd048821ddb23e2be16adcf771ca2feeebbf42b33b6b780612d2e3bf",
+        "configurationHash": "0xbf2c0edf16bc2c15d907ee3ee358c7c4513e63936c8ebd615995c622be996339",
         "capabilityHash": "0x4440dbbe93db981a5efaeab6e9cb967571c9eb54c1aeb4094b71db70afc213ae",
-        "transactionHash": "0x9532328380e1d5b02beb39721b15949a17585d66d211b3d8b470a230704ac815",
-        "blockNumber": 314701205,
+        "transactionHash": "0x3ec1e26e1afaf4184d2a6dc9cd85cf07abcfbb89abe896caf69a06be50771e2a",
+        "blockNumber": 315026405,
         "constructorArguments": [
-          "0x9bFB6a05eC38d30209c4C7612997E19b3931C8Dc",
-          "0x61a3553E18CeCeBD6Ee0adf692ed66b86Dd3ECc9",
-          "0xA439396a1dc8216006f0C3589f85b9Ef85630479"
+          "0x12681127Db37Ff96FeF81F2685D1c0A3406E16D9",
+          "0xc94D19B9a6FF17795c45239497182FE55b80Dee7",
+          "0x2fE5dB2c5753BA6174FB32657573D70FE1DDBC16"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -1514,21 +1575,21 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x32ddfcd1c848903c1cb2a1a6c28384a3b7abb1203fda1c49eef55cd39f046451"
+        "evidenceHash": "0x970c526cbdfc233d3f21cbb9fd1bd468b1dfd81f9fc1b26a606dc5ddc0d03227"
       },
       {
         "name": "ProtocolRouteLiquiditySource",
         "artifact": "contracts/out/ProtocolRouteLiquiditySource.sol/ProtocolRouteLiquiditySource.json",
-        "address": "0x3741732bf68ded8d245e84e5bc11232e03835b9b",
-        "runtimeCodeHash": "0x0131aa1cca8694186e088557bfea561f3db473b87733eb74accb9dcfa64ebbd9",
-        "configurationHash": "0xd025e8353b8a4218eaea45ffcd77ae3c2d0b4da88150fe7ccff0df627642f17f",
+        "address": "0x5cb5fa1db7c1587bec1fcac7ade274fe936e1d64",
+        "runtimeCodeHash": "0xf46b12502758d0b4a44405a8110a2c9e767985ca83f7dc784f52f4cd12714273",
+        "configurationHash": "0xc4ebb00b63b5f6ac01c777f1371993b61dd784aa90edefa63706fbbae453dc5c",
         "capabilityHash": "0xeb4a04776d40c29c65f0d67a86ccfa6b22a92adb4bec2daec061231d01ca0025",
-        "transactionHash": "0xa041774d1d98f4e19c39f7a1e3476b468736b7b940a76f597720af4fc3165075",
-        "blockNumber": 314701214,
+        "transactionHash": "0xe1d03556ae6ba5c28609b797d98d9870c43ebf2dddbed3a49a5f864d515c9690",
+        "blockNumber": 315026419,
         "constructorArguments": [
           {
             "encoding": "abi",
-            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c000000000000000000000000443997c4820190a1f269ba91740abb2e21ad19180000000000000000000000005e08ced8e3b901b6a46e1488b7a7f52576ceb411000000000000000000000000abcb9f2e08c65a2834158efe70d15b13980987bd000000000000000000000000bac8b83c649c1aa0680f85a97263776861a15eb600000000000000000000000061a3553e18cecebd6ee0adf692ed66b86dd3ecc9000000000000000000000000d8406895194b50d4b2587d267386ee3f8c17f522000000000000000000000000967686c35139d27a5b02f59cae8d485f78400e2a000000000000000000000000667d40094b773c01156f1d6a3884db52319cb14f"
+            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c0000000000000000000000002dda32044026e562849228653fd56ba7a05ea8f100000000000000000000000073d6c995d2150687d3d57056544ea49d8241adf50000000000000000000000000a06bf70692ad5683d3f202d1657e47ff0454d7f0000000000000000000000001903e9eed3f2ae3617349ffb3b8799c9d0efb536000000000000000000000000c94d19b9a6ff17795c45239497182fe55b80dee700000000000000000000000016344d20a4197927efe4545bb3962006629ff5f6000000000000000000000000a9670a116406556411b0c67db7e32c7c00a97d1500000000000000000000000095fa1bd9ad5a9e4cf2d1f3a2caee9e3541adc375"
           }
         ],
         "linkedLibraries": [
@@ -1554,22 +1615,22 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x4ba96d5a11a5751f3967badd53a7ff44dcf68ea89302a9361803935b2cafd608"
+        "evidenceHash": "0x3d3baf0cf026e87a54c859ae58f90109f89dfecfee1f7c3daf1b3f41aca03f44"
       },
       {
         "name": "CollateralAwareRouteEngine",
         "artifact": "contracts/out/CollateralAwareRouteEngine.sol/CollateralAwareRouteEngine.json",
-        "address": "0x1533519d407103dbb67560a4ca65ffec818c0bfd",
-        "runtimeCodeHash": "0x5910cfea626c84a4623ada1606d348f352c0b40ff1cdae206c48fd5b95247347",
-        "configurationHash": "0xc1f0c0ce03c57270f8983ac4f6c9a474ee85f53721a8a65d118afa36b07b24c2",
+        "address": "0x0f66384a8bc3cf86a2ace148ba56dbf66457135c",
+        "runtimeCodeHash": "0x7a9699bf2fa6d5de2b1b9a9f04b6263d42013976254f759e436eebf748abb5fc",
+        "configurationHash": "0x42965bd703013a8b46500a465e593532b4596f0253982954c1e91742eadcc1a0",
         "capabilityHash": "0x936d8d21a3d3994322c4aa3548e673489fc15dacc0cf5dc487eace8d2be91418",
-        "transactionHash": "0xe954de89e984573651e952f5d6e3c2ad80f64dddb92897802c8b824b21b6da63",
-        "blockNumber": 314701223,
+        "transactionHash": "0xd4ef5a1cb425c41a647ea08bacb50ec49747906fe6ca28be73adf1be1f5a0b29",
+        "blockNumber": 315026433,
         "constructorArguments": [
           "172800",
           "0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C",
-          "0x3741732BF68DED8D245E84E5BC11232E03835B9B",
-          "0x56bF9C8A9D3525E6c6e37DD984f106eCDF869185"
+          "0x5cb5Fa1Db7C1587bec1fcac7Ade274FE936e1D64",
+          "0xc106c9ceB3A7A6D96279e9433Bb59A45c807E1CD"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -1586,20 +1647,20 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0xca1e8cd8688b26fbce3836b568a31317b3dee15ce7f14c04ebd73574bdcece67"
+        "evidenceHash": "0xbc4d5d046870a99f8bacc4917a8af0f48e453c2638f40cac4f41f065d2572688"
       },
       {
         "name": "OrderReceiptAuthority",
         "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/OrderReceiptAuthority.json",
-        "address": "0xf6504636c31f22f486a0f6f336e8b0b2eed6e2c3",
-        "runtimeCodeHash": "0x53f28f324f9df1dad57374f336ae68b2a884665f088a2c56979731e5cbcdc709",
-        "configurationHash": "0x309281cf8ffa24a1369403339fc41fb0facfd9ebd24b425964d0453fb165d917",
+        "address": "0x5a24a79e2b48f966ec55ca56d342792e5d4a8538",
+        "runtimeCodeHash": "0x16b51435d0f844b5f61fc1582541d774d6f55e4c39ec77680df8c0b66a991274",
+        "configurationHash": "0x9535bce558fb83360e94191f541fce528fedc1e6c67ec6b6b3c82c7c4ce27611",
         "capabilityHash": "0x4290a62a78c981ef4278a24eec48a363356b1e1272fb5413e05a6df5ae011439",
-        "transactionHash": "0x6b623ede13292863b3a281e6d3c8bc7b82debad7d6f446ec39adca7d823ddf96",
-        "blockNumber": 314701231,
+        "transactionHash": "0x9ed84d176ddc6e3dd8686f53354ad85d2f72ad05e201ecc65501ea960c3932c0",
+        "blockNumber": 315026447,
         "constructorArguments": [
           "0xfa0a141cc8fd4f76eb53c5c81d398fb32235359f384856ec3e18a25b7de13956",
-          "0x4344b3f525882999c5b6e225182fF3d8eba24655"
+          "0xA4504186cc265e3b3C19417EDCaC5dbE266F4c30"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -1611,20 +1672,20 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0xa3bdcd3c352a739959e379945321fe8a8b6e4888d419b61881363f03a0ed5bd3"
+        "evidenceHash": "0xa15d46b7badf4f37dcdabee8eeaed3ec67a2d6f3bff25ad28de0f5a591b1c2d6"
       },
       {
         "name": "RfqReceiptAuthority",
         "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/RfqReceiptAuthority.json",
-        "address": "0x2d2c02e4c1a3fc5b6954c770185aacb1ec0d97e7",
-        "runtimeCodeHash": "0x0d5f90aa2b243e551ce5c1ee03b36a750c7c6a4e8250dbe48d6c910c2fe6cccf",
-        "configurationHash": "0xed7b5ae109eede1bec2a77038585936dbb0d787120714c817475ac55cc9cbf5c",
+        "address": "0x5da97fe42745a252ff0a850f3a9e9eab73a16c61",
+        "runtimeCodeHash": "0x27bb891eaead271d6f3524907e9dfa8644bebfaed61c883f014cb91086e78178",
+        "configurationHash": "0x2c0c5bc03a24ff1847f229822dc014c482d2a33543f3cb38ecad6125da6ea314",
         "capabilityHash": "0x293eaf57bdefd3a20c47de8b07d49592e0dfbf6a1eb180d0598b973f3a146770",
-        "transactionHash": "0xe74692044888623b04517f41cd2de2ffd932b9ee7d57e88eb610649feca68e35",
-        "blockNumber": 314701246,
+        "transactionHash": "0x241ac9bc3ae1876ad2372b9be95c194bf5bedb79fa1b189e3e0404f505a21d22",
+        "blockNumber": 315026460,
         "constructorArguments": [
           "0x019829796bb19ac206f250140a53f6f6d17a8eb019b77b6590deab2c68da8dd9",
-          "0xAbcb9F2E08c65A2834158eFE70D15b13980987bd"
+          "0x0A06BF70692AD5683D3f202D1657e47fF0454d7f"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -1636,20 +1697,20 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x149949c62a6a033a2f75a2733da33c30f4228be7b31ca4acb2fbb9cb35393386"
+        "evidenceHash": "0x56cde8e480283880629db8fee3262dfc0a61847ce8636833d4fc6bdb8277a75f"
       },
       {
         "name": "BookOrderReceiptAuthority",
         "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/BookOrderReceiptAuthority.json",
-        "address": "0x32197445a1f6125bd758de3f35a7964c48f14e39",
-        "runtimeCodeHash": "0x1a7e88f20cf719e50673b731ea6df61d6af79d138c2c30efa03a577ec2bbfdf9",
-        "configurationHash": "0xce18d6e7229d286b348f29632c821177a69fae2642b800b3152ef47052f7453a",
+        "address": "0x358a5e37f0e0f4ee6dcb5db620fa72a6ef0cc711",
+        "runtimeCodeHash": "0x607072cf04f68fcf2658f472dcc9fcdf2849460c3d190d777e966c8624bcb123",
+        "configurationHash": "0x7630257e64b001f151b7baa20869a742356ad4ff54c2d16f01cd7a6e37e4fb42",
         "capabilityHash": "0x68ef13d8ded9f3f7776003600a0d51aa0b546ddabac24199dcdca2b537ffec07",
-        "transactionHash": "0xfbc34dbcc660a859e80418cce915d5d2be55178e4da25408dd767120eb196a54",
-        "blockNumber": 314701252,
+        "transactionHash": "0xac72ef9108ff44054878c450a137019e8c780ac41cdf813e756005d3e5d39131",
+        "blockNumber": 315026467,
         "constructorArguments": [
           "0x2c7bd4d7f6307d271e976792f5c40b1e20bfe4128698f932c418dd5906cb850a",
-          "0x443997C4820190A1f269Ba91740ABb2e21Ad1918"
+          "0x2DdA32044026E562849228653FD56Ba7a05eA8F1"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -1661,20 +1722,20 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x39426b403c1d948018a686b052770b5ab7b0b6d978bbee00db8bf14926c57949"
+        "evidenceHash": "0x4e4aa9b7874af962fd962477ab7b0fb8ce1ef1efbd32975da06e7a1b369c2e63"
       },
       {
         "name": "AuctionReceiptAuthority",
         "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/AuctionReceiptAuthority.json",
-        "address": "0x77517c870953f8a1baac172c5069ffeb4b376da3",
-        "runtimeCodeHash": "0x72289a4449c1b35a951a3ea609d1894307c89aa4b9806978ef3ff542f3cdd355",
-        "configurationHash": "0x115ff22647dd07249133d45107581da04160a5af1cb2fbeb5028925999e40243",
+        "address": "0xd371f3acb769b4aee8bfd19b35271f6d2a03fc28",
+        "runtimeCodeHash": "0x06205e84cf425bfdf9b521820e65b7fbe868b3d1d8a983493394ee3348add30b",
+        "configurationHash": "0x461446d3143c8faf569bad1c10e1d0c5f3f60f1a771cb3de65f5ee167a5b5ba0",
         "capabilityHash": "0x0917079ed92d16b077ed3be9a168949aa7a4adb31804a71c98fd0edf7dcb658a",
-        "transactionHash": "0xa3f43d5cf80ec4df5ce5235cdff7e7398241d8e90dd72fe2b70ca17447e2eae8",
-        "blockNumber": 314701262,
+        "transactionHash": "0x325f9f0d616c4492c0bd1385c93a5ff25d92c80277f7b2ea55f4f38c95ad3beb",
+        "blockNumber": 315026480,
         "constructorArguments": [
           "0x412c15e4bf4ceb9c4ec5a552ed535058fd4d2570747cedc11c8754bbab758ff8",
-          "0x61a3553E18CeCeBD6Ee0adf692ed66b86Dd3ECc9"
+          "0xc94D19B9a6FF17795c45239497182FE55b80Dee7"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -1686,20 +1747,20 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x8becf7b4b6d0a04191c0880bf5316d98de889d0d6589bed7fc724e47bcf6f04d"
+        "evidenceHash": "0x523557d27680dea8ee32aaa1f420011e56b569a612e4f28c7d4d06b082dd5263"
       },
       {
         "name": "SolverReceiptAuthority",
         "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/SolverReceiptAuthority.json",
-        "address": "0xcb094c28c730c9c5569357470d6dc17627abe00a",
-        "runtimeCodeHash": "0xfd8f8f7569686d9e5597e33d2a4fde9fbdca0e291122bf26281645c603ab6001",
-        "configurationHash": "0x7641c68e05e465c4dd23a286ee932b1863dd2f29b4db9d5ef018aca8fbfde3bc",
+        "address": "0x472a3b57f8d559ca4358f9b2ac34c96c7e047867",
+        "runtimeCodeHash": "0x70267a358734b4bf11847c606090e89e7b36cac1f8c05d9e9c1e237b76813175",
+        "configurationHash": "0xf76c712e1069b90def34095eb7a668a8201db6706f5c7fc499e9f580e285fc58",
         "capabilityHash": "0x3e6054803acb39b3010d95087212c68de4abe7433ab2c5a24ec0d0d82132292c",
-        "transactionHash": "0xa34399acf16d2f183ef20c5e01fdd5d2bcaff6b6c7cee14226c8873c7790944a",
-        "blockNumber": 314701270,
+        "transactionHash": "0x133554319825c42a5a41e388c746bd814faecd54ae9e822a142db1057f8f0a2d",
+        "blockNumber": 315026493,
         "constructorArguments": [
           "0x4ad59f1a5b054509a7d49401448f372021a1529332dbf9db63d3a89fd98fb62c",
-          "0x61a3553E18CeCeBD6Ee0adf692ed66b86Dd3ECc9"
+          "0xc94D19B9a6FF17795c45239497182FE55b80Dee7"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -1711,20 +1772,20 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x7f4107422af22e0d96e2123d1ee66b8d14a215d56fe1ea5059c239609508d21a"
+        "evidenceHash": "0xb693501694972342a9d4156bd5692cb2d3ad98864cffee3cd1a97c269c60d4d5"
       },
       {
         "name": "FillReceiptAuthority",
         "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/FillReceiptAuthority.json",
-        "address": "0xf93df9541d6fe188d84064eaacad3e6abd26897d",
-        "runtimeCodeHash": "0x4268d87a6f4bc0cd224b37440e9b7d18322c43edb2d5c51a3578b1766df5e1ff",
-        "configurationHash": "0xf64c06e305367c3109335b65a450da586b488781a55ec3820c4c7016b1817ddc",
+        "address": "0x2550f128096bea48e73e359685c3e2e2dfdf2f08",
+        "runtimeCodeHash": "0x60062efa5469b99b4e6499045147b4fbc12054072bd24d7e263293104b7e588f",
+        "configurationHash": "0x76488bca2a4bdb793eb0a4f3a51df404c05fc87f8136347411ba35512b87d9ee",
         "capabilityHash": "0xe83a8fa040f28eea38cef82b2a27e0bedac033b75fbde2fb3007f99cd16060a9",
-        "transactionHash": "0xdc7f594c0f62e64af4e2a6e356da2af788e6c42431962f84c679fc09230f2304",
-        "blockNumber": 314701279,
+        "transactionHash": "0x82c34c7477cb96ebd17c6b7eb5d1b35e468b992671228eac54b0fe477259670d",
+        "blockNumber": 315026507,
         "constructorArguments": [
           "0x678ab88523b748ff300db11d5915041ee802865ea06fdc240bd732c286945537",
-          "0x9bFB6a05eC38d30209c4C7612997E19b3931C8Dc"
+          "0x12681127Db37Ff96FeF81F2685D1c0A3406E16D9"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -1736,20 +1797,20 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x8a7923d75d9d4281afb7722761282aadd3cb799dd05b81f7a6216b8a67c1441d"
+        "evidenceHash": "0xab5c20c138fe742d064dd7501f79354630f608111feed8f9e9a2f1d9b4e11f10"
       },
       {
         "name": "FixingReceiptAuthority",
         "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/FixingReceiptAuthority.json",
-        "address": "0x1d05ad57a6b02179d7684490b18bb6f70450e763",
-        "runtimeCodeHash": "0x415587ad859f85f229d0f770cd1510e22326a08d8dfb84362c75df8518c57758",
-        "configurationHash": "0xef8242cae94b4f47797f4156c74cb8d6c72befd7b71d65ce3f2be00d6ac9bb6a",
+        "address": "0x779c47abb39525091bd87d3f99591062c32b122f",
+        "runtimeCodeHash": "0x19b1cb314b6cb95b5abdde202916f454060f499709af6e8c337263757b79bac8",
+        "configurationHash": "0xf5ce5adfe7af22f0bf8a4031ae431c1b16a51ac5011cf44021d2f937f394cb7d",
         "capabilityHash": "0x57d15b3110c11d392f064b9c5ff38f66aa47ecfe23fe9958922c32e215d4392d",
-        "transactionHash": "0x9f1cd32f273197ee23eb65035b4d0b665b247d91994ce955479ced3346a1b933",
-        "blockNumber": 314701295,
+        "transactionHash": "0xf21ccac0053272776ce99110a106f58d46440294128116271054be823c484502",
+        "blockNumber": 315026521,
         "constructorArguments": [
           "0xd2ccc1291cc7b8c5951dd68f9a1c3bb7005b27e8378ea1fd02919c63b8fbe5ea",
-          "0xA346A91518a487709487A55804F5403209f538B2"
+          "0xccbE3A19fbeBa1396DBF39A5ED13E614a70E8500"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -1761,20 +1822,20 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0xe8d3c419d366b3f0952bdbbcd07b82d8061ba1271368ca46c6301cbe8a13f465"
+        "evidenceHash": "0xc425022c1712d49649a6d7bb556d9243a7b19fa82e796f343d6f8c20ae22effe"
       },
       {
         "name": "SettlementReceiptAuthority",
         "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/SettlementReceiptAuthority.json",
-        "address": "0xe10e6a6dbeab9d41e8964a50dc68178b7c94c74f",
-        "runtimeCodeHash": "0x55828bf45a0c9d79d604e712e82e3b702b6826ae9ebe51531ae8333a80848b17",
-        "configurationHash": "0xca8876d0b4508224db13c3b2ef942bc19ba176ea2a9eafc763327afbac252b7a",
+        "address": "0x7e110557cc204165ca0e51f016ef509e53cac133",
+        "runtimeCodeHash": "0xce6f723e13dd480da33cb8ad68ad4c4a45df480bc80aff426fb24c9f11dd454d",
+        "configurationHash": "0xb2c94ea684c185d5d3e575ddaaf88c666309e6988e836c3fc31c560944e29299",
         "capabilityHash": "0xad246a26a3c85552209e649bfec9642be503ab1bb197914e462ec0e8703e638b",
-        "transactionHash": "0x1faa69e4714a2cc3c20b8d68bba983e77aba088fd4830069e01384ba63d03001",
-        "blockNumber": 314701305,
+        "transactionHash": "0x7f58719e65b49e023941a846362176cd498633e4036abb4e018d2108ad3e135d",
+        "blockNumber": 315026534,
         "constructorArguments": [
           "0x5d930f805264608a023f8464cf58e6378bb16567d2139a618390f081529acd5e",
-          "0x9Fa306922032d5599ECF3EF730D605cf526734c9"
+          "0x821f6464714495e05752B26a024f476a836d27Bd"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -1786,20 +1847,20 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0xd021956a57c881397e53d7454033af388af4d5cda43de8a694d0e9ce9bd15289"
+        "evidenceHash": "0x8a310e4e882a05d54f8e5164d358bf99b1401b02eda3641fc14fd7ab59b18b05"
       },
       {
         "name": "DefaultReceiptAuthority",
         "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/DefaultReceiptAuthority.json",
-        "address": "0xc8e5d319255897618b77ed85b32e5f33d3a9dedb",
-        "runtimeCodeHash": "0x2ac27a2f462b940b87ef82d5d9ef0a2d9147aabe788a377e52a07d516aa6346f",
-        "configurationHash": "0x9b3f2fd3a333a943fb572c080712d8be28832c7804e71da7c0f044af08d4a22e",
+        "address": "0x023a7227674d8cea41143029cf7525714497b964",
+        "runtimeCodeHash": "0x4e8caf1bbf6dec2ebd40cfb5742575dead189372cf5d538cb9cdf54868b7ff71",
+        "configurationHash": "0x8b4ef79368eb4ec24d3a4597380d6ed4585838a81a143c503a09a27fba769695",
         "capabilityHash": "0x9ff7f8fac127f45633a011d4e213c63e0b24b3cca1d436c7629a6af464b4d173",
-        "transactionHash": "0x531f5c4bfedcce5bac95f5da120335c723bb2ab6f65d2eb53784a3afd0191dc7",
-        "blockNumber": 314701320,
+        "transactionHash": "0xee839e130a52ef3f6efad0926cf66e316b835d3bfc871d5c26b953cbd534f147",
+        "blockNumber": 315026548,
         "constructorArguments": [
           "0xbcdd4733b2dd7a776a7fae955b3361c63925457cfa3ea5efadfa90eb37646c19",
-          "0x8Cd10454c49Ac263c5Eb609b4323DcE53B2435d1"
+          "0xEe89A72D9D541c89138B6e811989F3A84F44524a"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -1811,20 +1872,20 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x413ac1dd14a01f3942a9ad4b4954de8449475d37408715eea3a916889e0cad6d"
+        "evidenceHash": "0xded386fef0120b2b4f626294b8358ddbaaa53bf3f20228b56df4bf7c665e2827"
       },
       {
         "name": "RecoveryReceiptAuthority",
         "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/RecoveryReceiptAuthority.json",
-        "address": "0xd0c91966091ebf7134995d9dddcd405025bf818d",
-        "runtimeCodeHash": "0x31342c52b51fd17de6f52404f7d50381cbd3616c97d07ebc86ad700f2d35401f",
-        "configurationHash": "0x0e6e280a35eac594b97b17ee34e8c4f2fee34a3bb5814783189ba8bd892351bc",
+        "address": "0xf08cabc8ca19d68b8719ff5092fa1bde74ac33a1",
+        "runtimeCodeHash": "0xf2532cacc23ef7a17f86411127caab8b2001fcc43ad8d201a917de6306c23067",
+        "configurationHash": "0xbf3370abaabe7253d560bd89f781f49218c4834563072e2e1f72b3ce1802ed74",
         "capabilityHash": "0x1ce7a258cda73ab99fa4b678d41ff39eb62b99d47b619117b786656b9a28b7bd",
-        "transactionHash": "0x604238035f7fbea30917e59868057dc9cbaf42e6bfd4f4993217f08f04da2827",
-        "blockNumber": 314701328,
+        "transactionHash": "0x30b2e3f7874a297503ef2d6d0f7867c45fcd9b65736012f9588279c178b52776",
+        "blockNumber": 315026561,
         "constructorArguments": [
           "0x7c40ae1f20fc9aa26cd28f34f7424b1c415827c6ddd3739595d7885d8ebd0d7e",
-          "0x937F0cC306C76735D073dA0D93eEEBb393111d4F"
+          "0x779AfE6fd93932fDb10b164bfAaAF13DAbFB851A"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -1836,20 +1897,20 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x0f4803fd0898d6dbc45865e235ce6184a9769821373b272d8e2ff542321d6930"
+        "evidenceHash": "0x8c54f03902fa23a1f5ab85f9abff8b63c3fe1f4cbf378963ff018df9996d8c00"
       },
       {
         "name": "LifecycleReceiptAuthority",
         "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/LifecycleReceiptAuthority.json",
-        "address": "0x31b0e2a1cac87d68c370aecb84b4f541fc6b06b0",
-        "runtimeCodeHash": "0x1401a90d9cf83ff734a45b196ec9abfffd1378a7a5e43fe75c13ec3c9ae68878",
-        "configurationHash": "0xec4575ceebe8781b52da9733513475958101e309a93a16e9de1b5b33c730cab1",
+        "address": "0x6a181ac02af1e181f36a93c91c16eb335fc27022",
+        "runtimeCodeHash": "0x13885f562f6e14dc2a53f9dc8bad8e588d7fa1bc3af18e0751e7172d37ef3279",
+        "configurationHash": "0x26b9b5603a1a2ef9a6524f61924ced8edc773fb4f036bd1db90899f77b30c057",
         "capabilityHash": "0xa787c5d596cf97ba56999d66a97c91c7d5a01acaa7bace28dba74a6e7fa94b64",
-        "transactionHash": "0x56b2779e8797d5ac4ef1bde94547f230503bf6d58f09ff04172747c41b30deab",
-        "blockNumber": 314701343,
+        "transactionHash": "0x685d8587e84ae286b68879f42c50bcd43acfa222659ac2ac420570786140fe74",
+        "blockNumber": 315026575,
         "constructorArguments": [
           "0x59ee230f294fb03d4ccbcbfa14cb4d05774cd7e6860121fbfaefed0c94d9c3e8",
-          "0x676987e31b0e37a911Ad5C7D3D5E0215EDa5f58d"
+          "0x02db309b2a52AE618bb24702d8be719b9E6fBf3D"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -1861,20 +1922,20 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x9210905d4f32e70af32705fe6b49d2565b945ed2181c95196a9c3d3fdea8233a"
+        "evidenceHash": "0x9055550b7295a2629702efa2f18acf3ea359b28f6c6b49af960b109278eb1983"
       },
       {
         "name": "StreamReceiptAuthority",
         "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/StreamReceiptAuthority.json",
-        "address": "0xc12ea82f55da09be593f79b37b9e67e3f954bfae",
-        "runtimeCodeHash": "0x9d11094d8c85da97f04ed835200be508b79132ac23c22f7b2ceafe0e62710ff1",
-        "configurationHash": "0x2b4587befc7de5b0a7c05bde3251ff1806b7da8e3716d87e3b1a946d7b8526f9",
+        "address": "0x12fa19b9994e18231b5127d48e044674ef1e29c1",
+        "runtimeCodeHash": "0x26d6d425c7c046c722d7c35547e4a05caa260436bf6fde1d5e67a98e61a81642",
+        "configurationHash": "0x3f9dd59b76cb80666f2ade26bf696cc0f94c7f04cfe590551fb931daf39f1bf2",
         "capabilityHash": "0x6651ca92d9a9acad8f2ba70373aa2b8c218392b695a9713934d77a880da14ea2",
-        "transactionHash": "0xc679e08795808d7ff2cccb8bbb7c0c8f010d15035d3079f29e98dbc37fc6f92d",
-        "blockNumber": 314701352,
+        "transactionHash": "0x8a11c80ad1979e56628f63738db3e2029ac2aef79d1cea6f29a88e268999e169",
+        "blockNumber": 315026589,
         "constructorArguments": [
           "0xd96550ec0fba45a214fbf471a6ccc89cade0bde7d0e4d49ab2868d743201b754",
-          "0xbac8b83c649c1Aa0680F85A97263776861a15Eb6"
+          "0x1903E9Eed3f2ae3617349ffB3B8799C9d0EFb536"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -1886,20 +1947,20 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x87502810acec5bd3ecdfb2f0587d7f4ae634b57109ba57c3142b16a92fba16a6"
+        "evidenceHash": "0x16df086fa8f917ab2349a8c6d49a781a5106b2d6f885e2de09e756d0a4c4ed75"
       },
       {
         "name": "RouteReceiptAuthority",
         "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/RouteReceiptAuthority.json",
-        "address": "0x88770d9f46728c3ea080569e7f9f056297e0747d",
-        "runtimeCodeHash": "0x0028249c0d4a4d738e2e5dbd3d0314f9421b29550c96cef4f6464e3981842f1e",
-        "configurationHash": "0x6a44ac60d056c9e3c87feec0156ec253c10b5d141e6a8a5ffc61456631170ecc",
+        "address": "0xfd3d464dbf461a5c19bed0eff306c7062c8d049b",
+        "runtimeCodeHash": "0x998f407333bfd697ac95f807e360542e061719bfcf8e19d47596bb9679cedeba",
+        "configurationHash": "0x7847cf18892831bc225b8b133de61aa4483add4ce694cb1134f6d34ba16a6a9b",
         "capabilityHash": "0xe46d607867284bf4b2c0a0dbb8b9c8159dd7ab1fecddce91856c0946dccb9e68",
-        "transactionHash": "0x50b440007899ce94cdd146b50372adcf5ec7c88967a74c5777bffebd292060bf",
-        "blockNumber": 314701367,
+        "transactionHash": "0x400128910d32d7b08d0d0ce5d395744e9263883c8d0b65db48229f263daf5263",
+        "blockNumber": 315026603,
         "constructorArguments": [
           "0x68a650b1f6eeec3d670d2a7f21a6228159dd3f6d6260fb209a68758d25a68b2a",
-          "0x1533519d407103DbB67560a4Ca65Ffec818c0bFd"
+          "0x0f66384A8BC3Cf86a2Ace148bA56dbF66457135c"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -1911,20 +1972,20 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0xfede3334383cb59c65f17c0eccc71111edd88fa39612e0533631c715b1c7670f"
+        "evidenceHash": "0x656d61502319cf1141e9fb4f727f4bca6397b71d60ab1938131045b933506d2d"
       },
       {
         "name": "PositionReceiptAuthority",
         "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/PositionReceiptAuthority.json",
-        "address": "0xf919b686c98e84f7098ba5bbb6ead17bee5a5e8e",
-        "runtimeCodeHash": "0x24cb2d6dfedf274fdc163105f6e15e56a1ebd868f0b02ca02422d4fd3930cde2",
-        "configurationHash": "0xd0b2aaeef3ea8954ccf67cc73142ecaede6bf41731bef61e9142abfeea760458",
+        "address": "0x94b97a0c6bc5da153b7e20740518a9fba7991ac2",
+        "runtimeCodeHash": "0xf204e7aea3ab8193901e809f2275a50ca3c3f84453133619243c3ba6007bac86",
+        "configurationHash": "0x1fc67b9f123d2ef5b8cf5d3edd5093c55436c84e99209e27362d12419f9a2fab",
         "capabilityHash": "0x61f24a034ac467ad19d8d58f3d228f26afdf729bc8e74232f6aab587395230bc",
-        "transactionHash": "0x30c843e22b6a786189f33239a994d2e31b8517c798924272b49c7a050b42a3fb",
-        "blockNumber": 314701382,
+        "transactionHash": "0x2ded9cc879fd2e4d941b3f779b050771f031449ddd3fe0224564fab179e3c43f",
+        "blockNumber": 315026618,
         "constructorArguments": [
           "0xfd54e0063203dc582b84a92e3b07962eb75d9843d8f3732a910115e5a8772955",
-          "0x2F8636Fabcdee2879B7217fA894861bC51F0eAC9"
+          "0x4E80Cc89555efde78436FEAf24f8D6c33c11E5b5"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -1936,20 +1997,20 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0xf66f3a791322fced3085a8bef3ced82605f44d3a4c41d70d5f9ef15ed94c1c8d"
+        "evidenceHash": "0x345a1ab4f14c8ed7f8594489bc0dba3ceb1dd4eae42aff83c0b4ed63c1e71e47"
       },
       {
         "name": "FeeReceiptAuthority",
         "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/FeeReceiptAuthority.json",
-        "address": "0x2d871b13296ec52f17ff03b97d86bdd8a755dca4",
-        "runtimeCodeHash": "0x6608324ef0b64a287e4be33ed19ce5495fec5e3fc7f9cea08d2def9dd83fbc51",
-        "configurationHash": "0x7543248ee8e2b88d88607eec1cea17a5f419b8757929caeab16b6f6e920dd47d",
+        "address": "0x003ef230967fc87755dcbe1a1ad18090061efc7a",
+        "runtimeCodeHash": "0x354ccbeb36bd75ae3dd23f25df2d4c6e34b5f1350dc2db170af8d35e8fa5c532",
+        "configurationHash": "0x9589dfb99f292b179b3a62edddf67721ae2da9447e0b6ec27768a6ccc77469b6",
         "capabilityHash": "0xb6a09222a96251128d30193ef83b0e0cd2c1e52b99a48bd4d00ae6a4c660a937",
-        "transactionHash": "0xacf7a1607a7b40ffad54d2e4dfa1d15f74002beef6bec2083be47105dfa3f11e",
-        "blockNumber": 314701389,
+        "transactionHash": "0x4930d71abded4eeaabf8cb338b6861291eff4427dea4957325dcda3694f4f9ea",
+        "blockNumber": 315026632,
         "constructorArguments": [
           "0x4f6ad64a3620e3b018ae7fe14b1b476cfdc64ddd2dd7cc95547a431ce4d721ca",
-          "0x4BE64b29DDF2b09fB58372eDd9257D327A386460"
+          "0x1D3C3cd7F71De4d51461A252BAd0f97c6d516EBe"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -1961,20 +2022,20 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x54141aad90f99d1bbeffc7ea618d496d50d9316ca02e78d53bf9ef093eb66c85"
+        "evidenceHash": "0x138917b743c13605586b0ea8cd284f917e5f2ae1d04514ab09723e0c469af0ab"
       },
       {
         "name": "RiskReceiptAuthority",
         "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/RiskReceiptAuthority.json",
-        "address": "0xc7b4a0f4e2e4a97ad64fdc08bd0e9a29dd3238e7",
-        "runtimeCodeHash": "0x575cd5c13806e91272b0eeeba661bca6f7edacee40f66b2afd03be1966057956",
-        "configurationHash": "0x56eddbf09db41c4be7f21b676c9b30c8bf4e6e7354a5fb6805d469610a49c0f1",
+        "address": "0x2002609f7dd0c8425f5aa6d3e93101037476be53",
+        "runtimeCodeHash": "0x5b48f9406834ef01cce64252d684fade5a2147ab996a9623d0b901f3d2c32d68",
+        "configurationHash": "0xd990f16d9931a1c1c943755f96f266f8f2af5dc5fbd860243afeb71be607c0d3",
         "capabilityHash": "0x80ccc15925f536d52241248e448d51ef2a20723c96eb326f2b413ca92cf52896",
-        "transactionHash": "0xf3ed7a81edaa5652f94ab943b320333a80ca18fb4f312c479564e22f41f352d8",
-        "blockNumber": 314701398,
+        "transactionHash": "0x6d974fbae7d47e7221d55e56da8b0f838306f535b97121f7d72f204762d22f6a",
+        "blockNumber": 315026645,
         "constructorArguments": [
           "0x7458e083ea85b4d675694dd6aa187c8f8338f36f7256979efdad65784ae93da7",
-          "0x56bF9C8A9D3525E6c6e37DD984f106eCDF869185"
+          "0xc106c9ceB3A7A6D96279e9433Bb59A45c807E1CD"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -1986,20 +2047,20 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x6aa9f19c1e55d840d2fb1caa8fa1285ecd0381847e1e404e7f3a3af76ae458e4"
+        "evidenceHash": "0xf80f570155354096d9a2491c7ef1f348a87c0e1fb643c88f24f7542ffb554dd9"
       },
       {
         "name": "PrivacyReceiptAuthority",
         "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/PrivacyReceiptAuthority.json",
-        "address": "0x0b45496b7114d9473f9a0ab252f08b954be11e81",
-        "runtimeCodeHash": "0xf8a0cd3ab26ab852b34584e6e922ade51c9b6cc558743ccc4ad864a552b5bc97",
-        "configurationHash": "0x5d5e7a90e8293d5cde8dd50dc6e21ee3f3bf2a00e82ede8fd045c4c9fce467d3",
+        "address": "0xbe1dc7fca5389763008ccd40131db5dee95b5c47",
+        "runtimeCodeHash": "0xc9c99b2ad24665ff1c99b8a5a1ff04369aa9e8bf342b6c66a055d5bf93fa89c8",
+        "configurationHash": "0xc1560c3558f9b45fdd16cbb13df2e13791cc5dd78eba102402366b3736984e03",
         "capabilityHash": "0x53e5ee09213f511c52d903b018e25af4f88f0ba596558952eb305ae83216e585",
-        "transactionHash": "0x2787d2c34b4c722af98de19c6f5d4761b8ac0d438b10b4e868d104602417c76b",
-        "blockNumber": 314701413,
+        "transactionHash": "0x0e835414f4136bf33e06bb278613cbb178ae38b0028a3be6debe146b47a39593",
+        "blockNumber": 315026659,
         "constructorArguments": [
           "0xcb8b02233423bc0e2325f9297ab53cbd8ca277322371693e6b0d1a3753b869f8",
-          "0xC35C6081cEC848CF991E7cb13143d60035693b8b"
+          "0xC69977a314Acc13950c8c42d3CAd26968952d108"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -2011,20 +2072,20 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x31ce50cdea685c300d4855d788381b9fd79c4c56dfd4a5a09dc1864c95e889d8"
+        "evidenceHash": "0x5551ebcab8cf556299734ddd970f95385bdc75c1b59bb3c068c2ec95074e4b45"
       },
       {
         "name": "AsyncReceiptAuthority",
         "artifact": "contracts/out/ProtocolReceiptAuthorities.sol/AsyncReceiptAuthority.json",
-        "address": "0x93b6c025f75e7e667282a52688708a195df03b08",
-        "runtimeCodeHash": "0x445ca0782c3ea88e39383f78251f9fee85e0e74326774fed417b21f0c24fd2f8",
-        "configurationHash": "0xc812b07e2d4088784be48efeb3d7dae84cdb0bfdef5ce3c31298610f3bb8a390",
+        "address": "0xcb6f3f79d11aa23faaf8b90a5d58d83006c51a2e",
+        "runtimeCodeHash": "0xb67383acfa748295372f72bc2baf8cf2d9af9a2535c11cdc71727895b4b0a62b",
+        "configurationHash": "0x0772adf99edd287ef36cfd7e260fdc577287998899bbf705d4c4d6b3c3605544",
         "capabilityHash": "0x162a5e71df05aed6833727a39b56318d4e7b65c53704bcd3ae5dd6cb5e3172f8",
-        "transactionHash": "0xb214b93d720fb23465ea3402c70ded35fc0e92cba6154625b7e4055162b857de",
-        "blockNumber": 314701422,
+        "transactionHash": "0xb1c28b8475f560c5c6c483aa58cf21f8bf33f7d50fafe52c47234a7c400480ea",
+        "blockNumber": 315026665,
         "constructorArguments": [
           "0x22f3e2174dcafb2bfb4ba3a45ab55ff4baf756a4013ea5a43e8ac1af1f090122",
-          "0x937F0cC306C76735D073dA0D93eEEBb393111d4F"
+          "0x779AfE6fd93932fDb10b164bfAaAF13DAbFB851A"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -2036,20 +2097,20 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x65b9f694eabe0fd6c473b61679e7cf35ecc1b46095399543c0bb56efea27459e"
+        "evidenceHash": "0x575fab73da7a85082e52e368e503f9807b63285622391007555d8af2022f7848"
       },
       {
         "name": "VerifiableReceiptLedger",
         "artifact": "contracts/out/VerifiableReceiptLedger.sol/VerifiableReceiptLedger.json",
-        "address": "0xbbf51c613b1540c1a85ad773e179b618c6066500",
-        "runtimeCodeHash": "0x3da79ad99c1d63e4ee2225ef4e8c74e4d34c9b830da4fdb7fd9fc1eaa02d1dfc",
-        "configurationHash": "0xdcbd9d5d4e8228ccf201918ae3beb51ee28b68537f9acb9d1af82df1ec826bb4",
+        "address": "0xb548f0ab66470ddc442a3664e4dcc25170e06d69",
+        "runtimeCodeHash": "0xc762200a4dc359bccbec29e19c893752c487993498b24140d62ac956b5c335da",
+        "configurationHash": "0x5984f688fdce3c74636c5f2673b3d14df8e72e7a05b8e3c2c3f7241ed0795b34",
         "capabilityHash": "0x62def675b7df5dda375ded2b4b35084ddd46e84c6375cefd0d50b816649d4bc6",
-        "transactionHash": "0xb685a7a5e3cd87fec90e8742d19af9238b72bb368f8f60a4b0654e3fa11c55b9",
-        "blockNumber": 314701439,
+        "transactionHash": "0xb0869854ad9fb802429dadb010c2d374a65b2e1df4f2f641a4667a5419a08e9e",
+        "blockNumber": 315026680,
         "constructorArguments": [
-          "[(0x019829796bb19ac206f250140a53f6f6d17a8eb019b77b6590deab2c68da8dd9, 0x2d2C02E4C1A3FC5b6954c770185aacb1ec0D97E7, 0x5dfe35c250eb24c98d03089229763ef66c215ee495f7ed882d3c5cba783eb0a5), (0x22f3e2174dcafb2bfb4ba3a45ab55ff4baf756a4013ea5a43e8ac1af1f090122, 0x93b6c025f75e7e667282a52688708A195df03b08, 0x5dfe35c250eb24c98d03089229763ef66c215ee495f7ed882d3c5cba783eb0a5), (0x2c7bd4d7f6307d271e976792f5c40b1e20bfe4128698f932c418dd5906cb850a, 0x32197445A1f6125bD758dE3F35a7964c48f14e39, 0x5dfe35c250eb24c98d03089229763ef66c215ee495f7ed882d3c5cba783eb0a5), (0x412c15e4bf4ceb9c4ec5a552ed535058fd4d2570747cedc11c8754bbab758ff8, 0x77517C870953f8A1bAaC172C5069FFEb4b376DA3, 0x5dfe35c250eb24c98d03089229763ef66c215ee495f7ed882d3c5cba783eb0a5), (0x4ad59f1a5b054509a7d49401448f372021a1529332dbf9db63d3a89fd98fb62c, 0xcb094C28c730c9c5569357470D6Dc17627aBE00a, 0x5dfe35c250eb24c98d03089229763ef66c215ee495f7ed882d3c5cba783eb0a5), (0x4f6ad64a3620e3b018ae7fe14b1b476cfdc64ddd2dd7cc95547a431ce4d721ca, 0x2D871b13296Ec52f17ff03b97d86BDD8A755DCa4, 0x5dfe35c250eb24c98d03089229763ef66c215ee495f7ed882d3c5cba783eb0a5), (0x59ee230f294fb03d4ccbcbfa14cb4d05774cd7e6860121fbfaefed0c94d9c3e8, 0x31b0E2A1caC87d68c370aEcb84B4f541fC6B06b0, 0x5dfe35c250eb24c98d03089229763ef66c215ee495f7ed882d3c5cba783eb0a5), (0x5d930f805264608a023f8464cf58e6378bb16567d2139a618390f081529acd5e, 0xE10e6A6DbeAB9D41e8964A50dC68178B7C94C74F, 0x5dfe35c250eb24c98d03089229763ef66c215ee495f7ed882d3c5cba783eb0a5), (0x678ab88523b748ff300db11d5915041ee802865ea06fdc240bd732c286945537, 0xf93df9541D6fE188d84064eaACAD3e6aBd26897d, 0x5dfe35c250eb24c98d03089229763ef66c215ee495f7ed882d3c5cba783eb0a5), (0x68a650b1f6eeec3d670d2a7f21a6228159dd3f6d6260fb209a68758d25a68b2a, 0x88770d9f46728C3eA080569e7f9f056297E0747D, 0x5dfe35c250eb24c98d03089229763ef66c215ee495f7ed882d3c5cba783eb0a5), (0x7458e083ea85b4d675694dd6aa187c8f8338f36f7256979efdad65784ae93da7, 0xC7B4a0f4E2E4A97Ad64fdC08BD0e9a29dd3238e7, 0x5dfe35c250eb24c98d03089229763ef66c215ee495f7ed882d3c5cba783eb0a5), (0x7c40ae1f20fc9aa26cd28f34f7424b1c415827c6ddd3739595d7885d8ebd0d7e, 0xd0c91966091EbF7134995d9ddDcd405025Bf818d, 0x5dfe35c250eb24c98d03089229763ef66c215ee495f7ed882d3c5cba783eb0a5), (0xbcdd4733b2dd7a776a7fae955b3361c63925457cfa3ea5efadfa90eb37646c19, 0xC8e5d319255897618B77Ed85b32e5F33d3A9DEDb, 0x5dfe35c250eb24c98d03089229763ef66c215ee495f7ed882d3c5cba783eb0a5), (0xcb8b02233423bc0e2325f9297ab53cbd8ca277322371693e6b0d1a3753b869f8, 0x0B45496B7114d9473f9A0Ab252F08B954bE11E81, 0x5dfe35c250eb24c98d03089229763ef66c215ee495f7ed882d3c5cba783eb0a5), (0xd2ccc1291cc7b8c5951dd68f9a1c3bb7005b27e8378ea1fd02919c63b8fbe5ea, 0x1d05ad57a6b02179D7684490b18Bb6F70450E763, 0x5dfe35c250eb24c98d03089229763ef66c215ee495f7ed882d3c5cba783eb0a5), (0xd96550ec0fba45a214fbf471a6ccc89cade0bde7d0e4d49ab2868d743201b754, 0xC12ea82F55DA09bE593f79b37B9E67e3f954BFaE, 0x5dfe35c250eb24c98d03089229763ef66c215ee495f7ed882d3c5cba783eb0a5), (0xfa0a141cc8fd4f76eb53c5c81d398fb32235359f384856ec3e18a25b7de13956, 0xf6504636C31f22f486a0F6f336e8B0b2Eed6e2c3, 0x5dfe35c250eb24c98d03089229763ef66c215ee495f7ed882d3c5cba783eb0a5), (0xfd54e0063203dc582b84a92e3b07962eb75d9843d8f3732a910115e5a8772955, 0xF919b686c98e84F7098Ba5BBB6eaD17bEe5a5e8E, 0x5dfe35c250eb24c98d03089229763ef66c215ee495f7ed882d3c5cba783eb0a5)]",
-          "0xC35C6081cEC848CF991E7cb13143d60035693b8b"
+          "[(0x019829796bb19ac206f250140a53f6f6d17a8eb019b77b6590deab2c68da8dd9, 0x5dA97fE42745a252FF0A850F3A9E9eab73A16C61, 0x7da21ffdaca28aa29792894fe509ace6747572895235d16e7e3d0f95f8a53991), (0x22f3e2174dcafb2bfb4ba3a45ab55ff4baf756a4013ea5a43e8ac1af1f090122, 0xcB6F3f79d11Aa23fAaF8B90A5D58d83006c51a2e, 0x7da21ffdaca28aa29792894fe509ace6747572895235d16e7e3d0f95f8a53991), (0x2c7bd4d7f6307d271e976792f5c40b1e20bfe4128698f932c418dd5906cb850a, 0x358A5e37F0E0f4eE6DCB5Db620fA72a6EF0CC711, 0x7da21ffdaca28aa29792894fe509ace6747572895235d16e7e3d0f95f8a53991), (0x412c15e4bf4ceb9c4ec5a552ed535058fd4d2570747cedc11c8754bbab758ff8, 0xd371f3aCB769B4Aee8bfd19b35271f6d2A03FC28, 0x7da21ffdaca28aa29792894fe509ace6747572895235d16e7e3d0f95f8a53991), (0x4ad59f1a5b054509a7d49401448f372021a1529332dbf9db63d3a89fd98fb62c, 0x472A3B57F8D559cA4358F9b2AC34C96c7e047867, 0x7da21ffdaca28aa29792894fe509ace6747572895235d16e7e3d0f95f8a53991), (0x4f6ad64a3620e3b018ae7fe14b1b476cfdc64ddd2dd7cc95547a431ce4d721ca, 0x003eF230967fC87755dcbe1a1ad18090061EFC7A, 0x7da21ffdaca28aa29792894fe509ace6747572895235d16e7e3d0f95f8a53991), (0x59ee230f294fb03d4ccbcbfa14cb4d05774cd7e6860121fbfaefed0c94d9c3e8, 0x6a181aC02AF1E181f36A93c91C16Eb335Fc27022, 0x7da21ffdaca28aa29792894fe509ace6747572895235d16e7e3d0f95f8a53991), (0x5d930f805264608a023f8464cf58e6378bb16567d2139a618390f081529acd5e, 0x7E110557cc204165CA0E51F016EF509E53CaC133, 0x7da21ffdaca28aa29792894fe509ace6747572895235d16e7e3d0f95f8a53991), (0x678ab88523b748ff300db11d5915041ee802865ea06fdc240bd732c286945537, 0x2550f128096bEa48E73E359685C3E2E2dfDf2F08, 0x7da21ffdaca28aa29792894fe509ace6747572895235d16e7e3d0f95f8a53991), (0x68a650b1f6eeec3d670d2a7f21a6228159dd3f6d6260fb209a68758d25a68b2a, 0xFD3D464dbf461a5C19Bed0efF306C7062C8d049b, 0x7da21ffdaca28aa29792894fe509ace6747572895235d16e7e3d0f95f8a53991), (0x7458e083ea85b4d675694dd6aa187c8f8338f36f7256979efdad65784ae93da7, 0x2002609f7Dd0c8425f5aa6d3E93101037476bE53, 0x7da21ffdaca28aa29792894fe509ace6747572895235d16e7e3d0f95f8a53991), (0x7c40ae1f20fc9aa26cd28f34f7424b1c415827c6ddd3739595d7885d8ebd0d7e, 0xf08cAbC8Ca19d68b8719Ff5092Fa1bDE74aC33a1, 0x7da21ffdaca28aa29792894fe509ace6747572895235d16e7e3d0f95f8a53991), (0xbcdd4733b2dd7a776a7fae955b3361c63925457cfa3ea5efadfa90eb37646c19, 0x023a7227674d8cEa41143029Cf7525714497b964, 0x7da21ffdaca28aa29792894fe509ace6747572895235d16e7e3d0f95f8a53991), (0xcb8b02233423bc0e2325f9297ab53cbd8ca277322371693e6b0d1a3753b869f8, 0xbE1DC7FcA5389763008cCd40131db5DeE95B5c47, 0x7da21ffdaca28aa29792894fe509ace6747572895235d16e7e3d0f95f8a53991), (0xd2ccc1291cc7b8c5951dd68f9a1c3bb7005b27e8378ea1fd02919c63b8fbe5ea, 0x779C47abb39525091bD87d3F99591062C32B122F, 0x7da21ffdaca28aa29792894fe509ace6747572895235d16e7e3d0f95f8a53991), (0xd96550ec0fba45a214fbf471a6ccc89cade0bde7d0e4d49ab2868d743201b754, 0x12fA19B9994E18231b5127D48E044674eF1E29c1, 0x7da21ffdaca28aa29792894fe509ace6747572895235d16e7e3d0f95f8a53991), (0xfa0a141cc8fd4f76eb53c5c81d398fb32235359f384856ec3e18a25b7de13956, 0x5A24A79E2B48f966EC55cA56D342792e5d4A8538, 0x7da21ffdaca28aa29792894fe509ace6747572895235d16e7e3d0f95f8a53991), (0xfd54e0063203dc582b84a92e3b07962eb75d9843d8f3732a910115e5a8772955, 0x94B97A0c6Bc5dA153b7e20740518a9fBA7991aC2, 0x7da21ffdaca28aa29792894fe509ace6747572895235d16e7e3d0f95f8a53991)]",
+          "0xC69977a314Acc13950c8c42d3CAd26968952d108"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -2082,21 +2143,21 @@
         ],
         "disabled": [],
         "activation": "qualified",
-        "evidenceHash": "0x68f24da3d9fa934a1b3b672a16857199f0518a2967c552c97507472acc73372b"
+        "evidenceHash": "0xdf5737e0a776ff285b6abef7e040af1e32b464c53fc22ccf1b1fca30279e290c"
       },
       {
         "name": "RegistryStatusController",
         "artifact": "contracts/out/RegistryStatusController.sol/RegistryStatusController.json",
-        "address": "0xaa5f8710ede1aef24683a13a2645957763a93dff",
+        "address": "0x0ac69f0a8521b4fd1742fa82061f5053c7d16878",
         "runtimeCodeHash": "0xb661af8cd070a8a61a998b5f91d7a1ff4a0a1e08ff086ae704516701c2744b76",
-        "configurationHash": "0xfbe0b7ac8c4b467aeff216ac721bfad8eb811ef4122db9bcb82c242b142d3010",
+        "configurationHash": "0x92ca8e529f0a7c9fd8ffda2a58feae03ee57896f95821bbb9009e5dd7d754b06",
         "capabilityHash": "0x583fb8c4f1c4b81c3c10e3e6eb58d7e138aa992ca51c73793afb88ef9558e4e0",
-        "transactionHash": "0x1cc196f7cee3cffb1558683045272e3f195e56c2c47ee993377cd01a96459a44",
-        "blockNumber": 314701446,
+        "transactionHash": "0x4099d69a4a5eff16fbc3228f9746713feb47f40e5aa5cda7ac3e23abec5b21cf",
+        "blockNumber": 315026694,
         "constructorArguments": [
           "0x7459B4F04c8A3619C84A9D39271d489f0B17E8Da",
           "0x631159C9AC58959577b9ce073B98Da24b7E80eF7",
-          "[(1, 0x995fe8a8A5cFf1E47a082B23e3f2BD38Fe42D71C), (2, 0x8e3927617b2787A7cA419c68C20735f0DA9050a0), (3, 0x0524aa3adb115c9D8845046D1977C82C10F2a73d), (4, 0x967686C35139D27A5b02f59CAe8d485F78400e2A), (5, 0x5758cBa50F8Ad0Ad62841F392B80DC008Ce08a06), (6, 0xd5490d549341369Cb24103D8D8f6331E81122857), (7, 0x6eBC600CaA027E546Bb2B1D9B0F4F47f543B091e), (8, 0x674E76ADF9159E23fa2FF50cAC8708be2b75747D), (9, 0x04Ad98c1C001C5b270d1Dc45e240Cd38BF8Ab23F), (10, 0x7d0446DaE6784BeD320B57D632ed3303a48C5535), (11, 0x23AaF326F53c38CC10a522257cF89746Ca915e0e), (12, 0x5e08CEd8e3b901B6A46e1488b7a7F52576ceb411), (13, 0xC35C6081cEC848CF991E7cb13143d60035693b8b)]"
+          "[(1, 0x3dFAAC6087017430BADf369dc3a5fc305e387740), (2, 0xE1c141586149b73290DB13abdD203D7A4E384b41), (3, 0x36d8aeD2b88FC5621f053e316e72e24801aDf75B), (4, 0xa9670a116406556411B0c67dB7e32C7c00A97D15), (5, 0x0e6f51A99C501dec7c0b14f9480d140e870788Cb), (6, 0x375769c3E70A3958C85A17F64e4C70E0ADA4945a), (7, 0x02de354ee8d5D7CC9A29Ad32abd6365B22eB4365), (8, 0xCA5253257AD4d8B5873A11D4fAE2Ab8A12009445), (9, 0xD24282203B467d42d94620C267b8c4128fD2D3A1), (10, 0xB868c249eB66c279D087F2fcae79F57a2Ef1379d), (11, 0xDC9563eAE3Aa03e8Dd93DbCf46f3E4e636b865Fa), (12, 0x73D6c995D2150687D3D57056544Ea49d8241AdF5), (13, 0xC69977a314Acc13950c8c42d3CAd26968952d108)]"
         ],
         "linkedLibraries": [],
         "dependencies": [
@@ -2127,7 +2188,7 @@
           "guardian-activation"
         ],
         "activation": "qualified",
-        "evidenceHash": "0xc943526912bc6ddce2bbeaf748f72ce94f44018829653b5ac3d10355aff99519"
+        "evidenceHash": "0x520344a3ee0f9ddfd1b4eae80615a6d61976e1de043db664de448687ca5c199e"
       }
     ],
     "bootstrapAuthority": {
@@ -2162,13 +2223,13 @@
     },
     "qualificationEvidence": {
       "constructorDependencies": "../phase2-contract-inventory.json#/contracts/*/dependencies",
-      "configurationHash": "0x178a3cbef4f9895ff63772373e701be3385393e88d3ec07023583737816f0554",
-      "capabilityHash": "0xa09d181c011f399c9095b87774c6d2c2158f364dd957b0f7c8771f442b38d8db",
+      "configurationHash": "0xb56d1cfbff0df46be704817d020028e80c2f22b75f3379391f67e7ca8186ca0f",
+      "capabilityHash": "0xbe0408947162227653dec41c70759ecdf626623e5a9a226fdccedc5d4cde9c1c",
       "roleAssignments": "../phase2-contract-inventory.json#/contracts/*/roleAuthority",
       "activation": "qualified",
       "supportedCapabilities": "../phase2-contract-inventory.json#/contracts/*/supported",
       "disabledCapabilities": "../phase2-contract-inventory.json#/contracts/*/disabled",
-      "postWiringEvidenceHash": "0xfd7137092197ac9b952ff981d7b7a7436ed95bc0a7f7b26e2be7227acb906d84",
+      "postWiringEvidenceHash": "0x0fc086f5e7f87e312f7a41a90f13999343ae0b1ac7e0218357bbe2ab30ad9971",
       "bootstrapRolesRevoked": true,
       "adminTransfersBegun": true
     },
@@ -2179,7 +2240,7 @@
     {
       "name": "AssetRegistry",
       "artifact": "contracts/out/AssetRegistry.sol/AssetRegistry.json",
-      "address": "0x995fe8a8a5cff1e47a082b23e3f2bd38fe42d71c",
+      "address": "0x3dfaac6087017430badf369dc3a5fc305e387740",
       "implementation": null,
       "constructorArguments": [
         {
@@ -2198,8 +2259,8 @@
         "runtimeCodeHash": "0x8383b4abcb920331d7eb11ad6cf91d5c24288e911b3626fa88274ced63a9eb0b"
       },
       "deploymentTransaction": {
-        "hash": "0x47ce13aabe881c798659ac796f33b8b8fa8bea01a97216e6fec6148134854293",
-        "blockNumber": 314700334,
+        "hash": "0xdde8e8ea34cc9a9e2b64dda417a451ec9c45f24c79a2c69092b2269bcd1bd107",
+        "blockNumber": 315025571,
         "broadcast": true
       },
       "owner": {
@@ -2222,7 +2283,7 @@
           "id": "0x26cbe3408315b5c5c670bdfc25e49f6fc01f2537366048a7f3bbd2bf508effb4",
           "members": [
             {
-              "address": "0xaa5f8710ede1aef24683a13a2645957763a93dff",
+              "address": "0x0ac69f0a8521b4fd1742fa82061f5053c7d16878",
               "source": "$contracts.RegistryStatusController.address"
             }
           ]
@@ -2234,7 +2295,7 @@
     {
       "name": "AdapterRegistry",
       "artifact": "contracts/out/AdapterRegistry.sol/AdapterRegistry.json",
-      "address": "0x8e3927617b2787a7ca419c68c20735f0da9050a0",
+      "address": "0xe1c141586149b73290db13abdd203d7a4e384b41",
       "implementation": null,
       "constructorArguments": [
         {
@@ -2253,8 +2314,8 @@
         "runtimeCodeHash": "0x204493c89874ad5c35d0de050505ff496206d6c1c91bbd7122be811d6f6fa025"
       },
       "deploymentTransaction": {
-        "hash": "0x1b145094455dbdec0f2f56cb930cc6ff3697d84393279856430ec79dbb1bc34e",
-        "blockNumber": 314700350,
+        "hash": "0x1a2a2f7ebc85d3e99135186eff16c52d20ffc1c8a524fe0b270b37d5eafeb823",
+        "blockNumber": 315025583,
         "broadcast": true
       },
       "owner": {
@@ -2277,7 +2338,7 @@
           "id": "0xb9587c24a37da0ae08e71cca64d8f45ee0a7d9bb53d56ef15069283ed5612b39",
           "members": [
             {
-              "address": "0xaa5f8710ede1aef24683a13a2645957763a93dff",
+              "address": "0x0ac69f0a8521b4fd1742fa82061f5053c7d16878",
               "source": "$contracts.RegistryStatusController.address"
             }
           ]
@@ -2289,7 +2350,7 @@
     {
       "name": "CalendarRegistry",
       "artifact": "contracts/out/CalendarRegistry.sol/CalendarRegistry.json",
-      "address": "0x0524aa3adb115c9d8845046d1977c82c10f2a73d",
+      "address": "0x36d8aed2b88fc5621f053e316e72e24801adf75b",
       "implementation": null,
       "constructorArguments": [
         {
@@ -2308,8 +2369,8 @@
         "runtimeCodeHash": "0xc3aa5c03cfdfd7dbf7dd80e7a16db5395c0e43e07226a7a63ff918000708bf37"
       },
       "deploymentTransaction": {
-        "hash": "0xaacd435356f0deba556bfa0757a85f4778dace653d7b4e26ee8823bf4aeccebc",
-        "blockNumber": 314700359,
+        "hash": "0x7b2bb81490a1a5a4c4b62cee9f433f3b652109a96db96631687a3f063753bfe4",
+        "blockNumber": 315025597,
         "broadcast": true
       },
       "owner": {
@@ -2332,7 +2393,7 @@
           "id": "0x15b4e49aa45275bbb60ef90feb0d1deecaf4131b33b1310c359024cec0083bd4",
           "members": [
             {
-              "address": "0xaa5f8710ede1aef24683a13a2645957763a93dff",
+              "address": "0x0ac69f0a8521b4fd1742fa82061f5053c7d16878",
               "source": "$contracts.RegistryStatusController.address"
             }
           ]
@@ -2344,7 +2405,7 @@
     {
       "name": "SessionRegistry",
       "artifact": "contracts/out/SessionRegistry.sol/SessionRegistry.json",
-      "address": "0x967686c35139d27a5b02f59cae8d485f78400e2a",
+      "address": "0xa9670a116406556411b0c67db7e32c7c00a97d15",
       "implementation": null,
       "constructorArguments": [
         {
@@ -2365,11 +2426,11 @@
       ],
       "bytecode": {
         "creationCodeHash": "0x24b568064245e75fa8c5a70d4a1f7786eab1e7272a540f3e1d0a1a026b313c74",
-        "runtimeCodeHash": "0xbc1d5f67c647489a01114079027869a1a28aa992d946f8bf40bcc7197a589046"
+        "runtimeCodeHash": "0xffba22d570c37da46c01c02a6c0ef81d053911bed434cbd4095bf8a8b25af506"
       },
       "deploymentTransaction": {
-        "hash": "0x12848d6203e9971c46e4e3ae55f4301b20ab03c7a058a2dddb8eefbdf448665f",
-        "blockNumber": 314700375,
+        "hash": "0x54d33c93c24998ddc360943b2bef38cc34163b58b012cb2dbefe69706c665780",
+        "blockNumber": 315025611,
         "broadcast": true
       },
       "owner": {
@@ -2392,7 +2453,7 @@
           "id": "0x67281b39c42c54ddf3726b4298852a5d5abe364bd56d310d5007e4450f054092",
           "members": [
             {
-              "address": "0xaa5f8710ede1aef24683a13a2645957763a93dff",
+              "address": "0x0ac69f0a8521b4fd1742fa82061f5053c7d16878",
               "source": "$contracts.RegistryStatusController.address"
             }
           ]
@@ -2406,7 +2467,7 @@
     {
       "name": "SettlementAssetRegistry",
       "artifact": "contracts/out/SettlementAssetRegistry.sol/SettlementAssetRegistry.json",
-      "address": "0x5758cba50f8ad0ad62841f392b80dc008ce08a06",
+      "address": "0x0e6f51a99c501dec7c0b14f9480d140e870788cb",
       "implementation": null,
       "constructorArguments": [
         {
@@ -2427,11 +2488,11 @@
       ],
       "bytecode": {
         "creationCodeHash": "0xba34af901537cb6e39ed4b163e8171bbd352959cf87b9fd2d66af428265bd167",
-        "runtimeCodeHash": "0x9845401e30168bab464dfac81f90434ab7065fc7c03c5ad9fe33839b6e46a792"
+        "runtimeCodeHash": "0x6409d66f678e216abab568666929ce0d196465a9a907a2ef8d2ab33af73d915f"
       },
       "deploymentTransaction": {
-        "hash": "0x0f9a53ff89f38b50f783e5aabaa51c87c4a0721d0fc48a3d06afa280881bc196",
-        "blockNumber": 314700391,
+        "hash": "0xd034ee465e480db409250b862aa8461f6589b60adf3555e11586eee16e4e7a9e",
+        "blockNumber": 315025625,
         "broadcast": true
       },
       "owner": {
@@ -2454,7 +2515,7 @@
           "id": "0xeb66ef46406ee3d74188f552bd34965bc71a93b7af3d955512be970b3dded898",
           "members": [
             {
-              "address": "0xaa5f8710ede1aef24683a13a2645957763a93dff",
+              "address": "0x0ac69f0a8521b4fd1742fa82061f5053c7d16878",
               "source": "$contracts.RegistryStatusController.address"
             }
           ]
@@ -2468,7 +2529,7 @@
     {
       "name": "BenchmarkRegistry",
       "artifact": "contracts/out/BenchmarkRegistry.sol/BenchmarkRegistry.json",
-      "address": "0xd5490d549341369cb24103d8d8f6331e81122857",
+      "address": "0x375769c3e70a3958c85a17f64e4c70e0ada4945a",
       "implementation": null,
       "constructorArguments": [
         {
@@ -2504,11 +2565,11 @@
       ],
       "bytecode": {
         "creationCodeHash": "0xf8e52c2ed38a903ae29e0ed61648a09859225b94eb48a71da35ca4d5de9ad524",
-        "runtimeCodeHash": "0xe3257cbeba0adf02cfff90425941095beda4e3a1c6b845981c704c30fc6645e5"
+        "runtimeCodeHash": "0xd595569ee00e015fd9ca756e79f9d34bb32d69c3dd5ca2f662b79faae6643ecd"
       },
       "deploymentTransaction": {
-        "hash": "0xa36c5bf0ade340076aac82d71b2a36cfc8b812630774ae2bc04456380e4df556",
-        "blockNumber": 314700408,
+        "hash": "0x3ddb4fd6b4a490c4f2bd7402fb723fa87290243fa7c4df990044aca935ac8999",
+        "blockNumber": 315025641,
         "broadcast": true
       },
       "owner": {
@@ -2531,7 +2592,7 @@
           "id": "0x2c86bc9529ed0e41f12e981d22d5318fce87e812921a08ddb938e8d53fccaca6",
           "members": [
             {
-              "address": "0xaa5f8710ede1aef24683a13a2645957763a93dff",
+              "address": "0x0ac69f0a8521b4fd1742fa82061f5053c7d16878",
               "source": "$contracts.RegistryStatusController.address"
             }
           ]
@@ -2548,7 +2609,7 @@
     {
       "name": "FeeScheduleRegistry",
       "artifact": "contracts/out/FeeScheduleRegistry.sol/FeeScheduleRegistry.json",
-      "address": "0x6ebc600caa027e546bb2b1d9b0f4f47f543b091e",
+      "address": "0x02de354ee8d5d7cc9a29ad32abd6365b22eb4365",
       "implementation": null,
       "constructorArguments": [
         {
@@ -2569,11 +2630,11 @@
       ],
       "bytecode": {
         "creationCodeHash": "0x70b6573e0322c8437f56e1b8b4b63be9965c999dfe0d76fa64684d9293fbce28",
-        "runtimeCodeHash": "0xc1b31bcc2a3d128d2fca83e1a6928312f00048fef9c88e1c95d6e58c4a17dd3e"
+        "runtimeCodeHash": "0xb398008c2e0c3b7d5ddd7335cd63b9e2d0256ad2e9b04c5b480af581c804aa52"
       },
       "deploymentTransaction": {
-        "hash": "0x2388782b55e541bf4196b8b059b31a859ce296fbc3c9bc04108cce7c3dd47328",
-        "blockNumber": 314700417,
+        "hash": "0x722b1f0d29f48142af13436920ad020859b756d50c73fc44f6c191fe89d7ba98",
+        "blockNumber": 315025656,
         "broadcast": true
       },
       "owner": {
@@ -2596,7 +2657,7 @@
           "id": "0x81ecb19f3cbdf48faf8ac71db2c71b938e6e0a75e5eab1d27ad07d05d63f7e66",
           "members": [
             {
-              "address": "0xaa5f8710ede1aef24683a13a2645957763a93dff",
+              "address": "0x0ac69f0a8521b4fd1742fa82061f5053c7d16878",
               "source": "$contracts.RegistryStatusController.address"
             }
           ]
@@ -2610,7 +2671,7 @@
     {
       "name": "RiskDomainRegistry",
       "artifact": "contracts/out/RiskDomainRegistry.sol/RiskDomainRegistry.json",
-      "address": "0x674e76adf9159e23fa2ff50cac8708be2b75747d",
+      "address": "0xca5253257ad4d8b5873a11d4fae2ab8a12009445",
       "implementation": null,
       "constructorArguments": [
         {
@@ -2636,11 +2697,11 @@
       ],
       "bytecode": {
         "creationCodeHash": "0xc119a7a0de59cd8a7d116dcc8e78d9791878d3d040cd24e434a170520ffa9698",
-        "runtimeCodeHash": "0x11e697b925cb36b2b2e38b024655e6bc2b915ee23187f05e6745224988015aec"
+        "runtimeCodeHash": "0x93a7e732e2196ce3763235d59ab9de2742aa3fd7c37052eba4eded827a3ef540"
       },
       "deploymentTransaction": {
-        "hash": "0x10d772bdd7da538cfe1a656d543ba1cac6440eefe4eeeedb6818585854db0a32",
-        "blockNumber": 314700432,
+        "hash": "0x17fcb0afaefab732004b70c89b2e7a83327d27b2278947581d7cb5a11b3cab44",
+        "blockNumber": 315025669,
         "broadcast": true
       },
       "owner": {
@@ -2663,7 +2724,7 @@
           "id": "0x54e3cacf9a55868b0df4f907f1220883c67d9efd13b13a48d28069aaa9d3cde7",
           "members": [
             {
-              "address": "0xaa5f8710ede1aef24683a13a2645957763a93dff",
+              "address": "0x0ac69f0a8521b4fd1742fa82061f5053c7d16878",
               "source": "$contracts.RegistryStatusController.address"
             }
           ]
@@ -2678,7 +2739,7 @@
     {
       "name": "InstrumentRegistry",
       "artifact": "contracts/out/InstrumentRegistry.sol/InstrumentRegistry.json",
-      "address": "0x04ad98c1c001c5b270d1dc45e240cd38bf8ab23f",
+      "address": "0xd24282203b467d42d94620c267b8c4128fd2d3a1",
       "implementation": null,
       "constructorArguments": [
         {
@@ -2704,11 +2765,11 @@
       ],
       "bytecode": {
         "creationCodeHash": "0x30ea8437df26cfb5698468d8a0fd3a96c983fa8ef624faa7a352afa1ee2bf03a",
-        "runtimeCodeHash": "0xb308dfa6dcaad98a1d2514d771cbc21bf677069797da08c76ce5a2ed602185af"
+        "runtimeCodeHash": "0xfef1824012b2f45308414a9d81570de752afae8c9abc2a08590a4eeceeb37540"
       },
       "deploymentTransaction": {
-        "hash": "0xddaddcf0f8c8e7538d9a3a116eded86d76db608df03ed3497bd363e4b882a32d",
-        "blockNumber": 314700440,
+        "hash": "0xca5f384c272ddf2c838d2523f6bbdbf5cf179a44a3c4799e94af440f9735f082",
+        "blockNumber": 315025683,
         "broadcast": true
       },
       "owner": {
@@ -2731,7 +2792,7 @@
           "id": "0x3654db16c3864e4a90ce3a136bb6d96b623c8b4f55d27e6d27aea6198179c34f",
           "members": [
             {
-              "address": "0xaa5f8710ede1aef24683a13a2645957763a93dff",
+              "address": "0x0ac69f0a8521b4fd1742fa82061f5053c7d16878",
               "source": "$contracts.RegistryStatusController.address"
             }
           ]
@@ -2751,7 +2812,7 @@
     {
       "name": "MarketRegistry",
       "artifact": "contracts/out/MarketRegistry.sol/MarketRegistry.json",
-      "address": "0x7d0446dae6784bed320b57d632ed3303a48c5535",
+      "address": "0xb868c249eb66c279d087f2fcae79f57a2ef1379d",
       "implementation": null,
       "constructorArguments": [
         {
@@ -2807,11 +2868,11 @@
       ],
       "bytecode": {
         "creationCodeHash": "0x47c3f0d06bc3546aefc7fb01e689c51bbd38aa33d5a64b5bc573f53369ecc0dd",
-        "runtimeCodeHash": "0x07a9190169bb1c93389e8807bb4d53509d77136872d6fe4e2d2a49d7fcbe4655"
+        "runtimeCodeHash": "0x4e3242193c4805fad3046da660aef4022e2b0ee0d776397b78c26e0a62e654df"
       },
       "deploymentTransaction": {
-        "hash": "0xf0b4adc81378b32f711beab39d56e08de0566fcfb2740ad331ad9c76f88bc725",
-        "blockNumber": 314700468,
+        "hash": "0x247ee39e1e1125c9081e1a80c13fa8aa66e717a37ef1d5456657e7dc1a7bc317",
+        "blockNumber": 315025712,
         "broadcast": true
       },
       "owner": {
@@ -2834,7 +2895,7 @@
           "id": "0x22ceba6f2e648f7e4675327e44c50ef05fcda828fcb01ef0fbad9537b7b3c9d3",
           "members": [
             {
-              "address": "0xaa5f8710ede1aef24683a13a2645957763a93dff",
+              "address": "0x0ac69f0a8521b4fd1742fa82061f5053c7d16878",
               "source": "$contracts.RegistryStatusController.address"
             }
           ]
@@ -2855,7 +2916,7 @@
     {
       "name": "SeriesRegistry",
       "artifact": "contracts/out/SeriesRegistry.sol/SeriesRegistry.json",
-      "address": "0x23aaf326f53c38cc10a522257cf89746ca915e0e",
+      "address": "0xdc9563eae3aa03e8dd93dbcf46f3e4e636b865fa",
       "implementation": null,
       "constructorArguments": [
         {
@@ -2863,7 +2924,7 @@
           "type": "uint48",
           "value": {
             "encoding": "abi",
-            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c0000000000000000000000007d0446dae6784bed320b57d632ed3303a48c553500000000000000000000000004ad98c1c001c5b270d1dc45e240cd38bf8ab23f"
+            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c000000000000000000000000b868c249eb66c279d087f2fcae79f57a2ef1379d000000000000000000000000d24282203b467d42d94620c267b8c4128fd2d3a1"
           }
         },
         {
@@ -2884,11 +2945,11 @@
       ],
       "bytecode": {
         "creationCodeHash": "0x102634e6af87e26a680338805c68ee1c9b890f2c78d3b6b7a34a8533af7cc183",
-        "runtimeCodeHash": "0x9fc06d7c63ba5fe8e0ae93eb6c645b56a0129cbec699f5bea269a37b3d0758f3"
+        "runtimeCodeHash": "0xee2b39c0de05f0d58a19f404b762683cfa94a32809a53d78ca739e1237b9b8db"
       },
       "deploymentTransaction": {
-        "hash": "0x0cc132f76c378982fc437327bcc1ad2c51f4b01d43edc835f34ac66402ab7323",
-        "blockNumber": 314700483,
+        "hash": "0x69892b7978e1b6cfce6f2855ddd23d5123fc9a41b8f239143b8b7d4741835585",
+        "blockNumber": 315025726,
         "broadcast": true
       },
       "owner": {
@@ -2911,7 +2972,7 @@
           "id": "0xd237b9d78d4ee869267036ee8b6bf72841fa63051a1a54ae147f11f8ef5b9102",
           "members": [
             {
-              "address": "0xaa5f8710ede1aef24683a13a2645957763a93dff",
+              "address": "0x0ac69f0a8521b4fd1742fa82061f5053c7d16878",
               "source": "$contracts.RegistryStatusController.address"
             }
           ]
@@ -2926,7 +2987,7 @@
     {
       "name": "CollateralVault",
       "artifact": "contracts/out/CollateralVault.sol/CollateralVault.json",
-      "address": "0xd8406895194b50d4b2587d267386ee3f8c17f522",
+      "address": "0x16344d20a4197927efe4545bb3962006629ff5f6",
       "implementation": null,
       "constructorArguments": [
         {
@@ -2934,7 +2995,7 @@
           "type": "uint48",
           "value": {
             "encoding": "abi",
-            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c0000000000000000000000005758cba50f8ad0ad62841f392b80dc008ce08a06000000000000000000000000674e76adf9159e23fa2ff50cac8708be2b75747d0000000000000000000000000000000000000000000000000000000000278d00"
+            "data": "0x000000000000000000000000000000000000000000000000000000000002a30000000000000000000000000017a076d6ccaf37bc9386eab653a5efad8b07430c0000000000000000000000000e6f51a99c501dec7c0b14f9480d140e870788cb000000000000000000000000ca5253257ad4d8b5873a11d4fae2ab8a120094450000000000000000000000000000000000000000000000000000000000278d00"
           }
         },
         {
@@ -2960,11 +3021,11 @@
       ],
       "bytecode": {
         "creationCodeHash": "0x14122b0479e32be8bebdccfc19c1202ac25132811a3f7b93bdeb599e275e79dc",
-        "runtimeCodeHash": "0x7f1a8d14a2734d86f8883d1af0e4930db92da96d46ed49db27a4eee2a9517525"
+        "runtimeCodeHash": "0x531104ac5716e0f79d2cf609ee8293ec4a6a4bae2d4a8a7448f866eb719621b2"
       },
       "deploymentTransaction": {
-        "hash": "0x058c85d22125f7c3c3816334224ae0b1adb5fb66be7909fc931f9d6624af17a8",
-        "blockNumber": 314700451,
+        "hash": "0x2bcdf919163e47a1620faed00418e2a22e7ff5791a78e9b1dbbacfd464ffa366",
+        "blockNumber": 315025698,
         "broadcast": true
       },
       "owner": {
@@ -2977,20 +3038,24 @@
           "id": "0xae58182dd6e03509898e3d2294a55cf04f584b2dd7f21b08c2eeac8b3007695e",
           "members": [
             {
-              "address": "0x2f8636fabcdee2879b7217fa894861bc51f0eac9",
+              "address": "0x4e80cc89555efde78436feaf24f8d6c33c11e5b5",
               "source": "$contracts.PositionEngine.address"
             },
             {
-              "address": "0x9bfb6a05ec38d30209c4c7612997e19b3931c8dc",
+              "address": "0x12681127db37ff96fef81f2685d1c0a3406e16d9",
               "source": "$contracts.AtomicClearingEngine.address"
             },
             {
-              "address": "0x8cd10454c49ac263c5eb609b4323dce53b2435d1",
+              "address": "0xee89a72d9d541c89138b6e811989f3a84f44524a",
               "source": "$contracts.DefaultProcessEngine.address"
             },
             {
-              "address": "0x61a3553e18cecebd6ee0adf692ed66b86dd3ecc9",
+              "address": "0xc94d19b9a6ff17795c45239497182fe55b80dee7",
               "source": "$contracts.SealedAuctionHouse.address"
+            },
+            {
+              "address": "0xf2c404d67d6cd04e1dfa7f836ea3ab9401957286",
+              "source": "$contracts.QuoteSettlementRouter.address"
             }
           ]
         },
@@ -2999,20 +3064,24 @@
           "id": "0x4465f16537f957eb9bcc1f5ecc11148e07b2322719cc82074aa38ad12eeff48e",
           "members": [
             {
-              "address": "0x4be64b29ddf2b09fb58372edd9257d327a386460",
+              "address": "0x1d3c3cd7f71de4d51461a252bad0f97c6d516ebe",
               "source": "$contracts.FundedFeeEngine.address"
             },
             {
-              "address": "0x9bfb6a05ec38d30209c4c7612997e19b3931c8dc",
+              "address": "0x12681127db37ff96fef81f2685d1c0a3406e16d9",
               "source": "$contracts.AtomicClearingEngine.address"
             },
             {
-              "address": "0x8cd10454c49ac263c5eb609b4323dce53b2435d1",
+              "address": "0xee89a72d9d541c89138b6e811989f3a84f44524a",
               "source": "$contracts.DefaultProcessEngine.address"
             },
             {
-              "address": "0x61a3553e18cecebd6ee0adf692ed66b86dd3ecc9",
+              "address": "0xc94d19b9a6ff17795c45239497182fe55b80dee7",
               "source": "$contracts.SealedAuctionHouse.address"
+            },
+            {
+              "address": "0xf2c404d67d6cd04e1dfa7f836ea3ab9401957286",
+              "source": "$contracts.QuoteSettlementRouter.address"
             }
           ]
         },
@@ -3021,7 +3090,7 @@
           "id": "0xc2b36aaef1c77d75c1a65b1b4b26b56243ce47c7985a837ed48dbb1b9ac45894",
           "members": [
             {
-              "address": "0x2f8636fabcdee2879b7217fa894861bc51f0eac9",
+              "address": "0x4e80cc89555efde78436feaf24f8d6c33c11e5b5",
               "source": "$contracts.PositionEngine.address"
             }
           ]
@@ -3031,11 +3100,11 @@
           "id": "0x99c8955d749bac1f2fd2f8b5664c86fccab0a2d838caf0cb697396ee11112e9a",
           "members": [
             {
-              "address": "0x9fa306922032d5599ecf3ef730d605cf526734c9",
+              "address": "0x821f6464714495e05752b26a024f476a836d27bd",
               "source": "$contracts.CashSettlementCoordinator.address"
             },
             {
-              "address": "0x929badff81f6981cd85869e2e815f62e4589a0aa",
+              "address": "0x31b6e7f329d9baae490fd3c5557173e2c3017f21",
               "source": "$contracts.PositionLifecycleExecutor.address"
             }
           ]
