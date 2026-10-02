@@ -12,6 +12,7 @@ Setryn is the private dated-risk exchange on Arbitrum.
 - [Project summary](specs/setryn-project-summary.md)
 - [Interface specification](specs/setryn-interface-spec.md)
 - [Numeric conventions](specs/setryn-numeric-conventions.md)
+- [Mark methodology](specs/setryn-mark-methodology.md)
 - [Mainnet-equivalent build plan](plans/setryn-mainnet-equivalent-build-plan.md)
 - [Repository and agent execution plan](plans/setryn-repository-and-agent-execution-plan.md)
 - [Mainnet readiness, cost, and dependency register](research/setryn-mainnet-readiness-cost-and-dependency-register-2026-09-21.md)
