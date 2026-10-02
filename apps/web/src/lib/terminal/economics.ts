@@ -212,6 +212,11 @@ export function buildPreview(
     blockers.push(`The price must be inside the payoff range, above ${market.floor} and below ${market.cap}.`);
   }
   if (isExit) {
+    if (!route || route.id !== "FIRM_QUOTE") {
+      blockers.push(
+        "A full exit settles against a firm maker quote, which closes the position in the same transaction. No firm quote is selected or live for this market right now.",
+      );
+    }
     if (!closePosition || !(closePosition.lots > 0)) {
       blockers.push("Exit requires exactly one active runtime package. Select a package to close.");
     } else {

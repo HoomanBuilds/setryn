@@ -92,8 +92,25 @@ function executionError(error: unknown): string {
   if (error.message === "QUOTE_SIZE_EXCEEDED") return "The firm quote covers fewer lots than requested. Reduce the size or use the public book.";
   if (error.message === "QUOTE_VERSION_STALE") return "The series was re-versioned since this quote was signed. Wait a moment for a fresh quote.";
   if (error.message === "FIRM_QUOTES_UNAVAILABLE") return "This deployment has no firm-quote router. Use the public book.";
+  if (error.message === "QUOTE_EXIT_NOT_ALLOWED") return "This quote does not allow closing a position with it. Wait a moment for the next quote.";
+  if (error.message === "EXIT_COUNTERPARTY_NOT_MAKER") {
+    return "This position's counterparty is not the designated maker, so it cannot be closed against a maker quote in one transaction. It stays open until settlement.";
+  }
+  if (error.message === "CLOSE_POSITION_MISMATCH") return "The selected position is not this account's position on this side of this market. Reselect it.";
+  if (error.message === "CLOSE_POSITION_NOT_FOUND") return "The selected position is no longer open.";
+  if (error.message.startsWith("EXIT_COLLATERAL_REQUIRED")) {
+    const amount = Number(error.message.split(":")[1]);
+    return `Closing needs ${Number.isFinite(amount) ? `${amount.toFixed(2)} USDC` : "collateral"} available for a moment: the closing fill is margined before both positions close in the same transaction and release it. Deposit and try again.`;
+  }
   if (error.message.startsWith("SETTLEMENT_REJECTED")) {
     const reason = error.message.split(":")[1] ?? "REVERTED";
+    if (reason === "QuoteAlreadyConsumed") {
+      return "Another trader took that quote first. Nothing was submitted; the next quote is already streaming, try again.";
+    }
+    if (reason === "NotAnOffset" || reason === "PositionIneligible" || reason === "OffsetUnwindNotConsented") {
+      return `The router would not close this position against the quote (${reason}), so nothing was submitted and the position is unchanged.`;
+    }
+    if (reason === "InsufficientMargin") return "Available collateral does not cover this fill's margin, so nothing was submitted.";
     return `The settlement router refused this fill (${reason}) in simulation, so nothing was submitted. The quote may have been taken; try the next one.`;
   }
   if (error.message === "SETTLEMENT_REVERTED") return "The settlement transaction reverted onchain. Nothing settled and nothing was left reserved.";

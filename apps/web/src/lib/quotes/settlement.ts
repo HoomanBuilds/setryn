@@ -3,6 +3,12 @@ import { parsePublicOrder, serializePublicOrder, type OnchainPublicOrder, type S
 import { parseRiskAuthorization, serializeRiskAuthorization, type SerializedRiskAuthorization } from "./firm-quote";
 import type { OrderRiskAuthorization, TakerSettlementTerms } from "./protocol";
 
+/** The maker's signed router terms: the capacity a quote draws on, and its consent to exits closing in the same transaction. */
+export interface MakerQuoteTerms {
+  capacityId: Hex;
+  allowsOffsetUnwind: boolean;
+}
+
 /*
  * One quote settlement as QuoteSettlementRouter.settle takes it, and its JSON form for the optional relayer. The browser
  * builds it, the relayer parses it strictly before simulating, and both hand the same arguments to the router.
@@ -14,7 +20,7 @@ export interface QuoteSettlementArgs {
     orderSignature: Hex;
     risk: OrderRiskAuthorization;
     riskSignature: Hex;
-    terms: { capacityId: Hex };
+    terms: MakerQuoteTerms;
   };
   taker: {
     order: OnchainPublicOrder;
@@ -34,14 +40,14 @@ export interface SerializedQuoteSettlement {
     orderSignature: Hex;
     risk: SerializedRiskAuthorization;
     riskSignature: Hex;
-    terms: { capacityId: Hex };
+    terms: MakerQuoteTerms;
   };
   taker: {
     order: SerializedPublicOrder;
     orderSignature: Hex;
     risk: SerializedRiskAuthorization;
     riskSignature: Hex;
-    terms: { quoteOrderHash: Hex; relayer: Address; relayerAccountId: Hex; maxRelayerFeeMinor: string };
+    terms: { quoteOrderHash: Hex; relayer: Address; relayerAccountId: Hex; maxRelayerFeeMinor: string; closePositionId: Hex };
   };
   fillLots: string;
   relayerFeeMinor: string;
@@ -79,6 +85,11 @@ function field<T>(value: unknown, pattern: RegExp, error: string): T {
   return value as T;
 }
 
+function flag(value: unknown): boolean {
+  if (typeof value !== "boolean") throw new Error("INVALID_SETTLEMENT");
+  return value;
+}
+
 /** Parses a relayed settlement strictly: every field present, every hex well formed, every amount a plain integer. */
 export function parseQuoteSettlement(candidate: unknown): QuoteSettlementArgs {
   if (!candidate || typeof candidate !== "object") throw new Error("INVALID_SETTLEMENT");
@@ -95,7 +106,10 @@ export function parseQuoteSettlement(candidate: unknown): QuoteSettlementArgs {
       orderSignature: field<Hex>(quote.orderSignature, SIGNATURE, "INVALID_SIGNATURE"),
       risk: parseRiskAuthorization(quote.risk),
       riskSignature: field<Hex>(quote.riskSignature, SIGNATURE, "INVALID_SIGNATURE"),
-      terms: { capacityId: field<Hex>(quoteTerms.capacityId, HEX32, "INVALID_SETTLEMENT") },
+      terms: {
+        capacityId: field<Hex>(quoteTerms.capacityId, HEX32, "INVALID_SETTLEMENT"),
+        allowsOffsetUnwind: flag(quoteTerms.allowsOffsetUnwind),
+      },
     },
     taker: {
       order: parsePublicOrder(taker.order),
@@ -107,6 +121,7 @@ export function parseQuoteSettlement(candidate: unknown): QuoteSettlementArgs {
         relayer: field<Address>(takerTerms.relayer, ADDRESS, "INVALID_SETTLEMENT"),
         relayerAccountId: field<Hex>(takerTerms.relayerAccountId, HEX32, "INVALID_SETTLEMENT"),
         maxRelayerFeeMinor: BigInt(field<string>(takerTerms.maxRelayerFeeMinor, UNSIGNED, "INVALID_SETTLEMENT")),
+        closePositionId: field<Hex>(takerTerms.closePositionId, HEX32, "INVALID_SETTLEMENT"),
       },
     },
     fillLots: BigInt(field<string>(value.fillLots, UNSIGNED, "INVALID_SETTLEMENT")),

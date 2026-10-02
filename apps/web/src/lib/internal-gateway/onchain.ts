@@ -1409,18 +1409,40 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       throw new Error("ORDER_NOT_MARKETABLE");
     }
     if (!quoteExecutable(quote, platformNow())) throw new Error("QUOTE_EXPIRED");
-    if (intent.side === "EXIT") {
-      const closing = this.snapshot.positions.find((position) => position.id === intent.closePositionId);
-      if (!closing) throw new Error("CLOSE_POSITION_NOT_FOUND");
-      if (closing.marketId !== intent.marketId || closing.side !== intent.packageSide) throw new Error("CLOSE_POSITION_MISMATCH");
-      if (closing.lots !== intent.lots) throw new Error("FULL_POSITION_EXIT_REQUIRED");
-      // A full exit unwinds both positions with the counterparty's consent, which only the designated maker gives.
-      const { makerAddress } = await this.operatorStatus();
-      if (!makerAddress || quote.maker.toLowerCase() !== makerAddress.toLowerCase()) throw new Error("EXIT_REQUIRES_COUNTERPARTY_MAKER");
-    }
 
     const accountId = await this.accountId(address);
     if (intent.accountId.toLowerCase() !== accountId.toLowerCase()) throw new Error("ACCOUNT_MISMATCH");
+    const exit = intent.side === "EXIT";
+    // An exit names the position in the signed terms; the router closes it with the fill's mirror in the same
+    // transaction, so the fill must mirror it exactly: same series, the whole size, this account against the quote's
+    // maker on the opposite side. Checked here first, so a quote that cannot close it is never signed against.
+    const closePositionId = exit ? ((intent.closePositionId ?? "") as Hex) : EMPTY_ID;
+    if (exit) {
+      if (!/^0x[0-9a-fA-F]{64}$/.test(closePositionId)) throw new Error("CLOSE_POSITION_REQUIRED");
+      if (!quote.allowsOffsetUnwind) throw new Error("QUOTE_EXIT_NOT_ALLOWED");
+      const closing = await publicClient.readContract({
+        address: setryn.positionEngine,
+        abi: positionLifecycleAbi,
+        functionName: "getLifecyclePosition",
+        args: [closePositionId],
+      });
+      const holdsLong = closing.longAccountId.toLowerCase() === accountId.toLowerCase();
+      const holdsShort = closing.shortAccountId.toLowerCase() === accountId.toLowerCase();
+      const counterparty = holdsLong ? closing.shortAccountId : closing.longAccountId;
+      if (closing.positionLots === BigInt(0)) throw new Error("CLOSE_POSITION_NOT_FOUND");
+      if (closing.seriesId.toLowerCase() !== market.seriesId.toLowerCase() || (!holdsLong && !holdsShort)) {
+        throw new Error("CLOSE_POSITION_MISMATCH");
+      }
+      if ((holdsLong ? "LONG" : "SHORT") !== intent.packageSide) throw new Error("CLOSE_POSITION_MISMATCH");
+      if (counterparty.toLowerCase() !== quote.makerAccountId.toLowerCase()) throw new Error("EXIT_COUNTERPARTY_NOT_MAKER");
+      if (closing.positionLots !== BigInt(intent.lots)) throw new Error("FULL_POSITION_EXIT_REQUIRED");
+      // The closing fill is margined like any fill before both positions close, so its side's liability must be free.
+      const exitLiability = Number(formatUnits(
+        BigInt(intent.lots) * BigInt(action === "BUY" ? market.maxLongDebitMinorPerLot : market.maxShortDebitMinorPerLot),
+        6,
+      ));
+      if (this.snapshot.account.available + 1e-9 < exitLiability) throw new Error(`EXIT_COLLATERAL_REQUIRED:${exitLiability}`);
+    }
     await this.ensureClearingOperators(accountId);
     const fees = await this.refreshFeeSchedule(0);
     if (!fees.active && fees.source === "CHAIN") throw new Error("FEE_SCHEDULE_INACTIVE");
@@ -1477,6 +1499,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       relayer: ZERO_ADDRESS,
       relayerAccountId: EMPTY_ID,
       maxRelayerFeeMinor: BigInt(0),
+      closePositionId,
     };
     const perLot = BigInt(action === "BUY" ? market.maxLongDebitMinorPerLot : market.maxShortDebitMinorPerLot);
     const risk: OrderRiskAuthorization = {
@@ -1512,7 +1535,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         orderSignature: quote.orderSignature,
         risk: parseRiskAuthorization(quote.risk),
         riskSignature: quote.riskSignature,
-        terms: { capacityId: quote.capacityId },
+        terms: { capacityId: quote.capacityId, allowsOffsetUnwind: quote.allowsOffsetUnwind },
       },
       taker: { order, orderSignature, risk, riskSignature, terms },
       fillLots: lots,
@@ -1566,7 +1589,9 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const included: SubmissionUpdate = {
       step: "INCLUDED",
       label: "Settlement included",
-      detail: "Both signed orders, both risk admissions and the maker's capacity settled atomically in one transaction.",
+      detail: exit
+        ? "The closing fill and the close of both positions settled atomically in one transaction."
+        : "Both signed orders, both risk admissions and the maker's capacity settled atomically in one transaction.",
       transactionHash,
     };
     onUpdate(included);
@@ -1594,6 +1619,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       logs: receipt.logs,
       routeLabel: "Firm maker quote",
       leadingUpdates: [authorized, submitted, included],
+      closedInTransaction: exit,
       onUpdate,
     });
   }
@@ -1644,6 +1670,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     logs: Log[];
     routeLabel: string;
     leadingUpdates: SubmissionUpdate[];
+    /** An exit the router already closed in the fill's own transaction: no follow-up lifecycle step. */
+    closedInTransaction?: boolean;
     onUpdate: (update: SubmissionUpdate) => void;
   }): Promise<PackageExecutionResult> {
     const {
@@ -1659,13 +1687,14 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       logs,
       routeLabel,
       leadingUpdates,
+      closedInTransaction = false,
       onUpdate,
     } = fill;
     const executionPrice = ticksToPrice(market, executionPriceTicks);
     const packageSide = authorization.intent.packageSide;
     const createdPositionSide: "LONG" | "SHORT" = order.side === 1 ? "LONG" : "SHORT";
     let lifecycleHash: Hex | null = null;
-    if (authorization.intent.side === "EXIT") {
+    if (authorization.intent.side === "EXIT" && !closedInTransaction) {
       if (!authorization.intent.closePositionId) throw new Error("CLOSE_POSITION_REQUIRED");
       onUpdate({
         step: "POSITION_UPDATED",
@@ -1740,7 +1769,14 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       ...leadingUpdates,
       { step: "FILLED", label: "Package filled", detail: `${formatLotCount(filledLots)} filled at ${formatTicksPrice(market, executionPrice)}.`, transactionHash },
       authorization.intent.side === "EXIT"
-        ? { step: "POSITION_CLOSED", label: "Position closed", detail: "Original and close-fill positions were fully unwound onchain.", transactionHash: lifecycleHash ?? transactionHash }
+        ? {
+            step: "POSITION_CLOSED",
+            label: "Position closed",
+            detail: closedInTransaction
+              ? "Your position and the closing fill's mirror were closed in the same transaction; both liabilities are released."
+              : "Original and close-fill positions were fully unwound onchain.",
+            transactionHash: lifecycleHash ?? transactionHash,
+          }
         : { step: "POSITION_CREATED", label: "Position created", detail: `Position ${positionId} is active.`, transactionHash },
       { step: "RECEIPT_READY", label: "Receipt ready", detail: `Fill ${fillId} is verifiable onchain.`, transactionHash },
     ];

@@ -46,6 +46,8 @@ export interface FirmQuote {
   maker: Address;
   makerAccountId: Hex;
   capacityId: Hex;
+  /** The maker signed consent that a taker may exit a position held against it with this quote, in one transaction. */
+  allowsOffsetUnwind: boolean;
   /** Lots the maker's onchain capacity could still back when the quote was issued. */
   capacityRemainingLots: number;
   order: SerializedPublicOrder;

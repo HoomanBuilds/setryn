@@ -344,7 +344,8 @@ async function signQuote(
     maxTerminalLiabilityBaseUnits: lotsBig * perLotSide,
     maxAdmissionDeadline: deadline + BigInt(60),
     binder: setryn.quoteSettlementRouter as Address,
-    binderTerms: makerQuoteTermsHash(capacity.id),
+    // The maker consents to exits: a taker holding a position against it closes it with this quote in one transaction.
+    binderTerms: makerQuoteTermsHash(capacity.id, true),
     nonce,
     deadline,
   };
@@ -387,6 +388,7 @@ async function signQuote(
       maker: maker.address,
       makerAccountId: accountId,
       capacityId: capacity.id,
+      allowsOffsetUnwind: true,
       capacityRemainingLots: Number(capacity.remainingLiability / capacity.liabilityPerLot),
       order: serializePublicOrder(order),
       orderSignature,

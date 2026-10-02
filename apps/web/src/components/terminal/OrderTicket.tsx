@@ -260,8 +260,12 @@ export function OrderTicket({
     onChange({ limitInput: (base + direction * market.tickSize).toFixed(market.priceDecimals) });
   };
 
+  // A full exit closes only against a firm maker quote: the router fills it and closes both positions in one
+  // transaction, so no other route can leave the trader holding the position and its offset.
   const usableRoutes = market.routes.filter(
-    (candidate) => (isAmending ? !candidate.requiresPrivate : !candidate.requiresPrivate || state.privateRfq),
+    (candidate) =>
+      (isAmending ? !candidate.requiresPrivate : !candidate.requiresPrivate || state.privateRfq) &&
+      (state.intent !== "EXIT" || candidate.id === "FIRM_QUOTE"),
   );
   // The best priced route wins; a route with no price (an empty side, an RFQ before quotes) only wins by default.
   const bestRoute = usableRoutes.length

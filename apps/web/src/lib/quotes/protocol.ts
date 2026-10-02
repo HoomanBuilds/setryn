@@ -43,6 +43,8 @@ export interface TakerSettlementTerms {
   relayer: Address;
   relayerAccountId: Hex;
   maxRelayerFeeMinor: bigint;
+  /** The position this settlement exits, closed in the same transaction; zero on an entry. */
+  closePositionId: Hex;
 }
 
 const riskAuthorizationComponents = [
@@ -79,32 +81,50 @@ export function setrynDomain(chainId: number, verifyingContract: Address) {
   return { name: "Setryn", version: "1", chainId, verifyingContract } as const;
 }
 
-const MAKER_QUOTE_TERMS_TYPEHASH = keccak256(stringToHex("SetrynMakerQuoteTermsV1(bytes32 capacityId)"));
+const MAKER_QUOTE_TERMS_TYPEHASH = keccak256(stringToHex("SetrynMakerQuoteTermsV1(bytes32 capacityId,bool allowsOffsetUnwind)"));
 const TAKER_SETTLEMENT_TERMS_TYPEHASH = keccak256(
-  stringToHex("SetrynTakerSettlementTermsV1(bytes32 quoteOrderHash,address relayer,bytes32 relayerAccountId,uint128 maxRelayerFeeMinor)"),
+  stringToHex(
+    "SetrynTakerSettlementTermsV1(bytes32 quoteOrderHash,address relayer,bytes32 relayerAccountId,uint128 maxRelayerFeeMinor,bytes32 closePositionId)",
+  ),
 );
 
-/** QuoteSettlementRouter.hashMakerQuoteTerms: the maker risk authorization's `binderTerms`. */
-export function makerQuoteTermsHash(capacityId: Hex): Hex {
-  return keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "bytes32" }], [MAKER_QUOTE_TERMS_TYPEHASH, capacityId]));
+/**
+ * QuoteSettlementRouter.hashMakerQuoteTerms: the maker risk authorization's `binderTerms`. `allowsOffsetUnwind` is the
+ * maker's consent that a taker may exit a position held against it with this quote, closing both in one transaction.
+ */
+export function makerQuoteTermsHash(capacityId: Hex, allowsOffsetUnwind: boolean): Hex {
+  return keccak256(
+    encodeAbiParameters([{ type: "bytes32" }, { type: "bytes32" }, { type: "bool" }], [MAKER_QUOTE_TERMS_TYPEHASH, capacityId, allowsOffsetUnwind]),
+  );
 }
 
 /** QuoteSettlementRouter.hashTakerSettlementTerms: the taker risk authorization's `binderTerms`. */
 export function takerSettlementTermsHash(terms: TakerSettlementTerms): Hex {
   return keccak256(
     encodeAbiParameters(
-      [{ type: "bytes32" }, { type: "bytes32" }, { type: "address" }, { type: "bytes32" }, { type: "uint128" }],
-      [TAKER_SETTLEMENT_TERMS_TYPEHASH, terms.quoteOrderHash, terms.relayer, terms.relayerAccountId, terms.maxRelayerFeeMinor],
+      [{ type: "bytes32" }, { type: "bytes32" }, { type: "address" }, { type: "bytes32" }, { type: "uint128" }, { type: "bytes32" }],
+      [
+        TAKER_SETTLEMENT_TERMS_TYPEHASH,
+        terms.quoteOrderHash,
+        terms.relayer,
+        terms.relayerAccountId,
+        terms.maxRelayerFeeMinor,
+        terms.closePositionId,
+      ],
     ),
   );
 }
 
-const makerTermsComponents = [{ name: "capacityId", type: "bytes32" }] as const;
+const makerTermsComponents = [
+  { name: "capacityId", type: "bytes32" },
+  { name: "allowsOffsetUnwind", type: "bool" },
+] as const;
 const takerTermsComponents = [
   { name: "quoteOrderHash", type: "bytes32" },
   { name: "relayer", type: "address" },
   { name: "relayerAccountId", type: "bytes32" },
   { name: "maxRelayerFeeMinor", type: "uint128" },
+  { name: "closePositionId", type: "bytes32" },
 ] as const;
 
 const signedMakerQuoteComponents = [
@@ -161,6 +181,8 @@ const receiptComponents = [
   { name: "submitter", type: "address" },
   { name: "relayerAccountId", type: "bytes32" },
   { name: "relayerFeeMinor", type: "uint128" },
+  { name: "fillPositionId", type: "bytes32" },
+  { name: "closedPositionId", type: "bytes32" },
 ] as const;
 
 const errors = [
@@ -181,6 +203,12 @@ const errors = [
   ["RelayerFeeAboveMaximum", [{ name: "maximum", type: "uint128" }, { name: "charged", type: "uint128" }]],
   ["RelayerAccountMismatch", [{ name: "relayerAccountId", type: "bytes32" }]],
   ["SettlementFillMismatch", [{ name: "expected", type: "bytes32" }, { name: "actual", type: "bytes32" }]],
+  ["OffsetUnwindNotConsented", []],
+  ["UnexpectedFillPositions", [{ name: "fillId", type: "bytes32" }, { name: "count", type: "uint256" }]],
+  // Raised by the offset unwind coordinator when an exit is not an exact mirror of the named position.
+  ["PositionIneligible", [{ name: "positionId", type: "bytes32" }]],
+  ["NotAnOffset", [{ name: "firstPositionId", type: "bytes32" }, { name: "secondPositionId", type: "bytes32" }]],
+  ["InitiatorNotParty", [{ name: "initiatorAccountId", type: "bytes32" }]],
   // Raised beneath the router by the binding registry, the capacity manager and the order state.
   ["InvalidRiskAuthorization", []],
   ["RiskAuthorizationNonceUsed", [{ name: "signer", type: "address" }, { name: "nonce", type: "uint256" }]],
