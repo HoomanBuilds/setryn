@@ -55,21 +55,23 @@ capacity ids from the same terms and signs fresh quotes.
 
 ## Contract graph (V2)
 
-`RiskAdmissionBindingRegistry` gains the signature path, and everything that holds it (or what holds that) immutably is
-a new instance. Unchanged sources are redeployed only because their immutable references change.
+`RiskAdmissionBindingRegistry` gains the signature path. Every contract that holds it, or holds something that holds it,
+through an immutable reference cannot be pointed at the new registry, so it is a new instance. Unchanged sources are
+redeployed only because their immutable references change.
 
-| Contract | Change | Why |
+| Contract | Change | Immutable reference that forces it |
 | --- | --- | --- |
 | `RiskAdmissionBindingRegistry` | new source | signature-authorized binding |
 | `QuoteSettlementRouter` | new | permissionless settlement |
-| `OrderValidationGate`, `ClearingAdmissionGate` | redeployed | immutable `riskBindings` |
-| `OrderState` | redeployed | immutable validation gate |
-| `AtomicClearingEngine` | redeployed | immutable `OrderState` and admission gate |
-| `PublicBookEligibilityGate`, `PublicOrderBook` | redeployed | immutable `OrderState` and clearing engine |
-| `StreamingQuoteEngine`, `BatchClearingEngine` | redeployed | immutable clearing engine |
-| `ProtocolRouteLiquiditySource`, `CollateralAwareRouteEngine` | redeployed | immutable book and stream engine |
-| Order, book, fill, stream and route receipt authorities | redeployed | immutable sources |
-| Collateral vault, position engine, fee engine, risk engine, registries, markets, series, capacity manager and registry, RFQ book, auction house, lifecycle | reused | role grants only |
+| `OrderValidationGate`, `ClearingAdmissionGate` | redeployed | `riskBindings` |
+| `OrderState` | redeployed | validation gate |
+| `AtomicClearingEngine` | redeployed | `OrderState`, admission gate |
+| `PublicBookEligibilityGate`, `PublicOrderBook` | redeployed | `OrderState`, clearing engine |
+| `StreamingQuoteEngine`, `PrivateRfqBook`, `SealedAuctionHouse` | redeployed | clearing engine |
+| `BatchClearingEngine` | redeployed | clearing engine, auction house |
+| `ProtocolRouteLiquiditySource`, `CollateralAwareRouteEngine` | redeployed | book, RFQ book, stream engine, auction house |
+| Order, book, RFQ, fill, stream, auction, solver and route receipt authorities | redeployed | their sources |
+| Collateral vault, position engine, fee engine, risk engine, registries, markets, series, capacity managers, lifecycle, settlement, default and fixing engines | unchanged sources | none of the above |
 
 Contract-level roles the router holds (no externally owned account needs any of them per trade):
 `STREAM_ENGINE_ROLE` on the stream capacity manager, `MATCH_EXECUTOR_ROLE` on the clearing engine, `RISK_CONSUMER_ROLE`
@@ -77,6 +79,23 @@ on the risk engine, and `COLLATERAL_LOCKER_ROLE` and `COLLATERAL_SETTLER_ROLE` o
 router has no admin.
 
 `DeploySetryn` deploys the whole V2 graph with these roles; `scripts/generate-deployment-evidence.mjs` verifies them.
+
+## Moving Arbitrum Sepolia to V2
+
+The V2 release is a fresh deployment, not an in-place patch. Over half of the execution graph is new instances (table
+above), the reused contracts would need role grants from the governance admin to every new instance and revocations
+from every old one, and the deployment evidence, manifest inventory and receipt registry describe one coherent graph.
+Running `docs/runbooks/network-deployment.md` from step 2 produces exactly that graph with the evidence checks that
+already guard it, so V2 ships the same way V1 did:
+
+1. Steps 2 to 6 of the network deployment runbook against the current commit (`DeploySetryn` now includes the router).
+2. The new `deployments/arbitrum-sepolia/runtime.json` names `quoteSettlementRouter` and `streamCapacityManager`;
+   point the web app at it and set `SETRYN_MAKER_PRIVATE_KEY` (and optionally `SETRYN_RELAYER_PRIVATE_KEY`).
+3. Remove the retired maker refresher from any host that ran it (network deployment runbook, "Operations").
+
+Positions opened on the V1 contracts stay on them. Settlement finalization and claims there are permissionless; fixings
+still need the configured publishers' signed observations, so keep a copy of the V1 runtime and run the operator's
+fixing and settlement pass against it until its last series settles. Nothing migrates between the two graphs.
 
 ## Keys and nonce lanes
 
