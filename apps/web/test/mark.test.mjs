@@ -1,9 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { cappedForwardMark, expectedClamp, MARK_METHODOLOGY_VERSION, MARK_PARAMETERS, markBasis } from "../src/lib/pricing/mark.ts";
+import {
+  cappedForwardMark,
+  expectedClamp,
+  MARK_METHODOLOGY_VERSION,
+  MARK_PARAMETERS,
+  MARK_PARAMETER_SETS,
+  markBasis,
+  markParametersAt,
+} from "../src/lib/pricing/mark.ts";
 
-const NOW = 1_790_000_000;
+const NOW = 1_791_072_000;
 const DAY = 86_400;
 const eth = (days) => ({ underlying: "ETH", floor: 1340, cap: 4020, expiryAt: NOW + days * DAY, tickSize: 0.1, priceDecimals: 1 });
 
@@ -16,6 +24,21 @@ test("the mark is versioned, modeled, and stays one tick inside the band", () =>
   // Far outside the band on either side the mark sits at the band's edge, never on it.
   assert.equal(cappedForwardMark(eth(0), 50_000, NOW).price, 4019.9);
   assert.equal(cappedForwardMark(eth(0), 10, NOW).price, 1340.1);
+});
+
+test("historical marks select the parameter set effective at that timestamp", () => {
+  const [first, second] = MARK_PARAMETER_SETS;
+  assert.equal(markParametersAt(first.effectiveFrom - 1), null);
+  assert.equal(markParametersAt(first.effectiveFrom), first);
+  assert.equal(markParametersAt(second.effectiveFrom - 1), first);
+  assert.equal(markParametersAt(second.effectiveFrom), second);
+  assert.equal(cappedForwardMark(eth(90), 2760, first.effectiveFrom).model.version, 1);
+  assert.equal(cappedForwardMark(eth(90), 2760, second.effectiveFrom).model.version, 2);
+  assert.equal(
+    markBasis([{ time: first.effectiveFrom, price: 2800, notional: 1_000_000, modelValue: 2700 }], first.effectiveFrom),
+    null,
+    "version 1 never gains a fill basis retroactively",
+  );
 });
 
 test("every expiry prices independently and converges to the clamped spot at expiry", () => {

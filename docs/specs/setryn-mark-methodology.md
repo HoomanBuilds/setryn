@@ -42,6 +42,10 @@ Book quotes and maker midpoints are never inputs. The house maker quotes around 
 return the mark. Fills at the house's own quotes do count. Persistent one-sided demand lifts the mark by at most the
 cap, and the effect decays with the half-life once the flow stops.
 
+The fill basis is enabled only on local and Arbitrum Sepolia environments. Arbitrum One never applies it until Setryn
+has a manipulation-resistant fill qualification policy. Mainnet cannot treat merely using two different account IDs
+as proof of independent price discovery.
+
 The result is rounded to the market's tick and held one tick inside `(floor, cap)`, where every quote must lie.
 
 ## Inputs
@@ -97,17 +101,22 @@ carried price. Beside the bars:
   one maker at a fixed spread it would say nothing;
 - the expiry is a vertical line.
 
+History begins at the series `tradingStartsAt`. If activation falls inside an interval, the first aligned candle is a
+partial candle evaluated from the exact activation time. No Chainlink history from before the market opened is rendered
+as Setryn market history.
+
 ## Data
 
 Rounds and fills are stored in Supabase by the market-data ingester ([runbook](../runbooks/market-data.md)). Marks and
-candles are computed on read, so a new parameter set or version applies to all history at once and nothing has to be
-migrated. Without the database the app reads the same inputs from chain over a shorter window, and says so.
+candles are computed on read. Each timestamp selects the append-only parameter set and methodology version effective at
+that time, so a new revision affects only later history and nothing has to be migrated. Without the database the app
+reads the same inputs from chain over a shorter window, and says so.
 
 ## Changes
 
 | Version | Set | Change |
 | --- | --- | --- |
-| 1 | testnet-2026-10-02 | Capped-forward model from MODELED volatility, rate and carry |
+| 1 | testnet-2026-10-01 | Capped-forward model from MODELED volatility, rate and carry |
 | 2 | testnet-2026-10-03 | Adds the capped, decaying fill basis. Past expiry the mark uses the fixing reading. Gaps instead of carried prices |
 
 ## Known limits

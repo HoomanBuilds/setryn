@@ -1,7 +1,7 @@
 import { readReferenceQuotes } from "@/lib/market-data/reference";
 import type { ReferenceQuote } from "@/lib/market-data/types";
 import { readMarketDataSnapshot } from "@/lib/market-data/server";
-import { cappedForwardMark, MARK_PARAMETERS, runtimeMarkTerms, type MarkBasis, type MarkModel } from "@/lib/pricing/mark";
+import { cappedForwardMark, runtimeMarkTerms, type MarkBasis, type MarkModel } from "@/lib/pricing/mark";
 import type { SetrynRuntimeMarket } from "./runtime";
 import { priceOffset } from "./runtime-markets";
 
@@ -78,7 +78,7 @@ export function quoteFromReference(
   if (top < BigInt(4)) throw new MakerPricingError("QUOTE_OUTSIDE_RANGE", `${market.marketKey} has no room between floor and cap.`);
   // The quote is centred on the modeled mark, never on spot: a capped forward's fair value depends on its expiry.
   const terms = runtimeMarkTerms(market);
-  const modeled = terms ? cappedForwardMark(terms, reference.price, nowSeconds, MARK_PARAMETERS, basis) : null;
+  const modeled = terms ? cappedForwardMark(terms, reference.price, nowSeconds, undefined, basis) : null;
   if (!modeled) throw new MakerPricingError("MARK_UNAVAILABLE", `${market.marketKey} has no model inputs for ${market.underlying}.`);
   const fair = modeled.price;
   const fairTicks = BigInt(Math.round((fair - offset) * scale));

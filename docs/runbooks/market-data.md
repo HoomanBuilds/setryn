@@ -127,5 +127,7 @@ store; the ingester is the only writer.
 
 Inputs (volatility, rate, carry, basis parameters) change by publishing a new parameter set in
 `apps/web/src/lib/pricing/mark.ts` with a new id and effective date. A formula change bumps `MARK_METHODOLOGY_VERSION`.
-Either change applies to all history on the next read, since nothing derived is stored. Record each change in the
-methodology document.
+The registry is append-only. Every mark selects the newest set effective at its own evaluation timestamp, so publishing
+a set changes marks from that time forward and never repaints earlier candles. Keep the implementation of every
+published methodology version available for deterministic reconstruction, and record each change in the methodology
+document.

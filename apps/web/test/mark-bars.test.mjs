@@ -44,3 +44,12 @@ test("a newer live reading closes the last bar", () => {
   assert.equal(live.buckets[1].close, 107);
   assert.equal(withReading(live, { price: 90, updatedAt: 110 }, grid, 60, 200), live, "an older reading changes nothing");
 });
+
+test("the first partial bar never evaluates the mark before market activation", () => {
+  const history = bucketPoints([{ time: 80, price: 100, lots: 0 }], grid, 90, 119);
+  const { candles } = buildMarkBars({ history, grid, firstBar: 60, activeFrom: 90, until: 119, staleAfter: 1_000, markAt: (_spot, time) => time });
+  assert.equal(candles.length, 1);
+  assert.equal(candles[0].time, 60);
+  assert.equal(candles[0].open, 90);
+  assert.equal(candles[0].close, 119);
+});

@@ -143,11 +143,13 @@ export function buildMarkBars(input: {
   history: SpotHistory;
   grid: BarGrid;
   firstBar: number;
+  /** Exact market activation time. The first aligned bar is partial and cannot evaluate before it. */
+  activeFrom?: number;
   until: number;
   staleAfter: number;
   markAt: (spot: number, time: number) => number | null;
 }): MarkBars {
-  const { history, grid, firstBar, until, staleAfter, markAt } = input;
+  const { history, grid, firstBar, activeFrom = firstBar, until, staleAfter, markAt } = input;
   const step = grid.step;
   const candles: MarketCandle[] = [];
   const spot: MarkBars["spot"] = [];
@@ -161,11 +163,12 @@ export function buildMarkBars(input: {
   }
   const fresh = (reading: SpotHistory["carry"], at: number) => reading !== null && at - reading.updatedAt <= staleAfter;
   for (let time = firstBar; time <= until; time += step) {
+    const start = Math.max(time, activeFrom);
     const end = Math.min(time + step, until);
     const bucket = history.buckets[index]?.time === time ? history.buckets[index++] : undefined;
     const points: number[] = [];
     let open: number | null = null;
-    if (fresh(carry, time)) open = markAt((carry as NonNullable<typeof carry>).price, time);
+    if (fresh(carry, start)) open = markAt((carry as NonNullable<typeof carry>).price, start);
     if (bucket) {
       const first = markAt(bucket.open, bucket.openAt);
       open ??= first;
@@ -177,7 +180,7 @@ export function buildMarkBars(input: {
       carry = { price: bucket.close, updatedAt: bucket.closeAt };
     }
     const close = fresh(carry, end) ? markAt((carry as NonNullable<typeof carry>).price, end) : null;
-    const inHole = history.holes.some((hole) => hole.from < end && hole.to > time);
+    const inHole = history.holes.some((hole) => hole.from < end && hole.to > start);
     if (open === null || close === null || inHole) {
       candles.push({ time, open: 0, high: 0, low: 0, close: 0, volume: 0, gap: true });
       continue;

@@ -29,7 +29,17 @@ import { orderStateAbi, publicOrderBookAbi, seriesRegistryAbi } from "@/lib/inte
 import type { SetrynRuntime, SetrynRuntimeMarket } from "@/lib/internal-gateway/runtime";
 import { considerationPerPriceUnit, deriveSeriesBookId, ticksToPrice } from "@/lib/internal-gateway/runtime-markets";
 import { readRuntime } from "@/lib/internal-gateway/runtime-server";
-import { cappedForwardMark, markBasis, MARK_PARAMETERS, runtimeMarkTerms, type BasisFill, type MarkBasis, type MarkTerms, type MarkValue } from "@/lib/pricing/mark";
+import {
+  cappedForwardMark,
+  markBasis,
+  markParametersAt,
+  MARK_PARAMETER_SETS,
+  runtimeMarkTerms,
+  type BasisFill,
+  type MarkBasis,
+  type MarkTerms,
+  type MarkValue,
+} from "@/lib/pricing/mark";
 import type { BookRow } from "@/lib/terminal/types";
 import { barGrid, barOpenTime, INTERVAL_SECONDS, MAX_BARS, type PricePoint } from "./intervals";
 import { bucketPoints, buildMarkBars, withReading, type SpotHistory } from "./mark-bars";
@@ -461,7 +471,7 @@ function feeView(fees: ActiveFeeSchedule): MarketFeeSchedule {
 /** The market's mark from a spot reading at `atSeconds` and the fill basis then (lib/pricing/mark.ts), or null. */
 function modelMark(market: SetrynRuntimeMarket, spot: number | undefined, atSeconds: number, basis: MarkBasis | null = null): MarkValue | null {
   const terms = runtimeMarkTerms(market);
-  return terms && spot !== undefined ? cappedForwardMark(terms, spot, atSeconds, MARK_PARAMETERS, basis) : null;
+  return terms && spot !== undefined ? cappedForwardMark(terms, spot, atSeconds, undefined, basis) : null;
 }
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -512,7 +522,7 @@ async function spotsAt(requests: readonly { underlying: string; at: number }[]):
 
 /** How far back a fill still weighs in the basis (eight half-lives), measured from the earliest time it is asked for. */
 function basisHorizon(): number {
-  return 8 * MARK_PARAMETERS.basis.halfLifeSeconds;
+  return 8 * Math.max(...MARK_PARAMETER_SETS.map((parameters) => parameters.basis.halfLifeSeconds));
 }
 
 /**
@@ -526,13 +536,14 @@ async function basisFills(market: SetrynRuntimeMarket, fills: readonly StoredFil
   const multiplier = considerationPerPriceUnit(market);
   const cache = holder().fillModels;
   const relevant = fills.filter((fill) => fill.time >= since && fill.buyerAccountId !== fill.sellerAccountId);
-  const cacheKey = (fill: StoredFill) => `${MARK_PARAMETERS.id}:${fill.id}`;
+  const cacheKey = (fill: StoredFill) => `${markParametersAt(fill.time)?.id ?? "unmarked"}:${fill.id}`;
   const missing = relevant.filter((fill) => !cache.has(cacheKey(fill)));
   if (missing.length > 0) {
     const spots = await spotsAt(missing.map((fill) => ({ underlying, at: fill.time })));
     for (const fill of missing) {
       const spot = spots.get(spotKey(underlying, fill.time));
-      const model = spot === undefined ? null : cappedForwardMark(terms, spot, fill.time);
+      const parameters = markParametersAt(fill.time);
+      const model = spot === undefined || !parameters ? null : cappedForwardMark(terms, spot, fill.time, parameters);
       if (model) cache.set(cacheKey(fill), model.model.modelValue);
     }
   }
@@ -574,15 +585,17 @@ async function readLiveMarket(
   // reading in force at expiry fixes it, not today's spot.
   const expired = market.expiryAt !== undefined && chainTime >= market.expiryAt;
   const expirySpot = expired && market.underlying ? pastSpots.get(spotKey(market.underlying, market.expiryAt as number)) : undefined;
-  const spot = expirySpot ?? reference?.price;
-  const informing = await basisFills(market, fills, chainTime - DAY_SECONDS - basisHorizon());
-  const modeled = modelMark(market, spot, chainTime, markBasis(informing, chainTime));
+  const spot = expired ? expirySpot : reference?.price;
+  const evaluationAt = expired ? (market.expiryAt as number) : chainTime;
+  const allowObservedBasis = runtime.chainId !== REFERENCE_CHAIN_ID && runtime.network !== "arbitrum-one";
+  const informing = allowObservedBasis ? await basisFills(market, fills, evaluationAt - DAY_SECONDS - basisHorizon()) : [];
+  const modeled = modelMark(market, spot, evaluationAt, allowObservedBasis ? markBasis(informing, evaluationAt) : null);
   const mark = modeled?.price ?? null;
   const markSource: LiveMarketData["markSource"] = mark === null ? "NONE" : "MODEL";
   const markAsOf = expirySpot !== undefined ? (market.expiryAt as number) : (reference?.updatedAt ?? 0);
-  const priorAt = chainTime - DAY_SECONDS;
+  const priorAt = evaluationAt - DAY_SECONDS;
   const priorSpot = market.underlying ? pastSpots.get(spotKey(market.underlying, priorAt)) : undefined;
-  const markPrior24h = modelMark(market, priorSpot, priorAt, markBasis(informing, priorAt))?.price ?? null;
+  const markPrior24h = modelMark(market, priorSpot, priorAt, allowObservedBasis ? markBasis(informing, priorAt) : null)?.price ?? null;
   let openInterestLots: number | null = null;
   if (state?.fromDeployment) {
     const seriesKey = market.seriesId.toLowerCase();
@@ -680,11 +693,12 @@ async function buildSnapshot(): Promise<MarketDataSnapshot> {
     ]);
     const listed = rangeForwardMarkets(runtime);
     const chainTime = Number(head.timestamp);
-    // Every past reading the snapshot needs, in one read: a day ago for the 24h change, and each expired market's expiry.
+    // Every past reading the snapshot needs, in one read: the mark's 24h base and each expired market's expiry.
     const pastSpots = await spotsAt(
       listed.flatMap((market) => {
         if (!market.underlying) return [];
-        const requests = [{ underlying: market.underlying, at: chainTime - DAY_SECONDS }];
+        const evaluationAt = market.expiryAt !== undefined && chainTime >= market.expiryAt ? market.expiryAt : chainTime;
+        const requests = [{ underlying: market.underlying, at: evaluationAt - DAY_SECONDS }];
         if (market.expiryAt !== undefined && chainTime >= market.expiryAt) requests.push({ underlying: market.underlying, at: market.expiryAt });
         return requests;
       }),
@@ -884,30 +898,36 @@ export async function readMarketCandles(
   const until = Math.min(now, terms.expiryAt);
   const step = INTERVAL_SECONDS[interval];
   const windowStart = barOpenTime(until, interval) - (MAX_BARS[interval] - 1) * step;
-  const spot = await spotHistory(underlying, interval, windowStart, until);
+  const historyStart = Math.max(windowStart, terms.tradingStartsAt ?? windowStart);
+  if (historyStart > until) return empty;
+  const spot = await spotHistory(underlying, interval, historyStart, until);
   let history = spot.history;
   // The live reading (what the header marks with) closes the last bar, when it is newer than the stored rounds. It is
   // the reading in force at the platform's clock even when chain time trails it (an idle devnet), so it is held there.
   const live = snapshot.references[underlying];
   if (live && until === now) {
-    history = withReading(history, { price: live.price, updatedAt: Math.min(live.updatedAt, until) }, barGrid(interval), windowStart, until);
+    history = withReading(history, { price: live.price, updatedAt: Math.min(live.updatedAt, until) }, barGrid(interval), historyStart, until);
   }
   if (spot.earliest === null && history.buckets.length === 0) return { ...empty, history: { source: spot.source, earliest: null } };
-  const firstBar = history.carry ? windowStart : Math.max(windowStart, barOpenTime(history.buckets[0]?.time ?? until, interval));
+  const marketFirstBar = barOpenTime(historyStart, interval);
+  const firstBar = history.carry ? marketFirstBar : Math.max(marketFirstBar, barOpenTime(history.buckets[0]?.time ?? until, interval));
 
   const fills = (holder().state?.fills.get(marketKey) ?? []).filter((fill) => fill.blockNumber <= snapshot.blockNumber && fill.time <= until);
-  const informing = listedMarket ? await basisFills(listedMarket, fills, firstBar - basisHorizon()) : [];
-  const markAt = (price: number, time: number) => cappedForwardMark(terms, price, time, MARK_PARAMETERS, markBasis(informing, time))?.price ?? null;
+  const allowObservedBasis = runtime?.chainId !== REFERENCE_CHAIN_ID && runtime?.network !== "arbitrum-one";
+  const informing = listedMarket && allowObservedBasis ? await basisFills(listedMarket, fills, historyStart - basisHorizon()) : [];
+  const markAt = (price: number, time: number) =>
+    cappedForwardMark(terms, price, time, undefined, allowObservedBasis ? markBasis(informing, time) : null)?.price ?? null;
   const bars = buildMarkBars({
     history,
     grid: barGrid(interval),
     firstBar,
+    activeFrom: historyStart,
     until,
     staleAfter: REFERENCE_STALE_AFTER_SECONDS[underlying] ?? DEFAULT_STALE_AFTER_SECONDS,
     markAt,
   });
 
-  const windowFills = fills.filter((fill) => fill.time >= firstBar);
+  const windowFills = fills.filter((fill) => fill.time >= historyStart);
   const volumeByBar = new Map<number, number>();
   for (const fill of windowFills) {
     const bar = barOpenTime(fill.time, interval);
@@ -919,7 +939,10 @@ export async function readMarketCandles(
     .map((fill) => ({ time: fill.time, price: fill.price, lots: fill.lots, side: fill.side, sideInferred: fill.sideInferred === true }));
 
   const latestReading = live && until === now ? live.price : history.buckets[history.buckets.length - 1]?.close ?? history.carry?.price;
-  const latest = latestReading === undefined ? null : cappedForwardMark(terms, latestReading, until, MARK_PARAMETERS, markBasis(informing, until));
+  const latest =
+    latestReading === undefined
+      ? null
+      : cappedForwardMark(terms, latestReading, until, undefined, allowObservedBasis ? markBasis(informing, until) : null);
   const [base, quote] = underlying.includes("/") ? underlying.split("/") : [underlying, "USD"];
   return {
     ...empty,

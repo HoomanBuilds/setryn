@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
       floor: entry.floor,
       cap: entry.cap,
       expiryAt: entry.expiryAt,
+      tradingStartsAt: entry.tradingStartsAt,
       tickSize: entry.tickPrice,
       priceDecimals: entry.priceDecimals,
     });

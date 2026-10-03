@@ -43,9 +43,11 @@ export interface UnderlyingModelInputs {
 /** A named, dated set of model inputs. Changing any input means publishing a new set, never editing one in place. */
 export interface MarkParameterSet {
   id: string;
+  methodologyVersion: 1 | 2;
   /** MODELED: assumptions, not observations of any market. */
   provenance: "MODELED";
-  effectiveFrom: string;
+  /** Unix seconds. Historical marks select the newest set effective at their evaluation time. */
+  effectiveFrom: number;
   description: string;
   /** USD rate: the forward's financing and the discount of the expiry payoff. */
   rate: number;
@@ -63,29 +65,59 @@ export interface BasisParameters {
   maxAdjustment: number;
 }
 
-/**
- * Testnet inputs. Round, conservative assumptions for an Arbitrum Sepolia demonstration; they are not calibrated to
- * any options market and must be replaced by an observed or calibrated set before the mark is used for real money.
- */
+const TESTNET_UNDERLYINGS: MarkParameterSet["underlyings"] = {
+  BTC: { volatility: 0.5, carry: 0 },
+  ETH: { volatility: 0.65, carry: 0.03 },
+  ARB: { volatility: 0.8, carry: 0 },
+  "EUR/USD": { volatility: 0.08, carry: 0.02 },
+  "XAU/USD": { volatility: 0.16, carry: 0.005 },
+};
+
+const TESTNET_BASIS: BasisParameters = {
+  halfLifeSeconds: 86_400,
+  halfConfidenceNotional: 25_000,
+  maxAdjustment: 0.02,
+};
+
+export const TESTNET_MARK_PARAMETERS_V1: MarkParameterSet = {
+  id: "testnet-2026-10-01",
+  methodologyVersion: 1,
+  provenance: "MODELED",
+  effectiveFrom: Date.parse("2026-10-01T00:00:00Z") / 1_000,
+  description: "Initial testnet capped-forward model without an observed fill basis.",
+  rate: 0.04,
+  underlyings: TESTNET_UNDERLYINGS,
+  basis: TESTNET_BASIS,
+};
+
+/** Testnet inputs. They are not calibrated and must be replaced before the mark is used for real money. */
 export const TESTNET_MARK_PARAMETERS: MarkParameterSet = {
   id: "testnet-2026-10-03",
+  methodologyVersion: 2,
   provenance: "MODELED",
-  effectiveFrom: "2026-10-03",
+  effectiveFrom: Date.parse("2026-10-03T00:00:00Z") / 1_000,
   description:
     "Testnet assumptions, not calibrated to any market: a 4% USD rate, round volatility and carry per underlying, and a fill basis with a one-day half-life, half weight at $25,000 of decayed notional and a 2% cap.",
   rate: 0.04,
-  underlyings: {
-    BTC: { volatility: 0.5, carry: 0 },
-    ETH: { volatility: 0.65, carry: 0.03 },
-    ARB: { volatility: 0.8, carry: 0 },
-    "EUR/USD": { volatility: 0.08, carry: 0.02 },
-    "XAU/USD": { volatility: 0.16, carry: 0.005 },
-  },
-  basis: { halfLifeSeconds: 86_400, halfConfidenceNotional: 25_000, maxAdjustment: 0.02 },
+  underlyings: TESTNET_UNDERLYINGS,
+  basis: TESTNET_BASIS,
 };
 
-/** The parameter set the platform marks with. */
-export const MARK_PARAMETERS: MarkParameterSet = TESTNET_MARK_PARAMETERS;
+/** Append-only and ordered by effective time. Published entries are never edited or reordered. */
+export const MARK_PARAMETER_SETS: readonly MarkParameterSet[] = [TESTNET_MARK_PARAMETERS_V1, TESTNET_MARK_PARAMETERS];
+
+/** The current set, for controls that need its configured bounds rather than a historical selection. */
+export const MARK_PARAMETERS: MarkParameterSet = MARK_PARAMETER_SETS[MARK_PARAMETER_SETS.length - 1];
+
+/** The immutable methodology revision in force at an evaluation time. */
+export function markParametersAt(atSeconds: number): MarkParameterSet | null {
+  if (!Number.isFinite(atSeconds)) return null;
+  for (let index = MARK_PARAMETER_SETS.length - 1; index >= 0; index -= 1) {
+    const parameters = MARK_PARAMETER_SETS[index];
+    if (atSeconds >= parameters.effectiveFrom) return parameters;
+  }
+  return null;
+}
 
 /** The listed terms the mark needs; both catalog and runtime markets map onto it. */
 export interface MarkTerms {
@@ -94,6 +126,8 @@ export interface MarkTerms {
   cap: number;
   /** Unix seconds of the expiry (the fixing time). */
   expiryAt: number;
+  /** Unix seconds the market opened. Charts never synthesize bars before it. */
+  tradingStartsAt?: number;
   tickSize: number;
   priceDecimals: number;
 }
@@ -185,9 +219,14 @@ function roundToTick(value: number, terms: MarkTerms): number {
  * The fill basis at `atSeconds` from fills at or before it (version 2), or null when no fill informs it. Fills older than
  * eight half-lives carry under 0.4% of their weight and are ignored.
  */
-export function markBasis(fills: readonly BasisFill[], atSeconds: number, parameters: MarkParameterSet = MARK_PARAMETERS): MarkBasis | null {
+export function markBasis(
+  fills: readonly BasisFill[],
+  atSeconds: number,
+  parameters: MarkParameterSet | null = markParametersAt(atSeconds),
+): MarkBasis | null {
+  if (!parameters || parameters.methodologyVersion < 2) return null;
   const { halfLifeSeconds, halfConfidenceNotional, maxAdjustment } = parameters.basis;
-  const horizon = atSeconds - 8 * halfLifeSeconds;
+  const horizon = Math.max(parameters.effectiveFrom, atSeconds - 8 * halfLifeSeconds);
   let weight = 0;
   let weighted = 0;
   let count = 0;
@@ -216,9 +255,10 @@ export function cappedForwardMark(
   terms: MarkTerms,
   spot: number,
   atSeconds: number,
-  parameters: MarkParameterSet = MARK_PARAMETERS,
+  parameters: MarkParameterSet | null = markParametersAt(atSeconds),
   basis: MarkBasis | null = null,
 ): MarkValue | null {
+  if (!parameters) return null;
   const inputs = parameters.underlyings[terms.underlying];
   if (!inputs || !(spot > 0) || !Number.isFinite(atSeconds)) return null;
   if (!(terms.cap > terms.floor) || !(terms.tickSize > 0) || terms.cap - terms.floor < 2 * terms.tickSize) return null;
@@ -237,7 +277,7 @@ export function cappedForwardMark(
     price: roundToTick(value, terms),
     model: {
       methodology: MARK_METHODOLOGY,
-      version: MARK_METHODOLOGY_VERSION,
+      version: parameters.methodologyVersion,
       parameterSet: parameters.id,
       provenance: parameters.provenance,
       spot,
@@ -260,6 +300,7 @@ export function runtimeMarkTerms(market: {
   floor?: string;
   cap?: string;
   expiryAt?: number;
+  tradingStartsAt?: number;
   priceScale: number;
   priceDecimals?: number;
 }): MarkTerms | null {
@@ -272,6 +313,7 @@ export function runtimeMarkTerms(market: {
     floor,
     cap,
     expiryAt: market.expiryAt,
+    tradingStartsAt: market.tradingStartsAt,
     tickSize: 1 / market.priceScale,
     priceDecimals: market.priceDecimals ?? Math.round(Math.log10(market.priceScale)),
   };

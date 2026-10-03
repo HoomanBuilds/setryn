@@ -168,6 +168,26 @@ const SHORTCUT_TOOLS: Record<string, DrawingKind> = {
   KeyF: "fib",
 };
 
+function sameCandle(left: MarketCandle, right: MarketCandle): boolean {
+  return (
+    left.time === right.time &&
+    left.open === right.open &&
+    left.high === right.high &&
+    left.low === right.low &&
+    left.close === right.close &&
+    left.volume === right.volume &&
+    Boolean(left.gap) === Boolean(right.gap)
+  );
+}
+
+function historicalBarsChanged(current: readonly MarketCandle[], next: readonly MarketCandle[]): boolean {
+  if (current.length === 0 || next.length === 0) return false;
+  const liveBarTime = current[current.length - 1].time;
+  const currentHistory = current.filter((candle) => candle.time < liveBarTime);
+  const nextHistory = next.filter((candle) => candle.time < liveBarTime);
+  return currentHistory.length !== nextHistory.length || currentHistory.some((candle, index) => !sameCandle(candle, nextHistory[index]));
+}
+
 /** Canvas fonts cannot read CSS variables, so the chart gets the resolved next/font family names. */
 function resolvedFont(element: HTMLElement, variable: string, fallback: string): string {
   const family = getComputedStyle(element).getPropertyValue(variable).trim();
@@ -370,7 +390,10 @@ export function PackagePriceChart({
   const intervalRef = useRef<ChartInterval>(DEFAULT_PREFS.interval);
   const pendingRangeRef = useRef<number | null | undefined>(undefined);
   /** What the range effect does once every series holds the new bars. */
-  const rangeActionRef = useRef<{ type: "reset" } | { type: "restore"; from: number; to: number } | null>(null);
+  const rangeActionRef = useRef<
+    { type: "reset" } | { type: "restore"; from: number; to: number } | { type: "restore-time"; from: number; to: number } | null
+  >(null);
+  const preserveRangeRef = useRef(false);
   const loadedHistoryRef = useRef<MarketCandle[] | null>(null);
   const fontsRef = useRef({ mono: "ui-monospace, monospace", serif: "Georgia, serif" });
   const setDrawingsRef = useRef<(next: Drawing[] | ((current: Drawing[]) => Drawing[])) => void>(() => undefined);
@@ -947,8 +970,12 @@ export function PackagePriceChart({
     if (!chart || !primitive) return;
     // A style change keeps the viewport; new bars (interval or market) get a fresh one.
     const visible = chart.timeScale().getVisibleLogicalRange();
-    rangeActionRef.current =
-      loadedHistoryRef.current === history && visible
+    const preserveRange = preserveRangeRef.current;
+    preserveRangeRef.current = false;
+    const visibleTime = preserveRange ? chart.timeScale().getVisibleRange() : null;
+    rangeActionRef.current = visibleTime
+      ? { type: "restore-time", from: Number(visibleTime.from), to: Number(visibleTime.to) }
+      : loadedHistoryRef.current === history && visible
         ? { type: "restore", from: visible.from, to: visible.to }
         : { type: "reset" };
     loadedHistoryRef.current = history;
@@ -1232,6 +1259,8 @@ export function PackagePriceChart({
       pendingRangeRef.current = undefined;
     } else if (action.type === "restore") {
       chart.timeScale().setVisibleLogicalRange({ from: action.from, to: action.to });
+    } else if (action.type === "restore-time") {
+      chart.timeScale().setVisibleRange({ from: action.from as UTCTimestamp, to: action.to as UTCTimestamp });
     } else {
       resetVisibleRange(chart, candlesRef.current.length);
     }
@@ -1242,6 +1271,11 @@ export function PackagePriceChart({
     const active = seriesRef.current;
     const candles = candlesRef.current;
     if (!active || loaded.key !== loadKey || candles.length === 0) return;
+    if (historicalBarsChanged(candles, feedCandles)) {
+      preserveRangeRef.current = true;
+      setLoaded({ key: loadKey, candles: feedCandles.map((candle) => ({ ...candle })) });
+      return;
+    }
     const lastTime = candles[candles.length - 1].time;
     const updates = feedCandles.filter((candle) => candle.time >= lastTime);
     if (updates.length === 0) return;
