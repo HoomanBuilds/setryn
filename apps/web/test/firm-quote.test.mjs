@@ -16,8 +16,8 @@ function quote(side, price, lots, secondsLeft) {
   return { id: `0x${side === "ASK" ? "a" : "b"}${"0".repeat(63)}`, marketId: "BTC", side, price, lots, expiresAt: NOW + secondsLeft };
 }
 
-function state(bid, ask, status = "FIRM") {
-  return { marketId: "BTC", status, reason: null, bid, ask, reference: null };
+function state(bid, ask, status = "FIRM", bids = bid ? [bid] : [], asks = ask ? [ask] : []) {
+  return { marketId: "BTC", status, reason: null, bids, asks, bid, ask, reference: null };
 }
 
 test("a quote is executable only with the execution margin left, and never once expired", () => {
@@ -47,6 +47,16 @@ test("a taker accepts only the opposite side, within its size and limit", () => 
   assert.equal(acceptableQuote(book, "BUY", 1, 100.5, NOW_MS), null, "limit below the ask");
   assert.equal(acceptableQuote(book, "SELL", 1, 99.5, NOW_MS), null, "limit above the bid");
   assert.equal(acceptableQuote(state(quote("BID", 99, 4, 2), null), "SELL", 1, 99, NOW_MS), null, "inside the margin");
+});
+
+test("a taker selects the best executable ladder level that can fill its size", () => {
+  const small = quote("ASK", 101, 2, 15);
+  const deep = { ...quote("ASK", 102, 8, 15), id: `0x${"c".repeat(64)}` };
+  const book = state(null, small, "FIRM", [], [small, deep]);
+  assert.equal(acceptableQuote(book, "BUY", 2, 102, NOW_MS)?.price, 101);
+  assert.equal(acceptableQuote(book, "BUY", 6, 102, NOW_MS)?.price, 102);
+  assert.equal(acceptableQuote(book, "BUY", 6, 101, NOW_MS), null);
+  assert.equal(firmQuoteRows(book, NOW_MS).length, 2);
 });
 
 test("a relayed risk authorization is parsed strictly", () => {

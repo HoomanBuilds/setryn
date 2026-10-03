@@ -52,14 +52,18 @@ function withoutDiscarded(book: FirmQuoteBook | null, discarded: ReadonlySet<str
   if (!book || discarded.size === 0) return book;
   const markets: FirmQuoteBook["markets"] = {};
   for (const [key, market] of Object.entries(book.markets)) {
-    const bid = market.bid && discarded.has(market.bid.id.toLowerCase()) ? null : market.bid;
-    const ask = market.ask && discarded.has(market.ask.id.toLowerCase()) ? null : market.ask;
-    const emptied = market.status === "FIRM" && !bid && !ask;
+    const bids = market.bids.filter((quote) => !discarded.has(quote.id.toLowerCase()));
+    const asks = market.asks.filter((quote) => !discarded.has(quote.id.toLowerCase()));
+    const bid = bids[0] ?? null;
+    const ask = asks[0] ?? null;
+    const emptied = market.status === "FIRM" && bids.length === 0 && asks.length === 0;
     markets[key] =
-      bid === market.bid && ask === market.ask
+      bids.length === market.bids.length && asks.length === market.asks.length
         ? market
         : {
             ...market,
+            bids,
+            asks,
             bid,
             ask,
             status: emptied ? "INDICATIVE" : market.status,
@@ -146,7 +150,8 @@ export function MarketDataProvider({ children }: { children: ReactNode }) {
     setDiscarded((current) => new Set(current).add(quoteId.toLowerCase()));
   }, []);
   const liveQuotes = useMemo(() => withoutDiscarded(quotes, discarded), [quotes, discarded]);
-  const hasQuotes = liveQuotes !== null && Object.values(liveQuotes.markets).some((market) => market.bid || market.ask);
+  const hasQuotes =
+    liveQuotes !== null && Object.values(liveQuotes.markets).some((market) => market.bids.length > 0 || market.asks.length > 0);
   useEffect(() => {
     if (!hasQuotes) return;
     // Quote expiry is shown in seconds, so the overlay re-evaluates each second while any quote is live.

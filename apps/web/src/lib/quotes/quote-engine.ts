@@ -5,7 +5,7 @@ import { MakerPricingError, makerQuotes, type MakerQuote } from "@/lib/internal-
 import { makerSigner, SignerUnavailableError, type RoleSigner } from "@/lib/internal-gateway/operator-signer";
 import { publicOrderTypedData, serializePublicOrder, type OnchainPublicOrder } from "@/lib/internal-gateway/protocol";
 import type { SetrynRuntime, SetrynRuntimeMarket } from "@/lib/internal-gateway/runtime";
-import { ticksToPrice } from "@/lib/internal-gateway/runtime-markets";
+import { priceOffset, ticksToPrice } from "@/lib/internal-gateway/runtime-markets";
 import { readRuntime } from "@/lib/internal-gateway/runtime-server";
 import {
   QUOTE_LIFETIME_SECONDS,
@@ -40,8 +40,12 @@ import { openCapacityInBackground, readSeriesCapacities, type CapacityView } fro
 
 /** A built book answers again for this long, so any number of streams share one signing pass per tick. */
 const BOOK_TTL_MS = 500;
-/** Lots per quote at most: the larger of this and the market's limit is never exceeded. */
+/** Lots per quote at most: the market's limit and available capacity may reduce it. */
 const QUOTE_LOTS = 10;
+/** Five firm levels per side give the terminal useful depth without making the signer or payload unnecessarily heavy. */
+const QUOTE_LEVELS = 5;
+/** Each level is eight basis points farther from the touch. */
+const LEVEL_SPACING_BPS = 8;
 /** Capacity and collateral reads are reused this long; settled fills show up within it. */
 const CHAIN_READ_TTL_MS = 4_000;
 /** A settlement scan longer than this is skipped: every kept quote is re-signed instead, which is always safe. */
@@ -104,7 +108,7 @@ interface EngineState {
   book: FirmQuoteBook | null;
   building: Promise<FirmQuoteBook> | null;
   version: number;
-  signed: Map<string, { bid: SignedSide | null; ask: SignedSide | null }>;
+  signed: Map<string, { bids: SignedSide[]; asks: SignedSide[] }>;
   capacities: Map<string, { at: number; views: CapacityView[] }>;
   collateral: { at: number; value: MakerCollateral } | null;
   makerAccount: { maker: Address; accountId: Hex } | null;
@@ -165,7 +169,16 @@ async function buildBook(): Promise<FirmQuoteBook> {
   const markets: Record<string, MarketQuoteState> = {};
   const unavailable = (reason: string, status: MarketQuoteState["status"] = "UNAVAILABLE") => {
     for (const market of setryn.markets) {
-      markets[market.marketKey] = { marketId: market.marketKey, status, reason, bid: null, ask: null, reference: null };
+      markets[market.marketKey] = {
+        marketId: market.marketKey,
+        status,
+        reason,
+        bids: [],
+        asks: [],
+        bid: null,
+        ask: null,
+        reference: null,
+      };
     }
   };
 
@@ -199,6 +212,8 @@ async function buildBook(): Promise<FirmQuoteBook> {
           marketId: market.marketKey,
           status: "INDICATIVE",
           reason: "The maker could not sign a quote for this market just now.",
+          bids: [],
+          asks: [],
           bid: null,
           ask: null,
           reference: null,
@@ -218,7 +233,7 @@ function publish(setryn: SetrynRuntime, maker: Address | null, markets: Record<s
     Object.keys(markets).some((key) => {
       const before = previous.markets[key];
       const after = markets[key];
-      return before?.status !== after.status || before?.bid?.id !== after.bid?.id || before?.ask?.id !== after.ask?.id;
+      return before?.status !== after.status || quoteIds(before) !== quoteIds(after);
     });
   if (changed) state.version += 1;
   return {
@@ -240,7 +255,16 @@ async function quoteMarket(
   collateral: MakerCollateral | null,
   nowMs: number,
 ): Promise<MarketQuoteState> {
-  const base: MarketQuoteState = { marketId: market.marketKey, status: "INDICATIVE", reason: null, bid: null, ask: null, reference: null };
+  const base: MarketQuoteState = {
+    marketId: market.marketKey,
+    status: "INDICATIVE",
+    reason: null,
+    bids: [],
+    asks: [],
+    bid: null,
+    ask: null,
+    reference: null,
+  };
   if (!price || price instanceof MakerPricingError) {
     engine().signed.delete(market.marketKey);
     return { ...base, status: "UNAVAILABLE", reason: price instanceof MakerPricingError ? price.detail : "No reference price." };
@@ -263,22 +287,101 @@ async function quoteMarket(
     return { ...base, reference, reason: "The maker is locking its quote capacity onchain; quotes stream once it confirms." };
   }
   const capacityLots = Number(backing.remainingLiability / perLot);
-  const lots = Math.min(QUOTE_LOTS, market.maxOrderLots, capacityLots);
-  if (lots < 1) {
+  const levelLots = allocateLevelLots(capacityLots, Math.min(QUOTE_LOTS, market.maxOrderLots));
+  if (levelLots.length < 1) {
     return { ...base, reference, reason: "The maker's quote capacity is used up." };
   }
-  if (collateral && !collateralCovers(collateral, market, lots, perLot)) {
+  if (collateral && !collateralCovers(collateral, market, levelLots[0], perLot)) {
     return { ...base, reference, reason: "The maker's collateral is fully committed." };
   }
 
   const state = engine();
-  const previous = state.signed.get(market.marketKey) ?? { bid: null, ask: null };
-  const [bid, ask] = await Promise.all([
-    keepOrSign(previous.bid, maker, accountId, fees, market, versions, backing, SIDE_BUY, price.bidTicks, lots, nowMs),
-    keepOrSign(previous.ask, maker, accountId, fees, market, versions, backing, SIDE_SELL, price.askTicks, lots, nowMs),
+  const previous = state.signed.get(market.marketKey) ?? { bids: [], asks: [] };
+  const bidTicks = ladderTicks(market, price.mark, price.bidTicks, SIDE_BUY, levelLots.length);
+  const askTicks = ladderTicks(market, price.mark, price.askTicks, SIDE_SELL, levelLots.length);
+  const [bids, asks] = await Promise.all([
+    signLadder(previous.bids, maker, accountId, fees, market, versions, backing, SIDE_BUY, bidTicks, levelLots, nowMs),
+    signLadder(previous.asks, maker, accountId, fees, market, versions, backing, SIDE_SELL, askTicks, levelLots, nowMs),
   ]);
-  state.signed.set(market.marketKey, { bid, ask });
-  return { ...base, status: "FIRM", reference, bid: bid.quote, ask: ask.quote };
+  state.signed.set(market.marketKey, { bids, asks });
+  return {
+    ...base,
+    status: "FIRM",
+    reference,
+    bids: bids.map((level) => level.quote),
+    asks: asks.map((level) => level.quote),
+    bid: bids[0]?.quote ?? null,
+    ask: asks[0]?.quote ?? null,
+  };
+}
+
+function quoteIds(state: MarketQuoteState): string {
+  return [...state.bids, ...state.asks].map((quote) => quote.id).join(":");
+}
+
+function allocateLevelLots(capacityLots: number, maximumPerLevel: number): number[] {
+  const first = Math.min(capacityLots, maximumPerLevel);
+  if (first < 1) return [];
+  const levels = [first];
+  let remaining = capacityLots - first;
+  const additionalLevels = Math.min(QUOTE_LEVELS - 1, remaining);
+  for (let index = 0; index < additionalLevels; index += 1) {
+    const lots = Math.min(maximumPerLevel, Math.ceil(remaining / (additionalLevels - index)));
+    levels.push(lots);
+    remaining -= lots;
+  }
+  return levels;
+}
+
+function ladderTicks(
+  market: SetrynRuntimeMarket,
+  mark: number,
+  touch: bigint,
+  side: number,
+  count: number,
+): bigint[] {
+  const offset = priceOffset(market);
+  const maximum = BigInt(Math.round((Number(market.cap) - offset) * market.priceScale)) - BigInt(1);
+  const spacing = BigInt(Math.max(1, Math.round(mark * (LEVEL_SPACING_BPS / 10_000) * market.priceScale)));
+  const levels: bigint[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const raw = side === SIDE_BUY ? touch - spacing * BigInt(index) : touch + spacing * BigInt(index);
+    const ticks = raw < BigInt(1) ? BigInt(1) : raw > maximum ? maximum : raw;
+    if (levels.at(-1) !== ticks) levels.push(ticks);
+  }
+  return levels;
+}
+
+function signLadder(
+  previous: SignedSide[],
+  maker: RoleSigner,
+  accountId: Hex,
+  fees: ActiveFeeSchedule,
+  market: SetrynRuntimeMarket,
+  versions: { seriesVersion: number; feeScheduleVersion: number },
+  capacity: CapacityView,
+  side: number,
+  prices: bigint[],
+  levelLots: number[],
+  nowMs: number,
+): Promise<SignedSide[]> {
+  return Promise.all(
+    prices.map((priceTicks, index) =>
+      keepOrSign(
+        previous[index] ?? null,
+        maker,
+        accountId,
+        fees,
+        market,
+        versions,
+        capacity,
+        side,
+        priceTicks,
+        levelLots[index],
+        nowMs,
+      ),
+    ),
+  );
 }
 
 /** The maker's free collateral, after a fill draws `lots` from capacity, still covers its liability plus the fill's. */
@@ -331,10 +434,11 @@ function forgetMarketOf(quoteOrderHash: Hex): void {
   const state = engine();
   const hash = quoteOrderHash.toLowerCase();
   for (const [marketKey, sides] of state.signed) {
-    if (sides.bid?.quote.id.toLowerCase() === hash || sides.ask?.quote.id.toLowerCase() === hash) {
+    const levels = [...sides.bids, ...sides.asks];
+    if (levels.some((level) => level.quote.id.toLowerCase() === hash)) {
       state.signed.delete(marketKey);
-      for (const side of [sides.bid, sides.ask]) {
-        if (side) state.capacities.delete(`${side.quote.order.seriesId}:${side.quote.order.targetVersion}`);
+      for (const level of levels) {
+        state.capacities.delete(`${level.quote.order.seriesId}:${level.quote.order.targetVersion}`);
       }
     }
   }

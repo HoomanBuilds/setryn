@@ -64,6 +64,10 @@ export interface MarketQuoteState {
   status: MarketQuoteStatus;
   /** Why the market is not firm, in words a trader can read. */
   reason: string | null;
+  /** Executable maker levels, best price first. */
+  bids: FirmQuote[];
+  asks: FirmQuote[];
+  /** Best executable level retained for consumers that only need the touch. */
   bid: FirmQuote | null;
   ask: FirmQuote | null;
   /** The reference the maker priced from, with its source and age, shown beside every quote. */
@@ -97,7 +101,7 @@ export function quoteExecutable(quote: Pick<FirmQuote, "expiresAt">, nowMs: numb
 export function firmQuoteRows(state: MarketQuoteState | undefined, nowMs: number): BookRow[] {
   if (!state || state.status !== "FIRM") return [];
   const rows: BookRow[] = [];
-  for (const quote of [state.ask, state.bid]) {
+  for (const quote of [...state.asks, ...state.bids]) {
     if (!quote || quoteSecondsLeft(quote, nowMs) <= 0) continue;
     rows.push({
       id: `firm:${quote.id}`,
@@ -126,10 +130,16 @@ export function acceptableQuote(
   nowMs: number,
 ): FirmQuote | null {
   if (!state || state.status !== "FIRM") return null;
-  const quote = takerSide === "BUY" ? state.ask : state.bid;
-  if (!quote || !quoteExecutable(quote, nowMs) || lots < 1 || lots > quote.lots) return null;
-  if (Number.isFinite(limitPrice) && (takerSide === "BUY" ? quote.price > limitPrice : quote.price < limitPrice)) return null;
-  return quote;
+  if (lots < 1) return null;
+  const levels = takerSide === "BUY" ? state.asks : state.bids;
+  return (
+    levels.find(
+      (quote) =>
+        quoteExecutable(quote, nowMs) &&
+        lots <= quote.lots &&
+        (!Number.isFinite(limitPrice) || (takerSide === "BUY" ? quote.price <= limitPrice : quote.price >= limitPrice)),
+    ) ?? null
+  );
 }
 
 export function serializeRiskAuthorization(authorization: OrderRiskAuthorization): SerializedRiskAuthorization {
