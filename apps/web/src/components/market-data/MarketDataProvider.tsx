@@ -26,6 +26,7 @@ import type {
  */
 
 const POLL_MS = 3_000;
+const QUOTE_POLL_MS = 5_000;
 /** A snapshot older than this (by the browser clock) is reported as stale. */
 const STALE_MS = 15_000;
 /** Reference bars move with the aggregator, not with blocks, so they refresh on a timer. */
@@ -71,6 +72,20 @@ function withoutDiscarded(book: FirmQuoteBook | null, discarded: ReadonlySet<str
           };
   }
   return { ...book, markets };
+}
+
+function hasUnexpiredFirmQuote(book: FirmQuoteBook | null, nowMs: number): boolean {
+  if (!book) return false;
+  return Object.values(book.markets).some(
+    (market) =>
+      market.status === "FIRM" &&
+      [...market.bids, ...market.asks].some((quote) => quote.expiresAt * 1_000 > nowMs),
+  );
+}
+
+function keepHealthyQuoteBook(current: FirmQuoteBook | null, next: FirmQuoteBook): FirmQuoteBook {
+  if (hasUnexpiredFirmQuote(current, Date.now()) && !hasUnexpiredFirmQuote(next, Date.now())) return current ?? next;
+  return next;
 }
 
 export { applyLiveMarket, deriveRoutes, type LiveMarketContext } from "@/lib/market-data/overlay";
@@ -129,19 +144,55 @@ export function MarketDataProvider({ children }: { children: ReactNode }) {
   const [quotes, setQuotes] = useState<FirmQuoteBook | null>(null);
   const [quoteStatus, setQuoteStatus] = useState<QuoteStreamStatus>("CONNECTING");
   const [quoteClock, setQuoteClock] = useState(() => platformNow());
+  const lastQuoteAt = useRef(0);
   useEffect(() => {
     if (typeof window === "undefined" || typeof EventSource === "undefined") return;
     const source = new EventSource("/api/quotes/stream");
     source.addEventListener("quotes", (event) => {
       try {
-        setQuotes(JSON.parse((event as MessageEvent<string>).data) as FirmQuoteBook);
+        const book = JSON.parse((event as MessageEvent<string>).data) as FirmQuoteBook;
+        setQuotes((current) => keepHealthyQuoteBook(current, book));
+        lastQuoteAt.current = Date.now();
         setQuoteStatus("LIVE");
       } catch {
         // A malformed frame is skipped; the next one replaces it.
       }
     });
-    source.onerror = () => setQuoteStatus("RECONNECTING");
+    source.onerror = () => {
+      if (Date.now() - lastQuoteAt.current > QUOTE_POLL_MS * 2) setQuoteStatus("RECONNECTING");
+    };
     return () => source.close();
+  }, []);
+  // Vercel may close a long-lived stream between function instances. The ordinary snapshot keeps the same signed
+  // quote book available through those reconnects; it never requires a transaction and never replaces still-live
+  // firm quotes with a transient unavailable response.
+  useEffect(() => {
+    let cancelled = false;
+    let timer: number | undefined;
+    let inflight = false;
+    const load = async () => {
+      if (inflight) return;
+      inflight = true;
+      try {
+        const response = await fetch("/api/quotes", { cache: "no-store" });
+        if (!response.ok) throw new Error(`QUOTES_${response.status}`);
+        const book = (await response.json()) as FirmQuoteBook;
+        if (cancelled) return;
+        setQuotes((current) => keepHealthyQuoteBook(current, book));
+        lastQuoteAt.current = Date.now();
+        setQuoteStatus("LIVE");
+      } catch {
+        if (!cancelled && Date.now() - lastQuoteAt.current > QUOTE_POLL_MS * 2) setQuoteStatus("RECONNECTING");
+      } finally {
+        inflight = false;
+        if (!cancelled) timer = window.setTimeout(load, QUOTE_POLL_MS);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, []);
   // A quote this browser just settled, or saw refused as already taken, is dropped at once rather than staying
   // executable until the stream replaces it.
@@ -290,7 +341,18 @@ export function useMarketCandles(
     fetch(`/api/market-data/candles?market=${encodeURIComponent(marketId)}&interval=${interval}`, { cache: "no-store" })
       .then((response) => (response.ok ? (response.json() as Promise<MarketCandlesResponse>) : null))
       .then((response) => {
-        if (!cancelled && response) setState({ key, response });
+        if (!cancelled && response) {
+          setState((current) => {
+            if (
+              current.key === key &&
+              current.response?.history?.source === "DATABASE" &&
+              response.history?.source === "MEMORY"
+            ) {
+              return current;
+            }
+            return { key, response };
+          });
+        }
       })
       .catch(() => undefined);
     return () => {

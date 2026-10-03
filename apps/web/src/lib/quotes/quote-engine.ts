@@ -469,7 +469,7 @@ async function keepOrSign(
   ) {
     return previous;
   }
-  return signQuote(maker, accountId, fees, market, versions, capacity, side, priceTicks, lots, nowMs);
+  return signQuote(maker, accountId, fees, market, versions, capacity, side, priceTicks, lots);
 }
 
 async function signQuote(
@@ -482,10 +482,12 @@ async function signQuote(
   side: number,
   priceTicks: bigint,
   lots: number,
-  nowMs: number,
 ): Promise<SignedSide> {
   const { setryn, walletClient } = maker;
-  const deadline = BigInt(Math.floor(nowMs / 1000) + QUOTE_LIFETIME_SECONDS);
+  // Network reads happen before signing and may be slow on a cold server. Start the signed lifetime here so a quote
+  // always reaches the browser with its full validity instead of expiring while the book is still being assembled.
+  const issuedAt = Date.now();
+  const deadline = BigInt(Math.floor(issuedAt / 1000) + QUOTE_LIFETIME_SECONDS);
   // A random 128-bit nonce: unique without any stored counter, so restarts and parallel servers never collide.
   const random = crypto.getRandomValues(new Uint8Array(16));
   const nonce = BigInt(toHex(random));
@@ -572,7 +574,7 @@ async function signQuote(
       price: ticksToPrice(market, priceTicks),
       lots,
       expiresAt: Number(deadline),
-      issuedAt: nowMs,
+      issuedAt,
       maker: maker.address,
       makerAccountId: accountId,
       capacityId: capacity.id,

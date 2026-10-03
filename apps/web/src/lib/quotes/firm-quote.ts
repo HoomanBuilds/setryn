@@ -12,11 +12,11 @@ import type { OrderRiskAuthorization } from "./protocol";
  */
 
 /** How long a quote is signed for. Short, so a moved reference never leaves a stale price executable for long. */
-export const QUOTE_LIFETIME_SECONDS = 20;
+export const QUOTE_LIFETIME_SECONDS = 30;
 /** Signing, relaying and inclusion take seconds, so a quote with less than this left is shown but not offered. */
 export const EXECUTION_MARGIN_SECONDS = 6;
 /** A quote within this long of its deadline is re-signed by the engine before it can drop below the margin. */
-export const RENEW_BEFORE_SECONDS = 12;
+export const RENEW_BEFORE_SECONDS = 18;
 
 export type SerializedRiskAuthorization = Omit<
   OrderRiskAuthorization,
