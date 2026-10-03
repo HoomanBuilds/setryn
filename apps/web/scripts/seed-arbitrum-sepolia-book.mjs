@@ -5,7 +5,6 @@ import {
   defineChain,
   encodeAbiParameters,
   encodeFunctionData,
-  formatEther,
   formatUnits,
   hashTypedData,
   http,
@@ -30,13 +29,11 @@ const BOOK_ID_TYPEHASH = keccak256(
 );
 const LEVEL_ID_TYPEHASH = keccak256(stringToHex("SetrynDirectPriceLevelV1(bytes32 bookId,uint8 side,int128 priceTicks)"));
 const traderKeys = (process.env.SETRYN_SEED_TRADER_PRIVATE_KEYS ?? "").split(",").map((key) => key.trim()).filter(Boolean);
-const relayerKey = process.env.SETRYN_SEED_RELAYER_PRIVATE_KEY?.trim();
 
 if (!Number.isInteger(LEVEL_COUNT) || LEVEL_COUNT < 1 || LEVEL_COUNT > 8) throw new Error("SETRYN_SEED_LEVELS must be from 1 to 8");
 if (traderKeys.length < 2 || traderKeys.some((key) => !/^0x[0-9a-fA-F]{64}$/.test(key))) {
   throw new Error("SETRYN_SEED_TRADER_PRIVATE_KEYS must contain at least two comma-separated private keys");
 }
-if (!/^0x[0-9a-fA-F]{64}$/.test(relayerKey ?? "")) throw new Error("SETRYN_SEED_RELAYER_PRIVATE_KEY is required");
 
 const publicOrderComponents = [
   { name: "signer", type: "address" },
@@ -443,11 +440,9 @@ if ((await publicClient.getChainId()) !== 421614) throw new Error("RPC chain mis
 if ((await publicClient.getCode({ address: MULTICALL3 })) === undefined) throw new Error("Multicall3 is not deployed");
 const traderAccounts = traderKeys.map((key) => privateKeyToAccount(key));
 const traderWallets = traderAccounts.map((account) => createWalletClient({ account, chain, transport }));
-const relayerAccount = privateKeyToAccount(relayerKey);
 const batchWallets = traderWallets;
 const collateralId = await publicClient.readContract({ address: runtime.collateralVault, abi: vaultAbi, functionName: "deriveCollateralId", args: [runtime.settlementAssetId, 1] });
 console.log(`network: ${runtime.network}; markets: ${runtime.markets.length}; levels per side: ${LEVEL_COUNT}`);
-console.log(`batch relayer: ${relayerAccount.address}; balance: ${formatEther(await publicClient.getBalance({ address: relayerAccount.address }))} ETH`);
 
 const prepared = await Promise.all(traderWallets.map((wallet) => prepareTrader(publicClient, wallet, runtime, collateralId)));
 const traders = prepared.map((entry, index) => ({ ...entry, account: traderAccounts[index], wallet: traderWallets[index] }));
