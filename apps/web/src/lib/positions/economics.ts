@@ -11,6 +11,7 @@ import {
   rangeTerms,
   type RangeTerms,
 } from "@/lib/portfolio/forward";
+import { quoteExecutable } from "@/lib/quotes/firm-quote";
 import { seriesSchedule, type SeriesSchedule } from "@/lib/settlements/calendar";
 import { tradeHref } from "@/lib/terminal/markets";
 import type { BookRow, PackageMarket, PositionSide, Provenance } from "@/lib/terminal/types";
@@ -170,9 +171,9 @@ function tradingBlockers(
 export interface ClosePreview {
   lots: number;
   remainingLots: number;
-  /** Lots the resting book fills now. */
+  /** Lots the maker's firm quote can close now. */
   fillableLots: number;
-  /** Average close price across the book levels taken; null when nothing rests on the closing side. */
+  /** The firm quote's close price; null when no quote can close the position now. */
   price: number | null;
   /** Fee at the active schedule; null until the onchain fee schedule is read. */
   fees: number | null;
@@ -194,18 +195,26 @@ export function closePreview(
 ): ClosePreview {
   const size = Math.max(0, Math.min(lots, dossier.lots));
   const action = dossier.side === "LONG" ? "SELL" : "BUY";
-  const fill = walkBook(live?.book ?? [], action, size);
-  const fees = fill.averagePrice === null ? null : takerFee(market, economics, size, fill.averagePrice);
-  const realizedGross =
-    fill.averagePrice === null ? null : forwardPnl(dossier.side, size, dossier.entryPrice, fill.averagePrice, rangeTerms(market));
+  // A close settles only against the maker's firm quote, in full, in one transaction with both positions closing; the
+  // public book cannot close a position, so it is not what this preview prices.
+  const state = market.firmQuotes;
+  const sideQuote = action === "SELL" ? state?.bid : state?.ask;
+  const quote = state?.status === "FIRM" && sideQuote && quoteExecutable(sideQuote, nowMs) ? sideQuote : null;
+  const usable = quote && quote.allowsOffsetUnwind && quote.lots >= size ? quote : null;
+  const closePrice = usable ? usable.price : null;
+  const fees = closePrice === null ? null : takerFee(market, economics, size, closePrice);
+  const realizedGross = closePrice === null ? null : forwardPnl(dossier.side, size, dossier.entryPrice, closePrice, rangeTerms(market));
   const blockers = tradingBlockers(market, live, economics, schedule, nowMs);
   if (size <= 0) blockers.push("Enter a quantity above zero.");
-  if (fill.lots === 0) {
+  if (size < dossier.lots) blockers.push("A close settles the whole position in one transaction; partial closes are not available.");
+  if (!quote) {
     blockers.push(
-      `No resting ${action === "SELL" ? "bid" : "offer"} on the ${market.code} book. Rest a limit in the terminal or request quotes privately.`,
+      `No firm maker ${action === "SELL" ? "bid" : "offer"} to close against right now. Quotes stream continuously, so try again in a moment, or hold the position to settlement.`,
     );
-  } else if (fill.lots < size) {
-    blockers.push(`The book holds ${fill.lots} of the ${size} lots at executable prices. Reduce the size or rest the remainder.`);
+  } else if (!quote.allowsOffsetUnwind) {
+    blockers.push("The current maker quote does not allow closing a position with it. Wait for the next quote.");
+  } else if (quote.lots < size) {
+    blockers.push(`The maker quote covers ${quote.lots} of the ${size} lots. Wait for a larger quote.`);
   }
   if (market.maxOrderLots != null && size > market.maxOrderLots) {
     blockers.push(`This market accepts at most ${market.maxOrderLots} lots per order.`);
@@ -215,8 +224,8 @@ export function closePreview(
   return {
     lots: size,
     remainingLots: dossier.lots - size,
-    fillableLots: fill.lots,
-    price: fill.averagePrice,
+    fillableLots: usable ? size : 0,
+    price: closePrice,
     fees,
     realizedPnl: realizedGross === null ? null : round2(realizedGross - (fees ?? 0)),
     collateralRelease: dossier.lots === 0 ? 0 : round2((dossier.collateral * size) / dossier.lots),

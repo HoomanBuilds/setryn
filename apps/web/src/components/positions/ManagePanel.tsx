@@ -136,7 +136,8 @@ function CloseTab({
 }) {
   const snapshot = useGatewaySnapshot();
   const economics = snapshot.onchainMarkets[market.id] ?? null;
-  const canPartial = dossier.lots > 1;
+  // Closes settle the whole position against the maker's firm quote in one transaction; there is no partial close.
+  const canPartial = false;
   const [mode, setMode] = useState<"FULL" | "PARTIAL">("FULL");
   const [partialLots, setPartialLots] = useState(() => Math.max(1, Math.floor(dossier.lots / 2)));
   const partial = mode === "PARTIAL" && canPartial;
@@ -156,7 +157,7 @@ function CloseTab({
             id: "PARTIAL",
             label: "Partial",
             disabled: !canPartial,
-            title: canPartial ? undefined : "A one-lot position closes in full.",
+            title: "A close settles the whole position in one transaction.",
           },
         ]}
       />
@@ -195,12 +196,12 @@ function CloseTab({
 
       <div className="divide-y divide-line-soft">
         <TrustRow
-          label={`Close at the ${sideWord}`}
-          note={preview.price === null ? `no resting ${sideWord}` : `${formatLots(preview.fillableLots)} lots fill on the book`}
+          label={`Close at the maker ${sideWord}`}
+          note={preview.price === null ? `no firm ${sideWord}` : `${formatLots(preview.fillableLots)} lots close in one transaction`}
           value={maybePrice(preview.price, market)}
           tone={preview.price === null ? "text-faint" : "text-ink"}
           provenance={preview.price === null ? undefined : "EXECUTABLE"}
-          source="Onchain public book, average across levels"
+          source="Firm maker quote, settled atomically with the close"
         />
         <TrustRow
           label="Closing / remaining"
