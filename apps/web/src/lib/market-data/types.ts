@@ -39,6 +39,8 @@ export interface MarketCandle {
   close: number;
   /** Traded lots in the bar; zero for reference bars. */
   volume: number;
+  /** No price is known for the bar (a stale or missing reading): drawn as empty space, never as a carried price. */
+  gap?: true;
 }
 
 /**
@@ -160,6 +162,11 @@ export interface MarketCandlesResponse {
   expiryAt: number;
   /** The methodology and inputs of the latest mark; null when the underlying has no spot or no model inputs. */
   model: MarkModel | null;
+  /**
+   * Where the bars' readings came from: DATABASE (the ingester's stored Chainlink rounds) or MEMORY (rounds this server
+   * read from chain itself, a bounded window). `earliest` is the first reading held.
+   */
+  history: { source: "DATABASE" | "MEMORY"; earliest: number | null };
 }
 
 export type MarketFeedStatus = "LOADING" | "LIVE" | "STALE" | "ERROR";

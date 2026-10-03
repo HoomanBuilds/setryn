@@ -210,6 +210,8 @@ export interface DrawingScene {
   band: { floor: number; cap: number; color: string } | null;
   /** Fills at the prices they traded, one per bar and aggressor side, drawn above the bars so a candle never hides one. */
   fills: FillMark[];
+  /** The fixing time: a vertical line wherever it falls inside the visible range. */
+  expiry: { time: number; label: string; color: string } | null;
 }
 
 export interface FillMark {
@@ -255,6 +257,7 @@ const EMPTY_SCENE: DrawingScene = {
   orderPreview: null,
   band: null,
   fills: [],
+  expiry: null,
 };
 
 function formatPrice(value: number, decimals: number): string {
@@ -468,6 +471,36 @@ function drawBandEdges(
   edge(band.floor, "Floor", false);
 }
 
+/** The fixing time as a dashed vertical line with its label at the top, when it is on screen. */
+function drawExpiry(
+  context: CanvasRenderingContext2D,
+  expiry: NonNullable<DrawingScene["expiry"]>,
+  projection: DrawingProjection,
+  scene: DrawingScene,
+) {
+  const x = projection.x(expiry.time);
+  if (x === null || x < 0 || x > projection.width) return;
+  context.strokeStyle = expiry.color;
+  context.lineWidth = 1;
+  context.setLineDash([3, 4]);
+  context.beginPath();
+  context.moveTo(Math.round(x) + 0.5, 0);
+  context.lineTo(Math.round(x) + 0.5, projection.height);
+  context.stroke();
+  context.setLineDash([]);
+  context.font = `10px ${scene.fontFamily}`;
+  context.textBaseline = "top";
+  const width = context.measureText(expiry.label).width + 10;
+  const left = Math.min(Math.max(0, x - width / 2), projection.width - width);
+  context.fillStyle = "rgba(23, 23, 26, 0.86)";
+  context.beginPath();
+  context.roundRect(left, 4, width, 16, 3);
+  context.fill();
+  context.fillStyle = expiry.color;
+  context.textAlign = "left";
+  context.fillText(expiry.label, left + 5, 7);
+}
+
 /** Each fill as a dot ringed in the panel colour, so it reads on a candle of its own colour, with its lots beside it. */
 function drawFills(context: CanvasRenderingContext2D, fills: FillMark[], projection: DrawingProjection, scene: DrawingScene) {
   context.font = `10px ${scene.fontFamily}`;
@@ -513,6 +546,7 @@ class DrawingsRenderer implements IPrimitivePaneRenderer {
       }
       if (scene.draft) drawOne(context, scene.draft, projection, scene, "draft");
       if (scene.band) drawBandEdges(context, scene.band, projection, scene);
+      if (scene.expiry) drawExpiry(context, scene.expiry, projection, scene);
       if (scene.fills.length > 0) drawFills(context, scene.fills, projection, scene);
       if (scene.orderPreview) {
         const y = projection.y(scene.orderPreview.price);

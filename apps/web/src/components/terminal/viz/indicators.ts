@@ -261,7 +261,9 @@ function atr(candles: MarketCandle[], length: number): IndicatorPoint[] {
   return points;
 }
 
-export function computeIndicator(id: IndicatorId, candles: MarketCandle[]): IndicatorOutput {
+export function computeIndicator(id: IndicatorId, all: MarketCandle[]): IndicatorOutput {
+  // Gap bars have no price: indicators run over the priced bars only.
+  const candles = all.filter((candle) => !candle.gap);
   const closes = candles.map((candle) => candle.close);
   const times = candles.map((candle) => candle.time);
   switch (id) {

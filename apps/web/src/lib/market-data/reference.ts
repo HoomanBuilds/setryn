@@ -1,5 +1,6 @@
 import { createPublicClient, http, type Address, type PublicClient } from "viem";
 import { arbitrum } from "viem/chains";
+import { REFERENCE_CHAIN_ID, REFERENCE_FEEDS } from "@setryn/market-data";
 import type { ReferenceQuote } from "./types";
 
 /*
@@ -7,16 +8,8 @@ import type { ReferenceQuote } from "./types";
  * only. The feeds are the ones the listing generator strikes markets against (scripts/generate-network-markets.mjs).
  */
 
-export const REFERENCE_CHAIN_ID = 42161;
-
-/** Underlying to its Chainlink aggregator proxy on Arbitrum One (8 decimals each, verified 2026-10-01). */
-export const REFERENCE_FEEDS: Record<string, Address> = {
-  BTC: "0x6ce185860a4963106506C203335A2910413708e9",
-  ETH: "0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612",
-  ARB: "0xb2A824043730FE05F3DA2efaFa1CBbe83fa548D6",
-  "EUR/USD": "0xA14d53bC1F1c0F31B4aA3BD109344E5009051a84",
-  "XAU/USD": "0x1F954Dc24a49708C26E0C1777f16750B5C6d5a2c",
-};
+// One list of feeds for the app and the ingester (packages/market-data).
+export { REFERENCE_CHAIN_ID, REFERENCE_FEEDS };
 
 const aggregatorAbi = [
   {

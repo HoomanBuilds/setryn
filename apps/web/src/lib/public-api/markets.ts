@@ -75,8 +75,18 @@ export interface ApiMarket {
     /** The modeled mark of this expiry (see markSource and markModel). */
     netPrice: number | null;
     markSource: PackageMarket["markSource"];
-    /** Methodology, version and parameter set of the mark; its inputs are MODELED, not observed market data. */
-    markModel: { methodology: string; version: number; parameterSet: string; provenance: "MODELED" } | null;
+    /**
+     * Methodology, version and parameter set of the mark; its model inputs are MODELED, not observed market data. `basis`
+     * is the adjustment executed fills earned (OBSERVED), null when no recent fill informs the mark.
+     */
+    markModel: {
+      methodology: string;
+      version: number;
+      parameterSet: string;
+      provenance: "MODELED";
+      modelValue: number;
+      basis: { adjustment: number; confidence: number; fills: number; provenance: "OBSERVED_FILLS" } | null;
+    } | null;
     /** The same model 24 hours earlier, null while that spot is not known. */
     priorNetPrice: number | null;
     bestBid: number | null;
@@ -162,6 +172,15 @@ export function projectMarket(market: PackageMarket, deployment: { setryn: Setry
             version: market.markModel.version,
             parameterSet: market.markModel.parameterSet,
             provenance: market.markModel.provenance,
+            modelValue: market.markModel.modelValue,
+            basis: market.markModel.basis
+              ? {
+                  adjustment: market.markModel.basis.adjustment,
+                  confidence: market.markModel.basis.confidence,
+                  fills: market.markModel.basis.fills,
+                  provenance: market.markModel.basis.provenance,
+                }
+              : null,
           }
         : null,
       priorNetPrice: finiteOrNull(market.priorNetPrice),

@@ -14,12 +14,21 @@
  *
  * Inputs. Spot, floor, cap and expiry are observed (Chainlink and the listed series). Volatility, rate and carry come
  * from a versioned parameter set; the set in use is a testnet assumption, labelled MODELED, not observed market data.
- * Version 1 deliberately takes nothing from maker quotes or fills, so the mark cannot be moved by the house's own
- * quotes or by a single trade.
+ *
+ * Fill basis (version 2). Real trades then nudge the model toward where the expiry actually traded:
+ *
+ *     mark = model + confidence * basis
+ *
+ * where basis is the notional-weighted average of each fill's residual (fill price minus the model at the fill's own
+ * time and spot), each weight halving every `halfLifeSeconds`, and confidence = W / (W + halfConfidenceNotional) for the
+ * decayed weight W, so a little trading moves the mark a little. Every residual is clipped to `maxAdjustment` of the
+ * model, so no fill, however far off, moves the mark further; the adjustment is clipped again against the current model.
+ * Self-trades (one account on both sides) are excluded. Book quotes and maker midpoints are never inputs: the house maker
+ * quotes around the mark, so its quotes would only return the mark. At expiry the basis is zero: the payoff is known.
  */
 
 export const MARK_METHODOLOGY = "SETRYN_CAPPED_FORWARD_MARK" as const;
-export const MARK_METHODOLOGY_VERSION = 1;
+export const MARK_METHODOLOGY_VERSION = 2;
 
 const SECONDS_PER_YEAR = 365 * 86_400;
 
@@ -41,6 +50,17 @@ export interface MarkParameterSet {
   /** USD rate: the forward's financing and the discount of the expiry payoff. */
   rate: number;
   underlyings: Readonly<Record<string, UnderlyingModelInputs>>;
+  basis: BasisParameters;
+}
+
+/** How fills adjust the model (version 2). */
+export interface BasisParameters {
+  /** A fill's weight halves every this many seconds. */
+  halfLifeSeconds: number;
+  /** Decayed USD notional at which the basis carries half its weight. */
+  halfConfidenceNotional: number;
+  /** Most the basis may move the mark, as a fraction of the model value; each residual is clipped to it too. */
+  maxAdjustment: number;
 }
 
 /**
@@ -48,10 +68,11 @@ export interface MarkParameterSet {
  * any options market and must be replaced by an observed or calibrated set before the mark is used for real money.
  */
 export const TESTNET_MARK_PARAMETERS: MarkParameterSet = {
-  id: "testnet-2026-10-02",
+  id: "testnet-2026-10-03",
   provenance: "MODELED",
-  effectiveFrom: "2026-10-02",
-  description: "Testnet assumptions, not calibrated to any market: a 4% USD rate and round volatility and carry per underlying.",
+  effectiveFrom: "2026-10-03",
+  description:
+    "Testnet assumptions, not calibrated to any market: a 4% USD rate, round volatility and carry per underlying, and a fill basis with a one-day half-life, half weight at $25,000 of decayed notional and a 2% cap.",
   rate: 0.04,
   underlyings: {
     BTC: { volatility: 0.5, carry: 0 },
@@ -60,6 +81,7 @@ export const TESTNET_MARK_PARAMETERS: MarkParameterSet = {
     "EUR/USD": { volatility: 0.08, carry: 0.02 },
     "XAU/USD": { volatility: 0.16, carry: 0.005 },
   },
+  basis: { halfLifeSeconds: 86_400, halfConfidenceNotional: 25_000, maxAdjustment: 0.02 },
 };
 
 /** The parameter set the platform marks with. */
@@ -90,8 +112,37 @@ export interface MarkModel {
   yearsToExpiry: number;
   forward: number;
   discountFactor: number;
-  /** The model value before rounding to the tick grid. */
+  /** The capped-forward model value, before any basis and before rounding. */
+  modelValue: number;
+  /** The fill basis applied, or null when no fill informs the mark (or at expiry). */
+  basis: MarkBasis | null;
+  /** The mark before rounding to the tick grid: modelValue plus the basis adjustment. */
   value: number;
+}
+
+/** One fill as the basis sees it. */
+export interface BasisFill {
+  time: number;
+  price: number;
+  /** USD notional of the fill: lots x price x the contract multiplier. */
+  notional: number;
+  /** The model value (no basis, unrounded) at the fill's time, from the spot then in force. */
+  modelValue: number;
+}
+
+/** The fill basis at one time. OBSERVED: it comes from executed trades, unlike the MODELED inputs. */
+export interface MarkBasis {
+  provenance: "OBSERVED_FILLS";
+  /** Weighted mean residual (fill price minus model), in price units. */
+  basis: number;
+  /** W / (W + halfConfidenceNotional), from 0 to 1. */
+  confidence: number;
+  /** What the mark moved by: confidence x basis, clipped to maxAdjustment of the model. */
+  adjustment: number;
+  /** Decayed USD notional W behind the basis. */
+  weight: number;
+  fills: number;
+  halfLifeSeconds: number;
 }
 
 export interface MarkValue {
@@ -131,14 +182,42 @@ function roundToTick(value: number, terms: MarkTerms): number {
 }
 
 /**
+ * The fill basis at `atSeconds` from fills at or before it (version 2), or null when no fill informs it. Fills older than
+ * eight half-lives carry under 0.4% of their weight and are ignored.
+ */
+export function markBasis(fills: readonly BasisFill[], atSeconds: number, parameters: MarkParameterSet = MARK_PARAMETERS): MarkBasis | null {
+  const { halfLifeSeconds, halfConfidenceNotional, maxAdjustment } = parameters.basis;
+  const horizon = atSeconds - 8 * halfLifeSeconds;
+  let weight = 0;
+  let weighted = 0;
+  let count = 0;
+  for (const fill of fills) {
+    if (fill.time > atSeconds || fill.time < horizon) continue;
+    if (!(fill.notional > 0) || !(fill.modelValue > 0) || !Number.isFinite(fill.price)) continue;
+    const limit = maxAdjustment * fill.modelValue;
+    const residual = Math.min(limit, Math.max(-limit, fill.price - fill.modelValue));
+    const w = fill.notional * 0.5 ** ((atSeconds - fill.time) / halfLifeSeconds);
+    weight += w;
+    weighted += w * residual;
+    count += 1;
+  }
+  if (count === 0 || !(weight > 0)) return null;
+  const basis = weighted / weight;
+  const confidence = weight / (weight + halfConfidenceNotional);
+  return { provenance: "OBSERVED_FILLS", basis, confidence, adjustment: confidence * basis, weight, fills: count, halfLifeSeconds };
+}
+
+/**
  * The mark of one capped forward from a spot reading at `atSeconds`, or null when the inputs cannot produce one (no
- * spot, an underlying the parameter set does not cover, or terms without room inside the band).
+ * spot, an underlying the parameter set does not cover, or terms without room inside the band). `basis` is the fill
+ * basis at the same time (markBasis); it is ignored at expiry.
  */
 export function cappedForwardMark(
   terms: MarkTerms,
   spot: number,
   atSeconds: number,
   parameters: MarkParameterSet = MARK_PARAMETERS,
+  basis: MarkBasis | null = null,
 ): MarkValue | null {
   const inputs = parameters.underlyings[terms.underlying];
   if (!inputs || !(spot > 0) || !Number.isFinite(atSeconds)) return null;
@@ -147,8 +226,13 @@ export function cappedForwardMark(
   const forward = spot * Math.exp((parameters.rate - inputs.carry) * years);
   const discountFactor = Math.exp(-parameters.rate * years);
   const expected = expectedClamp(forward, terms.floor, terms.cap, inputs.volatility, years);
-  const value = terms.floor + discountFactor * (expected - terms.floor);
-  if (!Number.isFinite(value)) return null;
+  const modelValue = terms.floor + discountFactor * (expected - terms.floor);
+  if (!Number.isFinite(modelValue)) return null;
+  // At expiry the payoff is known, so trading carries no information the clamp does not already hold.
+  const applied = years > 0 && basis ? basis : null;
+  const limit = parameters.basis.maxAdjustment * modelValue;
+  const adjustment = applied ? Math.min(limit, Math.max(-limit, applied.adjustment)) : 0;
+  const value = modelValue + adjustment;
   return {
     price: roundToTick(value, terms),
     model: {
@@ -163,6 +247,8 @@ export function cappedForwardMark(
       yearsToExpiry: years,
       forward,
       discountFactor,
+      modelValue,
+      basis: applied ? { ...applied, adjustment } : null,
       value,
     },
   };
@@ -192,7 +278,13 @@ export function runtimeMarkTerms(market: {
 }
 
 /** One line describing the methodology and inputs, for tooltips and chart captions. */
-export function describeMark(model: Pick<MarkModel, "version" | "parameterSet" | "volatility" | "rate" | "carry">): string {
+export function describeMark(
+  model: Pick<MarkModel, "version" | "parameterSet" | "volatility" | "rate" | "carry"> & { basis?: MarkBasis | null },
+): string {
   const percent = (value: number) => `${Number((value * 100).toFixed(2))}%`;
-  return `Modeled mark, capped-forward v${model.version} (${model.parameterSet}): spot, floor, cap and time to expiry with ${percent(model.volatility)} volatility, ${percent(model.rate)} rate, ${percent(model.carry)} carry.`;
+  const base = `Mark, capped-forward v${model.version} (${model.parameterSet}): spot, floor, cap and time to expiry with ${percent(model.volatility)} volatility, ${percent(model.rate)} rate and ${percent(model.carry)} carry (MODELED inputs).`;
+  const basis = model.basis;
+  if (!basis) return `${base} No fill basis: no recent trade informs it.`;
+  const sign = basis.adjustment >= 0 ? "+" : "-";
+  return `${base} Fill basis ${sign}${Number(Math.abs(basis.adjustment).toPrecision(3))} from ${basis.fills} fill${basis.fills === 1 ? "" : "s"} (OBSERVED, ${percent(basis.confidence)} confidence, ${Math.round(basis.halfLifeSeconds / 3600)}h half-life).`;
 }

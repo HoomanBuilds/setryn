@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { deploymentStartBlock } from "@setryn/market-data";
 import type { SetrynNetwork, SetrynRuntime } from "./runtime";
 import { NETWORK_PROFILES, isSetrynNetwork, parseNetwork } from "./network";
 
@@ -322,10 +323,8 @@ async function readManifestFields(
       const matches = entries.filter((entry) => entry.name === name && isAddress(entry.address));
       if (matches.length === 1) found[field] = matches[0].address as `0x${string}`;
     }
-    const blocks = entries
-      .map((entry) => entry.deploymentTransaction?.blockNumber ?? entry.blockNumber)
-      .filter((value): value is number => Number.isSafeInteger(value) && Number(value) >= 0);
-    if (blocks.length > 0) found.deploymentBlock = Math.min(...blocks);
+    const start = deploymentStartBlock({}, manifest);
+    if (start !== null) found.deploymentBlock = start;
     return found;
   } catch {
     return {};

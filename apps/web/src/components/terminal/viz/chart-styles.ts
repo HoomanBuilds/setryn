@@ -19,6 +19,9 @@ export function isOhlcStyle(style: ChartStyle): boolean {
 
 /** Heikin Ashi bar from the raw bar and the previous Heikin Ashi bar. */
 export function heikinAshiBar(candle: MarketCandle, previous: MarketCandle | undefined): MarketCandle {
+  // A gap stays a gap, and the bar after it starts over as if it were the first.
+  if (candle.gap) return candle;
+  if (previous?.gap) previous = undefined;
   const close = (candle.open + candle.high + candle.low + candle.close) / 4;
   const open = previous ? (previous.open + previous.close) / 2 : (candle.open + candle.close) / 2;
   return {
@@ -33,7 +36,12 @@ export function heikinAshiBar(candle: MarketCandle, previous: MarketCandle | und
 
 export function heikinAshi(candles: MarketCandle[]): MarketCandle[] {
   const result: MarketCandle[] = [];
-  for (const candle of candles) result.push(heikinAshiBar(candle, result[result.length - 1]));
+  let previous: MarketCandle | undefined;
+  for (const candle of candles) {
+    const bar = heikinAshiBar(candle, previous);
+    result.push(bar);
+    if (!bar.gap) previous = bar;
+  }
   return result;
 }
 

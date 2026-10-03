@@ -266,6 +266,7 @@ export function useMarketCandles(
   band: MarketCandlesResponse["band"] | null;
   expiryAt: number | null;
   model: MarketCandlesResponse["model"];
+  history: MarketCandlesResponse["history"] | null;
 } {
   const { snapshot } = useMarketDataContext();
   const [state, setState] = useState<{ key: string; response: MarketCandlesResponse | null }>({ key: "", response: null });
@@ -302,6 +303,7 @@ export function useMarketCandles(
     band: response?.band ?? null,
     expiryAt: response?.expiryAt ?? null,
     model: response?.model ?? null,
+    history: response?.history ?? null,
   };
 }
 

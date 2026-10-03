@@ -39,11 +39,15 @@ export function isChartInterval(value: unknown): value is ChartInterval {
   return typeof value === "string" && Object.prototype.hasOwnProperty.call(INTERVAL_SECONDS, value);
 }
 
+/** An interval's bar grid: bar length and the epoch offset bars align to (weekly bars open on Mondays). */
+export function barGrid(interval: ChartInterval): { step: number; anchor: number } {
+  return { step: INTERVAL_SECONDS[interval], anchor: interval === "1w" ? WEEK_ANCHOR : 0 };
+}
+
 /** Opening time of the bar that contains `epochSeconds`. */
 export function barOpenTime(epochSeconds: number, interval: ChartInterval): number {
-  const seconds = INTERVAL_SECONDS[interval];
-  const anchor = interval === "1w" ? WEEK_ANCHOR : 0;
-  return Math.floor((epochSeconds - anchor) / seconds) * seconds + anchor;
+  const { step, anchor } = barGrid(interval);
+  return Math.floor((epochSeconds - anchor) / step) * step + anchor;
 }
 
 /** One price observation: a fill (with lots) or a reference reading (zero lots). */

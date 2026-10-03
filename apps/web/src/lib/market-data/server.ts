@@ -1,12 +1,38 @@
 import { BaseError, ContractFunctionRevertedError, createPublicClient, http, type Hex, type PublicClient } from "viem";
+import {
+  aggressorSide,
+  clearingChannel,
+  deploymentKey,
+  fillStream,
+  marketFeedEventsAbi,
+  phaseOf,
+  PHASE_SIZE,
+  positionStatusOpen,
+  readLatestRound,
+  readRoundRange,
+  REFERENCE_STALE_AFTER_SECONDS,
+  roundPrice,
+  tickRuleSide,
+  type ChainlinkRound,
+} from "@setryn/market-data";
+import {
+  databaseConfigured,
+  readMarketFills,
+  readOpenPositions,
+  readStreamCursor,
+  referenceBuckets,
+  referenceRoundHoles,
+  referenceSpotsAt,
+} from "@setryn/persistence";
 import { readActiveFeeSchedule, marketTradingVersions, type ActiveFeeSchedule } from "@/lib/internal-gateway/fee-schedule";
 import { orderStateAbi, publicOrderBookAbi, seriesRegistryAbi } from "@/lib/internal-gateway/protocol";
 import type { SetrynRuntime, SetrynRuntimeMarket } from "@/lib/internal-gateway/runtime";
-import { deriveSeriesBookId, ticksToPrice } from "@/lib/internal-gateway/runtime-markets";
+import { considerationPerPriceUnit, deriveSeriesBookId, ticksToPrice } from "@/lib/internal-gateway/runtime-markets";
 import { readRuntime } from "@/lib/internal-gateway/runtime-server";
-import { cappedForwardMark, runtimeMarkTerms, type MarkTerms, type MarkValue } from "@/lib/pricing/mark";
+import { cappedForwardMark, markBasis, MARK_PARAMETERS, runtimeMarkTerms, type BasisFill, type MarkBasis, type MarkTerms, type MarkValue } from "@/lib/pricing/mark";
 import type { BookRow } from "@/lib/terminal/types";
-import { barOpenTime, INTERVAL_SECONDS, MAX_BARS, stepCandles, type PricePoint } from "./intervals";
+import { barGrid, barOpenTime, INTERVAL_SECONDS, MAX_BARS, type PricePoint } from "./intervals";
+import { bucketPoints, buildMarkBars, withReading, type SpotHistory } from "./mark-bars";
 import { readReferenceQuotes, referenceClient, REFERENCE_CHAIN_ID, REFERENCE_FEEDS } from "./reference";
 import type {
   ChartInterval,
@@ -25,8 +51,11 @@ import type {
  * every runtime market at one block: the active series version's public book, fills cleared up to that block, open
  * interest from the position engine's events, the series status, and the protocol fee schedule; the Chainlink
  * references come from Arbitrum One. Fills and positions are scanned incrementally with a cursor held in memory and
- * reset whenever the chain is (an anvil reset, a reorg, a redeploy). Nothing is invented: an unreadable chain reports
- * itself unavailable and the markets carry no live state.
+ * reset whenever the chain is (an anvil reset, a reorg, a redeploy). With a database (SETRYN_DATABASE_URL), a fresh
+ * server starts from what the market-data ingester stored (services/market-data-ingester) and scans only the blocks
+ * after its cursor, and chart history and past spots come from the stored Chainlink rounds; without one, or when it
+ * cannot be read, everything is read from chain as before. Nothing is invented: an unreadable chain reports itself
+ * unavailable and the markets carry no live state.
  */
 
 const SNAPSHOT_TTL_MS = 2_000;
@@ -35,7 +64,7 @@ const LOCAL_CHAIN_ID = 31337;
 /** Bounded book walk: price levels per side and orders per level. */
 const MAX_LEVELS = 24;
 const MAX_ORDERS_PER_LEVEL = 32;
-/** Fills kept per market for the tape, the day's statistics, and fill candles. */
+/** Fills kept per market for the tape, the day's statistics, fill markers and the mark basis. */
 const MAX_FILLS_PER_MARKET = 20_000;
 const TAPE_LENGTH = 80;
 /** Without a known deployment block, a network scan starts this many blocks back (about a day on Arbitrum). */
@@ -47,95 +76,9 @@ const NETWORK_LOG_CHUNK = BigInt(Number(process.env.SETRYN_LOG_CHUNK_BLOCKS ?? 9
 const MAX_CHUNKS_PER_SYNC = 40;
 const DAY_SECONDS = 86_400;
 const ZERO_HASH = `0x${"0".repeat(64)}` as Hex;
-/** PositionStatus values that still carry open lots: 1 Live, 2 Fixing, 3 SettlementReady. Every other status is closed. */
-const OPEN_POSITION_STATUSES = new Set([1, 2, 3]);
 const SERIES_STATUS: Record<number, SeriesStatus> = { 1: "ACTIVE", 2: "PAUSED", 3: "DEPRECATED" };
-/** ClearingChannelKind: 1 Direct, 2 PrivateRfq, 3 SealedAuction. Anything else is reported as unspecified. */
-const CLEARING_CHANNEL: Record<number, MarketTrade["channel"]> = { 1: "BOOK", 2: "RFQ", 3: "AUCTION" };
-
-const fillRecordComponents = [
-  { name: "fillId", type: "bytes32" },
-  { name: "takerOrderHash", type: "bytes32" },
-  { name: "makerOrderHash", type: "bytes32" },
-  { name: "targetId", type: "bytes32" },
-  { name: "witnessHash", type: "bytes32" },
-  { name: "executionModeId", type: "bytes32" },
-  { name: "channelConsumptionId", type: "bytes32" },
-  { name: "routeCommitment", type: "bytes32" },
-  { name: "channelSource", type: "address" },
-  { name: "channelKind", type: "uint8" },
-  { name: "settlementAssetId", type: "bytes32" },
-  { name: "buyerAccountId", type: "bytes32" },
-  { name: "sellerAccountId", type: "bytes32" },
-  { name: "makerFeeResultHash", type: "bytes32" },
-  { name: "takerFeeResultHash", type: "bytes32" },
-  { name: "targetVersion", type: "uint32" },
-  { name: "settlementAssetVersion", type: "uint32" },
-  { name: "clearedAt", type: "uint64" },
-  { name: "fillLots", type: "uint128" },
-  { name: "takerCumulativeLots", type: "uint128" },
-  { name: "makerCumulativeLots", type: "uint128" },
-  { name: "executionPriceTicks", type: "int128" },
-  { name: "considerationMinor", type: "int256" },
-  { name: "makerFeeChargeMinor", type: "uint128" },
-  { name: "makerFeeRebateMinor", type: "uint128" },
-  { name: "takerFeeChargeMinor", type: "uint128" },
-  { name: "takerFeeRebateMinor", type: "uint128" },
-  { name: "positionCount", type: "uint16" },
-  { name: "isPackage", type: "bool" },
-] as const;
-
-/** Every state-changing event the feed projects: clearing fills and the position quantities behind open interest. */
-const feedEventsAbi = [
-  {
-    type: "event",
-    name: "FillCleared",
-    inputs: [
-      { name: "fillId", type: "bytes32", indexed: true },
-      { name: "record", type: "tuple", indexed: false, components: fillRecordComponents },
-      { name: "submitter", type: "address", indexed: true },
-    ],
-  },
-  {
-    type: "event",
-    name: "PositionCreated",
-    inputs: [
-      { name: "positionId", type: "bytes32", indexed: true },
-      { name: "fillIdentity", type: "bytes32", indexed: true },
-      { name: "seriesId", type: "bytes32", indexed: true },
-      { name: "seriesVersion", type: "uint32", indexed: false },
-      { name: "longAccountId", type: "bytes32", indexed: false },
-      { name: "shortAccountId", type: "bytes32", indexed: false },
-      { name: "lots", type: "uint128", indexed: false },
-      { name: "longReservationId", type: "bytes32", indexed: false },
-      { name: "shortReservationId", type: "bytes32", indexed: false },
-      { name: "clearingEngine", type: "address", indexed: false },
-    ],
-  },
-  {
-    type: "event",
-    name: "PositionQuantityChanged",
-    inputs: [
-      { name: "positionId", type: "bytes32", indexed: true },
-      { name: "remainingLots", type: "uint128", indexed: false },
-      { name: "exercisedLots", type: "uint128", indexed: false },
-      { name: "closedLots", type: "uint128", indexed: false },
-      { name: "lifecycleNonce", type: "uint64", indexed: false },
-      { name: "transitionReference", type: "bytes32", indexed: true },
-    ],
-  },
-  {
-    type: "event",
-    name: "PositionStatusChanged",
-    inputs: [
-      { name: "positionId", type: "bytes32", indexed: true },
-      { name: "previousStatus", type: "uint8", indexed: false },
-      { name: "newStatus", type: "uint8", indexed: false },
-      { name: "transitionReference", type: "bytes32", indexed: true },
-      { name: "caller", type: "address", indexed: false },
-    ],
-  },
-] as const;
+/** A reading may hold this long before a chart bar is a gap, for a feed without its own entry. */
+const DEFAULT_STALE_AFTER_SECONDS = 90_000;
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /* Incremental chain state                                                                                             */
@@ -145,6 +88,8 @@ interface StoredFill extends MarketTrade {
   takerOrderHash: Hex;
   makerOrderHash: Hex;
   logIndex: number;
+  buyerAccountId: string;
+  sellerAccountId: string;
 }
 
 interface PositionState {
@@ -159,6 +104,8 @@ interface FeedState {
   startBlock: bigint;
   /** Whether the scan started at the deployment, so open interest is complete. */
   fromDeployment: boolean;
+  /** Where the state up to `syncedBlock` came from: the ingester's database, or this server's own scan. */
+  origin: "DATABASE" | "CHAIN";
   /** Last block whose logs are applied, and its hash for reset and reorg detection. */
   syncedBlock: bigint | null;
   syncedHash: Hex | null;
@@ -184,14 +131,47 @@ interface Holder {
   inflight: Promise<MarketDataSnapshot> | null;
   clients: Map<string, PublicClient>;
   referenceHistory: Map<string, ReferenceHistory>;
+  /** Deployments whose stored cursor did not match this chain: they are scanned from chain instead. */
+  seedRejected: Set<string>;
+  /** Model value (no basis) of each fill at its own time, by parameter set and fill id: a fill's never changes. */
+  fillModels: Map<string, number>;
+  /** When the database last failed, so a failing database is not retried on every request. */
+  databaseFailedAt: number;
 }
 
 const HOLDER_KEY = Symbol.for("setryn.market-data.server");
+const DATABASE_RETRY_MS = 30_000;
 
 function holder(): Holder {
   const scope = globalThis as unknown as Record<symbol, Holder | undefined>;
-  scope[HOLDER_KEY] ??= { state: null, snapshot: null, inflight: null, clients: new Map(), referenceHistory: new Map() };
+  scope[HOLDER_KEY] ??= {
+    state: null,
+    snapshot: null,
+    inflight: null,
+    clients: new Map(),
+    referenceHistory: new Map(),
+    seedRejected: new Set(),
+    fillModels: new Map(),
+    databaseFailedAt: 0,
+  };
+  // A hot reload can leave a holder of an older shape behind.
+  scope[HOLDER_KEY].seedRejected ??= new Set();
+  scope[HOLDER_KEY].fillModels ??= new Map();
+  scope[HOLDER_KEY].databaseFailedAt ??= 0;
   return scope[HOLDER_KEY];
+}
+
+/** Whether to read the database: configured, and not failing within the last half minute. */
+function databaseReadable(): boolean {
+  return databaseConfigured() && Date.now() - holder().databaseFailedAt > DATABASE_RETRY_MS;
+}
+
+function databaseFailed(error: unknown): void {
+  const scope = holder();
+  if (Date.now() - scope.databaseFailedAt > DATABASE_RETRY_MS) {
+    console.error("[market-data] database unavailable, reading from chain:", error instanceof Error ? error.message.split("\n")[0] : error);
+  }
+  scope.databaseFailedAt = Date.now();
 }
 
 function chainClient(rpcUrl: string): PublicClient {
@@ -210,7 +190,7 @@ function rangeForwardMarkets(runtime: SetrynRuntime): SetrynRuntimeMarket[] {
 }
 
 function stateKey(runtime: SetrynRuntime): string {
-  return [runtime.chainId, runtime.atomicClearingEngine, runtime.positionEngine, runtime.publicOrderBook].join(":").toLowerCase();
+  return deploymentKey(runtime);
 }
 
 function freshState(runtime: SetrynRuntime, head: bigint): FeedState {
@@ -227,6 +207,7 @@ function freshState(runtime: SetrynRuntime, head: bigint): FeedState {
     key: stateKey(runtime),
     startBlock,
     fromDeployment: known || local || startBlock === BigInt(0),
+    origin: "CHAIN",
     syncedBlock: null,
     syncedHash: null,
     fills: new Map(),
@@ -236,36 +217,71 @@ function freshState(runtime: SetrynRuntime, head: bigint): FeedState {
   };
 }
 
-/** The aggressor side from the taker order's side, else the maker's opposite; null when neither order is public. */
-async function aggressorSide(client: PublicClient, runtime: SetrynRuntime, state: FeedState, taker: Hex, maker: Hex): Promise<"BUY" | "SELL" | null> {
-  const sideOf = async (hash: Hex): Promise<"BUY" | "SELL" | null> => {
-    if (hash === ZERO_HASH) return null;
-    const known = state.orderSides.get(hash);
-    if (known !== undefined) return known;
-    const record = await client
-      .readContract({ address: runtime.orderState, abi: orderStateAbi, functionName: "getOrder", args: [hash] })
-      .catch(() => null);
-    const side = record?.order.side === 1 ? "BUY" : record?.order.side === 2 ? "SELL" : null;
-    state.orderSides.set(hash, side);
-    return side;
-  };
-  const takerSide = await sideOf(taker);
-  if (takerSide) return takerSide;
-  const makerSide = await sideOf(maker);
-  return makerSide === "BUY" ? "SELL" : makerSide === "SELL" ? "BUY" : null;
+/**
+ * A fresh state seeded from the ingester's database: its fills, open positions and cursor, when the cursor's block is
+ * on this chain and the ingester started at the same deployment block (so open interest is complete). Otherwise, or
+ * when the database cannot be read, the plain fresh state, scanned from chain.
+ */
+async function seededState(client: PublicClient, runtime: SetrynRuntime, head: bigint): Promise<FeedState> {
+  const state = freshState(runtime, head);
+  const scope = holder();
+  if (!databaseReadable() || scope.seedRejected.has(state.key)) return state;
+  try {
+    const cursor = await readStreamCursor(fillStream(state.key));
+    if (!cursor || cursor.blockNumber === null || !cursor.blockHash || BigInt(cursor.blockNumber) > head) return state;
+    if (String(cursor.payload.startBlock ?? "") !== state.startBlock.toString()) return state;
+    const block = await client.getBlock({ blockNumber: BigInt(cursor.blockNumber) }).catch(() => null);
+    if (!block || block.hash.toLowerCase() !== cursor.blockHash) {
+      scope.seedRejected.add(state.key);
+      return state;
+    }
+    const [fills, positions] = await Promise.all([
+      readMarketFills({ deploymentKey: state.key, limitPerMarket: MAX_FILLS_PER_MARKET, throughBlock: cursor.blockNumber }),
+      readOpenPositions({ deploymentKey: state.key }),
+    ]);
+    for (const fill of fills) {
+      const list = state.fills.get(fill.marketKey) ?? [];
+      list.push({
+        id: fill.fillId as Hex,
+        time: fill.clearedAt,
+        price: fill.price,
+        lots: Number(fill.lots),
+        side: fill.side,
+        sideInferred: fill.sideInferred ? true : undefined,
+        channel: fill.channel,
+        txHash: fill.txHash as Hex,
+        blockNumber: fill.blockNumber,
+        takerOrderHash: fill.takerOrderHash as Hex,
+        makerOrderHash: fill.makerOrderHash as Hex,
+        logIndex: fill.logIndex,
+        buyerAccountId: fill.buyerAccountId,
+        sellerAccountId: fill.sellerAccountId,
+      });
+      state.fills.set(fill.marketKey, list);
+      state.fillIds.add(fill.fillId);
+    }
+    for (const position of positions) {
+      state.positions.set(position.positionId, { seriesId: position.seriesId, remaining: Number(position.remainingLots), open: position.open });
+    }
+    console.info(`[market-data] seeded ${fills.length} fills and ${positions.length} open positions from the database at block ${cursor.blockNumber}`);
+    return { ...state, origin: "DATABASE", fromDeployment: true, syncedBlock: BigInt(cursor.blockNumber), syncedHash: block.hash as Hex };
+  } catch (error) {
+    databaseFailed(error);
+    return freshState(runtime, head);
+  }
 }
 
 /** Applies logs from the cursor to `head`, in bounded chunks. Returns false when the backlog is not finished. */
 async function syncEvents(client: PublicClient, runtime: SetrynRuntime, head: { number: bigint; hash: Hex }): Promise<boolean> {
   const scope = holder();
   let state = scope.state;
-  if (!state || state.key !== stateKey(runtime)) state = freshState(runtime, head.number);
+  if (!state || state.key !== stateKey(runtime)) state = await seededState(client, runtime, head.number);
   // A chain that went backwards, or whose block at the cursor changed, was reset or reorganized: start over.
   if (state.syncedBlock !== null) {
-    if (head.number < state.syncedBlock) state = freshState(runtime, head.number);
+    if (head.number < state.syncedBlock) state = await seededState(client, runtime, head.number);
     else {
       const block = await client.getBlock({ blockNumber: state.syncedBlock }).catch(() => null);
-      if (!block || block.hash !== state.syncedHash) state = freshState(runtime, head.number);
+      if (!block || block.hash !== state.syncedHash) state = await seededState(client, runtime, head.number);
     }
   }
   scope.state = state;
@@ -278,7 +294,7 @@ async function syncEvents(client: PublicClient, runtime: SetrynRuntime, head: { 
     const to = from + chunk - BigInt(1) < head.number ? from + chunk - BigInt(1) : head.number;
     const logs = await client.getLogs({
       address: [runtime.atomicClearingEngine, runtime.positionEngine],
-      events: feedEventsAbi,
+      events: marketFeedEventsAbi,
       fromBlock: from,
       toBlock: to,
       strict: true,
@@ -291,22 +307,23 @@ async function syncEvents(client: PublicClient, runtime: SetrynRuntime, head: { 
         if (!market || record.isPackage || state.fillIds.has(id) || log.address.toLowerCase() !== runtime.atomicClearingEngine.toLowerCase()) continue;
         const fills = state.fills.get(market.marketKey) ?? [];
         const price = ticksToPrice(market, record.executionPriceTicks);
-        const side = await aggressorSide(client, runtime, state, record.takerOrderHash, record.makerOrderHash);
-        const previous = fills[fills.length - 1];
+        const side = await aggressorSide(client, runtime.orderState, record.takerOrderHash, record.makerOrderHash, state.orderSides);
         fills.push({
           id,
           time: Number(record.clearedAt),
           price,
           lots: Number(record.fillLots),
-          // Tick rule for a fill whose taker order is private: up from the previous print is a buy.
-          side: side ?? (previous && price < previous.price ? "SELL" : "BUY"),
+          // Tick rule for a fill whose taker order is private: below the previous print is a sell.
+          side: side ?? tickRuleSide(price, fills[fills.length - 1]?.price),
           sideInferred: side === null ? true : undefined,
-          channel: CLEARING_CHANNEL[record.channelKind] ?? "UNSPECIFIED",
+          channel: clearingChannel(record.channelKind),
           txHash: log.transactionHash,
           blockNumber: Number(log.blockNumber),
           takerOrderHash: record.takerOrderHash,
           makerOrderHash: record.makerOrderHash,
           logIndex: log.logIndex,
+          buyerAccountId: record.buyerAccountId.toLowerCase(),
+          sellerAccountId: record.sellerAccountId.toLowerCase(),
         });
         if (fills.length > MAX_FILLS_PER_MARKET) fills.splice(0, fills.length - MAX_FILLS_PER_MARKET);
         state.fills.set(market.marketKey, fills);
@@ -322,7 +339,7 @@ async function syncEvents(client: PublicClient, runtime: SetrynRuntime, head: { 
         if (position) position.remaining = Number(log.args.remainingLots);
       } else if (log.eventName === "PositionStatusChanged") {
         const position = state.positions.get(positionId);
-        if (position) position.open = OPEN_POSITION_STATUSES.has(log.args.newStatus);
+        if (position) position.open = positionStatusOpen(log.args.newStatus);
       }
     }
     state.syncedBlock = to;
@@ -441,10 +458,91 @@ function feeView(fees: ActiveFeeSchedule): MarketFeeSchedule {
   };
 }
 
-/** The market's modeled mark from a spot reading at `atSeconds` (lib/pricing/mark.ts), or null without one. */
-function modelMark(market: SetrynRuntimeMarket, spot: number | undefined, atSeconds: number): MarkValue | null {
+/** The market's mark from a spot reading at `atSeconds` and the fill basis then (lib/pricing/mark.ts), or null. */
+function modelMark(market: SetrynRuntimeMarket, spot: number | undefined, atSeconds: number, basis: MarkBasis | null = null): MarkValue | null {
   const terms = runtimeMarkTerms(market);
-  return terms && spot !== undefined ? cappedForwardMark(terms, spot, atSeconds) : null;
+  return terms && spot !== undefined ? cappedForwardMark(terms, spot, atSeconds, MARK_PARAMETERS, basis) : null;
+}
+
+/* ------------------------------------------------------------------------------------------------------------------ */
+/* Spots at past times and the fill basis                                                                              */
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+function spotKey(underlying: string, at: number): string {
+  return `${underlying}:${Math.floor(at)}`;
+}
+
+/**
+ * The Chainlink reading in force at each requested time: from the stored rounds when the database has them, else from
+ * the reference history already in memory (refreshed in the background, so a request never waits on a long walk).
+ * A time neither covers is absent.
+ */
+async function spotsAt(requests: readonly { underlying: string; at: number }[]): Promise<Map<string, number>> {
+  const spots = new Map<string, number>();
+  const wanted = requests.filter((request) => REFERENCE_FEEDS[request.underlying] && Number.isFinite(request.at));
+  if (wanted.length === 0) return spots;
+  if (databaseReadable()) {
+    try {
+      const found = await referenceSpotsAt(
+        REFERENCE_CHAIN_ID,
+        wanted.map((request) => ({ feed: REFERENCE_FEEDS[request.underlying], at: request.at })),
+      );
+      for (const request of wanted) {
+        const round = found.get(`${REFERENCE_FEEDS[request.underlying].toLowerCase()}:${Math.floor(request.at)}`);
+        const staleAfter = REFERENCE_STALE_AFTER_SECONDS[request.underlying] ?? DEFAULT_STALE_AFTER_SECONDS;
+        if (round && request.at - round.updatedAt <= staleAfter) spots.set(spotKey(request.underlying, request.at), round.price);
+      }
+    } catch (error) {
+      databaseFailed(error);
+    }
+  }
+  const histories = holder().referenceHistory;
+  for (const request of wanted) {
+    const key = spotKey(request.underlying, request.at);
+    if (spots.has(key)) continue;
+    const history = histories.get(request.underlying);
+    const spot = history ? spotAt(history.points, request.at) : undefined;
+    if (spot !== undefined) spots.set(key, spot);
+    if (!history || spot === undefined || Date.now() - history.at > REFERENCE_HISTORY_TTL_MS) {
+      void referenceHistory(request.underlying, request.at - DAY_SECONDS).catch(() => undefined);
+    }
+  }
+  return spots;
+}
+
+/** How far back a fill still weighs in the basis (eight half-lives), measured from the earliest time it is asked for. */
+function basisHorizon(): number {
+  return 8 * MARK_PARAMETERS.basis.halfLifeSeconds;
+}
+
+/**
+ * The fills that inform a market's basis since `since`, each with the model value at its own time. A fill whose spot
+ * is not known yet is left out (it joins once the reading is), and self-trades (one account on both sides) never count.
+ */
+async function basisFills(market: SetrynRuntimeMarket, fills: readonly StoredFill[], since: number): Promise<BasisFill[]> {
+  const terms = runtimeMarkTerms(market);
+  const underlying = market.underlying;
+  if (!terms || !underlying) return [];
+  const multiplier = considerationPerPriceUnit(market);
+  const cache = holder().fillModels;
+  const relevant = fills.filter((fill) => fill.time >= since && fill.buyerAccountId !== fill.sellerAccountId);
+  const cacheKey = (fill: StoredFill) => `${MARK_PARAMETERS.id}:${fill.id}`;
+  const missing = relevant.filter((fill) => !cache.has(cacheKey(fill)));
+  if (missing.length > 0) {
+    const spots = await spotsAt(missing.map((fill) => ({ underlying, at: fill.time })));
+    for (const fill of missing) {
+      const spot = spots.get(spotKey(underlying, fill.time));
+      const model = spot === undefined ? null : cappedForwardMark(terms, spot, fill.time);
+      if (model) cache.set(cacheKey(fill), model.model.modelValue);
+    }
+  }
+  const result: BasisFill[] = [];
+  for (const fill of relevant) {
+    const modelValue = cache.get(cacheKey(fill));
+    if (modelValue === undefined) continue;
+    result.push({ time: fill.time, price: fill.price, notional: fill.lots * fill.price * multiplier, modelValue });
+  }
+  return result;
 }
 
 async function readLiveMarket(
@@ -454,7 +552,7 @@ async function readLiveMarket(
   fees: ActiveFeeSchedule,
   block: { number: bigint; timestamp: bigint },
   references: Record<string, ReferenceQuote>,
-  priorSpots: Record<string, number>,
+  pastSpots: Map<string, number>,
 ): Promise<LiveMarketData> {
   const state = holder().state;
   const versions = marketTradingVersions(fees, market.seriesId);
@@ -472,13 +570,19 @@ async function readLiveMarket(
   const bestAsk = asks[0]?.price ?? null;
   const lastFill = fills[fills.length - 1] ?? null;
   const reference = market.underlying ? references[market.underlying] : undefined;
-  // One mark per expiry, from the versioned model only: book prices and fills sit beside it and never become it.
-  const modeled = modelMark(market, reference?.price, chainTime);
+  // One mark per expiry: the versioned model plus the basis real fills earned (never book quotes). Past expiry the
+  // reading in force at expiry fixes it, not today's spot.
+  const expired = market.expiryAt !== undefined && chainTime >= market.expiryAt;
+  const expirySpot = expired && market.underlying ? pastSpots.get(spotKey(market.underlying, market.expiryAt as number)) : undefined;
+  const spot = expirySpot ?? reference?.price;
+  const informing = await basisFills(market, fills, chainTime - DAY_SECONDS - basisHorizon());
+  const modeled = modelMark(market, spot, chainTime, markBasis(informing, chainTime));
   const mark = modeled?.price ?? null;
   const markSource: LiveMarketData["markSource"] = mark === null ? "NONE" : "MODEL";
-  const markAsOf = reference?.updatedAt ?? 0;
-  const priorSpot = market.underlying ? priorSpots[market.underlying] : undefined;
-  const markPrior24h = modelMark(market, priorSpot, chainTime - DAY_SECONDS)?.price ?? null;
+  const markAsOf = expirySpot !== undefined ? (market.expiryAt as number) : (reference?.updatedAt ?? 0);
+  const priorAt = chainTime - DAY_SECONDS;
+  const priorSpot = market.underlying ? pastSpots.get(spotKey(market.underlying, priorAt)) : undefined;
+  const markPrior24h = modelMark(market, priorSpot, priorAt, markBasis(informing, priorAt))?.price ?? null;
   let openInterestLots: number | null = null;
   if (state?.fromDeployment) {
     const seriesKey = market.seriesId.toLowerCase();
@@ -575,9 +679,18 @@ async function buildSnapshot(): Promise<MarketDataSnapshot> {
       syncEvents(client, runtime, head),
     ]);
     const listed = rangeForwardMarkets(runtime);
-    const priorSpots = cachedSpotsAt(listed, Number(head.timestamp) - DAY_SECONDS);
+    const chainTime = Number(head.timestamp);
+    // Every past reading the snapshot needs, in one read: a day ago for the 24h change, and each expired market's expiry.
+    const pastSpots = await spotsAt(
+      listed.flatMap((market) => {
+        if (!market.underlying) return [];
+        const requests = [{ underlying: market.underlying, at: chainTime - DAY_SECONDS }];
+        if (market.expiryAt !== undefined && chainTime >= market.expiryAt) requests.push({ underlying: market.underlying, at: market.expiryAt });
+        return requests;
+      }),
+    );
     const markets = await Promise.all(
-      listed.map((market) => readLiveMarket(client, runtime, market, fees, head, references, priorSpots)),
+      listed.map((market) => readLiveMarket(client, runtime, market, fees, head, references, pastSpots)),
     );
     return {
       network,
@@ -612,70 +725,17 @@ export function readMarketDataSnapshot(): Promise<MarketDataSnapshot> {
 }
 
 /* ------------------------------------------------------------------------------------------------------------------ */
-/* Candles                                                                                                             */
+/* Reference history and candles                                                                                       */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const REFERENCE_HISTORY_TTL_MS = 30_000;
-const REFERENCE_ROUND_BATCH = 250;
 /** Rounds read per request: new rounds since the last read, then this many older ones until the window is covered. */
 const REFERENCE_NEW_ROUNDS = 500;
 const REFERENCE_DEEPEN_ROUNDS = 2_000;
 const REFERENCE_MAX_POINTS = 25_000;
-const PHASE_MASK = BigInt("0xFFFFFFFFFFFFFFFF");
 
-const aggregatorRoundAbi = [
-  {
-    type: "function",
-    name: "latestRoundData",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [
-      { name: "roundId", type: "uint80" },
-      { name: "answer", type: "int256" },
-      { name: "startedAt", type: "uint256" },
-      { name: "updatedAt", type: "uint256" },
-      { name: "answeredInRound", type: "uint80" },
-    ],
-  },
-  {
-    type: "function",
-    name: "getRoundData",
-    stateMutability: "view",
-    inputs: [{ name: "roundId", type: "uint80" }],
-    outputs: [
-      { name: "roundId", type: "uint80" },
-      { name: "answer", type: "int256" },
-      { name: "startedAt", type: "uint256" },
-      { name: "updatedAt", type: "uint256" },
-      { name: "answeredInRound", type: "uint80" },
-    ],
-  },
-] as const;
-
-type Round = readonly [bigint, bigint, bigint, bigint, bigint];
-
-function roundPoint(round: Round): PricePoint | null {
-  return round[1] > BigInt(0) && round[3] > BigInt(0) ? { time: Number(round[3]), price: Number(round[1]) / 1e8, lots: 0 } : null;
-}
-
-/** Reads rounds `from` down to `to` (inclusive, `from` >= `to`, same phase) in multicall batches. */
-async function readRounds(feed: `0x${string}`, from: bigint, to: bigint): Promise<PricePoint[]> {
-  const client = referenceClient();
-  const points: PricePoint[] = [];
-  for (let high = from; high >= to; high -= BigInt(REFERENCE_ROUND_BATCH)) {
-    const ids: bigint[] = [];
-    for (let id = high; id >= to && id > high - BigInt(REFERENCE_ROUND_BATCH); id -= BigInt(1)) ids.push(id);
-    const results = await client.multicall({
-      contracts: ids.map((id) => ({ address: feed, abi: aggregatorRoundAbi, functionName: "getRoundData", args: [id] }) as const),
-      allowFailure: true,
-    });
-    for (const result of results) {
-      if (result.status !== "success") continue;
-      const point = roundPoint(result.result as Round);
-      if (point) points.push(point);
-    }
-  }
-  return points;
+function roundPoint(round: ChainlinkRound): PricePoint {
+  return { time: round.updatedAt, price: roundPrice(round), lots: 0 };
 }
 
 function mergePoints(...lists: PricePoint[][]): PricePoint[] {
@@ -685,10 +745,10 @@ function mergePoints(...lists: PricePoint[][]): PricePoint[] {
 }
 
 /**
- * The aggregator's answers covering `since` onward, oldest first; each holds from its update until the next. Rounds
- * are read incrementally: every call adds the rounds published since the last one and walks a bounded number further
- * back until the window is covered or the phase's first round is reached, so a long window fills over a few calls
- * instead of one unbounded walk.
+ * The aggregator's answers covering `since` onward, oldest first, read straight from chain and kept in this server's
+ * memory: the fallback when no database holds the rounds. Every call adds the rounds published since the last one and
+ * walks a bounded number further back until the window is covered or the phase's first round is reached, so a long
+ * window fills over a few calls instead of one unbounded walk.
  */
 async function referenceHistory(underlying: string, since: number): Promise<PricePoint[]> {
   const feed = REFERENCE_FEEDS[underlying];
@@ -700,30 +760,32 @@ async function referenceHistory(underlying: string, since: number): Promise<Pric
   const covered = hit ? hit.exhausted || (hit.points[0]?.time ?? Number.POSITIVE_INFINITY) <= since : false;
   if (hit && covered && Date.now() - hit.at < REFERENCE_HISTORY_TTL_MS) return hit.points;
 
-  const latest = (await referenceClient().readContract({ address: feed, abi: aggregatorRoundAbi, functionName: "latestRoundData" })) as Round;
-  const latestId = latest[0];
-  const phaseStart = (latestId & ~PHASE_MASK) + BigInt(1);
+  const client = referenceClient();
+  const latest = await readLatestRound(client, feed);
+  if (!latest) return hit?.points ?? [];
+  const latestId = latest.roundId;
+  const phaseStart = BigInt(phaseOf(latestId)) * PHASE_SIZE + BigInt(1);
   const latestPoint = roundPoint(latest);
   let entry: ReferenceHistory;
-  if (hit && (hit.newestRound & ~PHASE_MASK) === (latestId & ~PHASE_MASK) && hit.newestRound <= latestId) {
+  if (hit && phaseOf(hit.newestRound) === phaseOf(latestId) && hit.newestRound <= latestId) {
     // Same phase: read only what was published since, bounded.
     const floor = hit.newestRound + BigInt(1);
     const from = latestId - BigInt(1);
     const to = from - floor + BigInt(1) > BigInt(REFERENCE_NEW_ROUNDS) ? from - BigInt(REFERENCE_NEW_ROUNDS) + BigInt(1) : floor;
-    const fresh = from >= to ? await readRounds(feed, from, to) : [];
+    const fresh = from >= to ? (await readRoundRange(client, feed, from, to)).map(roundPoint) : [];
     // A gap left by a burst longer than the bound starts the run over from the latest round.
     entry =
       to > floor
-        ? { at: Date.now(), newestRound: latestId, oldestRound: to, exhausted: false, points: mergePoints(fresh, latestPoint ? [latestPoint] : []) }
-        : { ...hit, at: Date.now(), newestRound: latestId, points: mergePoints(hit.points, fresh, latestPoint ? [latestPoint] : []) };
+        ? { at: Date.now(), newestRound: latestId, oldestRound: to, exhausted: false, points: mergePoints(fresh, [latestPoint]) }
+        : { ...hit, at: Date.now(), newestRound: latestId, points: mergePoints(hit.points, fresh, [latestPoint]) };
   } else {
-    entry = { at: Date.now(), newestRound: latestId, oldestRound: latestId, exhausted: latestId <= phaseStart, points: latestPoint ? [latestPoint] : [] };
+    entry = { at: Date.now(), newestRound: latestId, oldestRound: latestId, exhausted: latestId <= phaseStart, points: [latestPoint] };
   }
   if (!entry.exhausted && (entry.points[0]?.time ?? Number.POSITIVE_INFINITY) > since) {
     const from = entry.oldestRound - BigInt(1);
     const to = from - BigInt(REFERENCE_DEEPEN_ROUNDS) + BigInt(1) > phaseStart ? from - BigInt(REFERENCE_DEEPEN_ROUNDS) + BigInt(1) : phaseStart;
     if (from >= to) {
-      const older = await readRounds(feed, from, to);
+      const older = (await readRoundRange(client, feed, from, to)).map(roundPoint);
       entry = { ...entry, oldestRound: to, exhausted: to <= phaseStart, points: mergePoints(older, entry.points) };
     } else {
       entry = { ...entry, exhausted: true };
@@ -747,31 +809,50 @@ function spotAt(points: readonly PricePoint[], time: number): number | undefined
 }
 
 /**
- * Each underlying's spot at `time` from the reference history already in memory, without waiting on any read. A
- * missing or short history is refreshed in the background, so the snapshot is never slowed by it; until then the
- * market simply has no prior mark.
+ * An underlying's readings over a chart window, bucketed per bar: from the stored rounds (with any holes), else from the
+ * reference history in memory. `earliest` is the first reading either source holds.
  */
-function cachedSpotsAt(markets: readonly SetrynRuntimeMarket[], time: number): Record<string, number> {
-  const spots: Record<string, number> = {};
-  for (const underlying of new Set(markets.map((market) => market.underlying).filter((value): value is string => Boolean(value)))) {
-    const history = holder().referenceHistory.get(underlying);
-    const spot = history ? spotAt(history.points, time) : undefined;
-    if (spot !== undefined) spots[underlying] = spot;
-    if (!history || spot === undefined || Date.now() - history.at > REFERENCE_HISTORY_TTL_MS) {
-      void referenceHistory(underlying, time - DAY_SECONDS).catch(() => undefined);
+async function spotHistory(
+  underlying: string,
+  interval: ChartInterval,
+  since: number,
+  until: number,
+): Promise<{ history: SpotHistory; earliest: number | null; source: "DATABASE" | "MEMORY" }> {
+  const feed = REFERENCE_FEEDS[underlying];
+  if (databaseReadable()) {
+    try {
+      const { step, anchor } = barGrid(interval);
+      const [stored, holes] = await Promise.all([
+        referenceBuckets({ chainId: REFERENCE_CHAIN_ID, feed, since, until, step, anchor }),
+        referenceRoundHoles(REFERENCE_CHAIN_ID, feed, 500),
+      ]);
+      if (stored.earliest !== null) {
+        return {
+          history: {
+            carry: stored.carry ? { price: stored.carry.price, updatedAt: stored.carry.updatedAt } : null,
+            buckets: stored.buckets,
+            holes: holes.filter((hole) => hole.to > since && hole.from < until).map((hole) => ({ from: hole.from, to: hole.to })),
+          },
+          earliest: stored.earliest,
+          source: "DATABASE",
+        };
+      }
+    } catch (error) {
+      databaseFailed(error);
     }
   }
-  return spots;
+  const points = await referenceHistory(underlying, since).catch(() => [] as PricePoint[]);
+  return { history: bucketPoints(points, barGrid(interval), since, until), earliest: points[0]?.time ?? null, source: "MEMORY" };
 }
 
 /** Most fills a candles response draws as markers. */
 const MAX_CHART_TRADES = 500;
 
 /**
- * Chart data for one market: OHLC bars of its own modeled mark over the window, evaluated from every Chainlink round
- * at that round's time to expiry; the lots actually traded in each bar as its volume; the fills themselves as markers;
- * and the Chainlink spot as a separate line. The bars never switch source after a trade. A market past expiry ends at
- * its expiry.
+ * Chart data for one market: OHLC bars of its own mark (the model at each Chainlink reading's own time to expiry, plus
+ * the fill basis then), with gaps where no fresh reading is known; the lots actually traded in each bar as its volume;
+ * the fills themselves as markers; and the Chainlink spot as a separate line. The bars never switch source after a
+ * trade. A market past expiry ends at its expiry.
  */
 export async function readMarketCandles(
   marketKey: string,
@@ -793,6 +874,7 @@ export async function readMarketCandles(
     band,
     expiryAt: terms.expiryAt,
     model: null,
+    history: { source: "MEMORY", earliest: null },
   };
   const underlying = terms.underlying;
   const feed = REFERENCE_FEEDS[underlying];
@@ -800,50 +882,57 @@ export async function readMarketCandles(
 
   const now = snapshot.asOf > 0 ? snapshot.asOf : Math.floor(Date.now() / 1000);
   const until = Math.min(now, terms.expiryAt);
-  const since = until - INTERVAL_SECONDS[interval] * MAX_BARS[interval];
-  // Rounds after the window's end (after expiry, for an expired market) are not part of its history.
-  const points = (await referenceHistory(underlying, since).catch(() => [] as PricePoint[])).filter((point) => point.time <= until);
-  if (points.length === 0) return empty;
-
-  // Every round is marked at its own time to expiry; the latest spot is marked again at the window's end, so the
-  // last bar closes exactly at the mark the headers show.
-  const markPoints: PricePoint[] = [];
-  for (const point of points) {
-    const value = cappedForwardMark(terms, point.price, point.time);
-    if (value) markPoints.push({ time: point.time, price: value.price, lots: 0 });
+  const step = INTERVAL_SECONDS[interval];
+  const windowStart = barOpenTime(until, interval) - (MAX_BARS[interval] - 1) * step;
+  const spot = await spotHistory(underlying, interval, windowStart, until);
+  let history = spot.history;
+  // The live reading (what the header marks with) closes the last bar, when it is newer than the stored rounds. It is
+  // the reading in force at the platform's clock even when chain time trails it (an idle devnet), so it is held there.
+  const live = snapshot.references[underlying];
+  if (live && until === now) {
+    history = withReading(history, { price: live.price, updatedAt: Math.min(live.updatedAt, until) }, barGrid(interval), windowStart, until);
   }
-  const latestSpot = (until === now ? snapshot.references[underlying]?.price : undefined) ?? points[points.length - 1].price;
-  const latest = cappedForwardMark(terms, latestSpot, until);
-  if (latest) markPoints.push({ time: until, price: latest.price, lots: 0 });
-  const candles = stepCandles(markPoints, interval, until);
-  const spotBars = stepCandles(points, interval, until);
+  if (spot.earliest === null && history.buckets.length === 0) return { ...empty, history: { source: spot.source, earliest: null } };
+  const firstBar = history.carry ? windowStart : Math.max(windowStart, barOpenTime(history.buckets[0]?.time ?? until, interval));
 
-  const firstBar = candles[0]?.time ?? until;
-  const fills = (holder().state?.fills.get(marketKey) ?? []).filter(
-    (fill) => fill.blockNumber <= snapshot.blockNumber && fill.time >= firstBar && fill.time <= until + INTERVAL_SECONDS[interval],
-  );
+  const fills = (holder().state?.fills.get(marketKey) ?? []).filter((fill) => fill.blockNumber <= snapshot.blockNumber && fill.time <= until);
+  const informing = listedMarket ? await basisFills(listedMarket, fills, firstBar - basisHorizon()) : [];
+  const markAt = (price: number, time: number) => cappedForwardMark(terms, price, time, MARK_PARAMETERS, markBasis(informing, time))?.price ?? null;
+  const bars = buildMarkBars({
+    history,
+    grid: barGrid(interval),
+    firstBar,
+    until,
+    staleAfter: REFERENCE_STALE_AFTER_SECONDS[underlying] ?? DEFAULT_STALE_AFTER_SECONDS,
+    markAt,
+  });
+
+  const windowFills = fills.filter((fill) => fill.time >= firstBar);
   const volumeByBar = new Map<number, number>();
-  for (const fill of fills) {
+  for (const fill of windowFills) {
     const bar = barOpenTime(fill.time, interval);
     volumeByBar.set(bar, (volumeByBar.get(bar) ?? 0) + fill.lots);
   }
-  for (const candle of candles) candle.volume = volumeByBar.get(candle.time) ?? 0;
-  const trades: ChartTrade[] = fills
+  for (const candle of bars.candles) candle.volume = volumeByBar.get(candle.time) ?? 0;
+  const trades: ChartTrade[] = windowFills
     .slice(-MAX_CHART_TRADES)
     .map((fill) => ({ time: fill.time, price: fill.price, lots: fill.lots, side: fill.side, sideInferred: fill.sideInferred === true }));
 
+  const latestReading = live && until === now ? live.price : history.buckets[history.buckets.length - 1]?.close ?? history.carry?.price;
+  const latest = latestReading === undefined ? null : cappedForwardMark(terms, latestReading, until, MARK_PARAMETERS, markBasis(informing, until));
   const [base, quote] = underlying.includes("/") ? underlying.split("/") : [underlying, "USD"];
   return {
     ...empty,
-    candles,
+    candles: bars.candles,
     trades,
     reference: {
       underlying,
       pair: `${base} / ${quote}`,
       feed,
       chainId: REFERENCE_CHAIN_ID,
-      line: spotBars.map((bar) => ({ time: bar.time, value: bar.close })),
+      line: bars.spot,
     },
     model: latest?.model ?? null,
+    history: { source: spot.source, earliest: spot.earliest },
   };
 }

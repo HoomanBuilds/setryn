@@ -442,7 +442,7 @@ export function openApiDocument(serverUrl: string) {
           ),
           quote: object({
             source: { type: "string", enum: ["MARKET_DATA", "LISTING_REFERENCE"], description: "MARKET_DATA once the live feed was read; LISTING_REFERENCE when only the listing is available." },
-            netPrice: nullable({ type: "number", description: "The modeled mark of this expiry: the versioned capped-forward model from the Chainlink spot, floor, cap and time to expiry." }),
+            netPrice: nullable({ type: "number", description: "The mark of this expiry: the versioned capped-forward model from the Chainlink spot, floor, cap and time to expiry, plus the capped fill basis executed trades earned." }),
             markSource: { type: "string", enum: ["MODEL", "NONE"], description: "MODEL when the mark comes from the capped-forward model; NONE when no mark is available." },
             markModel: nullable(
               object({
@@ -450,6 +450,15 @@ export function openApiDocument(serverUrl: string) {
                 version: { type: "integer" },
                 parameterSet: { type: "string", description: "Id of the versioned model input set (volatility, rate, carry)." },
                 provenance: { type: "string", enum: ["MODELED"], description: "The model inputs are assumptions, not observed market data." },
+                modelValue: { type: "number", description: "The capped-forward model value before the fill basis and rounding." },
+                basis: nullable(
+                  object({
+                    adjustment: { type: "number", description: "What executed fills moved the mark by, in price units." },
+                    confidence: { type: "number", description: "Weight of the fill basis, from 0 to 1." },
+                    fills: { type: "integer" },
+                    provenance: { type: "string", enum: ["OBSERVED_FILLS"] },
+                  }),
+                ),
               }),
             ),
             priorNetPrice: nullable({ type: "number", description: "The same model 24 hours earlier; null while that spot is not known." }),

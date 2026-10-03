@@ -1,13 +1,14 @@
 import { readReferenceQuotes } from "@/lib/market-data/reference";
 import type { ReferenceQuote } from "@/lib/market-data/types";
-import { cappedForwardMark, runtimeMarkTerms, type MarkModel } from "@/lib/pricing/mark";
+import { readMarketDataSnapshot } from "@/lib/market-data/server";
+import { cappedForwardMark, MARK_PARAMETERS, runtimeMarkTerms, type MarkBasis, type MarkModel } from "@/lib/pricing/mark";
 import type { SetrynRuntimeMarket } from "./runtime";
 import { priceOffset } from "./runtime-markets";
 
 /*
- * The designated maker's two-sided price for a dated range forward: centred on the platform's modeled mark (the same
- * capped-forward methodology every screen shows, lib/pricing/mark.ts), so each expiry is quoted at its own fair value
- * rather than at spot. Bid and ask sit at mark x (1 -/+ 0.001) or at least two ticks apart, on the market's tick grid
+ * The designated maker's two-sided price for a dated range forward: centred on the platform's mark (the same
+ * capped-forward methodology and fill basis every screen shows, lib/pricing/mark.ts), so each expiry is quoted at its own
+ * fair value rather than at spot. The basis comes from the market-data snapshot; without one the model alone centres it. Bid and ask sit at mark x (1 -/+ 0.001) or at least two ticks apart, on the market's tick grid
  * and strictly inside its (floor, cap) range. A market without a listing, without a fresh Chainlink spot, or without
  * model inputs for its underlying is not quoted.
  */
@@ -55,7 +56,12 @@ function capTicks(market: SetrynRuntimeMarket): bigint {
 }
 
 /** Prices one market from a reference reading; pure, so a batch of markets shares one read. */
-export function quoteFromReference(market: SetrynRuntimeMarket, reference: ReferenceQuote | undefined, nowSeconds: number): MakerQuote {
+export function quoteFromReference(
+  market: SetrynRuntimeMarket,
+  reference: ReferenceQuote | undefined,
+  nowSeconds: number,
+  basis: MarkBasis | null = null,
+): MakerQuote {
   if (!market.underlying || market.floor === undefined || market.cap === undefined || market.priceOffset === undefined) {
     throw new MakerPricingError("LISTING_UNSUPPORTED", `${market.marketKey} has no network listing to price from.`);
   }
@@ -72,7 +78,7 @@ export function quoteFromReference(market: SetrynRuntimeMarket, reference: Refer
   if (top < BigInt(4)) throw new MakerPricingError("QUOTE_OUTSIDE_RANGE", `${market.marketKey} has no room between floor and cap.`);
   // The quote is centred on the modeled mark, never on spot: a capped forward's fair value depends on its expiry.
   const terms = runtimeMarkTerms(market);
-  const modeled = terms ? cappedForwardMark(terms, reference.price, nowSeconds) : null;
+  const modeled = terms ? cappedForwardMark(terms, reference.price, nowSeconds, MARK_PARAMETERS, basis) : null;
   if (!modeled) throw new MakerPricingError("MARK_UNAVAILABLE", `${market.marketKey} has no model inputs for ${market.underlying}.`);
   const fair = modeled.price;
   const fairTicks = BigInt(Math.round((fair - offset) * scale));
@@ -101,10 +107,14 @@ export async function makerQuotes(markets: readonly SetrynRuntimeMarket[]): Prom
     references = await readReferenceQuotes(underlyings).catch(() => ({}));
   }
   const nowSeconds = Math.floor(Date.now() / 1000);
+  // The fill basis each market's mark carries, from the same snapshot the screens read.
+  const snapshot = await readMarketDataSnapshot().catch(() => null);
+  const bases = new Map((snapshot?.markets ?? []).map((live) => [live.marketKey, live.markModel?.basis ?? null]));
   const quotes = new Map<string, MakerQuote | MakerPricingError>();
   for (const market of markets) {
     try {
-      quotes.set(market.marketKey, quoteFromReference(market, market.underlying ? references[market.underlying] : undefined, nowSeconds));
+      const reference = market.underlying ? references[market.underlying] : undefined;
+      quotes.set(market.marketKey, quoteFromReference(market, reference, nowSeconds, bases.get(market.marketKey) ?? null));
     } catch (error) {
       if (error instanceof MakerPricingError) quotes.set(market.marketKey, error);
       else throw error;

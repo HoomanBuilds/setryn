@@ -11,7 +11,8 @@ const BARS = 96;
  */
 export function MiniChart({ market, height = 72 }: { market: PackageMarket; height?: number }) {
   const { candles, loading } = useMarketCandles(market.id, "15m");
-  const closes = candles.slice(-BARS).map((bar) => bar.close);
+  // Gap bars have no price; the sparkline joins the priced ones.
+  const closes = candles.slice(-BARS).filter((bar) => !bar.gap).map((bar) => bar.close);
 
   if (closes.length < 2) {
     return (

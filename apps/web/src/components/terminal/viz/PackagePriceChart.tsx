@@ -46,6 +46,7 @@ import {
   type SeriesType,
   type Time,
   type UTCTimestamp,
+  type WhitespaceData,
 } from "lightweight-charts";
 import { useChainNow, useMarketCandles } from "@/components/market-data/MarketDataProvider";
 import { barOpenTime, INTERVAL_SECONDS } from "@/lib/market-data/intervals";
@@ -200,12 +201,21 @@ function formatOverlayLots(lots: number): string {
   return bounded.toLocaleString("en-US", { maximumFractionDigits: 4 });
 }
 
-function toBar(candle: MarketCandle): BarData<UTCTimestamp> {
+/** A gap bar (no fresh reading) is whitespace: the chart leaves its slot empty instead of drawing a carried price. */
+function toBar(candle: MarketCandle): BarData<UTCTimestamp> | WhitespaceData<UTCTimestamp> {
+  if (candle.gap) return { time: candle.time as UTCTimestamp };
   return { time: candle.time as UTCTimestamp, open: candle.open, high: candle.high, low: candle.low, close: candle.close };
 }
 
-function toLine(candle: MarketCandle): LineData<UTCTimestamp> {
+function toLine(candle: MarketCandle): LineData<UTCTimestamp> | WhitespaceData<UTCTimestamp> {
+  if (candle.gap) return { time: candle.time as UTCTimestamp };
   return { time: candle.time as UTCTimestamp, value: candle.close };
+}
+
+/** The last bar with a price, for the readout and the countdown. */
+function lastPriced(candles: readonly MarketCandle[]): { candle: MarketCandle; index: number } | null {
+  for (let index = candles.length - 1; index >= 0; index -= 1) if (!candles[index].gap) return { candle: candles[index], index };
+  return null;
 }
 
 function setSeriesData(series: ActiveSeries, candles: MarketCandle[]) {
@@ -453,7 +463,7 @@ export function PackagePriceChart({
   /* Bars are this expiry's own modeled mark, before and after any trade. Fills (markers and volume), the Chainlink spot
      and the floor and cap are drawn beside them and never replace them. A new market, interval, or source loads a fresh
      set; later responses stream into the latest bars. */
-  const { candles: feedCandles, source, loading, reference, trades, model } = useMarketCandles(market.id, interval);
+  const { candles: feedCandles, source, loading, reference, trades, model, history: historySource } = useMarketCandles(market.id, interval);
   const [fitBand, setFitBand] = useState(false);
   const loadKey = `${market.id}:${interval}:${source ?? "pending"}`;
   const [loaded, setLoaded] = useState<{ key: string; candles: MarketCandle[] }>({ key: "", candles: [] });
@@ -1058,8 +1068,15 @@ export function PackagePriceChart({
     }
     api.attachPrimitive(primitive);
     seriesRef.current = active;
-    const last = displayed[displayed.length - 1];
-    setLatest(last ? { candle: { ...last, volume: candles[candles.length - 1].volume }, previousClose: displayed[displayed.length - 2]?.close ?? last.open } : null);
+    const last = lastPriced(displayed);
+    setLatest(
+      last
+        ? {
+            candle: { ...last.candle, volume: candles[last.index].volume },
+            previousClose: lastPriced(displayed.slice(0, last.index))?.candle.close ?? last.candle.open,
+          }
+        : null,
+    );
     setHover(null);
 
     return () => {
@@ -1274,10 +1291,13 @@ export function PackagePriceChart({
     }
     setLatestValues(values);
     const displayed = displayedRef.current;
-    setLatest({
-      candle: { ...shown, volume: latestRaw.volume },
-      previousClose: displayed[displayed.length - 2]?.close ?? shown.open,
-    });
+    const priced = lastPriced(displayed);
+    if (priced) {
+      setLatest({
+        candle: { ...priced.candle, volume: candles[priced.index]?.volume ?? 0 },
+        previousClose: lastPriced(displayed.slice(0, priced.index))?.candle.close ?? priced.candle.open,
+      });
+    }
   }, [feedCandles, loadKey, loaded.key]);
 
   useEffect(() => {
@@ -1293,6 +1313,31 @@ export function PackagePriceChart({
       autoScale,
     });
   }, [scale, autoScale]);
+
+  // The best executable bid and offer as labels on the price scale only: with one house maker at a fixed spread, a
+  // drawn bid/ask band would be a constant-width ribbon that says nothing, so it waits for a public book with depth.
+  const { bestBid, bestAsk } = market;
+  useEffect(() => {
+    const active = seriesRef.current;
+    if (!active) return;
+    const lines: IPriceLine[] = [];
+    for (const [price, title, color] of [
+      [bestBid, "Bid", CHART_THEME.up],
+      [bestAsk, "Ask", CHART_THEME.down],
+    ] as const) {
+      if (!Number.isFinite(price)) continue;
+      lines.push(active.api.createPriceLine({ price, color, lineVisible: false, lineWidth: 1, axisLabelVisible: true, title }));
+    }
+    return () => {
+      for (const line of lines) {
+        try {
+          active.api.removePriceLine(line);
+        } catch {
+          continue;
+        }
+      }
+    };
+  }, [bestBid, bestAsk, style, history, rising]);
 
   // Positions and working orders as labelled price lines.
   useEffect(() => {
@@ -1382,9 +1427,13 @@ export function PackagePriceChart({
       orderPreview,
       band: Number.isFinite(market.floor) && Number.isFinite(market.cap) ? { floor: market.floor, cap: market.cap, color: CHART_THEME.band } : null,
       fills: fillMarks,
+      expiry: Number.isFinite(market.expiryAt)
+        ? { time: market.expiryAt, label: `Expiry ${formatUtcStamp(market.expiryAt)} UTC`, color: CHART_THEME.band }
+        : null,
     });
   }, [
     fillMarks,
+    market.expiryAt,
     market.floor,
     market.cap,
     orderOverlays,
@@ -1760,11 +1809,17 @@ export function PackagePriceChart({
           />
           {model ? (
             <div
-              title={`${describeMark(model)} These inputs are MODELED assumptions, not observed market data. Fills are drawn as markers with their lots as volume; they never replace the mark.`}
+              title={`${describeMark(model)} Fills are drawn as markers with their lots as volume; they never replace the mark. ${
+                historySource?.source === "DATABASE"
+                  ? "History: stored Chainlink rounds."
+                  : "History: rounds this server read from chain (a limited window; no database configured or reachable)."
+              } Bars with no fresh reading are left empty.`}
               className="absolute bottom-8 left-3 z-10 flex max-w-[calc(100%-96px)] items-center gap-1.5 rounded-sm border border-line bg-panel/85 px-1.5 py-0.5 text-[10.5px] text-faint"
             >
               <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand" />
-              <span className="truncate">{`Modeled mark · capped-forward v${model.version} · ${model.parameterSet}`}</span>
+              <span className="truncate">
+                {`Mark · capped-forward v${model.version} · ${model.parameterSet}${model.basis ? " · fill basis" : ""}`}
+              </span>
             </div>
           ) : null}
           {history.length === 0 ? (
