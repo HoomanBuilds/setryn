@@ -449,7 +449,8 @@ function OperationsRail({ strategy, feedAsOf, now }: { strategy: LifecycleStrate
         </div>
         <div className="p-3">
           {strategy.lifecycle ? (
-            <TerminalLifecycle view={strategy.lifecycle} compact />
+            // Keyed by position, so a pending action or outcome never carries over to another selected position.
+            <TerminalLifecycle key={strategy.lifecycle.positionId} view={strategy.lifecycle} compact />
           ) : (
             <p className="text-xs leading-snug text-faint">
               The onchain lifecycle for this position has not been read yet. Refresh to read the position engine, the fixing engine

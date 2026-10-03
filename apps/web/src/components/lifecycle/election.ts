@@ -152,6 +152,10 @@ function claimState(view: OnchainPositionLifecycle, releasable: number): Lifecyc
   if (claim && !claim.receivable && claim.status === "ACTIVE") {
     return { ...unavailable("This account owes the open claim; the receiver or any keeper completes it."), label: "Claim" };
   }
+  // Done once this position's release was withdrawn, so free collateral the account holds for other reasons is not offered.
+  if (view.releaseWithdrawnUsd > 0 && releasedCollateral(view) - view.releaseWithdrawnUsd < 0.01) {
+    return { ...unavailable(`Withdrew the ${view.releaseWithdrawnUsd.toFixed(2)} USDC this settlement released to the wallet.`), label: "Withdrawn" };
+  }
   return releasable > 0
     ? { ...AVAILABLE, label: "Withdraw" }
     : { ...unavailable("The collateral this settlement released is no longer available to withdraw."), label: "Withdraw" };
@@ -173,14 +177,19 @@ function finalizeState(view: OnchainPositionLifecycle, now: number): LifecycleAc
   return AVAILABLE;
 }
 
+/** Collateral a completed settlement returned to this account: its released reservation plus any transfer it received. */
+function releasedCollateral(view: OnchainPositionLifecycle): number {
+  if (!view.settlement) return 0;
+  return view.settlement.releasedUsd + Math.max(0, view.settlement.transferUsd);
+}
+
 /**
- * Collateral a completed settlement returned to this account that is still available to withdraw: its released
- * reservation plus any transfer it received, capped at the account's available balance.
+ * Collateral a completed settlement returned to this account that is still to withdraw: what it released less what was
+ * already withdrawn for this position, capped at the account's available balance.
  */
 export function releasableCollateral(view: OnchainPositionLifecycle, available: number): number {
-  if (!view.settlement) return 0;
-  const released = view.settlement.releasedUsd + Math.max(0, view.settlement.transferUsd);
-  return Math.max(0, Math.floor(Math.min(available, released) * 100) / 100);
+  const outstanding = releasedCollateral(view) - view.releaseWithdrawnUsd;
+  return Math.max(0, Math.floor(Math.min(available, outstanding) * 100) / 100);
 }
 
 export function lifecycleActions(view: OnchainPositionLifecycle, nowMs: number, availableCollateral: number): LifecycleActionView[] {

@@ -2,14 +2,17 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowUpRight, CircleAlert, CircleCheck, Clock3, LoaderCircle } from "lucide-react";
-import { BUTTON_INK, BUTTON_QUIET, CopyButton, middleTruncate } from "@/components/activity/ledger-ui";
+import { ArrowUpRight, Clock3, LoaderCircle } from "lucide-react";
+import { BUTTON_INK, BUTTON_QUIET, middleTruncate } from "@/components/activity/ledger-ui";
+import { ActionOutcome, ActionProgressNote, pendingLabel, type ActionOutcomeState } from "@/components/gateway/ActionStatus";
 import { useGatewaySnapshot, useInternalGateway } from "@/components/gateway/InternalGatewayProvider";
 import { PhaseTag, SideTag, TrustRow, signedUsd, toneOf, usd } from "@/components/positions/parts";
 import { useConfirmStep } from "@/components/terminal/confirm-step";
 import { positionHref, receiptHref } from "@/lib/positions/dossier";
 import { formatCountdownMs } from "@/lib/settlements/calendar";
 import { useConfirmationPrefs } from "@/lib/settings/preferences";
+import { describeActionError } from "@/lib/internal-gateway/action-errors";
+import { ActionError, type ActionProgress } from "@/lib/internal-gateway/action-progress";
 import type { LifecycleActionKey, OnchainPositionLifecycle } from "@/lib/internal-gateway/types";
 import { platformNow } from "@/lib/terminal/clock";
 import { formatLots, formatNumber } from "@/lib/terminal/format";
@@ -48,12 +51,6 @@ const CONFIRM_COPY: Record<LifecycleActionKey, string> = {
   FINALIZE: "Confirm finalize",
 };
 
-interface Outcome {
-  tone: "ok" | "error";
-  text: string;
-  transactionHash?: string;
-}
-
 /**
  * A held position's terminal lifecycle, read from chain: the onchain state, the fixing, the election window and the
  * projected payoff at the fixing, with the four actions a holder or any keeper can take. Every action is signed by the
@@ -75,7 +72,8 @@ export function TerminalLifecycle({
   const collateralStep = useConfirmStep(confirmations.collateral, 6_000);
   const nowMs = useChainNow(view.observedAtSeconds * 1000);
   const [pending, setPending] = useState<LifecycleActionKey | null>(null);
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const [progress, setProgress] = useState<ActionProgress | null>(null);
+  const [outcome, setOutcome] = useState<ActionOutcomeState | null>(null);
 
   const phase = PHASE_COPY[view.phase];
   const actions = lifecycleActions(view, nowMs, snapshot.account.available);
@@ -87,18 +85,23 @@ export function TerminalLifecycle({
     const step = action.key === "CLAIM" ? collateralStep : orderStep;
     step.run(action.key, () => {
       setPending(action.key);
+      setProgress(null);
       setOutcome(null);
       gateway
-        .runLifecycleAction(view.positionId, action.key)
-        .then((result) => setOutcome({ tone: "ok", text: result.detail, transactionHash: result.transactionHash }))
+        .runLifecycleAction(view.positionId, action.key, setProgress)
+        .then((result) => setOutcome({ ok: true, text: result.detail, transactionHash: result.transactionHash }))
         .catch((error: unknown) => {
-          const message = error instanceof Error ? error.message.split("\n")[0] : "The action failed.";
+          // The shared copy says which steps already landed and restates contract refusals as the condition to meet.
           setOutcome({
-            tone: "error",
-            text: /User rejected|4001/.test(message) ? "The wallet declined the signature. Nothing was sent." : message,
+            ok: false,
+            text: describeActionError(error, { fallback: "The lifecycle action did not reach a final outcome. Check the position before trying again." }),
+            transactionHash: error instanceof ActionError ? error.transactionHash : null,
           });
         })
-        .finally(() => setPending(null));
+        .finally(() => {
+          setPending(null);
+          setProgress(null);
+        });
     });
   };
 
@@ -199,6 +202,18 @@ export function TerminalLifecycle({
           const step = action.key === "CLAIM" ? collateralStep : orderStep;
           const armed = step.armed === action.key;
           const busy = pending === action.key;
+          if (busy) {
+            /* The action in flight takes the full row: whose turn it is on the button, the step and its hash below. */
+            return (
+              <li key={action.key} className="flex flex-col gap-1.5">
+                <button type="button" disabled aria-busy="true" className={`${BUTTON_INK} h-8 w-full`}>
+                  <LoaderCircle size={12} aria-hidden="true" className="animate-spin motion-reduce:animate-none" />
+                  {pendingLabel(progress)}
+                </button>
+                <ActionProgressNote progress={progress} />
+              </li>
+            );
+          }
           return (
             <li key={action.key} className="grid grid-cols-[112px_minmax(0,1fr)] items-start gap-3">
               <button
@@ -208,8 +223,7 @@ export function TerminalLifecycle({
                 onClick={() => run(action)}
                 className={`${action.available ? BUTTON_INK : BUTTON_QUIET} h-8 w-full`}
               >
-                {busy ? <LoaderCircle size={12} aria-hidden="true" className="animate-spin" /> : null}
-                {busy ? "Signing" : armed ? CONFIRM_COPY[action.key] : action.label}
+                {armed ? CONFIRM_COPY[action.key] : action.label}
               </button>
               <p id={`${view.positionId}-${action.key}-why`} className="pt-1.5 text-[11px] leading-snug text-faint">
                 {action.available ? (armed ? "Press again to sign and send." : action.effect) : action.reason}
@@ -220,30 +234,10 @@ export function TerminalLifecycle({
       </ul>
 
       {outcome ? (
-        <div
-          role="status"
-          className={`flex items-start gap-2 rounded-md border px-3 py-2 text-xs leading-snug ${
-            outcome.tone === "ok" ? "border-line text-dim" : "border-down/40 text-down"
-          }`}
-        >
-          {outcome.tone === "ok" ? (
-            <CircleCheck size={13} aria-hidden="true" className="mt-[1px] shrink-0" />
-          ) : (
-            <CircleAlert size={13} aria-hidden="true" className="mt-[1px] shrink-0" />
-          )}
-          <span className="min-w-0">
-            {outcome.text}
-            {outcome.transactionHash ? (
-              <span className="mt-0.5 flex items-center text-[11px] text-faint">
-                <span className="mr-1">tx</span>
-                <span title={outcome.transactionHash} className="tnum truncate font-mono text-dim">
-                  {middleTruncate(outcome.transactionHash, 8, 6)}
-                </span>
-                <CopyButton value={outcome.transactionHash} label="transaction reference" size={11} className="h-5 w-5" />
-              </span>
-            ) : null}
-          </span>
-        </div>
+        <ActionOutcome
+          outcome={outcome}
+          className={`rounded-md border px-3 py-2 leading-snug ${outcome.ok ? "border-line" : "border-down/40"}`}
+        />
       ) : null}
 
       {settledReceipt && (settlement || view.exercisedLots > 0) ? (
