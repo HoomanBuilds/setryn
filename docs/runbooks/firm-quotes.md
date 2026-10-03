@@ -22,7 +22,7 @@ the clearing engine consumes it in one transaction, so the 300 s bound no longer
    two epochs, so lifetimes overlap.
 2. **Quotes (continuous, offchain).** Every tick the quote engine (`apps/web/src/lib/quotes/quote-engine.ts`) prices
    every market from one Chainlink read and signs a five-level ladder on each side. Every level is a `PublicOrder`
-   (GTD, 20 s deadline, random 128-bit nonce) with a `SetrynOrderRiskAuthorizationV1` naming the router as binder and
+   (GTD, 30 s deadline, random 128-bit nonce) with a `SetrynOrderRiskAuthorizationV1` naming the router as binder and
    `hash(SetrynMakerQuoteTermsV1{capacityId})` as binder terms. The levels share one series capacity, and their total
    displayed size per side does not exceed its remaining capacity. Signatures are verified before publication. Quotes
    stream over `GET /api/quotes/stream` (server-sent events); `GET /api/quotes` is the snapshot.
@@ -135,7 +135,7 @@ first time capacity opens.
 
 - **Idle markets spend nothing.** No quote ever touches the chain unless a trader takes it; a series nobody views never
   opens capacity.
-- **Quote lifetime.** 20 s, re-signed with 12 s left; the terminal offers a quote only with at least 6 s left and drops it
+- **Quote lifetime.** 30 s, re-signed with 18 s left; the terminal offers a quote only with at least 6 s left and drops it
   at expiry, so a reconnect never shows an expired quote as executable.
 - **Ladder depth.** Up to five levels per side are signed offchain. The touch preserves the largest immediately
   executable size, deeper levels widen by eight basis points, and exhausted capacity removes levels automatically.

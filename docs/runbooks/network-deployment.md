@@ -247,7 +247,7 @@ With the Circle override, users get test USDC from faucet.circle.com instead and
 
 Designated maker. With `SETRYN_MAKER_PRIVATE_KEY` set and a runtime that names `quoteSettlementRouter`, the maker
 streams a firm five-level bid and ask ladder on every market (docs/runbooks/firm-quotes.md). Quotes are EIP-712 signed orders priced from
-the Chainlink reference, valid 20 seconds and re-signed before they run low, so prices move with no transaction; the
+the Chainlink reference, valid 30 seconds and re-signed before they run low, so prices move with no transaction; the
 terminal receives them over `GET /api/quotes/stream`. A taker signs typed data and one `QuoteSettlementRouter.settle`
 transaction settles both sides, submitted by the optional relayer (`SETRYN_RELAYER_PRIVATE_KEY`, its own key and nonce
 lane, no fee) or by the taker's wallet when no relayer answers. The maker's only recurring transaction locks one
