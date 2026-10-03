@@ -21,10 +21,11 @@ the clearing engine consumes it in one transaction, so the 300 s bound no longer
    capacity's expiry. The app opens the current three-day epoch's capacity the first time a series is viewed; each lasts
    two epochs, so lifetimes overlap.
 2. **Quotes (continuous, offchain).** Every tick the quote engine (`apps/web/src/lib/quotes/quote-engine.ts`) prices
-   every market from one Chainlink read and signs, per side, a `PublicOrder` (GTD, 20 s deadline, random 128-bit nonce)
-   and a `SetrynOrderRiskAuthorizationV1` naming the router as binder and `hash(SetrynMakerQuoteTermsV1{capacityId})` as
-   binder terms. Signatures are verified before a quote is published. Quotes stream over `GET /api/quotes/stream`
-   (server-sent events); `GET /api/quotes` is the snapshot.
+   every market from one Chainlink read and signs a five-level ladder on each side. Every level is a `PublicOrder`
+   (GTD, 20 s deadline, random 128-bit nonce) with a `SetrynOrderRiskAuthorizationV1` naming the router as binder and
+   `hash(SetrynMakerQuoteTermsV1{capacityId})` as binder terms. The levels share one series capacity, and their total
+   displayed size per side does not exceed its remaining capacity. Signatures are verified before publication. Quotes
+   stream over `GET /api/quotes/stream` (server-sent events); `GET /api/quotes` is the snapshot.
 3. **Acceptance.** The trader signs typed data only: an opposite fill-or-kill `PublicOrder` at the quote's price and its
    own risk authorization, whose binder terms commit to `SetrynTakerSettlementTermsV1{quoteOrderHash, relayer,
    relayerAccountId, maxRelayerFeeMinor}`. The terminal names no relayer and offers no fee, so the same signatures
@@ -136,6 +137,8 @@ first time capacity opens.
   opens capacity.
 - **Quote lifetime.** 20 s, re-signed with 12 s left; the terminal offers a quote only with at least 6 s left and drops it
   at expiry, so a reconnect never shows an expired quote as executable.
+- **Ladder depth.** Up to five levels per side are signed offchain. The touch preserves the largest immediately
+  executable size, deeper levels widen by eight basis points, and exhausted capacity removes levels automatically.
 - **Firm or not.** A market without live capacity, without a fresh reference, with an inactive fee schedule, or whose
   maker collateral is committed is published as `INDICATIVE` or `UNAVAILABLE` with the reason, never with a quote.
 - **Gas.** One settlement is about 9.8M gas on the production graph, of which the clearing engine's `clearSeries` is
