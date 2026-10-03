@@ -255,6 +255,16 @@ series' quote capacity per three-day epoch, the first time the series is viewed;
 needs Sepolia ETH for those transactions, as the relayer does for the settlements it submits. Without a router in the
 runtime the terminal shows the public book only and says so.
 
+Live Sepolia smoke trade. This prepares one ordinary wallet with faucet tUSDC, deposits 5,000 tUSDC, installs its two
+clearing approvals, accepts one lot of the ETH December maker ask, and waits for the atomic settlement receipt. The
+script refuses every network except Arbitrum Sepolia and never contains a key.
+
+```bash
+ARBITRUM_SEPOLIA_RPC_URL=<rpc> \
+SETRYN_TEST_TAKER_PRIVATE_KEY=<test-wallet-private-key> \
+node apps/web/scripts/smoke-arbitrum-sepolia.mjs
+```
+
 ## Operations
 
 Session days. Trading needs the current UTC day published, and the bootstrap only publishes four days. The operator

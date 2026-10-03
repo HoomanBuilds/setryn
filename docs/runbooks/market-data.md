@@ -26,9 +26,9 @@ Migration `supabase/migrations/20261003000100_market_data.sql`:
 | `setryn.market_positions` | Latest quantity and open flag of every position | scope, deployment key, position id |
 | `setryn.ingest_cursors` | Each stream's last block and hash, or its heartbeat | scope, stream |
 
-Only observed facts are stored. Marks and candles are computed on read under the versioned methodology, so a new
-parameter set or methodology version applies to all history at once and nothing has to be migrated. Every write is an
-idempotent upsert keyed by chain identity, and a stream's rows commit together with its cursor.
+Only observed facts are stored. Marks and candles are computed on read under the methodology version and parameter set
+effective at each timestamp. Updating the live model does not rewrite historical marks. Every write is an idempotent
+upsert keyed by chain identity, and a stream's rows commit together with its cursor.
 
 The deployment key is the chain id plus the clearing, position and book addresses. A redeployment gets a new key and
 starts its own history. Scope is the network name (`local`, `arbitrum-sepolia`); reference rounds and their cursors
