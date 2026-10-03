@@ -1,3 +1,4 @@
+import { describeProgress } from "@/lib/internal-gateway/action-progress";
 import type { GatewaySnapshot } from "@/lib/internal-gateway/types";
 import type { HealthState, OperationalAlert } from "@/lib/operations/types";
 
@@ -27,6 +28,27 @@ export interface Notice {
 /** Work that is waiting on the user, derived only from the connected account's gateway snapshot. */
 export function pendingActions(snapshot: GatewaySnapshot): PendingAction[] {
   const actions: PendingAction[] = [];
+  // Actions in flight first: the wallet or the chain is working on something the user started.
+  for (const action of snapshot.actions) {
+    if (action.status !== "IN_PROGRESS") continue;
+    actions.push({
+      id: action.id,
+      label: action.title,
+      detail: action.progress ? describeProgress(action.progress) : "Starting.",
+      href: action.href ?? "/activity",
+      tone: "info",
+    });
+  }
+  if (snapshot.wallet.status === "WRONG_NETWORK") {
+    actions.push({
+      id: "network",
+      label: `Switch to ${snapshot.environment.label}`,
+      detail: "The wallet is on another network, so nothing can be signed until it switches.",
+      href: "/portfolio",
+      tone: "warn",
+    });
+    return actions;
+  }
   if (snapshot.wallet.status !== "CONNECTED") {
     actions.push({
       id: "connect",
@@ -37,7 +59,8 @@ export function pendingActions(snapshot: GatewaySnapshot): PendingAction[] {
     });
     return actions;
   }
-  if (snapshot.account.posted <= 0) {
+  // Until the account is read its balances are zeros, not an empty account.
+  if (snapshot.account.posted <= 0 && !/^0x0+$/.test(snapshot.account.id)) {
     actions.push({
       id: "fund",
       label: "Post collateral",

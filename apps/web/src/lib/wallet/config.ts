@@ -42,6 +42,14 @@ export function explorerAddressUrl(chainId: number | null | undefined, address: 
   return explorer ? `${explorer.url}/address/${address}` : null;
 }
 
+/** Where a transaction is shown on a block explorer: Arbiscan on Arbitrum One and Sepolia, nowhere on the local chain. */
+export function explorerTxUrl(chainId: number | null | undefined, hash: string): string | null {
+  if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) return null;
+  const chain = knownChains.find((candidate) => candidate.id === chainId);
+  const explorer = chain?.blockExplorers?.default;
+  return explorer ? `${explorer.url}/tx/${hash}` : null;
+}
+
 /** The wallet's own name for a chain, for prompts that speak about the wallet rather than the app. */
 export function walletChainName(chainId: number | null | undefined): string {
   return knownChains.find((candidate) => candidate.id === chainId)?.name ?? `chain ${chainId ?? "unknown"}`;

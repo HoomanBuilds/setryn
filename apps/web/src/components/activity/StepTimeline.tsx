@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { Check, CircleAlert, LoaderCircle } from "lucide-react";
+import { ExplorerLink } from "@/components/gateway/TxHash";
 import { CopyButton, middleTruncate, motion } from "./ledger-ui";
 
 export type StepState = "done" | "active" | "pending" | "failed";
@@ -12,6 +13,8 @@ export interface TimelineStep {
   detail?: ReactNode;
   hash?: string;
   hashLabel?: string;
+  /** A transaction hash links to the chain's block explorer; any other reference is copy-only. */
+  hashKind?: "transaction" | "reference";
   meta?: ReactNode;
   state: StepState;
 }
@@ -101,6 +104,7 @@ export function StepTimeline({
                     {middleTruncate(step.hash, 10, 6)}
                   </span>
                   <CopyButton value={step.hash} label={step.hashLabel ?? "reference"} size={11} className="h-5 w-5" />
+                  {step.hashKind === "transaction" ? <ExplorerLink hash={step.hash} /> : null}
                 </span>
               ) : null}
             </span>

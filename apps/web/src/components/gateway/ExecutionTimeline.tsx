@@ -124,6 +124,7 @@ export function ExecutionTimeline({ progress }: { progress: OrderExecutionProgre
       detail: update?.detail,
       hash: update?.transactionHash,
       hashLabel: "Transaction reference",
+      hashKind: "transaction",
       state: update ? "done" : index === firstPending ? "active" : "pending",
     };
   });

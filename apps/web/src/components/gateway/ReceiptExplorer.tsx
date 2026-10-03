@@ -471,6 +471,7 @@ export function ReceiptExplorer({ receiptId }: { receiptId: string }) {
                     detail: update.detail,
                     hash: update.transactionHash,
                     hashLabel: "Transaction reference",
+                    hashKind: "transaction",
                     meta: String(index + 1).padStart(2, "0"),
                     state: "done",
                   }))}

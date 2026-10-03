@@ -1,3 +1,4 @@
+import type { ActionProgress, ProgressListener } from "./action-progress";
 import type { FirmQuote } from "@/lib/quotes/firm-quote";
 import type { ActiveFeeSchedule } from "./fee-schedule";
 import type { Intent, PackageSide, TimeInForce } from "@/lib/terminal/economics";
@@ -50,6 +51,8 @@ export interface GatewayAccount {
   reserved: number;
   available: number;
   equity: number;
+  /** USDC held in the wallet itself, not yet deposited; null until read. */
+  walletBalance: number | null;
 }
 
 export interface ExecutionPosition {
@@ -196,6 +199,31 @@ export interface LifecycleActionResult {
   detail: string;
 }
 
+/**
+ * IN_PROGRESS while the wallet or chain works; SUCCEEDED or FAILED once it finished; DECLINED when the user rejected the
+ * first wallet prompt, so nothing was sent.
+ */
+export type TrackedActionStatus = "IN_PROGRESS" | "SUCCEEDED" | "FAILED" | "DECLINED";
+
+/** One user action in flight or recently finished. The gateway keeps it, so its outcome survives closing a panel or
+ * leaving the page. */
+export interface TrackedAction {
+  id: string;
+  /** What the user did, for example "Deposit 5,000 USDC". */
+  title: string;
+  status: TrackedActionStatus;
+  /** The step in progress, null before the first one reports. */
+  progress: ActionProgress | null;
+  /** The outcome or failure sentence, once finished. */
+  message: string | null;
+  transactionHash: string | null;
+  /** Where to look next (a position, a receipt, an RFQ), with its link text. */
+  href: string | null;
+  hrefLabel: string | null;
+  startedAt: number;
+  finishedAt: number | null;
+}
+
 export interface GatewaySnapshot {
   environment: RuntimeEnvironment;
   wallet: {
@@ -225,6 +253,8 @@ export interface GatewaySnapshot {
   rfqRequests: RfqRequest[];
   /** Onchain terminal lifecycle of every position the account holds or held, keyed by lowercase position id. */
   lifecycles: Record<string, OnchainPositionLifecycle>;
+  /** The user's actions in flight and the last few outcomes, newest first. */
+  actions: TrackedAction[];
 }
 
 export interface OnchainMarketEconomics {
@@ -474,7 +504,7 @@ export interface InternalTradingGateway {
   detachWallet(): void;
   /** The connect prompt closed without a wallet; a pending connectWallet rejects. */
   cancelWalletConnection(): void;
-  submitCollateralIntent(intent: CollateralIntent): Promise<CollateralIntentResult>;
+  submitCollateralIntent(intent: CollateralIntent, onProgress?: ProgressListener): Promise<CollateralIntentResult>;
   authorizeOrder(intent: PackageOrderIntent): Promise<SignedOrderAuthorization>;
   submitAuthorizedOrder(
     authorization: SignedOrderAuthorization,
@@ -493,20 +523,24 @@ export interface InternalTradingGateway {
   ): Promise<RestingPackageOrder>;
   cancelRestingOrder(orderId: string): Promise<RestingPackageOrder>;
   reconcileRestingOrders(markets: readonly PackageMarket[]): RestingPackageOrder[];
-  requestRfq(authorization: SignedOrderAuthorization): Promise<RfqRequest>;
-  selectRfqQuote(requestId: string, quoteId: string): Promise<RfqRequest>;
+  requestRfq(authorization: SignedOrderAuthorization, onProgress?: ProgressListener): Promise<RfqRequest>;
+  selectRfqQuote(requestId: string, quoteId: string, onProgress?: ProgressListener): Promise<RfqRequest>;
   executeSelectedRfq(
     requestId: string,
     onUpdate: (update: SubmissionUpdate) => void,
   ): Promise<PackageExecutionResult>;
-  cancelRfq(requestId: string): Promise<RfqRequest>;
+  cancelRfq(requestId: string, onProgress?: ProgressListener): Promise<RfqRequest>;
   submitLocalMakerQuote(requestId: string, input: LocalMakerQuoteInput): Promise<RfqRequest>;
   withdrawLocalMakerQuote(requestId: string): Promise<RfqRequest>;
   getReceipt(receiptId: string): ExecutionReceipt | null;
   /** Re-reads the onchain terminal lifecycle of the account's positions. */
   refreshLifecycles(): Promise<void>;
   /** Runs one terminal lifecycle action on a position, signed by the connected wallet. */
-  runLifecycleAction(positionId: string, action: LifecycleActionKey): Promise<LifecycleActionResult>;
+  runLifecycleAction(positionId: string, action: LifecycleActionKey, onProgress?: ProgressListener): Promise<LifecycleActionResult>;
+  /** Removes a finished action from the action dock. */
+  dismissAction(actionId: string): void;
+  /** Asks the test-USDC faucet (local chain and mintable Sepolia) to grant USDC to the connected wallet. */
+  claimTestUsdc(onProgress?: ProgressListener): Promise<{ usdc: number; transactionHash: string | null }>;
   /**
    * Withdraws available protocol fees from the fee recipient account through CollateralVault.withdraw. Only that
    * account's controller can; SIMULATE checks the call against the chain without sending, SEND signs and waits.

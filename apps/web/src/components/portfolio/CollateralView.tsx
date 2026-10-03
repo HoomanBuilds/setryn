@@ -14,6 +14,9 @@ import { useConfirmStep } from "@/components/terminal/confirm-step";
 import { ChainBadge, chainKeyOf } from "@/components/icons/AssetIcon";
 import { CollateralMark } from "@/components/portfolio/MarketMark";
 import { FundingAction } from "@/components/wallet/FundingAction";
+import { ActionOutcome, ActionProgressNote, pendingLabel, type ActionOutcomeState } from "@/components/gateway/ActionStatus";
+import { ActionError, isWalletRejection, type ActionProgress } from "@/lib/internal-gateway/action-progress";
+import { COLLATERAL_COPY, describeActionError } from "@/lib/internal-gateway/action-errors";
 
 type Kind = "DEPOSIT" | "WITHDRAW";
 
@@ -107,7 +110,8 @@ function TransferCard() {
   const [kind, setKind] = useState<Kind>(requested);
   const [amount, setAmount] = useState("");
   const [pending, setPending] = useState(false);
-  const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
+  const [message, setMessage] = useState<ActionOutcomeState | null>(null);
+  const [progress, setProgress] = useState<ActionProgress | null>(null);
 
   /* A new Deposit or Withdraw link while already here switches the side. */
   if (requested !== seen) {
@@ -122,12 +126,18 @@ function TransferCard() {
   const exceeds = kind === "WITHDRAW" && value > available;
   const valid = value > 0 && !exceeds;
 
+  const wrongNetwork = snapshot.wallet.status === "WRONG_NETWORK";
   const connect = async () => {
     setMessage(null);
     try {
       await gateway.connectWallet();
-    } catch {
-      setMessage({ text: "Wallet connection was not completed. Try again from your wallet.", ok: false });
+    } catch (error) {
+      // Closing the wallet prompt is a choice, not a failure.
+      if (isWalletRejection(error)) return;
+      setMessage({
+        text: wrongNetwork ? "The wallet did not switch networks. Switch it from your wallet and try again." : "Wallet connection was not completed. Try again from your wallet.",
+        ok: false,
+      });
     }
   };
 
@@ -137,37 +147,27 @@ function TransferCard() {
   const submit = async () => {
     setPending(true);
     setMessage(null);
+    setProgress(null);
     try {
-      const result = await gateway.submitCollateralIntent({
-        kind,
-        accountId: snapshot.account.id,
-        asset,
-        amount: value,
-        recipient: snapshot.wallet.address ?? "",
-      });
+      const result = await gateway.submitCollateralIntent(
+        { kind, accountId: snapshot.account.id, asset, amount: value, recipient: snapshot.wallet.address ?? "" },
+        setProgress,
+      );
       setAmount("");
       setMessage({
-        text: `${result.kind === "DEPOSIT" ? "Deposited" : "Withdrew"} ${result.amount.toLocaleString()} ${asset} onchain.`,
+        text: `${result.kind === "DEPOSIT" ? "Deposited" : "Withdrew"} ${result.amount.toLocaleString()} ${asset}. Your balances below are updated.`,
         ok: true,
+        transactionHash: result.intentId,
       });
     } catch (error) {
       setMessage({
-        text:
-          error instanceof Error && error.message === "CONNECT_WALLET"
-            ? "Connect a wallet before creating a collateral intent."
-            : error instanceof Error && error.message === "INSUFFICIENT_AVAILABLE_COLLATERAL"
-              ? "That withdrawal exceeds available collateral."
-              : error instanceof Error && error.message === "MAINNET_WRITE_DISABLED"
-                ? "Mainnet writes are disabled by the current Setryn environment."
-                : error instanceof Error && error.message === "INSUFFICIENT_WALLET_BALANCE"
-                  ? `The wallet does not hold enough ${asset} for this deposit. Fund the wallet first, then deposit.`
-                  : error instanceof Error && error.message === "NOT_AVAILABLE_ON_NETWORK"
-                    ? "This action is not available on the connected network."
-                    : "Enter a valid collateral amount and try again.",
+        text: describeActionError(error, { overrides: COLLATERAL_COPY }),
         ok: false,
+        transactionHash: error instanceof ActionError ? error.transactionHash : null,
       });
     } finally {
       setPending(false);
+      setProgress(null);
     }
   };
 
@@ -232,7 +232,7 @@ function TransferCard() {
           className="focus-ring h-11 rounded-md bg-ink text-[13px] font-medium text-app transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 lg:h-9"
         >
           {pending
-            ? "Waiting for wallet..."
+            ? pendingLabel(progress)
             : confirmStep.armed
               ? `Confirm ${kind === "DEPOSIT" ? "deposit" : "withdrawal"} of ${amount} ${asset}`
               : kind === "DEPOSIT"
@@ -246,15 +246,16 @@ function TransferCard() {
           disabled={snapshot.wallet.status === "CONNECTING"}
           className="focus-ring h-11 rounded-md bg-ink text-[13px] font-medium text-app transition-opacity duration-150 hover:opacity-90 disabled:opacity-60 lg:h-9"
         >
-          {snapshot.wallet.status === "CONNECTING" ? "Connecting..." : "Connect wallet to transfer"}
+          {snapshot.wallet.status === "CONNECTING"
+            ? "Connecting..."
+            : wrongNetwork
+              ? `Switch to ${snapshot.environment.label} to transfer`
+              : "Connect wallet to transfer"}
         </button>
       )}
 
-      {message ? (
-        <p role="status" className={`${motion.fade} text-xs ${message.ok ? "text-up" : "text-down"}`}>
-          {message.text}
-        </p>
-      ) : null}
+      {pending ? <ActionProgressNote progress={progress} /> : null}
+      <ActionOutcome outcome={message} className={motion.fade} />
 
       {kind === "DEPOSIT" ? <FundingAction className="border-t border-line-soft pt-3" /> : null}
 

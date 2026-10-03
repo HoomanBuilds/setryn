@@ -94,11 +94,14 @@ import type {
   RfqRequest,
   SignedOrderAuthorization,
   SubmissionUpdate,
+  TrackedAction,
   TreasuryWithdrawal,
   TreasuryWithdrawalResult,
   WalletControls,
   WalletSession,
 } from "./types";
+import { ActionError, ActionSteps, isWalletRejection, type ActionProgress, type ProgressListener, type ReceiptReader } from "./action-progress";
+import { COLLATERAL_COPY, describeActionError } from "./action-errors";
 
 const ACCOUNT_SALT = keccak256(stringToHex("SETRYN_PRIMARY_ACCOUNT_V1"));
 const EMPTY_ID = `0x${"0".repeat(64)}` as Hex;
@@ -572,6 +575,7 @@ function initialSnapshot(): GatewaySnapshot {
       reserved: 0,
       available: 0,
       equity: 0,
+      walletBalance: null,
     },
     positions: [],
     receipts: [],
@@ -586,6 +590,7 @@ function initialSnapshot(): GatewaySnapshot {
     publicBooks: {},
     rfqRequests: [],
     lifecycles: {},
+    actions: [],
   };
 }
 
@@ -601,6 +606,32 @@ function withoutAccount(snapshot: GatewaySnapshot): GatewaySnapshot {
     restingOrders: empty.restingOrders,
     rfqRequests: empty.rfqRequests,
     lifecycles: empty.lifecycles,
+    // Another account's finished outcomes are not this one's; work still in flight keeps reporting.
+    actions: snapshot.actions.filter((action) => action.status === "IN_PROGRESS"),
+  };
+}
+
+function shortAddress(address: string): string {
+  return /^0x[0-9a-fA-F]{40}$/.test(address) ? `${address.slice(0, 6)}…${address.slice(-4)}` : "your wallet";
+}
+
+/** A faucet refusal, carrying the faucet's own sentence. */
+class FaucetError extends Error {}
+
+const FAUCET_COPY: Readonly<Record<string, string>> = {
+  NOT_AVAILABLE_ON_NETWORK: "The test-USDC faucet is not available on this network.",
+  FAUCET_LIMIT: "This wallet already holds the maximum test USDC available from the faucet.",
+  FUNDING_FAILED: "The testnet faucet could not fund this wallet right now. Try again in a moment.",
+};
+
+/** What the dock says while a trade's submission steps report (SubmissionUpdate), as an action step. */
+function submissionProgress(update: SubmissionUpdate, index: number): ActionProgress {
+  return {
+    step: index,
+    total: Math.max(index, 4),
+    label: update.label,
+    phase: update.transactionHash && update.step === "SUBMITTED" ? "PENDING" : "CONFIRMED",
+    ...(update.transactionHash ? { transactionHash: update.transactionHash as Hex } : {}),
   };
 }
 
@@ -863,99 +894,159 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     }
   }
 
-  async submitCollateralIntent(intent: CollateralIntent): Promise<CollateralIntentResult> {
+  async submitCollateralIntent(intent: CollateralIntent, onProgress?: ProgressListener): Promise<CollateralIntentResult> {
+    const amount = Number.isFinite(intent.amount) ? `${intent.amount.toLocaleString("en-US", { maximumFractionDigits: 6 })} USDC` : "USDC";
+    const deposit = intent.kind === "DEPOSIT";
+    return this.track(
+      deposit ? `Deposit ${amount}` : `Withdraw ${amount}`,
+      (progress) => this.moveCollateral(intent, progress),
+      (result) => ({
+        message: deposit
+          ? `Deposited ${amount} into your trading account. It is available to trade now.`
+          : `Withdrew ${amount} to ${shortAddress(intent.recipient)}.`,
+        transactionHash: result.intentId,
+        href: "/portfolio/collateral",
+        hrefLabel: "Open collateral",
+      }),
+      { onProgress, failure: (error) => describeActionError(error, { overrides: COLLATERAL_COPY }) },
+    );
+  }
+
+  /**
+   * A deposit or withdrawal, one wallet prompt per step: create the trading account (first time only), mint test USDC
+   * (local chain only), approve the vault (when the allowance is short), then the deposit; or the withdrawal alone.
+   * Every receipt is checked, and the account is re-read after the transfer lands without letting a failed read undo it.
+   */
+  private async moveCollateral(intent: CollateralIntent, onProgress: ProgressListener): Promise<CollateralIntentResult> {
     const { setryn, address, walletClient, publicClient } = await this.connected();
     if (!Number.isFinite(intent.amount) || intent.amount <= 0) throw new Error("INVALID_COLLATERAL_AMOUNT");
     // The settlement token is the only collateral; older callers still name the local token by its own symbol.
     if (intent.asset !== "USDC" && intent.asset !== "sUSD") throw new Error("UNSUPPORTED_COLLATERAL_ASSET");
     const accountId = await this.accountId(address);
-    if (intent.accountId.toLowerCase() !== accountId.toLowerCase()) throw new Error("ACCOUNT_MISMATCH");
+    // A caller that started before the account was read passes the empty id; the wallet's own account is used then.
+    if (intent.accountId !== EMPTY_ID && intent.accountId.toLowerCase() !== accountId.toLowerCase()) throw new Error("ACCOUNT_MISMATCH");
     const amount = parseUnits(intent.amount.toFixed(6), 6);
     const local = runtimeNetwork(setryn) === "local";
+    const chain = this.chain(setryn);
     if (local) await this.fundNativeGas(address);
 
-    const exists = await publicClient.readContract({
-      address: setryn.collateralVault,
-      abi: vaultAbi,
-      functionName: "accountExists",
-      args: [accountId],
-    });
-    if (!exists) {
-      const createHash = await walletClient.writeContract({
-        account: address,
-        chain: this.chain(setryn),
-        address: setryn.collateralVault,
-        abi: vaultAbi,
-        functionName: "createAccount",
-        args: [ACCOUNT_SALT],
-      });
-      await publicClient.waitForTransactionReceipt({ hash: createHash });
-    }
-
-    let transactionHash: Hex;
+    const exists = await publicClient.readContract({ address: setryn.collateralVault, abi: vaultAbi, functionName: "accountExists", args: [accountId] });
+    let mint = BigInt(0);
+    let approve = false;
     if (intent.kind === "DEPOSIT") {
-      const tokenBalance = await publicClient.readContract({
-        address: setryn.settlementToken,
-        abi: tokenAbi,
-        functionName: "balanceOf",
-        args: [address],
-      });
+      const [tokenBalance, allowance] = await Promise.all([
+        publicClient.readContract({ address: setryn.settlementToken, abi: tokenAbi, functionName: "balanceOf", args: [address] }),
+        publicClient.readContract({ address: setryn.settlementToken, abi: tokenAbi, functionName: "allowance", args: [address, setryn.collateralVault] }),
+      ]);
       // The local test token mints the shortfall to its caller; on a network the wallet deposits USDC it already holds.
       if (tokenBalance < amount && !local) throw new Error("INSUFFICIENT_WALLET_BALANCE");
-      if (tokenBalance < amount) {
-        const mintHash = await walletClient.writeContract({
-          account: address,
-          chain: this.chain(setryn),
-          address: setryn.settlementToken,
-          abi: tokenAbi,
-          functionName: "mint",
-          args: [amount - tokenBalance],
-        });
-        await publicClient.waitForTransactionReceipt({ hash: mintHash });
-      }
-      const allowance = await publicClient.readContract({
-        address: setryn.settlementToken,
-        abi: tokenAbi,
-        functionName: "allowance",
-        args: [address, setryn.collateralVault],
-      });
-      if (allowance < amount) {
-        const approvalHash = await walletClient.writeContract({
-          account: address,
-          chain: this.chain(setryn),
-          address: setryn.settlementToken,
-          abi: tokenAbi,
-          functionName: "approve",
-          // A real-USDC wallet approves exactly the deposit; the local test token keeps a standing approval.
-          args: [setryn.collateralVault, local ? maxUint256 : amount],
-        });
-        await publicClient.waitForTransactionReceipt({ hash: approvalHash });
-      }
-      transactionHash = await walletClient.writeContract({
-        account: address,
-        chain: this.chain(setryn),
-        address: setryn.collateralVault,
-        abi: vaultAbi,
-        functionName: "deposit",
-        args: [setryn.settlementAssetId, 1, accountId, amount],
-      });
+      if (tokenBalance < amount) mint = amount - tokenBalance;
+      approve = allowance < amount;
     } else {
-      const recipient = getAddress(intent.recipient);
       const available = parseUnits(this.snapshot.account.available.toString(), 6);
       if (amount > available) throw new Error("INSUFFICIENT_AVAILABLE_COLLATERAL");
-      transactionHash = await walletClient.writeContract({
-        account: address,
-        chain: this.chain(setryn),
-        address: setryn.collateralVault,
-        abi: vaultAbi,
-        functionName: "withdraw",
-        args: [setryn.settlementAssetId, 1, accountId, amount, recipient],
-      });
     }
 
-    await publicClient.waitForTransactionReceipt({ hash: transactionHash });
-    await this.refreshAccount();
+    const steps = this.steps(publicClient, (exists ? 0 : 1) + (mint > BigInt(0) ? 1 : 0) + (approve ? 1 : 0) + 1, onProgress);
+    if (!exists) {
+      await steps.transaction("Create your trading account", () =>
+        walletClient.writeContract({ account: address, chain, address: setryn.collateralVault, abi: vaultAbi, functionName: "createAccount", args: [ACCOUNT_SALT] }),
+      );
+    }
+    let transactionHash: Hex;
+    if (intent.kind === "DEPOSIT") {
+      if (mint > BigInt(0)) {
+        await steps.transaction("Mint test USDC", () =>
+          walletClient.writeContract({ account: address, chain, address: setryn.settlementToken, abi: tokenAbi, functionName: "mint", args: [mint] }),
+        );
+      }
+      if (approve) {
+        await steps.transaction("Approve USDC for the vault", () =>
+          walletClient.writeContract({
+            account: address,
+            chain,
+            address: setryn.settlementToken,
+            abi: tokenAbi,
+            functionName: "approve",
+            // A real-USDC wallet approves exactly the deposit; the local test token keeps a standing approval.
+            args: [setryn.collateralVault, local ? maxUint256 : amount],
+          }),
+        );
+      }
+      const receipt = await steps.transaction("Deposit into the vault", () =>
+        walletClient.writeContract({
+          account: address,
+          chain,
+          address: setryn.collateralVault,
+          abi: vaultAbi,
+          functionName: "deposit",
+          args: [setryn.settlementAssetId, 1, accountId, amount],
+        }),
+      );
+      transactionHash = receipt.transactionHash;
+    } else {
+      const recipient = getAddress(intent.recipient);
+      const receipt = await steps.transaction("Withdraw to your wallet", () =>
+        walletClient.writeContract({
+          account: address,
+          chain,
+          address: setryn.collateralVault,
+          abi: vaultAbi,
+          functionName: "withdraw",
+          args: [setryn.settlementAssetId, 1, accountId, amount, recipient],
+        }),
+      );
+      transactionHash = receipt.transactionHash;
+    }
+
+    await this.refreshAfter(() => this.refreshAccount());
     return { intentId: transactionHash, kind: intent.kind, amount: intent.amount, status: "COMPLETED" };
+  }
+
+  /**
+   * The test-USDC faucet (local chain and mintable Sepolia): the operator mints to the connected wallet and the route
+   * waits for the receipt. Tracked like any action, so the grant and its transaction stay visible after the panel
+   * closes; the wallet balance is re-read afterwards.
+   */
+  async claimTestUsdc(onProgress?: ProgressListener): Promise<{ usdc: number; transactionHash: string | null }> {
+    const address = this.walletAddress;
+    return this.track(
+      "Get test USDC",
+      async (progress) => {
+        if (!address || this.snapshot.wallet.status !== "CONNECTED") throw new Error("CONNECT_WALLET");
+        const steps = this.steps(null, 1, progress);
+        const granted = await steps.offchain("The faucet mints test USDC to your wallet", async () => {
+          const response = await fetch("/api/internal/operator/fund", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ address, asset: "USDC" }),
+            signal: AbortSignal.timeout(120_000),
+          });
+          const body = (await response.json().catch(() => ({}))) as { usdc?: number; transactionHash?: string; message?: string; error?: string };
+          if (!response.ok) throw new FaucetError(body.message ?? FAUCET_COPY[body.error ?? ""] ?? "No test USDC was granted.");
+          return { usdc: typeof body.usdc === "number" ? body.usdc : 0, transactionHash: body.transactionHash ?? null };
+        });
+        await this.refreshAfter(() => this.refreshAccount());
+        return granted;
+      },
+      (granted) => ({
+        message: `${granted.usdc > 0 ? granted.usdc.toLocaleString("en-US") : "Test"} USDC is in your wallet. Deposit it into your trading account to trade.`,
+        transactionHash: granted.transactionHash,
+        href: "/portfolio/collateral?transfer=deposit",
+        hrefLabel: "Deposit",
+      }),
+      {
+        onProgress,
+        failure: (error) => {
+          const cause = error instanceof ActionError ? error.cause : error;
+          if (cause instanceof FaucetError) return cause.message;
+          if (cause instanceof Error && cause.name === "TimeoutError") {
+            return "The faucet did not answer within two minutes. The grant may still arrive; check the wallet balance before asking again.";
+          }
+          return describeActionError(error, { fallback: "No test USDC was granted. Try again in a moment." });
+        },
+      },
+    );
   }
 
   async withdrawTreasuryFees(request: TreasuryWithdrawal, mode: "SIMULATE" | "SEND"): Promise<TreasuryWithdrawalResult> {
@@ -2552,14 +2643,19 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       functionName: "accountExists",
       args: [accountId],
     });
-    const [total, locked, available] = exists
-      ? await this.publicClient.readContract({
-          address: this.setryn.collateralVault,
-          abi: vaultAbi,
-          functionName: "balanceOf",
-          args: [accountId, collateralId],
-        })
-      : ([BigInt(0), BigInt(0), BigInt(0)] as const);
+    const [[total, locked, available], held] = await Promise.all([
+      exists
+        ? this.publicClient.readContract({
+            address: this.setryn.collateralVault,
+            abi: vaultAbi,
+            functionName: "balanceOf",
+            args: [accountId, collateralId],
+          })
+        : Promise.resolve([BigInt(0), BigInt(0), BigInt(0)] as const),
+      this.publicClient
+        .readContract({ address: this.setryn.settlementToken, abi: tokenAbi, functionName: "balanceOf", args: [this.walletAddress] })
+        .catch(() => null),
+    ]);
     const posted = Number(formatUnits(total, 6));
     const reserved = Number(formatUnits(locked, 6));
     const free = Number(formatUnits(available, 6));
@@ -2575,6 +2671,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         reserved,
         available: free,
         equity: posted,
+        walletBalance: held === null ? null : Number(formatUnits(held, 6)),
       },
     });
   }
@@ -4250,5 +4347,92 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   private publish(snapshot: GatewaySnapshot): void {
     this.snapshot = snapshot;
     for (const listener of this.listeners) listener();
+  }
+
+  /* ---------------------------------------------------------------------------------------------------------------- */
+  /* Tracked actions                                                                                                   */
+  /* ---------------------------------------------------------------------------------------------------------------- */
+
+  private actionSequence = 0;
+
+  /**
+   * Runs a user action and records it for the action dock: in progress with its latest step, then its outcome, which
+   * stays after the panel that started it closes. `work` receives a progress listener that updates the dock and
+   * forwards to the caller's own. The action's own result or error is returned or rethrown unchanged.
+   */
+  private async track<T>(
+    title: string,
+    work: (progress: ProgressListener) => Promise<T>,
+    outcome: (value: T) => { message: string; transactionHash?: string | null; href?: string | null; hrefLabel?: string | null },
+    options: { onProgress?: ProgressListener; failure?: (error: unknown) => string } = {},
+  ): Promise<T> {
+    this.actionSequence += 1;
+    const id = `action-${Date.now().toString(36)}-${this.actionSequence}`;
+    const started: TrackedAction = {
+      id,
+      title,
+      status: "IN_PROGRESS",
+      progress: null,
+      message: null,
+      transactionHash: null,
+      href: null,
+      hrefLabel: null,
+      startedAt: Date.now(),
+      finishedAt: null,
+    };
+    this.publish({ ...this.snapshot, actions: [started, ...this.snapshot.actions].slice(0, 12) });
+    const listener: ProgressListener = (progress) => {
+      this.patchAction(id, { progress, ...(progress.transactionHash ? { transactionHash: progress.transactionHash } : {}) });
+      options.onProgress?.(progress);
+    };
+    try {
+      const value = await work(listener);
+      const done = outcome(value);
+      this.patchAction(id, {
+        status: "SUCCEEDED",
+        message: done.message,
+        transactionHash: done.transactionHash ?? this.actionById(id)?.transactionHash ?? null,
+        href: done.href ?? null,
+        hrefLabel: done.hrefLabel ?? null,
+        finishedAt: Date.now(),
+      });
+      return value;
+    } catch (error) {
+      const declined = isWalletRejection(error) && !(error instanceof ActionError && error.completed.length > 0);
+      this.patchAction(id, {
+        status: declined ? "DECLINED" : "FAILED",
+        message: (options.failure ?? ((reason: unknown) => describeActionError(reason)))(error),
+        transactionHash: (error instanceof ActionError ? error.transactionHash : null) ?? this.actionById(id)?.transactionHash ?? null,
+        finishedAt: Date.now(),
+      });
+      throw error;
+    }
+  }
+
+  private actionById(id: string): TrackedAction | undefined {
+    return this.snapshot.actions.find((action) => action.id === id);
+  }
+
+  private patchAction(id: string, patch: Partial<TrackedAction>): void {
+    if (!this.actionById(id)) return;
+    this.publish({ ...this.snapshot, actions: this.snapshot.actions.map((action) => (action.id === id ? { ...action, ...patch } : action)) });
+  }
+
+  dismissAction(actionId: string): void {
+    if (!this.actionById(actionId)) return;
+    this.publish({ ...this.snapshot, actions: this.snapshot.actions.filter((action) => action.id !== actionId) });
+  }
+
+  /**
+   * Re-reads state after an action already landed. A failed read is not the action's failure: the landed result is
+   * returned regardless, and the next poll catches the views up.
+   */
+  private async refreshAfter(...reads: (() => Promise<unknown>)[]): Promise<void> {
+    await Promise.all(reads.map((read) => read().catch((error: unknown) => console.warn("[gateway] refresh after action failed", error))));
+  }
+
+  /** Steps for one action on the connected chain. */
+  private steps(publicClient: ReceiptReader | null, total: number, onProgress: ProgressListener): ActionSteps {
+    return new ActionSteps(publicClient, total, onProgress);
   }
 }

@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { IBM_Plex_Mono, IBM_Plex_Sans, Newsreader } from "next/font/google";
 import { GlobalHeader } from "@/components/terminal/GlobalHeader";
 import { StatusStrip } from "@/components/terminal/StatusStrip";
+import { ActionDock } from "@/components/gateway/ActionDock";
 import { InternalGatewayProvider } from "@/components/gateway/InternalGatewayProvider";
 import { MarketDataProvider } from "@/components/market-data/MarketDataProvider";
 import { WalletProvider } from "@/components/wallet/WalletProvider";
@@ -55,6 +56,7 @@ export default function PlatformLayout({ children }: Readonly<{ children: ReactN
                 {children}
                 <StatusStrip />
               </div>
+              <ActionDock />
             </MarketDataProvider>
           </WalletProvider>
         </InternalGatewayProvider>

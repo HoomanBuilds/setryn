@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { ActionOutcome, ActionProgressNote, pendingLabel, type ActionOutcomeState } from "@/components/gateway/ActionStatus";
+import { ActionError, type ActionProgress } from "@/lib/internal-gateway/action-progress";
+import { COLLATERAL_COPY, describeActionError } from "@/lib/internal-gateway/action-errors";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronDown, Menu, Search, X } from "lucide-react";
@@ -58,7 +61,8 @@ export function GlobalHeader() {
   const [collateralKind, setCollateralKind] = useState<"DEPOSIT" | "WITHDRAW">("DEPOSIT");
   const [collateralAmount, setCollateralAmount] = useState("");
   const [collateralPending, setCollateralPending] = useState(false);
-  const [accountMessage, setAccountMessage] = useState<string | null>(null);
+  const [accountMessage, setAccountMessage] = useState<ActionOutcomeState | null>(null);
+  const [collateralProgress, setCollateralProgress] = useState<ActionProgress | null>(null);
 
   const asset = snapshot.account.collateralAsset;
   /* Compact figure with the collateral mark trailing it, so the balance column keeps its marks aligned. */
@@ -74,13 +78,19 @@ export function GlobalHeader() {
     } catch (error) {
       if (isWalletRejection(error)) return;
       const text = error instanceof Error ? error.message : "";
-      setAccountMessage(
-        text === "GAS_FUNDING_FAILED"
-          ? "Gas could not be funded for this wallet. Check the chain connection and try again."
-          : /rpc|fetch|http request failed|timed out|RUNTIME_UNAVAILABLE/i.test(text)
-            ? "The chain RPC did not respond, so the wallet was not connected. Check the connection and try again."
-            : "Wallet connection was not completed. Try again from your wallet.",
-      );
+      // The wallet can stay attached while its account read fails; the panel then says so instead of "not connected".
+      const attached = gateway.getSnapshot().wallet.status === "CONNECTED";
+      setAccountMessage({
+        ok: false,
+        text:
+          text === "GAS_FUNDING_FAILED"
+            ? "Gas could not be funded for this wallet. Check the chain connection and try again."
+            : attached
+              ? "The wallet is connected, but its account could not be read yet. Balances refresh on their own in a few seconds."
+              : /rpc|fetch|http request failed|timed out|RUNTIME_UNAVAILABLE/i.test(text)
+                ? "The chain RPC did not respond, so the wallet was not connected. Check the connection and try again."
+                : "Wallet connection was not completed. Try again from your wallet.",
+      });
       setAccountOpen(true);
     }
   };
@@ -108,28 +118,33 @@ export function GlobalHeader() {
     const amount = Number.parseFloat(collateralAmount);
     setCollateralPending(true);
     setAccountMessage(null);
+    setCollateralProgress(null);
     try {
-      const result = await gateway.submitCollateralIntent({
-        kind: collateralKind,
-        accountId: snapshot.account.id,
-        asset: snapshot.account.collateralAsset,
-        amount,
-        recipient: snapshot.wallet.address ?? "",
-      });
+      const result = await gateway.submitCollateralIntent(
+        {
+          kind: collateralKind,
+          accountId: snapshot.account.id,
+          asset: snapshot.account.collateralAsset,
+          amount,
+          recipient: snapshot.wallet.address ?? "",
+        },
+        setCollateralProgress,
+      );
       setCollateralAmount("");
-      setAccountMessage(
-        `${result.kind === "DEPOSIT" ? "Deposited" : "Withdrew"} ${result.amount.toLocaleString()} ${snapshot.account.collateralAsset} onchain.`,
-      );
+      setAccountMessage({
+        ok: true,
+        text: `${result.kind === "DEPOSIT" ? "Deposited" : "Withdrew"} ${result.amount.toLocaleString()} ${snapshot.account.collateralAsset}.`,
+        transactionHash: result.intentId,
+      });
     } catch (error) {
-      setAccountMessage(
-        error instanceof Error && error.message === "CONNECT_WALLET"
-          ? "Connect a wallet before creating a collateral intent."
-          : error instanceof Error && error.message === "INSUFFICIENT_AVAILABLE_COLLATERAL"
-            ? "That withdrawal exceeds available collateral."
-            : "Enter a valid collateral amount and try again.",
-      );
+      setAccountMessage({
+        ok: false,
+        text: describeActionError(error, { overrides: COLLATERAL_COPY }),
+        transactionHash: error instanceof ActionError ? error.transactionHash : null,
+      });
     } finally {
       setCollateralPending(false);
+      setCollateralProgress(null);
     }
   };
 
@@ -322,20 +337,24 @@ export function GlobalHeader() {
                       </label>
                       <button
                         type="button"
-                        disabled={collateralPending}
+                        disabled={collateralPending || snapshot.wallet.status !== "CONNECTED" || !(Number.parseFloat(collateralAmount) > 0)}
                         onClick={() => collateralStep.run("collateral", () => void submitCollateral())}
                         className={`focus-ring h-9 rounded-md border px-3 text-xs disabled:opacity-60 ${
                           collateralStep.armed ? "border-brand-edge text-ink" : "border-line text-dim hover:border-line-strong hover:text-ink"
                         }`}
                       >
                         {collateralPending
-                          ? "Pending"
+                          ? pendingLabel(collateralProgress, "Starting…")
                           : collateralStep.armed
                             ? `Confirm ${collateralKind === "DEPOSIT" ? "deposit" : "withdrawal"}`
                             : "Submit"}
                       </button>
                     </div>
-                    {accountMessage ? <p className="mt-2 text-xs leading-snug text-dim">{accountMessage}</p> : null}
+                    {snapshot.wallet.status === "WRONG_NETWORK" ? (
+                      <p className="mt-2 text-xs leading-snug text-dim">{`Switch the wallet to ${snapshot.environment.label} to move collateral.`}</p>
+                    ) : null}
+                    {collateralPending ? <ActionProgressNote progress={collateralProgress} className="mt-2" /> : null}
+                    <ActionOutcome outcome={accountMessage} className="mt-2 leading-snug" />
                   </div>
 
                   <Link

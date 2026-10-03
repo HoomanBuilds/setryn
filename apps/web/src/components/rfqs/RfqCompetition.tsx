@@ -500,6 +500,7 @@ function rfqTimeline(
       detail: filled ? filled.detail : included ? included.detail : "Atomic clearing through the clearing engine.",
       hash: (filled ?? included)?.transactionHash,
       hashLabel: "Transaction",
+      hashKind: "transaction",
     },
     {
       id: "position",
