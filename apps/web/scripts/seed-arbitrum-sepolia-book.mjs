@@ -17,6 +17,7 @@ import { privateKeyToAccount } from "viem/accounts";
 const PUBLIC_ORIGIN = (process.env.SETRYN_PUBLIC_ORIGIN ?? "https://setryn.vercel.app").replace(/\/$/, "");
 const RESERVATION_ORIGIN = (process.env.SETRYN_RESERVATION_ORIGIN ?? "http://127.0.0.1:3011").replace(/\/$/, "");
 const LEVEL_COUNT = Number(process.env.SETRYN_SEED_LEVELS ?? "4");
+const REQUESTED_MARKETS = (process.env.SETRYN_SEED_MARKETS ?? "").split(",").map((market) => market.trim()).filter(Boolean);
 const TARGET_AVAILABLE_MINOR = BigInt(process.env.SETRYN_SEED_AVAILABLE_USDC ?? "1500000") * 1_000_000n;
 const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11";
 const ZERO_HASH = `0x${"0".repeat(64)}`;
@@ -431,6 +432,12 @@ async function freshQuoteState(marketKey) {
 const runtime = await json(`${PUBLIC_ORIGIN}/api/internal/runtime`);
 if (runtime.chainId !== 421614 || runtime.network !== "arbitrum-sepolia") throw new Error("Refusing to run outside Arbitrum Sepolia");
 if (!runtime.settlementTokenMintable) throw new Error("The live runtime is not using Setryn test collateral");
+const requestedMarketSet = new Set(REQUESTED_MARKETS);
+const markets = REQUESTED_MARKETS.length === 0
+  ? runtime.markets
+  : runtime.markets.filter((market) => requestedMarketSet.has(market.marketKey));
+const missingMarkets = REQUESTED_MARKETS.filter((marketKey) => !markets.some((market) => market.marketKey === marketKey));
+if (missingMarkets.length > 0) throw new Error(`Unknown SETRYN_SEED_MARKETS: ${missingMarkets.join(", ")}`);
 const rpcUrl = process.env.SETRYN_RPC_URL ?? process.env.ARBITRUM_SEPOLIA_RPC_URL;
 if (!rpcUrl) throw new Error("SETRYN_RPC_URL or ARBITRUM_SEPOLIA_RPC_URL is required");
 const chain = defineChain({ id: runtime.chainId, name: "Arbitrum Sepolia", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [rpcUrl] } }, testnet: true });
@@ -442,13 +449,13 @@ const traderAccounts = traderKeys.map((key) => privateKeyToAccount(key));
 const traderWallets = traderAccounts.map((account) => createWalletClient({ account, chain, transport }));
 const batchWallets = traderWallets;
 const collateralId = await publicClient.readContract({ address: runtime.collateralVault, abi: vaultAbi, functionName: "deriveCollateralId", args: [runtime.settlementAssetId, 1] });
-console.log(`network: ${runtime.network}; markets: ${runtime.markets.length}; levels per side: ${LEVEL_COUNT}`);
+console.log(`network: ${runtime.network}; markets: ${markets.length}; levels per side: ${LEVEL_COUNT}`);
 
 const prepared = await Promise.all(traderWallets.map((wallet) => prepareTrader(publicClient, wallet, runtime, collateralId)));
 const traders = prepared.map((entry, index) => ({ ...entry, account: traderAccounts[index], wallet: traderWallets[index] }));
 for (const trader of traders) console.log(`trader ${trader.address}: ${formatUnits(trader.available, 6)} tUSDC available`);
 await sweepExpiredAdmissions(publicClient, runtime, batchWallets);
-await cleanupExpiredDepth(publicClient, runtime, batchWallets);
+await cleanupExpiredDepth(publicClient, { ...runtime, markets }, batchWallets);
 
 async function seedMarket(market, marketIndex, batchWallet) {
   const quoteState = await freshQuoteState(market.marketKey);
@@ -487,7 +494,7 @@ async function seedMarket(market, marketIndex, batchWallet) {
 
 const batches = [];
 const queues = batchWallets.map(() => Promise.resolve());
-const scheduled = runtime.markets.map((market, marketIndex) => {
+const scheduled = markets.map((market, marketIndex) => {
   const walletIndex = marketIndex % batchWallets.length;
   const run = queues[walletIndex].then(() => seedMarket(market, marketIndex, batchWallets[walletIndex]));
   queues[walletIndex] = run.catch(() => undefined);
