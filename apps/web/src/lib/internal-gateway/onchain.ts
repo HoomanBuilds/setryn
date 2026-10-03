@@ -102,7 +102,7 @@ import type {
   WalletControls,
   WalletSession,
 } from "./types";
-import { ActionError, ActionSteps, isWalletRejection, type ProgressListener, type ReceiptReader } from "./action-progress";
+import { ActionError, ActionSteps, isWalletRejection, isWithinAction, type ProgressListener, type ReceiptReader } from "./action-progress";
 import { ActionRefusal, COLLATERAL_COPY, describeActionError } from "./action-errors";
 
 const ACCOUNT_SALT = keccak256(stringToHex("SETRYN_PRIMARY_ACCOUNT_V1"));
@@ -1172,7 +1172,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     if (!["GTC", "GTD", "IOC", "FOK"].includes(intent.timeInForce)) throw new Error("INVALID_TIME_IN_FORCE");
     const action = executableAction(intent.side, intent.packageSide);
     const marketable = limitCrosses(intent.limitPrice, intent.executionPrice, action);
-    if (intent.orderType === "MARKET" && !marketable) throw new Error("ORDER_NOT_MARKETABLE");
+    // A private request has no executable price until quotes arrive; its limit bounds the quote it can take.
+    if (intent.orderType === "MARKET" && intent.disclosure !== "PRIVATE_RFQ" && !marketable) throw new Error("ORDER_NOT_MARKETABLE");
 
     const accountId = await this.accountId(address);
     if (intent.accountId.toLowerCase() !== accountId.toLowerCase()) throw new Error("ACCOUNT_MISMATCH");
@@ -2783,7 +2784,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     if (!current || (current.state !== "OPEN" && current.state !== "SELECTED")) throw new Error("RFQ_NOT_OPEN");
     const expired = Date.parse(current.expiresAt) <= platformNow();
     if (current.state === "SELECTED" && !expired) throw new Error("RFQ_SELECTION_LOCKED");
-    const steps = this.steps(publicClient, 2, onProgress);
+    const steps = this.steps(publicClient, 3, onProgress);
     await steps.transaction(expired ? "Expire the request" : "Cancel the request", () =>
       walletClient.writeContract({
         account: address,
@@ -2799,8 +2800,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       ...this.snapshot,
       rfqRequests: this.snapshot.rfqRequests.map((request) => request.id === requestId ? cancelled : request),
     });
-    // The release signs a cancellation and sends it; its receipt is checked inside.
-    await steps.signature("Release the reserved collateral", () => this.releaseRiskReservation(current.authorization));
+    // The release signs a cancellation, then sends it: two steps after the close.
+    await this.releaseRiskReservation(current.authorization, steps);
     await this.refreshAfter(() => this.refreshAccount());
     return cancelled;
   }
@@ -4856,6 +4857,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     outcome: (value: T) => TrackedActionOutcome,
     options: { onProgress?: ProgressListener; failure?: (error: unknown) => string } = {},
   ): Promise<T> {
+    // Part of an action the caller already tracks: its steps report there, under that one entry.
+    if (isWithinAction(options.onProgress)) return work(options.onProgress);
     this.actionSequence += 1;
     const id = `action-${Date.now().toString(36)}-${this.actionSequence}`;
     const started: TrackedAction = {

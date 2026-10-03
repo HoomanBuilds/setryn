@@ -165,6 +165,20 @@ export class ActionSteps {
   }
 }
 
+const WITHIN_ACTION = Symbol("withinAction");
+
+/**
+ * Marks a listener as reporting into an action that is already tracked (a trade the ticket tracks as one entry), so a
+ * gateway call that would track itself, such as an RFQ request, reports its steps there instead of adding a second.
+ */
+export function withinAction(listener: ProgressListener): ProgressListener {
+  return Object.assign((progress: ActionProgress) => listener(progress), { [WITHIN_ACTION]: true });
+}
+
+export function isWithinAction(listener: ProgressListener | undefined): listener is ProgressListener {
+  return typeof listener === "function" && (listener as { [WITHIN_ACTION]?: boolean })[WITHIN_ACTION] === true;
+}
+
 /**
  * Numbers the steps of several gateway calls made for one user action (authorize, then place) as one sequence, so the
  * count runs "Step 3 of 5, Step 4 of 5" instead of starting over at each call. A call's first step is recognised by

@@ -32,7 +32,7 @@ import { tradeHref } from "@/lib/terminal/markets";
 import { usePersistentState } from "@/lib/terminal/use-persistent-state";
 import type { BookRow, ConsoleTabId, PackageMarket } from "@/lib/terminal/types";
 import type { OnchainMarket, OrderExecutionProgress, PackageExecutionResult, TrackedActionOutcome } from "@/lib/internal-gateway/types";
-import { ActionError, sequenceProgress, type ProgressListener } from "@/lib/internal-gateway/action-progress";
+import { ActionError, sequenceProgress, withinAction, type ProgressListener } from "@/lib/internal-gateway/action-progress";
 import { formatLotCount, formatNumber } from "@/lib/terminal/format";
 import { platformNow } from "@/lib/terminal/clock";
 import { acceptableQuote } from "@/lib/quotes/firm-quote";
@@ -103,7 +103,8 @@ function onchainFeeCap(
   const consideration = preview.requestedLots * worstDistance * market.contractMultiplier;
   const charge = (bps: number, flatUsd: number) => (consideration * bps) / 10_000 + flatUsd;
   const cap = Math.max(charge(onchain.takerFeeBps, onchain.takerFlatFeeUsd), charge(onchain.makerFeeBps, onchain.makerFlatFeeUsd));
-  return Math.max(preview.totalFees, Math.ceil(cap * 1_000_000) / 1_000_000);
+  // A private RFQ has no fee estimate before quotes arrive (NaN); the cap from the limit alone bounds it.
+  return Math.max(Number.isFinite(preview.totalFees) ? preview.totalFees : 0, Math.ceil(cap * 1_000_000) / 1_000_000);
 }
 
 function parseSlippage(value: unknown): number | undefined {
@@ -617,6 +618,10 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         if (!amending && safePatch.privateRfq === false && current.routeId === "SOLVER_RFQ") {
           next.routeId = null;
         }
+        // Asking solvers privately is the RFQ route; staying on a public route would fill in public under private copy.
+        if (!amending && safePatch.privateRfq === true && ticketMarket.routes.some((route) => route.id === "SOLVER_RFQ")) {
+          next.routeId = "SOLVER_RFQ";
+        }
         if (next.intent === "ENTER") {
           next.closePositionId = null;
         }
@@ -803,11 +808,13 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       await gateway.trackAction<TrackedActionOutcome>(
         title,
         async (dockProgress) => {
-          // Authorize, then place or match: one numbered sequence in the ticket and the dock.
-          const progress = sequenceProgress((step) => {
-            dockProgress(step);
-            onProgress(step);
-          });
+          // Authorize, then place, match or request: one numbered sequence under this one entry in the dock.
+          const progress = withinAction(
+            sequenceProgress((step) => {
+              dockProgress(step);
+              onProgress(step);
+            }),
+          );
 
           if (takesFirmQuote) {
             // A firm quote fills immediately or not at all: the trader signs typed data and one router transaction
@@ -865,7 +872,16 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
             setExecution({ status: "IDLE", updates: [] });
             setStage({ kind: "RFQ", reference, requestId: request.id });
             setRfqError(null);
-            return { message: "Request sent to solvers. Quotes arrive in the ticket." };
+            return {
+              message:
+                request.quotes.length > 0
+                  ? "Request committed privately and the Setryn maker answered with a firm quote. Select it in the ticket before it expires."
+                  : request.houseQuoteError
+                    ? "Request committed privately, but the Setryn maker did not quote. Other makers can answer until its deadline."
+                    : "Request committed privately and open for quotes until its deadline.",
+              href: `/rfqs/${encodeURIComponent(request.id)}`,
+              hrefLabel: "Open quote competition",
+            };
           }
 
           if (shouldRest) {
