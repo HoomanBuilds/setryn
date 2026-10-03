@@ -1864,22 +1864,22 @@ export function PackagePriceChart({
             </div>
           ) : null}
           {readout ? (
-            <div className="pointer-events-none absolute top-0 left-0 z-10 flex max-w-[calc(100%-72px)] flex-col gap-0.5 px-3 py-1.5 [text-shadow:0_0_4px_var(--color-panel),0_0_8px_var(--color-panel)]">
+            <div className="pointer-events-none absolute top-0 left-0 z-10 flex max-w-[calc(100%-72px)] flex-col gap-0.5 rounded-br-md border-r border-b border-line bg-panel/90 px-3 py-2 shadow-sm backdrop-blur-sm">
               <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 font-mono text-[11px]">
                 <span className="font-sans text-xs text-dim">
                   <span className="text-ink">{market.id}</span>
                   {` · Mark · ${intervalLabel(interval)} · ${activeStyle.label}`}
                 </span>
-                <span className="text-faint">
+                <span className="text-dim">
                   O <span className={changeTone}>{formatNumber(readout.open, market.priceDecimals)}</span>
                 </span>
-                <span className="text-faint">
+                <span className="text-dim">
                   H <span className={changeTone}>{formatNumber(readout.high, market.priceDecimals)}</span>
                 </span>
-                <span className="text-faint">
+                <span className="text-dim">
                   L <span className={changeTone}>{formatNumber(readout.low, market.priceDecimals)}</span>
                 </span>
-                <span className="text-faint">
+                <span className="text-dim">
                   C <span className={changeTone}>{formatNumber(readout.close, market.priceDecimals)}</span>
                 </span>
                 <span className={`tnum ${changeTone}`}>
@@ -1887,12 +1887,12 @@ export function PackagePriceChart({
                 </span>
               </div>
               {indicators.includes("volume") ? (
-                <div className="font-mono text-[11px] text-faint">
+                <div className="font-mono text-[11px] text-dim">
                   Vol <span className="text-dim">{`${formatLots(readout.volume)} lots`}</span>
                 </div>
               ) : null}
               {readoutFills ? (
-                <div className="font-mono text-[11px] text-faint">
+                <div className="font-mono text-[11px] text-dim">
                   Fills{" "}
                   <span className="text-dim">
                     {`${readoutFills.count} · ${formatLots(readoutFills.lots)} lots at ${formatNumber(readoutFills.notional / readoutFills.lots, market.priceDecimals)} avg`}
@@ -1900,7 +1900,7 @@ export function PackagePriceChart({
                 </div>
               ) : null}
               {reference && readoutSpot !== undefined ? (
-                <div className="flex items-baseline gap-1.5 font-mono text-[11px] text-faint">
+                <div className="flex items-baseline gap-1.5 font-mono text-[11px] text-dim">
                   <span aria-hidden="true" className="h-px w-3 self-center" style={{ background: CHART_THEME.spot }} />
                   Spot
                   <span className="text-dim">{`${reference.pair} ${formatNumber(readoutSpot, market.priceDecimals + 1)}`}</span>
@@ -1909,7 +1909,7 @@ export function PackagePriceChart({
               ) : null}
               {overlays.map((spec) => (
                 <div key={spec.id} className="group pointer-events-auto flex w-fit items-baseline gap-2 font-mono text-[11px]">
-                  <span className="text-faint">{spec.label}</span>
+                  <span className="text-dim">{spec.label}</span>
                   {spec.lines.map((line) => (
                     <span key={line.key} style={{ color: line.color }}>
                       {formatValue(spec.id, values[spec.id]?.[line.key])}

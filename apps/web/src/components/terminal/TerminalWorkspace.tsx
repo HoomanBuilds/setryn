@@ -1213,7 +1213,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         />
       </nav>
 
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:grid lg:grid-cols-[minmax(0,1fr)_300px_344px] lg:grid-rows-[minmax(0,1fr)_minmax(220px,31%)] lg:gap-1 lg:p-1">
+      <main className="scroll-thin flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:grid lg:grid-cols-[minmax(0,1fr)_300px_344px] lg:grid-rows-[minmax(620px,68dvh)_minmax(260px,32dvh)] lg:gap-1 lg:overflow-y-auto lg:p-1">
         <div
           id="mobile-panel-market"
           role="tabpanel"
