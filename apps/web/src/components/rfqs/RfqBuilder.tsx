@@ -30,6 +30,8 @@ import {
   useNow,
 } from "@/components/activity/ledger-ui";
 import { StepTimeline, type TimelineStep } from "@/components/activity/StepTimeline";
+import { ActionProgressNote, pendingLabel } from "@/components/gateway/ActionStatus";
+import { TxHash } from "@/components/gateway/TxHash";
 import { ProvenanceChip } from "@/components/auctions/board-kit";
 import { Flash, Row, Stepper } from "@/components/strategies/desk/Desk";
 import { GUARANTEE_COPY, RECOVERY_COPY, SLIPPAGE_PRESETS_BPS, routePrice } from "@/lib/terminal/economics";
@@ -54,10 +56,17 @@ import {
   type PreflightCheck,
 } from "./builder-model";
 import { gatewayErrorCode, gatewayErrorCopy } from "./rfq-errors";
+import { ActionError, type ActionProgress } from "@/lib/internal-gateway/action-progress";
 import { platformNow } from "@/lib/terminal/clock";
 import { MarketMark } from "@/components/portfolio/MarketMark";
 
 type Phase = "IDLE" | "CONNECTING" | "AUTHORIZING" | "REQUESTING" | "OPENING";
+
+interface BuilderError {
+  message: string;
+  code: string;
+  transactionHash?: string | null;
+}
 
 /* ------------------------------------------------------------------ */
 /* Controls                                                            */
@@ -529,7 +538,9 @@ function BuilderContent() {
   const [draft, setDraft] = useState<BuilderDraft>(() => initialDraft(handoff, marketParam, limitParam));
   const [appliedKey, setAppliedKey] = useState(paramKey);
   const [phase, setPhase] = useState<Phase>("IDLE");
-  const [error, setError] = useState<{ message: string; code: string } | null>(null);
+  const [error, setError] = useState<BuilderError | null>(null);
+  /* The private request's wallet steps (register, sign, commit, open, house quote) as they report. */
+  const [requestProgress, setRequestProgress] = useState<ActionProgress | null>(null);
   const inFlight = useRef(false);
 
   /* A new handoff link reseeds the draft in the same render, never from an effect. */
@@ -649,14 +660,19 @@ function BuilderContent() {
         settlementGuarantee: signingOrder.preview.settlementGuarantee,
       });
       setPhase("REQUESTING");
-      const request = await gateway.requestRfq(authorization);
+      const request = await gateway.requestRfq(authorization, setRequestProgress);
       setPhase("OPENING");
       router.push(`/rfqs/${request.id}`);
     } catch (caught) {
-      setError({ message: gatewayErrorCopy(caught), code: gatewayErrorCode(caught) });
+      setError({
+        message: gatewayErrorCopy(caught),
+        code: gatewayErrorCode(caught),
+        transactionHash: caught instanceof ActionError ? caught.transactionHash : null,
+      });
       setPhase("IDLE");
     } finally {
       inFlight.current = false;
+      setRequestProgress(null);
     }
   };
 
@@ -667,7 +683,7 @@ function BuilderContent() {
       : phase === "AUTHORIZING"
         ? "Signing order authorization..."
         : phase === "REQUESTING"
-          ? "Committing private request..."
+          ? pendingLabel(requestProgress, "Committing private request...")
           : phase === "OPENING"
             ? "Opening competition..."
             : walletBlocked && otherBlockers.length === 0
@@ -1066,6 +1082,7 @@ function BuilderContent() {
                   ink={walletBlocked && otherBlockers.length === 0 && !busy}
                   onClick={() => void submit()}
                 />
+                {phase === "REQUESTING" ? <ActionProgressNote progress={requestProgress} /> : null}
                 <ActionNotes
                   busy={busy}
                   progress={progress}
@@ -1096,6 +1113,7 @@ function BuilderContent() {
           ink={walletBlocked && otherBlockers.length === 0 && !busy}
           onClick={() => void submit()}
         />
+        {phase === "REQUESTING" ? <ActionProgressNote progress={requestProgress} className="mt-1.5" /> : null}
         {error ? <p className="mt-1.5 text-[11px] text-down">{error.message}</p> : otherBlockers.length > 0 ? (
           <p className="mt-1.5 truncate text-[11px] text-faint">{`${otherBlockers.length} pre-flight check${otherBlockers.length === 1 ? "" : "s"} blocking: ${otherBlockers[0].label}`}</p>
         ) : null}
@@ -1127,7 +1145,7 @@ function ActionNotes({
 }: {
   busy: boolean;
   progress: TimelineStep[];
-  error: { message: string; code: string } | null;
+  error: BuilderError | null;
   blockers: PreflightCheck[];
   market: PackageMarket;
   tradeLink: string;
@@ -1138,6 +1156,7 @@ function ActionNotes({
       {error ? (
         <div className="rounded-md border border-down/30 bg-down-soft px-3 py-2 text-xs text-down" role="alert">
           <p>{error.message}</p>
+          {error.transactionHash ? <TxHash hash={error.transactionHash} className="mt-0.5" /> : null}
           <details className="mt-1 text-[11px] text-faint">
             <summary className="cursor-pointer select-none hover:text-dim">Diagnostic</summary>
             <p className="tnum mt-1 font-mono break-all">{error.code}</p>

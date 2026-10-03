@@ -54,6 +54,18 @@ export const STATUS_TONE: Record<RfqStatusId, ChipTone> = {
   EXPIRED: "muted",
 };
 
+/**
+ * The least time a quote (and its request) must have left to be selected: locking takes up to five wallet prompts,
+ * and a quote that expires between them leaves a half-finished selection.
+ */
+export const MIN_SELECTION_TTL_MS = 20_000;
+
+/** True when the quote or its request expires too soon to finish a selection; false once already expired. */
+export function tooCloseToExpiry(quote: Pick<FirmRfqQuote, "expiresAt">, request: Pick<RfqRequest, "expiresAt">, now: number): boolean {
+  const left = Math.min(Date.parse(quote.expiresAt), Date.parse(request.expiresAt)) - now;
+  return left > 0 && left < MIN_SELECTION_TTL_MS;
+}
+
 /** Taker ranking: price for the side, then lower fee cap, then larger capacity. */
 export function compareQuotes(a: FirmRfqQuote, b: FirmRfqQuote, action: "BUY" | "SELL"): number {
   const price = action === "BUY" ? a.packagePrice - b.packagePrice : b.packagePrice - a.packagePrice;

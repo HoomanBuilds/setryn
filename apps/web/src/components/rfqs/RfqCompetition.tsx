@@ -37,7 +37,10 @@ import {
 } from "@/components/activity/ledger-ui";
 import { StepTimeline, type TimelineStep } from "@/components/activity/StepTimeline";
 import { ProvenanceChip } from "@/components/auctions/board-kit";
+import { ActionOutcome, ActionProgressNote, pendingLabel, type ActionOutcomeState } from "@/components/gateway/ActionStatus";
+import { TxHash } from "@/components/gateway/TxHash";
 import { Flash } from "@/components/strategies/desk/Desk";
+import { ActionError as GatewayActionError, type ActionProgress } from "@/lib/internal-gateway/action-progress";
 import type { SubmissionUpdate } from "@/lib/internal-gateway/types";
 import { markOf, rangeTerms } from "@/lib/portfolio/forward";
 import { formatLots, formatUsd } from "@/lib/terminal/format";
@@ -45,13 +48,14 @@ import { packageLabel, tradeHref } from "@/lib/terminal/markets";
 import type { PackageMarket } from "@/lib/terminal/types";
 import { StatusChip } from "./RfqBlotter";
 import { RfqStages, type RfqStageId, type RfqStageState } from "./RfqStages";
-import { gatewayErrorCode, gatewayErrorCopy } from "./rfq-errors";
+import { gatewayErrorCode, gatewayErrorCopy, houseQuoteCopy } from "./rfq-errors";
 import {
   EXCLUSION_COPY,
   priceText,
   quoteCompetition,
   rfqView,
   signedPriceText,
+  tooCloseToExpiry,
   unitText,
   type CompetingQuote,
   type QuoteCompetition,
@@ -64,6 +68,7 @@ type Busy = null | { kind: "SELECT"; quoteId: string } | { kind: "EXECUTE" } | {
 interface ActionError {
   message: string;
   code: string;
+  transactionHash: string | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -72,6 +77,9 @@ interface ActionError {
 
 function MissingRequest({ requestId }: { requestId: string }) {
   const wallet = useWalletPrompt();
+  const snapshot = useGatewaySnapshot();
+  /* Requests load after the wallet attaches; until the first read finishes, an unknown ID is loading, not missing. */
+  if (wallet.connecting || (wallet.connected && !snapshot.rfqsLoaded)) return <LoadingRequest requestId={requestId} />;
   return (
     <main className="scroll-thin flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto bg-app px-4 py-10">
       <div className={`w-full max-w-[460px] rounded-lg border border-line bg-panel px-5 py-6 text-center ${motion.mount}`}>
@@ -110,6 +118,28 @@ function MissingRequest({ requestId }: { requestId: string }) {
           </Link>
         </div>
         {wallet.error ? <p className="mt-2 text-xs text-down">{wallet.error}</p> : null}
+      </div>
+    </main>
+  );
+}
+
+function LoadingRequest({ requestId }: { requestId: string }) {
+  return (
+    <main aria-busy="true" className="scroll-thin flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto bg-app px-4 py-10">
+      <div role="status" className={`w-full max-w-[460px] rounded-lg border border-line bg-panel px-5 py-6 text-center ${motion.mount}`}>
+        <p className="text-[11px] font-medium tracking-[0.08em] text-faint uppercase">Private request</p>
+        <h1 className="mt-1 font-serif text-[22px] leading-7 text-ink">Loading requests…</h1>
+        <p className="mt-2 text-xs leading-relaxed text-dim">Reading the connected taker&apos;s private requests from the chain.</p>
+        <div className="mx-auto mt-4 flex max-w-[300px] flex-col gap-2" aria-hidden="true">
+          <span className="h-2.5 animate-pulse rounded-sm bg-raised motion-reduce:animate-none" />
+          <span className="h-2.5 w-4/5 animate-pulse rounded-sm bg-raised motion-reduce:animate-none" />
+          <span className="h-2.5 w-3/5 animate-pulse rounded-sm bg-raised motion-reduce:animate-none" />
+        </div>
+        <p className="mx-auto mt-4 flex max-w-full items-center justify-center gap-1 rounded-md border border-line bg-inset px-2 py-1">
+          <span className="tnum truncate font-mono text-[11px] text-faint" title={requestId}>
+            {middleTruncate(requestId, 14, 8)}
+          </span>
+        </p>
       </div>
     </main>
   );
@@ -183,6 +213,7 @@ function QuoteBoard({
   now,
   canSelect,
   busy,
+  progress,
   onSelect,
 }: {
   view: RfqView;
@@ -192,17 +223,35 @@ function QuoteBoard({
   now: number;
   canSelect: boolean;
   busy: Busy;
+  progress: ActionProgress | null;
   onSelect: (quoteId: string) => void;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const lots = view.request.authorization.intent.lots;
+  const tooClose = (entry: CompetingQuote) => tooCloseToExpiry(entry.quote, view.request, now);
+  const selectLabel = (entry: CompetingQuote) =>
+    busy?.kind === "SELECT" && busy.quoteId === entry.quote.id
+      ? pendingLabel(progress, "Selecting…")
+      : tooClose(entry)
+        ? "Too close to expiry"
+        : "Select instead";
   /* Ranked quotes first, then everything excluded from automatic ranking, each with its reason. */
   const ordered = [...competition.eligible, ...competition.quotes.filter((entry) => entry.exclusion !== null)];
   const firstExcluded = competition.eligible.length;
   if (competition.quotes.length === 0) {
+    const refusal = view.request.houseQuoteError;
     return (
       <div className="px-6 py-12 text-center">
         <p className="text-sm text-ink">{view.active ? "Waiting for maker quotes" : "No firm quotes were recorded"}</p>
+        {refusal ? (
+          <p className="mx-auto mt-2 flex max-w-[520px] items-start justify-center gap-1.5 text-xs leading-relaxed text-dim" role="status">
+            <TriangleAlert size={13} aria-hidden="true" className="mt-0.5 shrink-0 text-down" />
+            <span>
+              {`${houseQuoteCopy(refusal)} ${view.active ? "Your request is committed and stays open for other invited makers until its deadline." : ""}`}
+              <span className="tnum ml-1 font-mono text-[10px] text-faint">{refusal}</span>
+            </span>
+          </p>
+        ) : null}
         <p className="mt-1 text-xs text-faint">
           {view.active
             ? "Invited makers answer privately with signed, capacity-backed quotes. They appear here as they commit."
@@ -305,11 +354,11 @@ function QuoteBoard({
                       <div className="-mt-1 flex justify-end px-3 pb-2">
                         <button
                           type="button"
-                          disabled={busy !== null}
+                          disabled={busy !== null || tooClose(entry)}
                           onClick={() => onSelect(entry.quote.id)}
                           className={`${BUTTON_QUIET} h-6 px-2 text-[11px]`}
                         >
-                          {busy?.kind === "SELECT" && busy.quoteId === entry.quote.id ? "Selecting..." : "Select instead"}
+                          {selectLabel(entry)}
                         </button>
                       </div>
                     ) : null}
@@ -345,11 +394,11 @@ function QuoteBoard({
               {canSelect && !entry.exclusion && !isWinner ? (
                 <button
                   type="button"
-                  disabled={busy !== null}
+                  disabled={busy !== null || tooClose(entry)}
                   onClick={() => onSelect(entry.quote.id)}
                   className={`${BUTTON_QUIET} mt-2 h-8 w-full`}
                 >
-                  Select instead
+                  {selectLabel(entry)}
                 </button>
               ) : null}
             </li>
@@ -572,6 +621,8 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
   const [busy, setBusy] = useState<Busy>(null);
   const [updates, setUpdates] = useState<SubmissionUpdate[]>([]);
   const [error, setError] = useState<ActionError | null>(null);
+  const [progress, setProgress] = useState<ActionProgress | null>(null);
+  const [outcome, setOutcome] = useState<ActionOutcomeState | null>(null);
 
   if (!request) return <MissingRequest requestId={requestId} />;
 
@@ -587,55 +638,74 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
   const secondsLeft = Math.max(0, Math.ceil((view.expiresMs - now) / 1000));
   const winner = competition.winner;
   const selectedQuote = view.selected;
+  const selectedQuoteExpired = selectedQuote ? Date.parse(selectedQuote.expiresAt) <= now : false;
   const canSelect = wallet.connected && request.state === "OPEN" && view.active;
   const actionWord = view.action === "BUY" ? "Buy" : "Sell";
 
-  const fail = (caught: unknown) => setError({ message: gatewayErrorCopy(caught), code: gatewayErrorCode(caught) });
+  const fail = (caught: unknown) => {
+    setOutcome(null);
+    setError({
+      message: gatewayErrorCopy(caught),
+      code: gatewayErrorCode(caught),
+      transactionHash: caught instanceof GatewayActionError ? caught.transactionHash : null,
+    });
+  };
+
+  /* One wallet action at a time: its steps report on the busy button, and its outcome stays under the actions. */
+  const run = async (kind: NonNullable<Busy>, work: (onProgress: (next: ActionProgress) => void) => Promise<{ text: string; transactionHash?: string }>) => {
+    const seen = { hash: null as string | null };
+    setBusy(kind);
+    setError(null);
+    setOutcome(null);
+    setProgress(null);
+    try {
+      const done = await work((next) => {
+        setProgress(next);
+        if (next.transactionHash) seen.hash = next.transactionHash;
+      });
+      setOutcome({ ok: true, text: done.text, transactionHash: done.transactionHash ?? seen.hash });
+    } catch (caught) {
+      fail(caught);
+    } finally {
+      setBusy(null);
+      setProgress(null);
+    }
+  };
 
   const select = async (quoteId: string) => {
     if (busy) return;
     const quote = request.quotes.find((candidate) => candidate.id === quoteId);
     if (!quote) return fail(new Error("RFQ_QUOTE_NOT_FOUND"));
     if (Date.parse(quote.expiresAt) <= now || !view.active) return fail(new Error("RFQ_EXPIRED"));
+    if (tooCloseToExpiry(quote, request, now)) return fail(new Error("RFQ_QUOTE_TOO_CLOSE_TO_EXPIRY"));
     if (quote.capacityLots < intent.lots) return fail(new Error("RFQ_CAPACITY_EXCEEDED"));
-    setBusy({ kind: "SELECT", quoteId });
-    setError(null);
-    try {
-      await gateway.selectRfqQuote(request.id, quoteId);
-    } catch (caught) {
-      fail(caught);
-    } finally {
-      setBusy(null);
-    }
+    await run({ kind: "SELECT", quoteId }, async (onProgress) => {
+      await gateway.selectRfqQuote(request.id, quoteId, onProgress);
+      return { text: `${quote.solverLabel} quote locked and submitted to private clearing. Execute it to fill.` };
+    });
   };
 
   const execute = async () => {
     if (busy || request.state !== "SELECTED" || !selectedQuote) return;
     if (selectedQuote.capacityLots < intent.lots) return fail(new Error("RFQ_CAPACITY_EXCEEDED"));
     if (Date.parse(request.expiresAt) <= now || Date.parse(selectedQuote.expiresAt) <= now) return fail(new Error("RFQ_EXPIRED"));
-    setBusy({ kind: "EXECUTE" });
-    setError(null);
     setUpdates([]);
-    try {
-      await gateway.executeSelectedRfq(request.id, (update) => setUpdates((current) => [...current, update]));
-    } catch (caught) {
-      fail(caught);
-    } finally {
-      setBusy(null);
-    }
+    await run({ kind: "EXECUTE" }, async (onProgress) => {
+      const result = await gateway.executeSelectedRfq(request.id, (update) => setUpdates((current) => [...current, update]), onProgress);
+      return {
+        text: `Filled ${formatLots(result.filledLots)} lots at ${priceText(result.receipt.price, market)}.`,
+        transactionHash: result.receipt.transactionHash,
+      };
+    });
   };
 
   const cancel = async () => {
     if (busy) return;
-    setBusy({ kind: "CANCEL" });
-    setError(null);
-    try {
-      await gateway.cancelRfq(request.id);
-    } catch (caught) {
-      fail(caught);
-    } finally {
-      setBusy(null);
-    }
+    const expiring = view.expired;
+    await run({ kind: "CANCEL" }, async (onProgress) => {
+      await gateway.cancelRfq(request.id, onProgress);
+      return { text: `${expiring ? "Request expired" : "Request cancelled"} and its reserved collateral released.` };
+    });
   };
 
   const headline = selectedQuote ?? winner?.quote ?? null;
@@ -658,14 +728,18 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
   } else if (request.state === "EXECUTED") {
     primary = { label: "Executed", disabled: true, reason: null, onClick: null };
   } else if (request.state === "SELECTED") {
-    const expired = !view.active || (selectedQuote ? Date.parse(selectedQuote.expiresAt) <= now : true);
+    const expired = !view.active || !selectedQuote || selectedQuoteExpired;
     primary = {
       label:
         busy?.kind === "EXECUTE"
-          ? "Clearing..."
+          ? pendingLabel(progress, "Clearing…")
           : `${actionWord} ${formatLots(intent.lots)} lots at ${selectedQuote ? priceText(selectedQuote.packagePrice, market) : "selected price"}`,
       disabled: busy !== null || expired || !selectedQuote || selectedQuote.capacityLots < intent.lots,
-      reason: expired ? "The selected quote or request expired before execution." : null,
+      reason: !view.active
+        ? "The request expired before execution. Expire it to release the reserved collateral."
+        : expired
+          ? `${selectedQuote ? `The selected quote expired at ${formatUtcTime(selectedQuote.expiresAt)} UTC` : "The selected quote is no longer listed"}. The selection stays locked until the request deadline, ${formatUtcTime(request.expiresAt)} UTC (in ${formatCountdown(secondsLeft)}); expire the request then to release the reserved collateral.`
+          : null,
       onClick: () => void execute(),
     };
   } else if (!view.active) {
@@ -673,10 +747,19 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
   } else if (!winner) {
     primary = { label: "Waiting for an eligible quote", disabled: true, reason: "No quote can fill the full size in the ranked settlement class yet.", onClick: null };
   } else {
+    const tooClose = tooCloseToExpiry(winner.quote, request, now);
     primary = {
-      label: busy?.kind === "SELECT" ? "Locking selection..." : `Select ${winner.quote.solverLabel} at ${priceText(winner.quote.packagePrice, market)}`,
-      disabled: busy !== null,
-      reason: null,
+      label:
+        busy?.kind === "SELECT"
+          ? pendingLabel(progress, "Locking selection…")
+          : tooClose
+            ? "Too close to expiry"
+            : `Select ${winner.quote.solverLabel} at ${priceText(winner.quote.packagePrice, market)}`,
+      disabled: busy !== null || tooClose,
+      reason:
+        tooClose && busy === null
+          ? "Locking a quote takes several wallet confirmations and this one has under 20 seconds left. A fresher quote can still arrive."
+          : null,
       onClick: () => void select(winner.quote.id),
     };
   }
@@ -781,6 +864,7 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
                 now={now}
                 canSelect={canSelect}
                 busy={busy}
+                progress={progress}
                 onSelect={(quoteId) => void select(quoteId)}
               />
             </Panel>
@@ -845,6 +929,7 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
                     {primary.label}
                   </button>
                 )}
+                {busy !== null ? <ActionProgressNote progress={progress} /> : null}
                 {primary.reason ? <p className="text-[11px] leading-snug text-faint">{primary.reason}</p> : null}
                 {request.state === "OPEN" && view.active && wallet.connected ? (
                   <p className="text-[11px] leading-snug text-faint">
@@ -860,7 +945,16 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
                 <div className="flex gap-2">
                   {cancellable ? (
                     <button type="button" onClick={() => void cancel()} disabled={busy !== null} className={`${BUTTON_QUIET} flex-1`}>
-                      {busy?.kind === "CANCEL" ? "Cancelling..." : request.state === "SELECTED" ? "Expire request" : "Cancel request"}
+                      {busy?.kind === "CANCEL" ? pendingLabel(progress, "Cancelling…") : view.expired ? "Expire request" : "Cancel request"}
+                    </button>
+                  ) : wallet.connected && request.state === "SELECTED" && view.active && (!selectedQuote || selectedQuoteExpired) ? (
+                    <button
+                      type="button"
+                      disabled
+                      title={`A locked request can be expired once its deadline passes, ${formatUtcFull(request.expiresAt)}.`}
+                      className={`${BUTTON_QUIET} flex-1`}
+                    >
+                      {`Expire in ${formatCountdown(secondsLeft)}`}
                     </button>
                   ) : null}
                   {view.active && market && request.state !== "EXECUTED" ? (
@@ -876,9 +970,11 @@ export function RfqCompetition({ requestId }: { requestId: string }) {
                     </Link>
                   ) : null}
                 </div>
+                <ActionOutcome outcome={outcome} />
                 {error ? (
                   <div className="rounded-md border border-down/30 bg-down-soft px-3 py-2 text-xs text-down" role="alert">
                     <p>{error.message}</p>
+                    {error.transactionHash ? <TxHash hash={error.transactionHash} className="mt-0.5" /> : null}
                     <details className="mt-1 text-[11px] text-faint">
                       <summary className="cursor-pointer select-none hover:text-dim">Diagnostic</summary>
                       <p className="tnum mt-1 font-mono break-all">{error.code}</p>

@@ -1,6 +1,10 @@
+import { describeActionError } from "@/lib/internal-gateway/action-errors";
+import { ActionError } from "@/lib/internal-gateway/action-progress";
+
 /**
  * User language for the gateway errors the RFQ builder and competition page can
- * meet. Anything unrecognised falls back to a message that claims no outcome.
+ * meet. Codes not listed here use the shared gateway copy, which also says which
+ * steps of a multi-step action already landed.
  */
 
 const COPY: Record<string, string> = {
@@ -52,21 +56,55 @@ const COPY: Record<string, string> = {
   REFERENCE_UNAVAILABLE: "The Chainlink reference could not be read, so the maker cannot price this request. Retry in a moment.",
   QUOTE_OUTSIDE_MAKER_PRICE: "Your limit is outside the price the maker will quote. Widen the limit or wait for other makers.",
   NOT_AVAILABLE_ON_NETWORK: "This action is not available on the connected network.",
+  RFQ_QUOTE_EXPIRED: "The quote expired before it could be locked. Select a fresher quote.",
+  RFQ_QUOTE_TOO_CLOSE_TO_EXPIRY:
+    "Too close to expiry: locking a quote takes several wallet confirmations, and this one has under 20 seconds left. Wait for a fresher quote.",
+  RFQ_NOT_COLLECTING: "The request is not collecting quotes, so no quote can be locked on it.",
+  RFQ_LOCKED_TO_OTHER_QUOTE:
+    "An earlier attempt already locked another quote on this request. Execute that selection, or expire the request after its deadline.",
+  RFQ_ALREADY_SETTLED: "This request already cleared in an earlier attempt. Its fill and receipt are in Activity.",
+  // The private execution route (/api/internal/operator/rfq-execute).
+  RFQ_NOT_SUBMITTED: "The selection has not reached private clearing yet. Execute again to finish it.",
+  RFQ_PRICE_UNAVAILABLE: "The selected quote's price could not be read for clearing. No fill is claimed; try again shortly.",
+  RISK_ADMISSION_MISSING: "The taker or maker risk admission is no longer bound, so clearing cannot start. No fill is claimed.",
+  CAPACITY_LOCK_MISMATCH: "The maker's reserved capacity changed after selection, so clearing cannot start. No fill is claimed.",
+  RFQ_CLEARING_FAILED: "The clearing transaction reverted. No fill is claimed; the request stays selected.",
+  RFQ_CLEARING_EVIDENCE_MISSING:
+    "Clearing confirmed onchain, but its fill evidence could not be read back. Check Activity before trying again.",
+  RELAYER_SIGNER_UNCONFIGURED: "The settlement relayer is not configured on this network. No fill is claimed.",
 };
 
-export function gatewayErrorCopy(error: unknown): string {
-  if (error && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === 4001) {
-    return "The wallet request was rejected. Nothing was signed or submitted.";
-  }
-  if (!(error instanceof Error)) return "The gateway did not reach a final outcome. No request or fill is claimed.";
-  if (/user rejected|user denied|rejected the request/i.test(error.message)) {
-    return "The wallet request was rejected. Nothing was signed or submitted.";
-  }
-  return COPY[error.message] ?? "The gateway did not reach a final outcome. No request or fill is claimed.";
+/** Why the Setryn maker did not quote when the request opened, for the empty quote board. */
+const HOUSE_QUOTE_COPY: Record<string, string> = {
+  MAKER_SIGNER_UNCONFIGURED: "No Setryn maker runs on this network, so no house quote will arrive.",
+  OPERATOR_SIGNER_UNCONFIGURED: "The Setryn maker cannot sign on this network right now, so it did not quote.",
+  REFERENCE_UNAVAILABLE: "The Setryn maker could not read a fresh Chainlink reference, so it did not quote.",
+  MARK_UNAVAILABLE: "The Setryn maker has no model inputs for this underlying, so it did not quote.",
+  LISTING_UNSUPPORTED: "The Setryn maker has no listing to price this market from, so it did not quote.",
+  QUOTE_OUTSIDE_RANGE: "This market has no room between its floor and cap, so the Setryn maker did not quote.",
+  QUOTE_OUTSIDE_MAKER_PRICE: "Your limit is better than the price the Setryn maker quotes, so it did not quote.",
+  QUOTE_ABOVE_REQUEST_LIMIT: "The Setryn maker's quote would exceed the size or fee cap you set, so it did not quote.",
+  PARTIAL_QUOTE_NOT_ALLOWED: "The Setryn maker could only quote part of the size, and this request is all-or-none.",
+  FEE_SCHEDULE_CHANGED: "Protocol fees changed after you signed, so the Setryn maker could not quote this request. Request again.",
+  MARKET_NOT_ONCHAIN_ENABLED: "This market is not open for trading, so the Setryn maker did not quote.",
+  MAKER_RISK_RESERVATION_FAILED: "The Setryn maker's risk capacity is used up, so it did not quote.",
+  RFQ_NOT_COLLECTING: "The request was not open for quotes yet when the Setryn maker was asked.",
+};
+
+export function houseQuoteCopy(code: string): string {
+  return HOUSE_QUOTE_COPY[code] ?? "The Setryn maker did not return a quote.";
 }
 
-/** The raw code, kept for the expandable diagnostic. */
+export function gatewayErrorCopy(error: unknown): string {
+  return describeActionError(error, { overrides: COPY });
+}
+
+/** The raw code, kept for the expandable diagnostic, with the step that failed. */
 export function gatewayErrorCode(error: unknown): string {
+  if (error instanceof ActionError) {
+    const cause = error.cause instanceof Error && error.cause.message !== error.code ? ` (${error.cause.message.split("\n")[0]})` : "";
+    return `${error.code}${error.failedStep ? ` at "${error.failedStep}"` : ""}${cause}`.slice(0, 240);
+  }
   if (error instanceof Error) return error.message.slice(0, 160);
   return "UNKNOWN_ERROR";
 }
