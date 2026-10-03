@@ -1,8 +1,6 @@
 # Setryn Project Workflow
 
 - The primary agent owns architecture, task decomposition, reviews, and handoffs.
-- Use OpenCode Zen with Muse Spark 1.3 Free at xhigh for implementation. Do not use Claude CLI or Codex sub-agents for implementation.
-- Give Muse a complete bounded handoff, wait for the slice to finish without inspecting or relaying its intermediate reasoning, then review only its final report and resulting filesystem diff. This preserves the project token budget.
 - Parallelize independent slices and keep file ownership separate to avoid conflicts.
 - Prioritize product progression over exhaustive testing.
 - Accumulate bounded implementation slices within the active phase. Review and run the phase verification gate only after the phase deliverables are complete.
