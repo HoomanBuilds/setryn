@@ -31,7 +31,9 @@ import { parseHandoff, type HandoffContext } from "@/lib/terminal/handoff";
 import { tradeHref } from "@/lib/terminal/markets";
 import { usePersistentState } from "@/lib/terminal/use-persistent-state";
 import type { BookRow, ConsoleTabId, PackageMarket } from "@/lib/terminal/types";
-import type { OnchainMarket, OrderExecutionProgress, PackageExecutionResult } from "@/lib/internal-gateway/types";
+import type { OnchainMarket, OrderExecutionProgress, PackageExecutionResult, TrackedActionOutcome } from "@/lib/internal-gateway/types";
+import { ActionError, sequenceProgress, type ProgressListener } from "@/lib/internal-gateway/action-progress";
+import { formatLotCount, formatNumber } from "@/lib/terminal/format";
 import { platformNow } from "@/lib/terminal/clock";
 import { acceptableQuote } from "@/lib/quotes/firm-quote";
 import { describeActionError } from "@/lib/internal-gateway/action-errors";
@@ -52,6 +54,7 @@ function executionError(error: unknown): string {
 }
 
 const SLIPPAGE_KEY = "setryn:ticket-slippage-bps";
+const RESTORE_RESULT_MS = 5 * 60_000;
 
 /**
  * The ticket's view of an onchain market: the chain's economics for this series (lot multiplier, bounded liability,
@@ -168,6 +171,9 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   const [amendmentOrderId, setAmendmentOrderId] = useState<string | null>(null);
   const [amendmentError, setAmendmentError] = useState<string | null>(null);
   const replacementInFlightRef = useRef<string | null>(null);
+  // True while an order executes: clicks on the book, the chart, or the console must not reset the ticket under it.
+  const executingRef = useRef(false);
+  const [cancellingOrderIds, setCancellingOrderIds] = useState<ReadonlySet<string>>(() => new Set());
   // Settings: whether orders and RFQ quote selections get a review step, and where a new ticket routes first.
   const [confirmations] = useConfirmationPrefs();
   const [disclosure] = useDisclosurePrefs();
@@ -251,8 +257,11 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
 
   useEffect(() => {
     if (loadedExecutionMarketId === market.id) return;
-    const latest = gatewaySnapshot.executions.find(
-      (candidate) => candidate.result.receipt.marketId === market.id,
+    // Only a trade from the last few minutes comes back as the ticket's result (returning from its position or receipt);
+    // an older one belongs to history, and the ticket opens ready for a new order.
+    const latest = gatewaySnapshot.executions.findLast(
+      (candidate) =>
+        candidate.result.receipt.marketId === market.id && Date.now() - Date.parse(candidate.createdAt) < RESTORE_RESULT_MS,
     );
     if (latest) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- reconciles local workflow state with the gateway snapshot, an external store
@@ -554,6 +563,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
 
   const patchTicket = useCallback(
     (patch: Partial<TicketState>) => {
+      if (executingRef.current) return;
       ticketTouchedRef.current = true;
       setStage({ kind: "IDLE" });
       setExecution({ status: "IDLE", updates: [] });
@@ -639,7 +649,9 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
 
   const selectBookRow = useCallback(
     (row: BookRow) => {
+      if (executingRef.current) return;
       setStage({ kind: "IDLE" });
+      setExecution({ status: "IDLE", updates: [] });
       setRfqError(null);
       setAmendmentError(null);
       const amending = amendmentOrderId != null;
@@ -705,6 +717,9 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     if (replacingId) {
       replacementInFlightRef.current = replacingId;
     }
+    executingRef.current = true;
+    // The wallet step in flight shows under the timeline; it clears when the order reaches an outcome.
+    const onProgress: ProgressListener = (wallet) => setExecution((current) => ({ ...current, wallet }));
     try {
       setRfqError(null);
       setAmendmentError(null);
@@ -715,7 +730,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       }
 
       setStage({ kind: "EXECUTING", reference });
-      setExecution((current) => ({ ...current, status: "AUTHORIZING" }));
+      setExecution((current) => ({ ...current, status: "AUTHORIZING", wallet: null }));
       const account = gateway.getSnapshot().account;
       const signer = gateway.getSnapshot().wallet.address;
       const isExit = ticket.intent === "EXIT";
@@ -748,98 +763,146 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         settlementGuarantee: preview.settlementGuarantee,
         postOnly: ticket.postOnly === true,
       } as const;
+      const size = formatLotCount(preview.requestedLots);
+      const price = (value: number) => formatNumber(value, liveMarket.priceDecimals);
+      const title = isExit
+        ? `Close ${size} ${liveMarket.code}`
+        : replacingId
+          ? `Replace order · ${size} ${liveMarket.code}`
+          : `${packageSide === "LONG" ? "Long" : "Short"} ${size} ${liveMarket.code}`;
+      const filled = (result: PackageExecutionResult): TrackedActionOutcome => {
+        // A partial fill says what became of the rest (rested, cancelled, or not placed), as the timeline does.
+        const remainder = gateway
+          .getSnapshot()
+          .executions.find((candidate) => candidate.result.receipt.id === result.receipt.id)
+          ?.updates.find((update) => update.step === "REMAINDER_RESTING" || update.step === "IOC_CANCELLED");
+        const fill =
+          result.outcome === "CLOSED"
+            ? `Closed ${formatLotCount(result.filledLots)} at ${price(result.receipt.price)}. The collateral is released.`
+            : result.filledLots < result.requestedLots
+              ? `Filled ${formatLotCount(result.filledLots)} of ${formatLotCount(result.requestedLots)} at ${price(result.receipt.price)}.`
+              : `Filled ${formatLotCount(result.filledLots)} at ${price(result.receipt.price)}.`;
+        return {
+          message: remainder ? `${fill} ${remainder.detail}` : fill,
+          transactionHash: result.receipt.transactionHash,
+          href: result.position ? `/positions/${result.position.id}` : `/activity/receipts/${result.receipt.id}`,
+          hrefLabel: result.position ? "View position" : "View receipt",
+        };
+      };
 
-      if (takesFirmQuote) {
-        // A firm quote fills immediately or not at all: the trader signs typed data and one router transaction
-        // settles both sides. The quote is re-checked here, at the moment of signing, against the live stream.
-        const quote = acceptableQuote(
-          ticketMarket.firmQuotes ?? undefined,
-          executableAction(ticket.intent, packageSide),
-          preview.requestedLots,
-          preview.limitPrice,
-          platformNow(),
-        );
-        if (!quote) throw new Error("QUOTE_UNAVAILABLE");
-        setExecution({ status: "SUBMITTING", updates: [] });
-        let result: PackageExecutionResult;
-        try {
-          result = await gateway.settleFirmQuote(intent, quote, (update) => {
-            setExecution((current) => ({ ...current, status: "SUBMITTING", updates: [...current.updates, update] }));
+      await gateway.trackAction<TrackedActionOutcome>(
+        title,
+        async (dockProgress) => {
+          // Authorize, then place or match: one numbered sequence in the ticket and the dock.
+          const progress = sequenceProgress((step) => {
+            dockProgress(step);
+            onProgress(step);
           });
-        } catch (error) {
-          // A quote the router refused (taken by someone else, or no longer valid) is never offered again.
-          if (error instanceof Error && error.message.startsWith("SETTLEMENT_REJECTED")) discardQuote(quote.id);
-          throw error;
-        }
-        // A quote settles once; drop it now rather than when the stream next replaces it.
-        discardQuote(quote.id);
-        const recorded = gateway.getSnapshot().executions.find((candidate) => candidate.result.receipt.id === result.receipt.id);
-        setExecution((current) => ({ ...current, status: "COMPLETED", result, updates: recorded?.updates ?? current.updates }));
-        setStage({ kind: "COMPLETED", reference, receiptId: result.receipt.id });
-        setConsoleTab("strategies");
-        setConsoleScoped(true);
-        return;
-      }
 
-      const authorization = await gateway.authorizeOrder(intent);
+          if (takesFirmQuote) {
+            // A firm quote fills immediately or not at all: the trader signs typed data and one router transaction
+            // settles both sides. The quote is re-checked here, at the moment of signing, against the live stream.
+            const quote = acceptableQuote(
+              ticketMarket.firmQuotes ?? undefined,
+              executableAction(ticket.intent, packageSide),
+              preview.requestedLots,
+              preview.limitPrice,
+              platformNow(),
+            );
+            if (!quote) throw new Error("QUOTE_UNAVAILABLE");
+            setExecution({ status: "SUBMITTING", updates: [], wallet: null });
+            let result: PackageExecutionResult;
+            try {
+              result = await gateway.settleFirmQuote(
+                intent,
+                quote,
+                (update) => {
+                  setExecution((current) => ({ ...current, status: "SUBMITTING", updates: [...current.updates, update] }));
+                },
+                progress,
+              );
+            } catch (error) {
+              // A quote the router refused (taken by someone else, or no longer valid) is never offered again.
+              if (error instanceof Error && error.message.startsWith("SETTLEMENT_REJECTED")) discardQuote(quote.id);
+              throw error;
+            }
+            // A quote settles once; drop it now rather than when the stream next replaces it.
+            discardQuote(quote.id);
+            const recorded = gateway.getSnapshot().executions.find((candidate) => candidate.result.receipt.id === result.receipt.id);
+            setExecution((current) => ({ ...current, status: "COMPLETED", result, updates: recorded?.updates ?? current.updates, wallet: null }));
+            setStage({ kind: "COMPLETED", reference, receiptId: result.receipt.id });
+            setConsoleTab("strategies");
+            setConsoleScoped(true);
+            return filled(result);
+          }
 
-      if (replacingId) {
-        const replacement = await gateway.replaceRestingOrder(replacingId, authorization);
-        setAmendmentOrderId(null);
-        setAmendmentError(null);
-        setExecution({ status: "RESTING", updates: [], authorization, restingOrder: replacement });
-        setStage({ kind: "RESTING", reference, orderId: replacement.id });
-        setConsoleTab("orders");
-        setConsoleScoped(true);
-        replacementInFlightRef.current = null;
-        return;
-      }
+          const authorization = await gateway.authorizeOrder(intent, progress);
 
-      if (route.requiresPrivate && ticket.privateRfq) {
-        const request = await gateway.requestRfq(authorization);
-        setExecution({ status: "IDLE", updates: [] });
-        setStage({ kind: "RFQ", reference, requestId: request.id });
-        setRfqError(null);
-        return;
-      }
+          if (replacingId) {
+            const replacement = await gateway.replaceRestingOrder(replacingId, authorization, progress);
+            setAmendmentOrderId(null);
+            setAmendmentError(null);
+            setExecution({ status: "RESTING", updates: [], authorization, restingOrder: replacement });
+            setStage({ kind: "RESTING", reference, orderId: replacement.id });
+            setConsoleTab("orders");
+            setConsoleScoped(true);
+            replacementInFlightRef.current = null;
+            return { message: `Order replaced: ${size} now resting at ${price(replacement.limitPrice)}.` };
+          }
 
-      if (shouldRest) {
-        const restingOrder = await gateway.placeRestingOrder(authorization);
-        setExecution({ status: "RESTING", updates: [], authorization, restingOrder });
-        setStage({ kind: "RESTING", reference, orderId: restingOrder.id });
-        setConsoleTab("orders");
-        setConsoleScoped(true);
-        return;
-      }
+          if (route.requiresPrivate && ticket.privateRfq) {
+            const request = await gateway.requestRfq(authorization, progress);
+            setExecution({ status: "IDLE", updates: [] });
+            setStage({ kind: "RFQ", reference, requestId: request.id });
+            setRfqError(null);
+            return { message: "Request sent to solvers. Quotes arrive in the ticket." };
+          }
 
-      setExecution({ status: "SUBMITTING", updates: [], authorization });
-      const result = await gateway.submitAuthorizedOrder(authorization, (update) => {
-        setExecution((current) => ({
-          ...current,
-          status: "SUBMITTING",
-          updates: [...current.updates, update],
-        }));
-      });
-      // The gateway records every step, including the position and receipt steps it finishes after streaming.
-      const recorded = gateway.getSnapshot().executions.find((candidate) => candidate.result.receipt.id === result.receipt.id);
-      setExecution((current) => ({ ...current, status: "COMPLETED", result, updates: recorded?.updates ?? current.updates }));
-      setStage({ kind: "COMPLETED", reference, receiptId: result.receipt.id });
-      setConsoleTab("strategies");
-      setConsoleScoped(true);
+          if (shouldRest) {
+            const restingOrder = await gateway.placeRestingOrder(authorization, progress);
+            setExecution({ status: "RESTING", updates: [], authorization, restingOrder });
+            setStage({ kind: "RESTING", reference, orderId: restingOrder.id });
+            setConsoleTab("orders");
+            setConsoleScoped(true);
+            return { message: `Resting on the book: ${size} at ${price(restingOrder.limitPrice)}. Nothing filled yet.` };
+          }
+
+          setExecution({ status: "SUBMITTING", updates: [], authorization, wallet: null });
+          const result = await gateway.submitAuthorizedOrder(
+            authorization,
+            (update) => {
+              setExecution((current) => ({
+                ...current,
+                status: "SUBMITTING",
+                updates: [...current.updates, update],
+              }));
+            },
+            progress,
+          );
+          // The gateway records every step, including the position and receipt steps it finishes after streaming.
+          const recorded = gateway.getSnapshot().executions.find((candidate) => candidate.result.receipt.id === result.receipt.id);
+          setExecution((current) => ({ ...current, status: "COMPLETED", result, updates: recorded?.updates ?? current.updates, wallet: null }));
+          setStage({ kind: "COMPLETED", reference, receiptId: result.receipt.id });
+          setConsoleTab("strategies");
+          setConsoleScoped(true);
+          return filled(result);
+        },
+        (outcome) => outcome,
+      );
     } catch (error) {
       const message = executionError(error);
-      if (
-        replacingId &&
-        error instanceof Error &&
-        (error.message === "REPLACEMENT_ORDER_NOT_FOUND" ||
-          error.message === "REPLACEMENT_ORDER_NOT_WORKING")
-      ) {
+      const code = error instanceof Error ? (error instanceof ActionError ? error.code : error.message) : "";
+      if (replacingId && (code === "REPLACEMENT_ORDER_NOT_FOUND" || code === "REPLACEMENT_ORDER_NOT_WORKING")) {
         setAmendmentOrderId(null);
         setAmendmentError("The amended order is no longer working. Amendment discarded.");
+      } else if (replacingId && code === "REPLACEMENT_NOT_PLACED") {
+        // The original order is gone, so there is nothing left to amend.
+        setAmendmentOrderId(null);
       }
-      setExecution((current) => ({ ...current, status: "FAILED", error: message }));
+      setExecution((current) => ({ ...current, status: "FAILED", error: message, wallet: null }));
       setStage({ kind: "FAILED", reference, message });
     } finally {
+      executingRef.current = false;
       if (replacingId) {
         replacementInFlightRef.current = null;
       }
@@ -888,6 +951,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
 
   const onAmendConsoleRestingOrder = useCallback(
     (orderId: string, proposedPrice?: number) => {
+      if (executingRef.current) return;
       const target = gatewaySnapshot.restingOrders.find((candidate) => candidate.id === orderId);
       if (
         !target ||
@@ -925,21 +989,41 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     [gatewaySnapshot.restingOrders, liveMarket, ticketMarket.routes],
   );
 
+  /** Cancels a working order as a tracked action: its steps in the dock, the row marked cancelling meanwhile. */
   const cancelRestingOrderById = useCallback(
-    (orderId: string) => gateway.cancelRestingOrder(orderId),
+    async (orderId: string, onProgress?: ProgressListener) => {
+      setCancellingOrderIds((current) => new Set(current).add(orderId));
+      try {
+        return await gateway.trackAction(
+          "Cancel order",
+          (dockProgress) =>
+            gateway.cancelRestingOrder(orderId, (step) => {
+              dockProgress(step);
+              onProgress?.(step);
+            }),
+          () => ({ message: "Order cancelled and removed from the book; its reserved collateral is released." }),
+        );
+      } finally {
+        setCancellingOrderIds((current) => {
+          const next = new Set(current);
+          next.delete(orderId);
+          return next;
+        });
+      }
+    },
     [gateway],
   );
 
   const onCancelResting = useCallback(async () => {
     if (stage.kind !== "RESTING") return;
-    const reference = stage.reference;
     const orderId = stage.orderId;
+    setExecution((current) => ({ ...current, error: undefined, wallet: null }));
     try {
-      await cancelRestingOrderById(orderId);
+      await cancelRestingOrderById(orderId, (wallet) => setExecution((current) => ({ ...current, wallet })));
     } catch (error) {
+      // The order may still be working (a declined or failed cancel): the resting view stays, with the reason.
       const message = executionError(error);
-      setExecution((current) => ({ ...current, status: "FAILED", error: message }));
-      setStage({ kind: "FAILED", reference, message });
+      setExecution((current) => ({ ...current, error: message, wallet: null }));
       return;
     }
     setStage({ kind: "IDLE" });
@@ -952,6 +1036,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       try {
         await cancelRestingOrderById(orderId);
       } catch {
+        // The action dock reports the failure and what already landed.
         return;
       }
       if (stage.kind === "RESTING" && stage.orderId === orderId) {
@@ -1181,6 +1266,8 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
               reserved: gatewaySnapshot.account.reserved,
               riskDomain: gatewaySnapshot.account.label,
               chainId: gatewaySnapshot.wallet.chainId ?? gatewaySnapshot.environment.chainId,
+              networkLabel: gatewaySnapshot.environment.label,
+              wrongNetwork: gatewaySnapshot.wallet.status === "WRONG_NETWORK",
             }}
             onConnect={() => {
               void gateway.connectWallet().catch(() => undefined);
@@ -1218,6 +1305,7 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
             runtimeRestingOrders={gatewaySnapshot.restingOrders}
             runtimeExecutions={gatewaySnapshot.executions}
             onCancelRestingOrder={onCancelConsoleRestingOrder}
+            cancellingOrderIds={cancellingOrderIds}
             onAmendRestingOrder={onAmendConsoleRestingOrder}
           />
         </div>

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, Lock, Minus, Plus, TriangleAlert } from "lucide-react";
 import { ExecutionTimeline } from "@/components/gateway/ExecutionTimeline";
+import { pendingLabel } from "@/components/gateway/ActionStatus";
 import { AssetAmount, ChainBadge, chainKeyOf, chainLabelOf } from "@/components/icons/AssetIcon";
 import { ROUTE_HINT_ID, RouteTable } from "@/components/terminal/RouteTable";
 import { RfqQuotePanel } from "@/components/terminal/RfqQuotePanel";
@@ -149,6 +150,10 @@ export interface TicketWallet {
   riskDomain?: string;
   /** Chain the wallet is on, or the environment's chain before a wallet connects. */
   chainId?: number | null;
+  /** The deployment's network name ("Arbitrum Sepolia"), for the sign copy and the switch prompt. */
+  networkLabel?: string;
+  /** The wallet is connected on another chain: the ticket asks it to switch instead of to connect. */
+  wrongNetwork?: boolean;
 }
 
 export function OrderTicket({
@@ -283,15 +288,16 @@ export function OrderTicket({
   // Smart default: the best executable route is preselected and stays editable in the route selector. Until the
   // trader picks a route in this market the ticket keeps following the best one, so liquidity that arrives after the
   // first render (the onchain market's routes, the maker stream's firm quotes) is not hidden behind an empty book.
-  // A route that is no longer offered is replaced the same way.
+  // A route that is no longer offered is replaced the same way. Only an idle ticket follows: switching routes resets the
+  // ticket, which would pull a review, an order in flight, or its result out from under the trader.
   const [routePickedFor, setRoutePickedFor] = useState<string | null>(null);
   const followBest = routePickedFor !== market.id && !state.privateRfq;
   const routeOffered = state.routeId !== null && usableRoutes.some((candidate) => candidate.id === state.routeId);
   useEffect(() => {
-    if (!bestRouteId || locked || isAmending) return;
+    if (!bestRouteId || stage.kind !== "IDLE" || isAmending) return;
     if (!routeOffered || (followBest && state.routeId !== bestRouteId)) onChange({ routeId: bestRouteId });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeOffered, bestRouteId, locked, isAmending, followBest, state.routeId]);
+  }, [routeOffered, bestRouteId, stage.kind, isAmending, followBest, state.routeId]);
   const requestedLots = Number.parseFloat(state.lotsInput) || 0;
   // Without a connected account there is no collateral to size against, so the share controls stay inert.
   const sizingKnown = wallet.connected || state.intent === "EXIT";
@@ -718,7 +724,7 @@ export function OrderTicket({
         </fieldset>
 
         <div className="sticky bottom-0 z-10 shrink-0 space-y-2.5 bg-panel px-3 pt-2 pb-3">
-          {invalid ? (
+          {invalid && (stage.kind === "IDLE" || stage.kind === "COMPILED") ? (
             <ul
               id={BLOCKER_LIST_ID}
               className="space-y-1.5 rounded-md border-l-2 border-down bg-down-soft px-3 py-2.5"
@@ -746,6 +752,8 @@ export function OrderTicket({
             rfqError={rfqError ?? null}
             amendment={amendment ?? null}
             walletConnected={wallet.connected}
+            wrongNetwork={wallet.wrongNetwork === true}
+            networkLabel={wallet.networkLabel ?? "the deployment network"}
             onConnect={onConnect}
             onStage={onStage}
             onConfirm={onConfirm}
@@ -892,6 +900,8 @@ function StageArea({
   rfqError,
   amendment,
   walletConnected,
+  wrongNetwork,
+  networkLabel,
   onConnect,
   onStage,
   onConfirm,
@@ -902,6 +912,8 @@ function StageArea({
   onCancelRfq,
 }: {
   walletConnected: boolean;
+  wrongNetwork: boolean;
+  networkLabel: string;
   onConnect: () => void;
   market: PackageMarket;
   state: TicketState;
@@ -957,7 +969,7 @@ function StageArea({
         onClick={onConnect}
         className="focus-ring h-12 w-full rounded-md bg-ink text-sm font-semibold text-app transition-[filter] hover:brightness-90 lg:h-10"
       >
-        Connect wallet
+        {wrongNetwork ? `Switch to ${networkLabel}` : "Connect wallet"}
       </button>
     );
   }
@@ -1041,8 +1053,7 @@ function StageArea({
           </p>
         ) : null}
         <p className="border-t border-line px-3 py-2 text-xs leading-snug text-faint">
-          The next action signs and submits to the local production-parity chain. It never submits
-          to Arbitrum Sepolia or mainnet.
+          {`The next action asks your wallet to sign and submit on ${networkLabel}; each step shows here until it confirms.`}
         </p>
         <div className="grid grid-cols-2 gap-2 px-3 py-2">
           <button
@@ -1071,19 +1082,32 @@ function StageArea({
   }
 
   if (stage.kind === "RESTING") {
-    const armed = cancelStep.armed === "working-order";
+    const cancelling = execution.wallet != null;
+    const armed = cancelStep.armed === "working-order" && !cancelling;
     return (
       <div className="space-y-2">
         <ExecutionTimeline progress={execution} />
-        <button
-          type="button"
-          onClick={() => cancelStep.run("working-order", onCancelResting)}
-          className={`focus-ring h-11 w-full rounded-md border text-sm transition-colors lg:h-9 ${
-            armed ? "border-down/60 bg-down-soft text-down" : "border-line text-dim hover:border-line-strong hover:text-ink"
-          }`}
-        >
-          {armed ? "Confirm cancel" : "Cancel working order"}
-        </button>
+        <div className="grid grid-cols-[1fr_auto] gap-2">
+          <button
+            type="button"
+            disabled={cancelling}
+            onClick={() => cancelStep.run("working-order", onCancelResting)}
+            className={`focus-ring h-11 rounded-md border text-sm transition-colors disabled:cursor-wait lg:h-9 ${
+              armed ? "border-down/60 bg-down-soft text-down" : "border-line text-dim hover:border-line-strong hover:text-ink"
+            }`}
+          >
+            {cancelling ? pendingLabel(execution.wallet ?? null, "Cancelling…") : armed ? "Confirm cancel" : "Cancel working order"}
+          </button>
+          {/* The order keeps working from the Orders tab; a new ticket does not touch it. */}
+          <button
+            type="button"
+            disabled={cancelling}
+            onClick={onReset}
+            className="focus-ring h-11 rounded-md border border-line px-3 text-sm text-dim transition-colors hover:border-line-strong hover:text-ink disabled:opacity-50 lg:h-9"
+          >
+            New order
+          </button>
+        </div>
       </div>
     );
   }

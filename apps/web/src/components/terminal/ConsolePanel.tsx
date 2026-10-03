@@ -173,6 +173,7 @@ export function ConsolePanel({
   runtimeRestingOrders = [],
   runtimeExecutions = [],
   onCancelRestingOrder,
+  cancellingOrderIds,
   onAmendRestingOrder,
 }: {
   market: PackageMarket;
@@ -186,6 +187,8 @@ export function ConsolePanel({
   runtimeRestingOrders?: RestingPackageOrder[];
   runtimeExecutions?: GatewayExecution[];
   onCancelRestingOrder?: (orderId: string) => void;
+  /** Orders whose cancel is in flight: their row actions wait. */
+  cancellingOrderIds?: ReadonlySet<string>;
   onAmendRestingOrder?: (orderId: string) => void;
 }) {
   const [confirmations] = useConfirmationPrefs();
@@ -365,9 +368,10 @@ export function ConsolePanel({
                 const rowMarket = resolveRuntimeConsoleMarket(markets, order.marketId);
                 const unit = rowMarket ? priceUnitSuffix(rowMarket.priceUnit) : "";
                 const live = order.state === "WORKING" || order.state === "PARTIALLY_FILLED";
+                const cancelling = cancellingOrderIds?.has(order.id) ?? false;
                 const cancellable = live && onCancelRestingOrder;
                 const amendable =
-                  live && order.marketId === market.id && onAmendRestingOrder;
+                  live && !cancelling && order.marketId === market.id && onAmendRestingOrder;
                 const filledLots =
                   typeof order.filledLots === "number" && Number.isFinite(order.filledLots)
                     ? order.filledLots
@@ -437,15 +441,16 @@ export function ConsolePanel({
                           {cancellable ? (
                             <button
                               type="button"
-                              aria-label={cancelStep.armed === order.id ? `Confirm cancelling ${order.id}` : `Cancel ${order.id}`}
+                              disabled={cancelling}
+                              aria-label={cancelling ? `Cancelling ${order.id}` : cancelStep.armed === order.id ? `Confirm cancelling ${order.id}` : `Cancel ${order.id}`}
                               onClick={() => cancelStep.run(order.id, () => onCancelRestingOrder?.(order.id))}
-                              className={`focus-ring shrink-0 rounded-sm border px-1.5 py-0.5 text-[11px] transition-colors ${
-                                cancelStep.armed === order.id
+                              className={`focus-ring shrink-0 rounded-sm border px-1.5 py-0.5 text-[11px] transition-colors disabled:cursor-wait disabled:opacity-70 ${
+                                cancelStep.armed === order.id && !cancelling
                                   ? "border-down/60 bg-down-soft text-down"
                                   : "border-line text-dim hover:text-ink"
                               }`}
                             >
-                              {cancelStep.armed === order.id ? "Confirm cancel" : "Cancel"}
+                              {cancelling ? "Cancelling…" : cancelStep.armed === order.id ? "Confirm cancel" : "Cancel"}
                             </button>
                           ) : null}
                         </span>

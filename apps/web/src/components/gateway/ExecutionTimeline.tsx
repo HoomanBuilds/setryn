@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { CircleAlert, FileCheck2, LoaderCircle } from "lucide-react";
+import { CircleAlert, FileCheck2, Layers, LoaderCircle } from "lucide-react";
+import { ActionProgressNote } from "@/components/gateway/ActionStatus";
 import { SectionLabel } from "@/components/terminal/primitives";
 import { StepTimeline, type TimelineStep } from "@/components/activity/StepTimeline";
 import { motion } from "@/components/activity/ledger-ui";
@@ -89,6 +90,13 @@ export function ExecutionTimeline({ progress }: { progress: OrderExecutionProgre
           ) : (
             <p className="mt-1 text-faint">No fill, receipt, or position has been created.</p>
           )}
+          {progress.wallet ? <ActionProgressNote progress={progress.wallet} className="mt-2" /> : null}
+          {progress.error ? (
+            <p role="alert" className="mt-2 flex items-start gap-1.5 text-down">
+              <CircleAlert size={12} aria-hidden="true" className="mt-[2px] shrink-0" />
+              <span>{progress.error}</span>
+            </p>
+          ) : null}
           {orderId ? (
             <p className="tnum mt-1.5 truncate font-mono text-[11px] text-ink" title={orderId}>
               {orderId}
@@ -108,14 +116,10 @@ export function ExecutionTimeline({ progress }: { progress: OrderExecutionProgre
       update.step === "POSITION_CREATED",
   );
   const positionStep: SubmissionStepId = positionUpdate?.step ?? "POSITION_CREATED";
-  const remainderUpdate = updateByStep.get("IOC_CANCELLED");
-  const steps: SubmissionStepId[] = [
-    ...BASE_STEPS,
-    ...(remainderUpdate ? ["IOC_CANCELLED" as const] : []),
-    positionStep,
-    "RECEIPT_READY",
-  ];
-  const firstPending = active ? steps.findIndex((step) => !updateByStep.has(step)) : -1;
+  const remainderSteps = (["IOC_CANCELLED", "REMAINDER_RESTING"] as const).filter((step) => updateByStep.has(step));
+  const steps: SubmissionStepId[] = [...BASE_STEPS, ...remainderSteps, positionStep, "RECEIPT_READY"];
+  const failed = progress.status === "FAILED";
+  const firstPending = active || failed ? steps.findIndex((step) => !updateByStep.has(step)) : -1;
   const timeline: TimelineStep[] = steps.map((step, index) => {
     const update = updateByStep.get(step);
     return {
@@ -125,11 +129,13 @@ export function ExecutionTimeline({ progress }: { progress: OrderExecutionProgre
       hash: update?.transactionHash,
       hashLabel: "Transaction reference",
       hashKind: "transaction",
-      state: update ? "done" : index === firstPending ? "active" : "pending",
+      state: update ? "done" : index === firstPending ? (failed ? "failed" : "active") : "pending",
     };
   });
+  // A failure keeps what already happened in view (a registered order, a match) up to the step that failed.
+  const failedTimeline = firstPending >= 0 ? timeline.slice(0, firstPending + 1) : timeline;
   const done = steps.filter((step) => updateByStep.has(step)).length;
-  const failed = progress.status === "FAILED";
+  const positionId = progress.result?.position?.id ?? null;
 
   return (
     <div className="overflow-hidden rounded-md border border-line-strong bg-raised">
@@ -140,7 +146,9 @@ export function ExecutionTimeline({ progress }: { progress: OrderExecutionProgre
         total={failed ? 0 : steps.length}
       />
 
-      {progress.status === "AUTHORIZING" || progress.status === "CONNECTING" ? (
+      {active && progress.wallet ? (
+        <ActionProgressNote progress={progress.wallet} className={`border-b border-line px-3 py-2.5 ${motion.fade}`} />
+      ) : progress.status === "AUTHORIZING" || progress.status === "CONNECTING" ? (
         <div className={`flex items-start gap-2 border-b border-line px-3 py-2.5 text-xs leading-snug text-dim ${motion.fade}`}>
           <LoaderCircle size={14} aria-hidden="true" className="mt-0.5 shrink-0 animate-spin text-brand" />
           <span>
@@ -152,19 +160,31 @@ export function ExecutionTimeline({ progress }: { progress: OrderExecutionProgre
       ) : null}
 
       {failed ? (
-        <div className={`flex items-start gap-2 px-3 py-2.5 text-xs leading-snug text-down ${motion.fade}`}>
-          <CircleAlert size={14} aria-hidden="true" className="mt-0.5 shrink-0" />
-          <span>{progress.error}</span>
-        </div>
+        <>
+          {progress.updates.length > 0 ? <StepTimeline steps={failedTimeline} dense className="border-b border-line px-3 py-2.5" /> : null}
+          <div role="alert" className={`flex items-start gap-2 px-3 py-2.5 text-xs leading-snug text-down ${motion.fade}`}>
+            <CircleAlert size={14} aria-hidden="true" className="mt-0.5 shrink-0" />
+            <span>{progress.error}</span>
+          </div>
+        </>
       ) : (
         <StepTimeline steps={timeline} dense className="px-3 py-2.5" />
       )}
 
       {progress.result ? (
-        <div className={`border-t border-line px-3 py-2.5 ${motion.fade}`}>
+        <div className={`flex gap-2 border-t border-line px-3 py-2.5 ${motion.fade}`}>
+          {positionId ? (
+            <Link
+              href={`/positions/${positionId}`}
+              className="focus-ring flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md border border-line text-xs text-dim transition-colors hover:border-line-strong hover:text-ink"
+            >
+              <Layers size={13} aria-hidden="true" />
+              View position
+            </Link>
+          ) : null}
           <Link
             href={`/activity/receipts/${progress.result.receipt.id}`}
-            className="focus-ring flex h-9 items-center justify-center gap-1.5 rounded-md border border-line text-xs text-dim transition-colors hover:border-line-strong hover:text-ink"
+            className="focus-ring flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md border border-line text-xs text-dim transition-colors hover:border-line-strong hover:text-ink"
           >
             <FileCheck2 size={13} aria-hidden="true" />
             Verify execution receipt
