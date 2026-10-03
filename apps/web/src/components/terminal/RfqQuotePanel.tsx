@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SectionLabel } from "@/components/terminal/primitives";
 import { formatNumber, formatUsd, priceUnitSuffix } from "@/lib/terminal/format";
 import { executableAction } from "@/lib/terminal/economics";
@@ -30,17 +30,20 @@ export function RfqQuotePanel({
 }) {
   const [now, setNow] = useState(() => platformNow());
   const [busy, setBusy] = useState<PanelBusy>(null);
+  const inFlight = useRef(false);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(platformNow()), 1000);
     return () => window.clearInterval(timer);
   }, []);
   const unit = priceUnitSuffix(market.priceUnit);
   const act = async (kind: NonNullable<PanelBusy>, call: (() => void | Promise<void>) | undefined) => {
-    if (busy || !call) return;
+    if (inFlight.current || !call) return;
+    inFlight.current = true;
     setBusy(kind);
     try {
       await call();
     } finally {
+      inFlight.current = false;
       setBusy(null);
     }
   };
