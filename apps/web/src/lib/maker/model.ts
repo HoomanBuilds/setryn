@@ -1,3 +1,4 @@
+import { describeActionError } from "@/lib/internal-gateway/action-errors";
 import type { GatewaySnapshot, RestingPackageOrder } from "@/lib/internal-gateway/types";
 import type { BookRow, PackageMarket } from "@/lib/terminal/types";
 import type { LadderLevel, MarketInventory, OwnLevel, QuoteAction, WorkingQuote } from "./types";
@@ -127,5 +128,6 @@ export function makerError(error: unknown, fallback = "The request did not compl
   if (ORDER_ERRORS[code]) return ORDER_ERRORS[code];
   if (/user rejected|denied/i.test(error.message)) return "The wallet declined the signature.";
   if (/post.?only|would cross|crosses/i.test(error.message)) return "The quote would cross the book, so the post-only order was refused.";
-  return fallback;
+  // Gateway steps fail with an ActionError that knows what already landed; its shared sentence says so.
+  return describeActionError(error, { fallback });
 }
