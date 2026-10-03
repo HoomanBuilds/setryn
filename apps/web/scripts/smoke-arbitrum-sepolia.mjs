@@ -15,7 +15,14 @@ import { privateKeyToAccount } from "viem/accounts";
 
 const ORIGIN = process.env.SETRYN_PUBLIC_ORIGIN?.replace(/\/$/, "") ?? "https://setryn.vercel.app";
 const MARKET_KEY = process.env.SETRYN_SMOKE_MARKET ?? "ETH-FC-24DEC26";
-const DEPOSIT_MINOR = 5_000n * 1_000_000n;
+const SIDE = (process.env.SETRYN_SMOKE_SIDE ?? "BUY").toUpperCase();
+const LOTS_TEXT = process.env.SETRYN_SMOKE_LOTS ?? "1";
+const DEPOSIT_TEXT = process.env.SETRYN_SMOKE_DEPOSIT_USDC ?? "5000";
+if (SIDE !== "BUY" && SIDE !== "SELL") throw new Error("SETRYN_SMOKE_SIDE must be BUY or SELL");
+if (!/^[1-9][0-9]*$/.test(LOTS_TEXT)) throw new Error("SETRYN_SMOKE_LOTS must be a positive integer");
+if (!/^[1-9][0-9]*$/.test(DEPOSIT_TEXT)) throw new Error("SETRYN_SMOKE_DEPOSIT_USDC must be a positive integer");
+const LOTS = BigInt(LOTS_TEXT);
+const DEPOSIT_MINOR = BigInt(DEPOSIT_TEXT) * 1_000_000n;
 const ZERO_HASH = `0x${"0".repeat(64)}`;
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const ACCOUNT_SALT = keccak256(stringToHex("SETRYN_PRIMARY_ACCOUNT_V1"));
@@ -39,8 +46,9 @@ const chain = defineChain({
   rpcUrls: { default: { http: [rpcUrl] } },
   testnet: true,
 });
-const publicClient = createPublicClient({ chain, transport: http(rpcUrl), pollingInterval: 1_000 });
-const walletClient = createWalletClient({ account, chain, transport: http(rpcUrl) });
+const rpcTransport = http(rpcUrl, { timeout: 15_000, retryCount: 3, retryDelay: 500 });
+const publicClient = createPublicClient({ chain, transport: rpcTransport, pollingInterval: 1_000 });
+const walletClient = createWalletClient({ account, chain, transport: rpcTransport });
 
 const vaultAbi = [
   {
@@ -230,7 +238,7 @@ function serializable(value) {
 }
 
 async function json(url, init) {
-  const response = await fetch(url, init);
+  const response = await fetch(url, { ...init, signal: AbortSignal.timeout(20_000) });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(`${response.status} ${JSON.stringify(body)}`);
   return body;
@@ -279,7 +287,7 @@ async function prepareAccount(runtime) {
       functionName: "balanceOf",
       args: [account.address],
     });
-    if (walletBalance < shortfall) {
+    while (walletBalance < shortfall) {
       const funded = await json(`${ORIGIN}/api/internal/operator/fund`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -293,7 +301,6 @@ async function prepareAccount(runtime) {
         args: [account.address],
       });
     }
-    if (walletBalance < shortfall) throw new Error("Faucet did not provide enough test collateral");
     const allowance = await publicClient.readContract({
       address: runtime.settlementToken,
       abi: tokenAbi,
@@ -319,41 +326,43 @@ async function prepareAccount(runtime) {
     functionName: "balanceOf",
     args: [accountId, collateralId],
   });
-  console.log(`vault available: ${formatUnits(ready[2], 6)} tUSDC`);
+  console.log(`vault balance: ${formatUnits(ready[0], 6)} tUSDC total, ${formatUnits(ready[2], 6)} available`);
   return accountId;
 }
 
-async function freshAsk() {
+async function freshQuote() {
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const book = await json(`${ORIGIN}/api/quotes`);
     const state = book.markets?.[MARKET_KEY];
-    if (state?.status === "FIRM" && state.ask && state.ask.expiresAt - Date.now() / 1_000 >= 8) return state.ask;
+    const quote = SIDE === "BUY" ? state?.ask : state?.bid;
+    if (state?.status === "FIRM" && quote && quote.expiresAt - Date.now() / 1_000 >= 8) return quote;
     await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
-  throw new Error(`No executable maker ask for ${MARKET_KEY}`);
+  throw new Error(`No executable maker quote for ${MARKET_KEY}`);
 }
 
 async function settle(runtime, market, accountId) {
-  const quote = await freshAsk();
-  const lots = 1n;
+  const quote = await freshQuote();
+  if (LOTS > BigInt(quote.lots)) throw new Error(`Requested ${LOTS} lots but the quote offers ${quote.lots}`);
+  const packageSide = SIDE === "BUY" ? "LONG" : "SHORT";
   const priceTicks = BigInt(quote.priceTicks);
   const deadline = BigInt(quote.expiresAt);
   const nonce = BigInt(`0x${randomBytes(24).toString("hex")}`);
-  const notionalMinor = lots * (priceTicks < 0n ? -priceTicks : priceTicks) * BigInt(market.tickSizeMinor);
+  const notionalMinor = LOTS * (priceTicks < 0n ? -priceTicks : priceTicks) * BigInt(market.tickSizeMinor);
   const feeRate = BigInt(runtime.takerFeeRatePpm ?? 1_000);
   const maxFeeMinor = (notionalMinor * feeRate + 999_999n) / 1_000_000n || 1n;
   const order = {
     signer: account.address,
     accountId,
     policyId: PUBLIC_SERIES_POLICY,
-    policyContextHash: keccak256(stringToHex(`${MARKET_KEY}:FIRM_QUOTE:LONG:FOK:Package atomic`)),
+    policyContextHash: keccak256(stringToHex(`${MARKET_KEY}:FIRM_QUOTE:${packageSide}:FOK:Package atomic`)),
     actionId: runtime.enterActionId,
     targetKind: 1,
     seriesId: market.seriesId,
     packageId: ZERO_HASH,
     targetVersion: quote.order.targetVersion,
-    side: 1,
-    lots,
+    side: SIDE === "BUY" ? 1 : 2,
+    lots: LOTS,
     priceTicks,
     timeInForce: 4,
     deadline,
@@ -366,7 +375,7 @@ async function settle(runtime, market, accountId) {
     nonce,
     salt: keccak256(randomBytes(32)),
     allowPartialFills: false,
-    minimumFillLots: lots,
+    minimumFillLots: LOTS,
     remainderPolicy: 2,
     postOnly: false,
     reduceOnly: false,
@@ -386,8 +395,9 @@ async function settle(runtime, market, accountId) {
     accountId,
     riskDomainId: runtime.riskDomainId,
     riskDomainVersion: 1,
-    maxOpenInterestBaseUnits: lots,
-    maxTerminalLiabilityBaseUnits: lots * BigInt(market.maxLongDebitMinorPerLot),
+    maxOpenInterestBaseUnits: LOTS,
+    maxTerminalLiabilityBaseUnits:
+      LOTS * BigInt(SIDE === "BUY" ? market.maxLongDebitMinorPerLot : market.maxShortDebitMinorPerLot),
     maxAdmissionDeadline: deadline + 60n,
     binder: runtime.quoteSettlementRouter,
     binderTerms: takerTermsHash(terms),
@@ -409,7 +419,7 @@ async function settle(runtime, market, accountId) {
       terms: { capacityId: quote.capacityId, allowsOffsetUnwind: quote.allowsOffsetUnwind },
     },
     taker: { order: serializable(order), orderSignature, risk: serializable(risk), riskSignature, terms: serializable(terms) },
-    fillLots: "1",
+    fillLots: LOTS.toString(),
     relayerFeeMinor: "0",
     payoffTerms: market.payoffTerms,
   };
@@ -423,7 +433,7 @@ async function settle(runtime, market, accountId) {
   if (receipt.status !== "success") throw new Error(`Settlement reverted: ${relayed.transactionHash}`);
   const routerLog = receipt.logs.find((log) => log.address.toLowerCase() === runtime.quoteSettlementRouter.toLowerCase() && log.topics.length === 4);
   console.log(`settlement confirmed: block ${receipt.blockNumber}, gas ${receipt.gasUsed}`);
-  return { transactionHash: relayed.transactionHash, fillId: routerLog?.topics[1] ?? null, quoteId: quote.id, price: quote.price };
+  return { side: SIDE, lots: LOTS.toString(), transactionHash: relayed.transactionHash, fillId: routerLog?.topics[1] ?? null, quoteId: quote.id, price: quote.price };
 }
 
 const runtime = await json(`${ORIGIN}/api/internal/runtime`);

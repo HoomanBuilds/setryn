@@ -265,6 +265,10 @@ SETRYN_TEST_TAKER_PRIVATE_KEY=<test-wallet-private-key> \
 node apps/web/scripts/smoke-arbitrum-sepolia.mjs
 ```
 
+`SETRYN_SMOKE_MARKET`, `SETRYN_SMOKE_SIDE`, `SETRYN_SMOKE_LOTS`, and `SETRYN_SMOKE_DEPOSIT_USDC` override the default
+market, buy direction, one-lot size, and available-collateral target. Reusing a wallet keeps its account and approvals;
+the script tops up tUSDC only when the requested available-collateral target is no longer met.
+
 ## Operations
 
 Session days. Trading needs the current UTC day published, and the bootstrap only publishes four days. The operator
