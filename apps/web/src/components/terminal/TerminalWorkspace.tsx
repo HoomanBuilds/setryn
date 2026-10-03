@@ -367,6 +367,15 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
     }
     const request =
       gatewaySnapshot.rfqRequests.find((candidate) => candidate.id === requestId) ?? null;
+    if (!request && !gatewaySnapshot.rfqsLoaded) {
+      // Requests load after the wallet attaches. Until the first read finishes an unknown ID is not missing yet, so the
+      // link is not marked applied and resumes once the read lands.
+      const prompt = "Connect the wallet that signed this RFQ to resume it.";
+      const waiting = gatewaySnapshot.wallet.status === "DISCONNECTED" || gatewaySnapshot.wallet.status === "WRONG_NETWORK";
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reconciles local workflow state with the gateway snapshot (wallet, RFQ reads), an external store
+      setRfqError((current) => (waiting ? prompt : current === prompt ? null : current));
+      return;
+    }
     if (!request) {
       idle("The RFQ request is no longer available. Confirm the ticket again for a fresh quote.");
       return;
@@ -397,7 +406,6 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
       : ticketMarket.routes.some((candidate) => candidate.id === "SOLVER_RFQ")
         ? "SOLVER_RFQ"
         : null;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- reconciles local workflow state with the gateway snapshot, an external store
     setTicket({
       intent: intent.side,
       side: isPackageSide(intent.packageSide) ? intent.packageSide : "LONG",
@@ -427,6 +435,8 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   }, [
     appliedRfqKey,
     gatewaySnapshot.rfqRequests,
+    gatewaySnapshot.rfqsLoaded,
+    gatewaySnapshot.wallet.status,
     ticketMarket.routes,
     market.id,
     market.priceDecimals,
@@ -1061,6 +1071,11 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
         setRfqError(null);
       } catch (error) {
         setRfqError(executionError(error));
+        // A selection that locked before a later step failed reads as selected; Execute finishes the remaining steps.
+        const locked = gateway.getSnapshot().rfqRequests.find((candidate) => candidate.id === requestId);
+        if (locked?.state === "SELECTED" && locked.selectedQuoteId) {
+          setStage({ kind: "RFQ_SELECTED", reference, requestId, quoteId: locked.selectedQuoteId });
+        }
       }
     },
     [confirmations.rfqSelection, gateway, stage],
@@ -1081,12 +1096,13 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   }, [gateway, stage]);
 
   const onExecuteRfqQuote = useCallback(async () => {
-    if (stage.kind !== "RFQ_SELECTED") return;
+    // A request can turn selected under an RFQ stage (a lock read back from chain), so both stages execute it.
+    if (stage.kind !== "RFQ_SELECTED" && stage.kind !== "RFQ") return;
     const reference = stage.reference;
     const requestId = stage.requestId;
-    const quoteId = stage.quoteId;
     const currentRequest =
       gatewaySnapshot.rfqRequests.find((candidate) => candidate.id === requestId) ?? null;
+    const quoteId = stage.kind === "RFQ_SELECTED" ? stage.quoteId : (currentRequest?.selectedQuoteId ?? "");
     const currentQuote = currentRequest?.quotes.find((quote) => quote.id === quoteId) ?? null;
     if (!currentRequest) {
       setRfqError(executionError(new Error("RFQ_NOT_FOUND")));

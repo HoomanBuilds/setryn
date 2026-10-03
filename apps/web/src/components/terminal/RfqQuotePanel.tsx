@@ -7,6 +7,10 @@ import { executableAction } from "@/lib/terminal/economics";
 import type { PackageMarket } from "@/lib/terminal/types";
 import type { RfqRequest } from "@/lib/internal-gateway/types";
 import { platformNow } from "@/lib/terminal/clock";
+import { tooCloseToExpiry } from "@/components/rfqs/rfq-view";
+
+/** The panel's action in flight: each one waits on wallet prompts, so a second press must not start another. */
+type PanelBusy = null | { kind: "SELECT"; quoteId: string } | { kind: "CANCEL" } | { kind: "EXECUTE" };
 
 export function RfqQuotePanel({
   market,
@@ -19,16 +23,28 @@ export function RfqQuotePanel({
   market: PackageMarket;
   rfqRequest: RfqRequest | null;
   rfqError: string | null;
-  onSelectRfqQuote?: (quoteId: string) => void;
-  onExecuteRfqQuote?: () => void;
-  onCancelRfq?: () => void;
+  // The terminal's handlers resolve once the action finished (its failure is reported through `rfqError`).
+  onSelectRfqQuote?: (quoteId: string) => void | Promise<void>;
+  onExecuteRfqQuote?: () => void | Promise<void>;
+  onCancelRfq?: () => void | Promise<void>;
 }) {
   const [now, setNow] = useState(() => platformNow());
+  const [busy, setBusy] = useState<PanelBusy>(null);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(platformNow()), 1000);
     return () => window.clearInterval(timer);
   }, []);
   const unit = priceUnitSuffix(market.priceUnit);
+  const act = async (kind: NonNullable<PanelBusy>, call: (() => void | Promise<void>) | undefined) => {
+    if (busy || !call) return;
+    setBusy(kind);
+    try {
+      await call();
+    } finally {
+      setBusy(null);
+    }
+  };
+  const cancelLabel = (idle: string) => (busy?.kind === "CANCEL" ? (idle === "Expire request" ? "Expiring…" : "Cancelling…") : idle);
 
   if (!rfqRequest) {
     return (
@@ -126,10 +142,11 @@ export function RfqQuotePanel({
         <div className="px-3 pb-3">
           <button
             type="button"
-            onClick={() => onCancelRfq?.()}
-            className="focus-ring h-11 w-full rounded-md border border-line text-sm text-dim transition-colors hover:border-line-strong hover:text-ink lg:h-9"
+            disabled={busy !== null}
+            onClick={() => void act({ kind: "CANCEL" }, onCancelRfq)}
+            className="focus-ring h-11 w-full rounded-md border border-line text-sm text-dim transition-colors hover:border-line-strong hover:text-ink disabled:cursor-not-allowed disabled:opacity-60 lg:h-9"
           >
-            Expire request
+            {cancelLabel("Expire request")}
           </button>
         </div>
       </div>
@@ -231,21 +248,22 @@ export function RfqQuotePanel({
           <button
             type="button"
             disabled
+            title={selectedExpired ? "A locked request can be expired once its deadline passes." : undefined}
             className="h-11 cursor-not-allowed rounded-md border border-line bg-inset text-sm text-faint lg:h-9"
           >
-            {selectedExpired ? "Await request expiry" : "Selection locked"}
+            {selectedExpired ? `Expire in ${requestSecondsLeft}s` : "Selection locked"}
           </button>
           <button
             type="button"
-            disabled={selectedExpired}
-            onClick={() => onExecuteRfqQuote?.()}
+            disabled={selectedExpired || busy !== null}
+            onClick={() => void act({ kind: "EXECUTE" }, onExecuteRfqQuote)}
             className={`focus-ring h-11 rounded-md text-sm font-semibold transition-colors lg:h-9 ${
-              selectedExpired
+              selectedExpired || busy !== null
                 ? "cursor-not-allowed bg-raised text-dim"
                 : "bg-brand text-app hover:brightness-105"
             }`}
           >
-            Execute selected quote
+            {busy?.kind === "EXECUTE" ? "Executing…" : "Execute selected quote"}
           </button>
         </div>
       </div>
@@ -271,6 +289,9 @@ export function RfqQuotePanel({
           const expired = Date.parse(quote.expiresAt) <= now;
           const fullSize = quote.capacityLots + 1e-9 >= requestedLots;
           const selectable = !expired && fullSize;
+          // Locking takes several wallet prompts; a quote about to expire would leave the selection half done.
+          const tooClose = tooCloseToExpiry(quote, rfqRequest, now);
+          const selecting = busy?.kind === "SELECT" && busy.quoteId === quote.id;
           return (
             <li key={quote.id} className="px-3 py-2">
               <div className="flex items-baseline justify-between gap-2">
@@ -305,10 +326,11 @@ export function RfqQuotePanel({
                 {selectable ? (
                   <button
                     type="button"
-                    onClick={() => onSelectRfqQuote?.(quote.id)}
-                    className="focus-ring h-8 shrink-0 rounded-md border border-line px-2.5 text-xs text-ink transition-colors hover:border-line-strong"
+                    disabled={busy !== null || tooClose}
+                    onClick={() => void act({ kind: "SELECT", quoteId: quote.id }, onSelectRfqQuote && (() => onSelectRfqQuote(quote.id)))}
+                    className="focus-ring h-8 shrink-0 rounded-md border border-line px-2.5 text-xs text-ink transition-colors hover:border-line-strong disabled:cursor-not-allowed disabled:text-dim disabled:opacity-70"
                   >
-                    Select quote
+                    {selecting ? "Selecting…" : tooClose ? "Too close to expiry" : "Select quote"}
                   </button>
                 ) : null}
               </div>
@@ -324,10 +346,11 @@ export function RfqQuotePanel({
       <div className="px-3 py-3">
         <button
           type="button"
-          onClick={() => onCancelRfq?.()}
-          className="focus-ring h-11 w-full rounded-md border border-line text-sm text-dim transition-colors hover:border-line-strong hover:text-ink lg:h-9"
+          disabled={busy !== null}
+          onClick={() => void act({ kind: "CANCEL" }, onCancelRfq)}
+          className="focus-ring h-11 w-full rounded-md border border-line text-sm text-dim transition-colors hover:border-line-strong hover:text-ink disabled:cursor-not-allowed disabled:opacity-60 lg:h-9"
         >
-          Cancel request
+          {cancelLabel("Cancel request")}
         </button>
       </div>
     </div>
