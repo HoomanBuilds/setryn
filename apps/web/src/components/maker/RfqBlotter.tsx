@@ -22,6 +22,12 @@ function quoteError(error: unknown): string {
     RFQ_EXPIRED: "Request expired.",
     RFQ_QUOTE_NOT_FOUND: "No maker quote to withdraw.",
     MAKER_SIGNER_UNCONFIGURED: "No designated maker is configured on this network.",
+    RFQ_NOT_COLLECTING: "Request is no longer collecting quotes.",
+    QUOTE_OUTSIDE_MAKER_PRICE: "Price is better for the taker than the maker's own side. Quote at or beyond it.",
+    FEE_SCHEDULE_CHANGED: "Protocol fees changed since the request was signed, so it can no longer be quoted.",
+    QUOTE_ABOVE_REQUEST_LIMIT: "Capacity or fee cap exceeds the request's size or fee cap.",
+    PARTIAL_QUOTE_NOT_ALLOWED: "Request is all-or-none; quote its full size.",
+    RFQ_SELECTION_LOCKED: "The taker already locked a quote on this request.",
   };
   return messages[error.message.split(/[\s:]/)[0]] ?? "The maker quote did not complete.";
 }
@@ -62,7 +68,7 @@ export function RfqBlotter({
   makerSigner: boolean | null;
   working: boolean;
   onCancel: (quote: WorkingQuote) => void;
-  onNotice: (message: string) => void;
+  onNotice: (message: string, tone?: "ok" | "error") => void;
 }) {
   const snapshot = useGatewaySnapshot();
   const gateway = useInternalGateway();
@@ -117,9 +123,9 @@ export function RfqBlotter({
       });
       const posted = makerQuote(updated);
       setActiveId(null);
-      onNotice(`${reprice ? "Maker quote repriced" : "Maker quote posted"} on ${request.id.slice(0, 10)} at ${posted ? posted.packagePrice : priceInput}.`);
+      onNotice(`${reprice ? "Maker quote repriced" : "Maker quote posted"} on ${request.id.slice(0, 10)} at ${posted ? posted.packagePrice : priceInput}.`, "ok");
     } catch (error) {
-      onNotice(quoteError(error));
+      onNotice(quoteError(error), "error");
     } finally {
       setBusy(false);
     }
@@ -131,9 +137,9 @@ export function RfqBlotter({
     try {
       await gateway.withdrawLocalMakerQuote(request.id);
       if (activeId === request.id) setActiveId(null);
-      onNotice(`Maker quote withdrawn on ${request.id.slice(0, 10)}.`);
+      onNotice(`Maker quote withdrawn on ${request.id.slice(0, 10)}.`, "ok");
     } catch (error) {
-      onNotice(quoteError(error));
+      onNotice(quoteError(error), "error");
     } finally {
       setBusy(false);
     }

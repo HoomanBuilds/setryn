@@ -17,6 +17,11 @@ import { CapitalPlane, DeskHealth, Inventory, MarketTerms, QuoteComposer, QuoteS
 import { QuoteLadder } from "./QuoteLadder";
 import { RfqBlotter } from "./RfqBlotter";
 
+/** The status line's tone: the last action failed, succeeded, or nothing has happened yet. */
+type NoticeTone = "idle" | "ok" | "error";
+
+const NOTICE_DOT: Record<NoticeTone, string> = { idle: "bg-dim", ok: "bg-up", error: "bg-down" };
+
 function shortAddress(address: string | null): string {
   return address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "No wallet";
 }
@@ -98,7 +103,11 @@ export function MakerCockpit() {
   const runtime = useDeploymentRuntime();
   const operator = useOperatorStatus();
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [notice, setNotice] = useState("Quotes are signed by your wallet and rest on the public book.");
+  const [notice, setNoticeState] = useState<{ text: string; tone: NoticeTone }>({
+    text: "Quotes are signed by your wallet and rest on the public book.",
+    tone: "idle",
+  });
+  const setNotice = (text: string, tone: NoticeTone = "idle") => setNoticeState({ text, tone });
   const [working, setWorking] = useState(false);
 
   const connected = snapshot.wallet.status === "CONNECTED";
@@ -134,7 +143,7 @@ export function MakerCockpit() {
   const expiry = selected ? expiryAt(selected.market, runtimeMarket(runtime.data, selected.market.id)) : null;
 
   const connect = () => {
-    gateway.connectWallet().catch((error: unknown) => setNotice(makerError(error, "Wallet connection was not completed.")));
+    gateway.connectWallet().catch((error: unknown) => setNotice(makerError(error, "Wallet connection was not completed."), "error"));
   };
 
   const postQuote = async (action: "BUY" | "SELL", price: number, lots: number) => {
@@ -194,10 +203,10 @@ export function MakerCockpit() {
         await postQuote("SELL", onTick(draft.ask, market), draft.lots);
         posted.push(`ask ${formatNumber(onTick(draft.ask, market), market.priceDecimals)}`);
       }
-      setNotice(`Posted ${posted.join(" and ")} for ${draft.lots} ${draft.lots === 1 ? "lot" : "lots"} on ${market.id}.`);
+      setNotice(`Posted ${posted.join(" and ")} for ${draft.lots} ${draft.lots === 1 ? "lot" : "lots"} on ${market.id}.`, "ok");
     } catch (error) {
       const prefix = posted.length > 0 ? `Posted ${posted.join(" and ")}; the other side failed: ` : "";
-      setNotice(`${prefix}${makerError(error, "The quote was not posted.")}`);
+      setNotice(`${prefix}${makerError(error, "The quote was not posted.")}`, "error");
     } finally {
       setWorking(false);
     }
@@ -212,9 +221,9 @@ export function MakerCockpit() {
         await gateway.cancelRestingOrder(quote.order.id);
         cancelled += 1;
       }
-      setNotice(`Cancelled ${cancelled} ${cancelled === 1 ? "quote" : "quotes"} (${scope}).`);
+      setNotice(`Cancelled ${cancelled} ${cancelled === 1 ? "quote" : "quotes"} (${scope}).`, "ok");
     } catch (error) {
-      setNotice(`Cancelled ${cancelled} of ${quotes.length} (${scope}). ${makerError(error, "A cancellation failed.")}`);
+      setNotice(`Cancelled ${cancelled} of ${quotes.length} (${scope}). ${makerError(error, "A cancellation failed.")}`, "error");
     } finally {
       setWorking(false);
     }
@@ -360,9 +369,13 @@ export function MakerCockpit() {
 
       <div className="sticky bottom-0 z-10 flex min-h-9 shrink-0 items-center justify-between gap-3 rounded-lg border border-line bg-inset/95 px-3 py-2 backdrop-blur">
         <p aria-live="polite" className="flex min-w-0 items-center gap-2 text-xs text-dim">
-          <span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${working ? "bg-brand" : "bg-up"}`} />
-          <span key={notice} className={`${deskMotion.fade} truncate`}>
-            {working ? "Waiting for the wallet and the chain..." : notice}
+          <span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${working ? "bg-brand" : NOTICE_DOT[notice.tone]}`} />
+          <span
+            key={notice.text}
+            title={working ? undefined : notice.text}
+            className={`${deskMotion.fade} truncate ${!working && notice.tone === "error" ? "text-down" : ""}`}
+          >
+            {working ? "Waiting for the wallet and the chain..." : notice.text}
           </span>
         </p>
         <span className="hidden shrink-0 font-mono text-[10px] text-off sm:inline">

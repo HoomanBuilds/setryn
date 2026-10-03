@@ -10,6 +10,7 @@ import { useChainNow, useMarketBoard } from "@/components/market-data/MarketData
 import { MarketMark } from "@/components/portfolio/MarketMark";
 import { Meter, Metric, Panel, PanelHead, deskMotion } from "@/components/strategies/desk/Desk";
 import { auctionHouseOf } from "@/lib/auctions/reader";
+import { describeActionError } from "@/lib/internal-gateway/action-errors";
 import { useDeploymentRuntime, useOperatorStatus } from "@/lib/operations/hooks";
 import { recoveryItems, requestStats, solverOpportunities } from "@/lib/solver/model";
 import type { OpportunityState, RecoveryItem, SolverOpportunity } from "@/lib/solver/types";
@@ -98,7 +99,7 @@ export function SolverCockpit() {
   const now = useChainNow();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ text: string; ok: boolean } | null>(null);
 
   const opportunities = useMemo(() => solverOpportunities(snapshot, board.markets, board.snapshot, now), [board.markets, board.snapshot, now, snapshot]);
   const stats = useMemo(() => requestStats(opportunities), [opportunities]);
@@ -116,9 +117,9 @@ export function SolverCockpit() {
     setNotice(null);
     try {
       await gateway.cancelRfq(item.id);
-      setNotice(`Expired request ${item.id.slice(0, 10)}….`);
+      setNotice({ text: `Expired request ${item.id.slice(0, 10)}… and released its reserved collateral.`, ok: true });
     } catch (error) {
-      setNotice(error instanceof Error && /reject|denied/i.test(error.message) ? "The wallet declined the transaction." : "The request could not be expired.");
+      setNotice({ text: describeActionError(error, { fallback: "The request could not be expired." }), ok: false });
     } finally {
       setBusy(null);
     }
@@ -221,7 +222,11 @@ export function SolverCockpit() {
                 {wallet.connected ? "No private requests yet. Requests you send from the RFQ builder appear here with every quote they receive." : "Connect a wallet to read its private requests."}
               </p>
             )}
-            {notice ? <p className="border-t border-line px-3 py-2 text-[11px] text-dim">{notice}</p> : null}
+            {notice ? (
+              <p role={notice.ok ? "status" : "alert"} className={`border-t border-line px-3 py-2 text-[11px] ${notice.ok ? "text-up" : "text-down"}`}>
+                {notice.text}
+              </p>
+            ) : null}
           </Panel>
 
           <RoutePlanPanel opportunity={selected} market={selectedMarket} now={now} />
