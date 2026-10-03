@@ -9,6 +9,7 @@ import {
   EyeOff,
   Lock,
   LockOpen,
+  List,
   Magnet,
   Maximize2,
   Minimize2,
@@ -268,6 +269,7 @@ interface ChartPrefs {
   indicators: IndicatorId[];
   scale: ScaleMode;
   magnet: boolean;
+  showLegend: boolean;
 }
 
 const DEFAULT_PREFS: ChartPrefs = {
@@ -276,6 +278,7 @@ const DEFAULT_PREFS: ChartPrefs = {
   indicators: ["volume", "ma7", "ma25"],
   scale: "normal",
   magnet: false,
+  showLegend: false,
 };
 const NO_DRAWINGS: Drawing[] = [];
 
@@ -299,6 +302,7 @@ function parsePrefs(value: unknown): ChartPrefs | undefined {
         ? record.scale
         : DEFAULT_PREFS.scale,
     magnet: record.magnet === true,
+    showLegend: record.showLegend === true,
   };
 }
 
@@ -412,7 +416,7 @@ export function PackagePriceChart({
   });
 
   const [prefs, setPrefs] = usePersistentState(CHART_PREFS_KEY, DEFAULT_PREFS, parsePrefs);
-  const { interval, style, indicators, scale, magnet } = prefs;
+  const { interval, style, indicators, scale, magnet, showLegend } = prefs;
   const [autoScale, setAutoScale] = useState(true);
   const [menu, setMenu] = useState<Menu>(null);
   const [indicatorQuery, setIndicatorQuery] = useState("");
@@ -1766,6 +1770,13 @@ export function PackagePriceChart({
           ) : null}
         </div>
         <span className="flex-1" />
+        <ToolbarButton
+          label={showLegend ? "Hide chart values" : "Show chart values"}
+          active={showLegend}
+          onClick={() => setPrefs((current) => ({ ...current, showLegend: !current.showLegend }))}
+        >
+          <List size={14} aria-hidden="true" />
+        </ToolbarButton>
         <ToolbarButton label="Save chart image" onClick={screenshot}>
           <Camera size={14} aria-hidden="true" />
         </ToolbarButton>
@@ -1863,8 +1874,8 @@ export function PackagePriceChart({
               </span>
             </div>
           ) : null}
-          {readout ? (
-            <div className="pointer-events-none absolute top-0 left-0 z-10 flex max-w-[calc(100%-72px)] flex-col gap-0.5 rounded-br-md border-r border-b border-line bg-panel/90 px-3 py-2 shadow-sm backdrop-blur-sm">
+          {readout && showLegend ? (
+            <div className="pointer-events-none absolute top-0 left-0 z-10 flex max-w-[calc(100%-72px)] flex-col gap-0.5 px-3 py-1.5 [text-shadow:0_0_4px_var(--color-panel),0_0_8px_var(--color-panel)]">
               <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 font-mono text-[11px]">
                 <span className="font-sans text-xs text-dim">
                   <span className="text-ink">{market.id}</span>
