@@ -1,0 +1,18 @@
+[Unit]
+Description=Setryn market-data freshness check (fails when any ingest stream is older than five minutes)
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/setryn
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/setryn/market-data.env
+ExecStart=/usr/bin/node --experimental-strip-types --no-warnings services/market-data-ingester/src/bin/ingest.ts --environment arbitrum-sepolia --health --max-age-seconds 300
+TimeoutStartSec=2min
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

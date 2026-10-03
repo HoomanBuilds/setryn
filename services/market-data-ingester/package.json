@@ -1,0 +1,24 @@
+{
+  "name": "@setryn/market-data-ingester",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --no-warnings --test test/*.test.ts",
+    "ingest": "node --experimental-strip-types --no-warnings src/bin/ingest.ts"
+  },
+  "dependencies": {
+    "@setryn/market-data": "workspace:*",
+    "@setryn/operator-runtime": "workspace:*",
+    "@setryn/persistence": "workspace:*",
+    "viem": "^2.56.9"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.24",
+    "typescript": "^5.8.2"
+  }
+}

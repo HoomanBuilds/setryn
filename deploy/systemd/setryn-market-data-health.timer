@@ -1,0 +1,11 @@
+[Unit]
+Description=Check Setryn market-data freshness every five minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Unit=setryn-market-data-health.service
+
+[Install]
+WantedBy=timers.target

@@ -16,6 +16,9 @@ importers:
       '@rainbow-me/rainbowkit':
         specifier: ^2.2.11
         version: 2.2.11(@tanstack/react-query@5.104.0(react@19.2.8))(@types/react@19.3.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@5.9.3)(viem@2.56.9(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@3.25.76))(wagmi@2.19.5(@tanstack/query-core@5.104.0)(@tanstack/react-query@5.104.0(react@19.2.8))(@types/react@19.3.0)(bufferutil@4.1.0)(debug@4.4.3(supports-color@7.2.0))(react@19.2.8)(supports-color@7.2.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(viem@2.56.9(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@3.25.76))(zod@3.25.76))
+      '@setryn/market-data':
+        specifier: workspace:*
+        version: link:../../packages/market-data
       '@setryn/persistence':
         specifier: workspace:*
         version: link:../../packages/persistence
@@ -105,6 +108,19 @@ importers:
         specifier: ^5.8.2
         version: 5.9.3
 
+  packages/market-data:
+    dependencies:
+      viem:
+        specifier: ^2.56.9
+        version: 2.56.9(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.6.5)
+    devDependencies:
+      '@types/node':
+        specifier: ^20.17.24
+        version: 20.19.43
+      typescript:
+        specifier: ^5.8.2
+        version: 5.9.3
+
   packages/persistence:
     dependencies:
       postgres:
@@ -155,6 +171,28 @@ importers:
       '@setryn/internal-schemas':
         specifier: workspace:*
         version: link:../../packages/internal-schemas
+    devDependencies:
+      '@types/node':
+        specifier: ^20.17.24
+        version: 20.19.43
+      typescript:
+        specifier: ^5.8.2
+        version: 5.9.3
+
+  services/market-data-ingester:
+    dependencies:
+      '@setryn/market-data':
+        specifier: workspace:*
+        version: link:../../packages/market-data
+      '@setryn/operator-runtime':
+        specifier: workspace:*
+        version: link:../operator-runtime
+      '@setryn/persistence':
+        specifier: workspace:*
+        version: link:../../packages/persistence
+      viem:
+        specifier: ^2.56.9
+        version: 2.56.9(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.6.5)
     devDependencies:
       '@types/node':
         specifier: ^20.17.24
