@@ -26,8 +26,8 @@ const MESSAGES: Record<string, string> = {
   FULL_POSITION_EXIT_REQUIRED: "Select the complete open quantity for this lifecycle exit.",
   EXIT_REQUIRES_FOK: "Lifecycle exits require fill-or-kill execution.",
   EXIT_REQUIRES_FIRM_QUOTE: "Full exits use the atomic firm maker route. Wait for a firm quote or settle the position at expiry.",
-  POST_ONLY_WOULD_CROSS: "The book moved and this post-only order would take liquidity, so it was cancelled without a fill. Reprice behind the touch.",
-  RESTING_ORDER_WOULD_CROSS: "The book moved and this limit now crosses, so it was cancelled without a fill. Resubmit to execute against the book.",
+  POST_ONLY_WOULD_CROSS: "The book moved and this post-only order would now take liquidity, so it was not placed. Reprice behind the touch.",
+  RESTING_ORDER_WOULD_CROSS: "The book moved and this limit now crosses, so it was not rested. Resubmit to execute against the book.",
   EXIT_REQUIRES_COUNTERPARTY_MAKER: "The close must use the qualified maker that owns the original counterparty position.",
   QUOTE_SIZE_EXCEEDED: "The firm quote covers fewer lots than requested. Reduce the size or use the public book.",
   QUOTE_VERSION_STALE: "The series was re-versioned since this quote was signed. Wait a moment for a fresh quote.",
@@ -86,9 +86,15 @@ const MESSAGES: Record<string, string> = {
   ORDER_NOT_MARKETABLE: "The limit does not cross the best public-book price.",
   FOK_NOT_FILLED: "The public book cannot fill the complete FOK quantity.",
   MAKER_RISK_ADMISSION_MISSING: "The best maker quote no longer has valid risk capacity.",
-  MAKER_ORDER_EXPIRED: "The best resting maker order expired before it could be matched. No fill was created; try again.",
-  MATCH_FAILED: "The public-book match reverted before a fill was created.",
-  CLEARING_EVIDENCE_MISSING: "The clearing transaction completed without the required fill evidence.",
+  MAKER_ORDER_EXPIRED: "The best resting maker order expired before it could be matched. Try again.",
+  MATCH_FAILED: "The public-book match was refused, so no fill was created.",
+  RESERVATION_UNBOUND:
+    "You declined binding the order in your wallet, so nothing was submitted. The collateral reserved for it is released when the reservation expires in a few minutes.",
+  MATCH_DECLINED:
+    "You declined the match in your wallet, so nothing filled. The order stays registered with its collateral reserved until it expires in a few minutes; the reservation is then released.",
+  ORDER_PLACEMENT_FAILED: "The order could not be placed on the book.",
+  CLEARING_EVIDENCE_MISSING: "The clearing transaction confirmed, but its fill could not be read back. Check Activity before trying again.",
+  RISK_SERVICE_UNAVAILABLE: "Setryn's risk service is unavailable right now, so nothing was submitted. Try again shortly.",
   REMAINDER_PLACEMENT_FAILED: "The matched quantity cleared, but the remaining quantity could not be placed on the public book.",
   UNSUPPORTED_ONCHAIN_MARKET: "This market is not open for trading right now.",
   FEE_SCHEDULE_CHANGED: "Protocol fees changed while this order was being reviewed. The estimate now shows the active schedule; review it and submit again.",
@@ -153,6 +159,9 @@ export function shortHash(hash: string): string {
   return hash.length > 14 ? `${hash.slice(0, 8)}…${hash.slice(-6)}` : hash;
 }
 
+/** Codes for an order that did not clear, after which the gateway withdrew it and released its collateral. */
+const NOT_CLEARED = new Set(["NO_ONCHAIN_LIQUIDITY", "MAKER_ORDER_EXPIRED", "ORDER_NOT_MARKETABLE", "FOK_NOT_FILLED", "MAKER_RISK_ADMISSION_MISSING", "MATCH_FAILED", "POST_ONLY_WOULD_CROSS", "RESTING_ORDER_WOULD_CROSS", "ORDER_PLACEMENT_FAILED"]);
+
 function landed(completed: readonly CompletedStep[]): string {
   const labels = completed.map((step) => step.label);
   return labels.length === 1 ? `"${labels[0]}" already confirmed` : `${labels.length} steps already confirmed (${labels.join(", ")})`;
@@ -160,6 +169,8 @@ function landed(completed: readonly CompletedStep[]): string {
 
 /** The decoded contract error name along an error's cause chain, if any. */
 export function revertName(error: unknown): string | null {
+  // A step's ActionError wraps the chain client's error.
+  while (error instanceof ActionError) error = error.cause;
   if (!(error instanceof BaseError)) return null;
   const reverted = error.walk((cause) => cause instanceof ContractFunctionRevertedError);
   return reverted instanceof ContractFunctionRevertedError ? (reverted.data?.errorName ?? null) : null;
@@ -196,10 +207,16 @@ export function describeActionError(
   const overrides = options.overrides ?? {};
   const fallback = options.fallback ?? GENERIC_FAILURE;
   if (error instanceof ActionError) {
-    const { code, completed, failedStep, transactionHash } = error;
+    const { code, failedStep, transactionHash } = error;
+    // Signatures and server requests leave nothing onchain; only confirmed transactions count as landed.
+    const completed = error.completed.filter((step) => step.transactionHash);
     const step = failedStep ? `"${failedStep}"` : "The next step";
     if (code === "WALLET_REJECTED") {
-      if (completed.length === 0) return "The request was rejected in your wallet. Nothing was signed or submitted.";
+      if (completed.length === 0) {
+        return error.completed.length === 0
+          ? "The request was rejected in your wallet. Nothing was signed or submitted."
+          : "The request was rejected in your wallet. Nothing was submitted.";
+      }
       return `You declined ${step} in your wallet, so it was not sent; ${landed(completed)}. Nothing else changed.`;
     }
     if (code === "TRANSACTION_PENDING") {
@@ -211,7 +228,22 @@ export function describeActionError(
       const before = completed.length > 0 ? ` ${landed(completed)[0].toUpperCase()}${landed(completed).slice(1)}.` : "";
       return `${step} reverted onchain${transactionHash ? ` (${shortHash(transactionHash)})` : ""}.${why}${before}`;
     }
+    if (code.startsWith("UNFILLED_ORDER_HELD:")) {
+      // The order did not clear and withdrawing it did not finish either: its collateral is not free yet.
+      const reason = code.slice("UNFILLED_ORDER_HELD:".length);
+      const base = codeMessage(reason, overrides) ?? "The order did not fill.";
+      const why = isWalletRejection(error.cause) ? `you declined ${step} in your wallet` : `${step} did not complete`;
+      return `${base} Nothing filled, but ${why}, so the order's collateral stays reserved until it expires in a few minutes; it is then released.`;
+    }
+    if (code === "REPLACEMENT_NOT_PLACED") {
+      return `The original order was cancelled, but the replacement was not placed. ${describeActionError(error.cause, options)}`;
+    }
     const base = codeMessage(code, overrides) ?? describeRaw(error.cause, fallback, overrides);
+    if (NOT_CLEARED.has(code)) {
+      const reason = revertName(error.cause);
+      const why = reason ? ` ${REVERTS[reason] ?? `The contract refused it (${reason}).`}` : "";
+      return `${base}${why} Nothing filled; the order was withdrawn and its reserved collateral released.`;
+    }
     return completed.length > 0 ? `${base} (${landed(completed)}.)` : base;
   }
   return describeRaw(error, fallback, overrides);

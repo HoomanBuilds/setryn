@@ -224,6 +224,14 @@ export interface TrackedAction {
   finishedAt: number | null;
 }
 
+/** How a finished tracked action reads in the action dock. */
+export interface TrackedActionOutcome {
+  message: string;
+  transactionHash?: string | null;
+  href?: string | null;
+  hrefLabel?: string | null;
+}
+
 export interface GatewaySnapshot {
   environment: RuntimeEnvironment;
   wallet: {
@@ -434,6 +442,7 @@ export type SubmissionStepId =
   | "INCLUDED"
   | "FILLED"
   | "IOC_CANCELLED"
+  | "REMAINDER_RESTING"
   | "POSITION_CREATED"
   | "POSITION_UPDATED"
   | "POSITION_CLOSED"
@@ -480,6 +489,8 @@ export type OrderExecutionStatus =
 export interface OrderExecutionProgress {
   status: OrderExecutionStatus;
   updates: SubmissionUpdate[];
+  /** The wallet or chain step in flight (sign, confirm, waiting for inclusion), while the order executes. */
+  wallet?: ActionProgress | null;
   authorization?: SignedOrderAuthorization;
   restingOrder?: RestingPackageOrder;
   result?: PackageExecutionResult;
@@ -505,23 +516,35 @@ export interface InternalTradingGateway {
   /** The connect prompt closed without a wallet; a pending connectWallet rejects. */
   cancelWalletConnection(): void;
   submitCollateralIntent(intent: CollateralIntent, onProgress?: ProgressListener): Promise<CollateralIntentResult>;
-  authorizeOrder(intent: PackageOrderIntent): Promise<SignedOrderAuthorization>;
+  /**
+   * Approves clearing if needed, signs the order, reserves its risk and binds the reservation. `onProgress` reports each
+   * wallet step; a failure is an ActionError naming the step and what already landed.
+   */
+  authorizeOrder(intent: PackageOrderIntent, onProgress?: ProgressListener): Promise<SignedOrderAuthorization>;
+  /**
+   * Registers and matches an authorized order. An order that does not clear is withdrawn and its collateral released
+   * before the error is thrown; a partial fill's remainder rests (GTC/GTD) or is cancelled (IOC) as its own step.
+   */
   submitAuthorizedOrder(
     authorization: SignedOrderAuthorization,
     onUpdate: (update: SubmissionUpdate) => void,
+    onProgress?: ProgressListener,
   ): Promise<PackageExecutionResult>;
   /** Signs a taker order against a firm streaming quote and settles both in one transaction through the router. */
   settleFirmQuote(
     intent: PackageOrderIntent,
     quote: FirmQuote,
     onUpdate: (update: SubmissionUpdate) => void,
+    onProgress?: ProgressListener,
   ): Promise<PackageExecutionResult>;
-  placeRestingOrder(authorization: SignedOrderAuthorization): Promise<RestingPackageOrder>;
+  placeRestingOrder(authorization: SignedOrderAuthorization, onProgress?: ProgressListener): Promise<RestingPackageOrder>;
+  /** Cancels the working order, then places the replacement; a replacement that fails after the cancel says so. */
   replaceRestingOrder(
     oldOrderId: string,
     authorization: SignedOrderAuthorization,
+    onProgress?: ProgressListener,
   ): Promise<RestingPackageOrder>;
-  cancelRestingOrder(orderId: string): Promise<RestingPackageOrder>;
+  cancelRestingOrder(orderId: string, onProgress?: ProgressListener): Promise<RestingPackageOrder>;
   reconcileRestingOrders(markets: readonly PackageMarket[]): RestingPackageOrder[];
   requestRfq(authorization: SignedOrderAuthorization, onProgress?: ProgressListener): Promise<RfqRequest>;
   selectRfqQuote(requestId: string, quoteId: string, onProgress?: ProgressListener): Promise<RfqRequest>;
@@ -537,6 +560,15 @@ export interface InternalTradingGateway {
   refreshLifecycles(): Promise<void>;
   /** Runs one terminal lifecycle action on a position, signed by the connected wallet. */
   runLifecycleAction(positionId: string, action: LifecycleActionKey, onProgress?: ProgressListener): Promise<LifecycleActionResult>;
+  /**
+   * Runs a multi-call user flow (a trade from the ticket) as one entry in the action dock: its steps while in flight,
+   * then `outcome`'s message or the failure. The flow's own result or error is returned or rethrown unchanged.
+   */
+  trackAction<T>(
+    title: string,
+    work: (onProgress: ProgressListener) => Promise<T>,
+    outcome: (value: T) => TrackedActionOutcome,
+  ): Promise<T>;
   /** Removes a finished action from the action dock. */
   dismissAction(actionId: string): void;
   /** Asks the test-USDC faucet (local chain and mintable Sepolia) to grant USDC to the connected wallet. */

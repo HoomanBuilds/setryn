@@ -92,6 +92,11 @@ export class ActionSteps {
     this.total = Math.max(total, this.#step);
   }
 
+  /** Sets the expected count to the steps taken so far plus `count` more (a cleanup or a remainder). */
+  planRemaining(count: number): void {
+    this.total = this.#step + count;
+  }
+
   #emit(label: string, phase: ActionPhase, transactionHash?: Hex): void {
     this.onProgress?.({ step: this.#step, total: Math.max(this.total, this.#step), label, phase, ...(transactionHash ? { transactionHash } : {}) });
   }
@@ -128,6 +133,11 @@ export class ActionSteps {
     }
   }
 
+  /** A transaction someone else sent (a relayer): reports it and waits for inclusion like one of the action's own. */
+  async confirm(label: string, hash: Hex): Promise<TransactionReceipt> {
+    return this.transaction(label, async () => hash);
+  }
+
   async signature<T>(label: string, sign: () => Promise<T>): Promise<T> {
     this.#step += 1;
     this.#emit(label, "SIGN");
@@ -153,6 +163,23 @@ export class ActionSteps {
       this.#fail(error, label);
     }
   }
+}
+
+/**
+ * Numbers the steps of several gateway calls made for one user action (authorize, then place) as one sequence, so the
+ * count runs "Step 3 of 5, Step 4 of 5" instead of starting over at each call. A call's first step is recognised by
+ * its number going back, or by the same number starting again after it confirmed.
+ */
+export function sequenceProgress(listener: ProgressListener): ProgressListener {
+  let base = 0;
+  let last: ActionProgress | null = null;
+  return (progress) => {
+    if (last && (progress.step < last.step || (progress.step === last.step && last.phase === "CONFIRMED" && progress.phase !== "CONFIRMED"))) {
+      base += last.total;
+    }
+    last = progress;
+    listener({ ...progress, step: base + progress.step, total: base + progress.total });
+  };
 }
 
 /** One line for the step in progress: "Step 2 of 3 · Approve USDC · confirm in your wallet". */

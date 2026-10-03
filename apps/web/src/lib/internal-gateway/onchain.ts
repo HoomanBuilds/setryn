@@ -20,6 +20,7 @@ import {
   type EIP1193Provider,
   type Hex,
   type Log,
+  type TransactionReceipt,
 } from "viem";
 import { executableAction, limitCrosses } from "@/lib/terminal/economics";
 import { platformNow, setChainClockOffset } from "@/lib/terminal/clock";
@@ -95,12 +96,13 @@ import type {
   SignedOrderAuthorization,
   SubmissionUpdate,
   TrackedAction,
+  TrackedActionOutcome,
   TreasuryWithdrawal,
   TreasuryWithdrawalResult,
   WalletControls,
   WalletSession,
 } from "./types";
-import { ActionError, ActionSteps, isWalletRejection, type ActionProgress, type ProgressListener, type ReceiptReader } from "./action-progress";
+import { ActionError, ActionSteps, isWalletRejection, type ProgressListener, type ReceiptReader } from "./action-progress";
 import { COLLATERAL_COPY, describeActionError } from "./action-errors";
 
 const ACCOUNT_SALT = keccak256(stringToHex("SETRYN_PRIMARY_ACCOUNT_V1"));
@@ -624,17 +626,6 @@ const FAUCET_COPY: Readonly<Record<string, string>> = {
   FUNDING_FAILED: "The testnet faucet could not fund this wallet right now. Try again in a moment.",
 };
 
-/** What the dock says while a trade's submission steps report (SubmissionUpdate), as an action step. */
-function submissionProgress(update: SubmissionUpdate, index: number): ActionProgress {
-  return {
-    step: index,
-    total: Math.max(index, 4),
-    label: update.label,
-    phase: update.transactionHash && update.step === "SUBMITTED" ? "PENDING" : "CONFIRMED",
-    ...(update.transactionHash ? { transactionHash: update.transactionHash as Hex } : {}),
-  };
-}
-
 /** A connection the user did not complete. Code 4001 is the EIP-1193 user rejection, so callers report nothing sent. */
 function connectionRejected(): Error {
   return Object.assign(new Error("WALLET_CONNECTION_REJECTED"), { code: 4001 });
@@ -1089,7 +1080,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     return { mode, amount: request.amount, recipient, transactionHash };
   }
 
-  async authorizeOrder(intent: PackageOrderIntent): Promise<SignedOrderAuthorization> {
+  async authorizeOrder(intent: PackageOrderIntent, onProgress?: ProgressListener): Promise<SignedOrderAuthorization> {
     if (intent.side === "EXIT") throw new Error("EXIT_REQUIRES_FIRM_QUOTE");
     const { setryn, address, walletClient, publicClient } = await this.connected();
     const market = runtimeMarketByKey(setryn, intent.marketId);
@@ -1107,7 +1098,9 @@ export class OnchainTradingGateway implements InternalTradingGateway {
 
     const accountId = await this.accountId(address);
     if (intent.accountId.toLowerCase() !== accountId.toLowerCase()) throw new Error("ACCOUNT_MISMATCH");
-    await this.ensureClearingOperators(accountId);
+    const missingOperators = await this.missingClearingOperators(accountId);
+    const steps = new ActionSteps(publicClient, missingOperators.length + 3, onProgress);
+    await this.ensureClearingOperators(accountId, steps, missingOperators);
     const block = await publicClient.getBlock({ blockTag: "pending" });
     let lifetime = BigInt(240);
     if (intent.timeInForce === "GTD") {
@@ -1184,48 +1177,59 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       postOnly: intent.postOnly === true,
       reduceOnly: false,
     };
-    const signature = await walletClient.signTypedData({
-      account: address,
-      domain: {
-        name: "Setryn",
-        version: "1",
-        chainId: setryn.chainId,
-        verifyingContract: setryn.orderState,
-      },
-      types: publicOrderTypedData,
-      primaryType: "PublicOrder",
-      message: order,
-    });
+    const signature = await steps.signature("Sign the order", () =>
+      walletClient.signTypedData({
+        account: address,
+        domain: {
+          name: "Setryn",
+          version: "1",
+          chainId: setryn.chainId,
+          verifyingContract: setryn.orderState,
+        },
+        types: publicOrderTypedData,
+        primaryType: "PublicOrder",
+        message: order,
+      }),
+    );
     const orderHash = await publicClient.readContract({
       address: setryn.orderState,
       abi: orderStateAbi,
       functionName: "hashOrder",
       args: [order],
     });
-    const reservation = await fetch("/api/internal/orders/reserve-risk", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ order: serializePublicOrder(order), signature, orderHash }),
+    const riskAdmissionId = await steps.offchain("Reserve collateral with risk admission", async () => {
+      const reservation = await fetch("/api/internal/orders/reserve-risk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order: serializePublicOrder(order), signature, orderHash }),
+      });
+      const reservationResult = (await reservation.json().catch(() => ({}))) as { admissionId?: unknown; error?: unknown };
+      if (reservation.status === 503) throw new Error("RISK_SERVICE_UNAVAILABLE");
+      if (
+        !reservation.ok ||
+        typeof reservationResult.admissionId !== "string" ||
+        !/^0x[0-9a-fA-F]{64}$/.test(reservationResult.admissionId)
+      ) {
+        throw new Error("RISK_RESERVATION_FAILED");
+      }
+      return reservationResult.admissionId as Hex;
     });
-    const reservationResult = (await reservation.json()) as { admissionId?: unknown };
-    if (
-      !reservation.ok ||
-      typeof reservationResult.admissionId !== "string" ||
-      !/^0x[0-9a-fA-F]{64}$/.test(reservationResult.admissionId)
-    ) {
-      throw new Error("RISK_RESERVATION_FAILED");
+    // The reservation exists from here; an unbound one is released by the keeper when the order's deadline passes.
+    try {
+      await steps.transaction("Bind the risk reservation to the order", () =>
+        walletClient.writeContract({
+          account: address,
+          chain: this.chain(setryn),
+          address: setryn.riskAdmissionBindingRegistry,
+          abi: riskBindingAbi,
+          functionName: "bindOrderRisk",
+          args: [order, riskAdmissionId],
+        }),
+      );
+    } catch (error) {
+      if (!isWalletRejection(error)) throw error;
+      throw new ActionError("RESERVATION_UNBOUND", { failedStep: "Bind the risk reservation to the order", completed: [...steps.completed], cause: error });
     }
-    const riskAdmissionId = reservationResult.admissionId as Hex;
-    const bindingHash = await walletClient.writeContract({
-      account: address,
-      chain: this.chain(setryn),
-      address: setryn.riskAdmissionBindingRegistry,
-      abi: riskBindingAbi,
-      functionName: "bindOrderRisk",
-      args: [order, riskAdmissionId],
-    });
-    const bindingReceipt = await publicClient.waitForTransactionReceipt({ hash: bindingHash });
-    if (bindingReceipt.status !== "success") throw new Error("RISK_BINDING_FAILED");
 
     const authorization: SignedOrderAuthorization = {
       orderHash,
@@ -1244,6 +1248,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   async submitAuthorizedOrder(
     authorization: SignedOrderAuthorization,
     onUpdate: (update: SubmissionUpdate) => void,
+    onProgress?: ProgressListener,
   ): Promise<PackageExecutionResult> {
     if (authorization.intent.side === "EXIT") throw new Error("EXIT_REQUIRES_FIRM_QUOTE");
     const { setryn, address, walletClient, publicClient } = await this.connected();
@@ -1252,17 +1257,20 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     if (authorization.signer.toLowerCase() !== address.toLowerCase()) throw new Error("SIGNER_MISMATCH");
 
     const market = this.orderMarket(setryn, order);
+    const steps = new ActionSteps(publicClient, 2, onProgress);
     onUpdate({ step: "AUTHORIZED", label: "Order authorized", detail: "Signature and risk admission are bound." });
-    const registrationHash = await walletClient.writeContract({
-      account: address,
-      chain: this.chain(setryn),
-      address: setryn.orderState,
-      abi: orderStateAbi,
-      functionName: "registerSignedOrder",
-      args: [order, authorization.signature as Hex],
-    });
-    const registrationReceipt = await publicClient.waitForTransactionReceipt({ hash: registrationHash });
-    if (registrationReceipt.status !== "success") throw new Error("ORDER_REGISTRATION_FAILED");
+    const registrationHash = (
+      await steps.transaction("Register the order onchain", () =>
+        walletClient.writeContract({
+          account: address,
+          chain: this.chain(setryn),
+          address: setryn.orderState,
+          abi: orderStateAbi,
+          functionName: "registerSignedOrder",
+          args: [order, authorization.signature as Hex],
+        }),
+      )
+    ).transactionHash;
     onUpdate({
       step: "SUBMITTED",
       label: "Order registered",
@@ -1314,27 +1322,15 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     // The book holds only orders people chose to rest; the designated maker streams firm quotes instead of resting
     // orders here, and the ticket routes to them when they are better.
     const head = await readHead();
-    if (!head) {
-      await this.cancelUnmatchedOrder(authorization);
-      throw new Error("NO_ONCHAIN_LIQUIDITY");
-    }
-    if (!head.live) {
-      await this.cancelUnmatchedOrder(authorization);
-      throw new Error("MAKER_ORDER_EXPIRED");
-    }
+    if (!head) return this.withdrawUnfilled(authorization, steps, "NO_ONCHAIN_LIQUIDITY");
+    if (!head.live) return this.withdrawUnfilled(authorization, steps, "MAKER_ORDER_EXPIRED");
     const makerOrderHash = head.hash;
     const makerBookOrder = head.bookOrder;
     const makerOrderRecord = head.orderRecord;
     const crosses = order.side === 1 ? order.priceTicks >= makerBookOrder.priceTicks : order.priceTicks <= makerBookOrder.priceTicks;
-    if (!crosses) {
-      await this.cancelUnmatchedOrder(authorization);
-      throw new Error("ORDER_NOT_MARKETABLE");
-    }
+    if (!crosses) return this.withdrawUnfilled(authorization, steps, "ORDER_NOT_MARKETABLE");
     const fillLots = order.lots < makerBookOrder.remainingLots ? order.lots : makerBookOrder.remainingLots;
-    if (order.timeInForce === 4 && fillLots !== order.lots) {
-      await this.cancelUnmatchedOrder(authorization);
-      throw new Error("FOK_NOT_FILLED");
-    }
+    if (order.timeInForce === 4 && fillLots !== order.lots) return this.withdrawUnfilled(authorization, steps, "FOK_NOT_FILLED");
 
     const makerAdmissionId = await publicClient.readContract({
       address: setryn.riskAdmissionBindingRegistry,
@@ -1342,10 +1338,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       functionName: "admissionForOrder",
       args: [makerOrderHash],
     });
-    if (makerAdmissionId === EMPTY_ID) {
-      await this.cancelUnmatchedOrder(authorization);
-      throw new Error("MAKER_RISK_ADMISSION_MISSING");
-    }
+    if (makerAdmissionId === EMPTY_ID) return this.withdrawUnfilled(authorization, steps, "MAKER_RISK_ADMISSION_MISSING");
     const [takerAdmission, makerAdmission] = await Promise.all([
       publicClient.readContract({
         address: setryn.portfolioRiskEngine,
@@ -1381,20 +1374,29 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       payoffTerms: market.payoffTerms,
       channelKind: 1,
     } as const;
-    const matchHash = await walletClient.writeContract({
-      account: address,
-      chain: this.chain(setryn),
-      address: setryn.publicOrderBook,
-      abi: publicOrderBookAbi,
-      functionName: "matchSeries",
-      args: [bookId, [proposal]],
-    });
-    const matchReceipt = await publicClient.waitForTransactionReceipt({ hash: matchHash });
-    if (matchReceipt.status !== "success") {
-      // Nothing filled, so the registered taker order and its risk reservation must not be left behind.
-      await this.cancelUnmatchedOrder(authorization);
-      throw new Error("MATCH_FAILED");
+    let matchReceipt: TransactionReceipt;
+    try {
+      matchReceipt = await steps.transaction("Match against the book", () =>
+        walletClient.writeContract({
+          account: address,
+          chain: this.chain(setryn),
+          address: setryn.publicOrderBook,
+          abi: publicOrderBookAbi,
+          functionName: "matchSeries",
+          args: [bookId, [proposal]],
+        }),
+      );
+    } catch (error) {
+      // A declined match leaves the order registered; it is not withdrawn behind the user's back with another prompt.
+      if (isWalletRejection(error)) {
+        throw new ActionError("MATCH_DECLINED", { failedStep: "Match against the book", completed: [...steps.completed], cause: error });
+      }
+      // Still pending: it may yet fill, so nothing is withdrawn.
+      if (error instanceof ActionError && error.code === "TRANSACTION_PENDING") throw error;
+      // Refused in estimation or reverted onchain: nothing filled, so the order and its reservation are not left behind.
+      return this.withdrawUnfilled(authorization, steps, "MATCH_FAILED", error);
     }
+    const matchHash = matchReceipt.transactionHash;
     onUpdate({
       step: "INCLUDED",
       label: "Match included",
@@ -1416,28 +1418,58 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     });
     const fillId = matchEvents[0]?.args.fillId;
     const positionId = positionEvents[0]?.args.positionId;
-    if (!fillId || !positionId) {
-      await this.cancelUnmatchedOrder(authorization);
-      throw new Error("CLEARING_EVIDENCE_MISSING");
-    }
+    if (!fillId || !positionId) throw new ActionError("CLEARING_EVIDENCE_MISSING", { completed: [...steps.completed], transactionHash: matchHash });
     const filledLots = Number(fillLots);
     const requestedLots = Number(order.lots);
     const remainingLots = requestedLots - filledLots;
+    // The fill has landed; what happens to the remainder is reported as its own step and never undoes the fill.
+    const remainderUpdates: SubmissionUpdate[] = [];
     if (remainingLots > 0 && (order.timeInForce === 1 || order.timeInForce === 2)) {
-      const hint = await this.levelHint(bookId, order.side, order.priceTicks);
-      const placementHash = await walletClient.writeContract({
-        account: address,
-        chain: this.chain(setryn),
-        address: setryn.publicOrderBook,
-        abi: publicOrderBookAbi,
-        functionName: "placeSeriesOrder",
-        args: [authorization.orderHash as Hex, hint],
-      });
-      const placementReceipt = await publicClient.waitForTransactionReceipt({ hash: placementHash });
-      if (placementReceipt.status !== "success") throw new Error("REMAINDER_PLACEMENT_FAILED");
+      steps.planRemaining(1);
+      try {
+        const hint = await this.levelHint(bookId, order.side, order.priceTicks);
+        const placement = await steps.transaction("Rest the remainder on the book", () =>
+          walletClient.writeContract({
+            account: address,
+            chain: this.chain(setryn),
+            address: setryn.publicOrderBook,
+            abi: publicOrderBookAbi,
+            functionName: "placeSeriesOrder",
+            args: [authorization.orderHash as Hex, hint],
+          }),
+        );
+        remainderUpdates.push({
+          step: "REMAINDER_RESTING",
+          label: "Remainder resting",
+          detail: `${formatLotCount(remainingLots)} rest on the book at your limit; manage them in Orders.`,
+          transactionHash: placement.transactionHash,
+        });
+      } catch (error) {
+        console.warn("[gateway] remainder placement failed", error);
+        remainderUpdates.push({
+          step: "REMAINDER_RESTING",
+          label: "Remainder not placed",
+          detail: `${formatLotCount(remainingLots)} did not go on the book: ${describeActionError(error)} The order stays registered until it expires; its unused reservation is then released.`,
+        });
+      }
     } else if (remainingLots > 0 && order.timeInForce === 3) {
-      await this.releaseRiskReservation(authorization);
+      steps.planRemaining(2);
+      let released = true;
+      try {
+        await this.releaseRiskReservation(authorization, steps);
+      } catch (error) {
+        console.warn("[gateway] IOC remainder release failed", error);
+        released = false;
+      }
+      remainderUpdates.push({
+        step: "IOC_CANCELLED",
+        label: "Remainder cancelled",
+        detail: released
+          ? `${formatLotCount(remainingLots)} unfilled (immediate-or-cancel); their reserved collateral is released.`
+          : `${formatLotCount(remainingLots)} unfilled (immediate-or-cancel). Releasing their reservation did not complete, so it is released when the order expires.`,
+      });
     }
+    for (const update of remainderUpdates) onUpdate(update);
     return this.recordFill({
       authorization,
       order,
@@ -1455,6 +1487,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         { step: "SUBMITTED", label: "Order registered", detail: "Signed order registered onchain.", transactionHash: registrationHash },
         { step: "INCLUDED", label: "Match included", detail: "Best public liquidity cleared atomically.", transactionHash: matchHash },
       ],
+      trailingUpdates: remainderUpdates,
       onUpdate,
     });
   }
@@ -1470,6 +1503,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     intent: PackageOrderIntent,
     quote: FirmQuote,
     onUpdate: (update: SubmissionUpdate) => void,
+    onProgress?: ProgressListener,
   ): Promise<PackageExecutionResult> {
     const { setryn, address, walletClient, publicClient } = await this.connected();
     const router = setryn.quoteSettlementRouter;
@@ -1519,7 +1553,9 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       ));
       if (this.snapshot.account.available + 1e-9 < exitLiability) throw new Error(`EXIT_COLLATERAL_REQUIRED:${exitLiability}`);
     }
-    await this.ensureClearingOperators(accountId);
+    const missingOperators = await this.missingClearingOperators(accountId);
+    const steps = new ActionSteps(publicClient, missingOperators.length + 3, onProgress);
+    await this.ensureClearingOperators(accountId, steps, missingOperators);
     const fees = await this.refreshFeeSchedule(0);
     if (!fees.active && fees.source === "CHAIN") throw new Error("FEE_SCHEDULE_INACTIVE");
     const versions = marketTradingVersions(fees, market.seriesId);
@@ -1561,13 +1597,15 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     };
     const orderDomain = setrynDomain(setryn.chainId, setryn.orderState);
     const orderHash = hashTypedData({ domain: orderDomain, types: publicOrderTypedData, primaryType: "PublicOrder", message: order });
-    const orderSignature = await walletClient.signTypedData({
-      account: address,
-      domain: orderDomain,
-      types: publicOrderTypedData,
-      primaryType: "PublicOrder",
-      message: order,
-    });
+    const orderSignature = await steps.signature("Sign the order", () =>
+      walletClient.signTypedData({
+        account: address,
+        domain: orderDomain,
+        types: publicOrderTypedData,
+        primaryType: "PublicOrder",
+        message: order,
+      }),
+    );
     // No relayer is named and no fee is offered, so the same signatures settle through Setryn's relayer, any other
     // relayer, or the wallet itself.
     const terms: TakerSettlementTerms = {
@@ -1591,13 +1629,15 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       nonce,
       deadline,
     };
-    const riskSignature = await walletClient.signTypedData({
-      account: address,
-      domain: setrynDomain(setryn.chainId, setryn.riskAdmissionBindingRegistry),
-      types: orderRiskAuthorizationTypes,
-      primaryType: "SetrynOrderRiskAuthorizationV1",
-      message: risk,
-    });
+    const riskSignature = await steps.signature("Sign the risk authorization", () =>
+      walletClient.signTypedData({
+        account: address,
+        domain: setrynDomain(setryn.chainId, setryn.riskAdmissionBindingRegistry),
+        types: orderRiskAuthorizationTypes,
+        primaryType: "SetrynOrderRiskAuthorizationV1",
+        message: risk,
+      }),
+    );
     const authorized: SubmissionUpdate = {
       step: "AUTHORIZED",
       label: "Order signed",
@@ -1618,7 +1658,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       relayerFeeMinor: BigInt(0),
       payoffTerms: market.payoffTerms,
     };
-    let transactionHash: Hex | null = null;
+    let relayedHash: Hex | null = null;
+    let ambiguous = false;
     try {
       const response = await fetch("/api/quotes/settle", {
         method: "POST",
@@ -1627,41 +1668,64 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       });
       const body = (await response.json().catch(() => null)) as { transactionHash?: unknown; reason?: unknown } | null;
       if (response.ok && typeof body?.transactionHash === "string" && /^0x[0-9a-fA-F]{64}$/.test(body.transactionHash)) {
-        transactionHash = body.transactionHash as Hex;
+        relayedHash = body.transactionHash as Hex;
       } else if (response.status === 422) {
         // The router itself refused it in simulation; the wallet would only pay to see the same revert.
         throw new Error(`SETTLEMENT_REJECTED:${typeof body?.reason === "string" ? body.reason : "REVERTED"}`);
+      } else if (response.ok) {
+        ambiguous = true;
       }
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("SETTLEMENT_REJECTED")) throw error;
+      ambiguous = true;
     }
-    const relayed = transactionHash !== null;
-    if (!transactionHash) {
-      transactionHash = await walletClient.writeContract({
-        account: address,
-        chain: this.chain(setryn),
-        address: router,
-        abi: quoteSettlementRouterAbi,
-        functionName: "settle",
-        args: [settlement],
-      });
-    }
-    const submitted: SubmissionUpdate = {
-      step: "SUBMITTED",
-      label: relayed ? "Settlement relayed" : "Settlement submitted",
-      detail: relayed
-        ? "Setryn's relayer submitted your signed settlement; it pays the gas."
-        : "Submitted from your wallet: one transaction settles both sides.",
-      transactionHash,
+    // The request may have reached the relayer even though no answer came back. A settlement it already sent is
+    // followed, not sent a second time from the wallet (which would revert and read as a failure of a trade that filled).
+    if (ambiguous) relayedHash = await this.findQuoteSettlement(router, orderHash);
+    // Reported as submitted as soon as there is a hash, before inclusion.
+    let submitted: SubmissionUpdate | null = null;
+    const markSubmitted = (hash: Hex, relayed: boolean) => {
+      submitted = {
+        step: "SUBMITTED",
+        label: relayed ? "Settlement relayed" : "Settlement submitted",
+        detail: relayed
+          ? "Setryn's relayer submitted your signed settlement; it pays the gas."
+          : "Submitted from your wallet: one transaction settles both sides.",
+        transactionHash: hash,
+      };
+      onUpdate(submitted);
     };
-    onUpdate(submitted);
-    const receipt = await publicClient.waitForTransactionReceipt({ hash: transactionHash });
-    if (receipt.status !== "success") throw new Error("SETTLEMENT_REVERTED");
+    let receipt: TransactionReceipt;
+    try {
+      if (relayedHash) {
+        markSubmitted(relayedHash, true);
+        receipt = await steps.confirm("Settle through Setryn's relayer", relayedHash);
+      } else {
+        receipt = await steps.transaction("Settle from your wallet", async () => {
+          const hash = await walletClient.writeContract({
+            account: address,
+            chain: this.chain(setryn),
+            address: router,
+            abi: quoteSettlementRouterAbi,
+            functionName: "settle",
+            args: [settlement],
+          });
+          markSubmitted(hash, false);
+          return hash;
+        });
+      }
+    } catch (error) {
+      if (error instanceof ActionError && error.code === "TRANSACTION_REVERTED") {
+        throw new ActionError("SETTLEMENT_REVERTED", { failedStep: error.failedStep, completed: error.completed, transactionHash: error.transactionHash, cause: error.cause });
+      }
+      throw error;
+    }
+    const transactionHash = receipt.transactionHash;
     const settled = parseEventLogs({ abi: quoteSettlementRouterAbi, eventName: "QuoteSettled", logs: receipt.logs, strict: true });
     const positionEvents = parseEventLogs({ abi: atomicClearingAbi, eventName: "FillPositionCreated", logs: receipt.logs, strict: true });
     const fillId = settled[0]?.args.fillId;
     const positionId = positionEvents[0]?.args.positionId;
-    if (!fillId || !positionId) throw new Error("CLEARING_EVIDENCE_MISSING");
+    if (!fillId || !positionId) throw new ActionError("CLEARING_EVIDENCE_MISSING", { completed: [...steps.completed], transactionHash });
     const included: SubmissionUpdate = {
       step: "INCLUDED",
       label: "Settlement included",
@@ -1694,7 +1758,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       transactionHash,
       logs: receipt.logs,
       routeLabel: "Firm maker quote",
-      leadingUpdates: [authorized, submitted, included],
+      leadingUpdates: [authorized, ...(submitted ? [submitted] : []), included],
       closedInTransaction: exit,
       onUpdate,
     });
@@ -1705,26 +1769,58 @@ export class OnchainTradingGateway implements InternalTradingGateway {
    * reserves terminal liability. Both must be approved lock operators on the account (once per account, as for the
    * maker); a missing approval is given here, which is the only transaction an order may need before it is signed.
    */
-  private async ensureClearingOperators(accountId: Hex): Promise<void> {
+  private async missingClearingOperators(accountId: Hex): Promise<Address[]> {
+    const { setryn, publicClient } = await this.connected();
+    const operators = [setryn.atomicClearingEngine, setryn.positionEngine];
+    const approved = await Promise.all(
+      operators.map((operator) =>
+        publicClient.readContract({
+          address: setryn.collateralVault,
+          abi: vaultAbi,
+          functionName: "isLockOperator",
+          args: [accountId, operator],
+        }),
+      ),
+    );
+    return operators.filter((_, index) => !approved[index]);
+  }
+
+  private async ensureClearingOperators(accountId: Hex, steps?: ActionSteps, missing?: Address[]): Promise<void> {
     const { setryn, address, walletClient, publicClient } = await this.connected();
-    for (const operator of [setryn.atomicClearingEngine, setryn.positionEngine]) {
-      const approved = await publicClient.readContract({
-        address: setryn.collateralVault,
-        abi: vaultAbi,
-        functionName: "isLockOperator",
-        args: [accountId, operator],
+    const operators = missing ?? (await this.missingClearingOperators(accountId));
+    const run = steps ?? new ActionSteps(publicClient, operators.length, undefined);
+    for (const [index, operator] of operators.entries()) {
+      await run.transaction(
+        operators.length > 1 ? `Approve clearing for your account (${index + 1} of ${operators.length}, one time)` : "Approve clearing for your account (one time)",
+        () =>
+          walletClient.writeContract({
+            account: address,
+            chain: this.chain(setryn),
+            address: setryn.collateralVault,
+            abi: vaultAbi,
+            functionName: "setLockOperator",
+            args: [accountId, operator, true],
+          }),
+      );
+    }
+  }
+
+  /** A relayed settlement of this taker order already on chain, found by its QuoteSettled event, if any. */
+  private async findQuoteSettlement(router: Address, takerOrderHash: Hex): Promise<Hex | null> {
+    try {
+      const { publicClient } = await this.connected();
+      const latest = await publicClient.getBlockNumber();
+      const logs = await publicClient.getContractEvents({
+        address: router,
+        abi: quoteSettlementRouterAbi,
+        eventName: "QuoteSettled",
+        args: { takerOrderHash },
+        fromBlock: latest > BigInt(5_000) ? latest - BigInt(5_000) : BigInt(0),
+        toBlock: "latest",
       });
-      if (approved) continue;
-      const approvalHash = await walletClient.writeContract({
-        account: address,
-        chain: this.chain(setryn),
-        address: setryn.collateralVault,
-        abi: vaultAbi,
-        functionName: "setLockOperator",
-        args: [accountId, operator, true],
-      });
-      const approvalReceipt = await publicClient.waitForTransactionReceipt({ hash: approvalHash });
-      if (approvalReceipt.status !== "success") throw new Error("CLEARING_APPROVAL_FAILED");
+      return logs[0]?.transactionHash ?? null;
+    } catch {
+      return null;
     }
   }
 
@@ -1746,6 +1842,8 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     logs: Log[];
     routeLabel: string;
     leadingUpdates: SubmissionUpdate[];
+    /** What happened to an unfilled remainder (rested or cancelled), after the fill. */
+    trailingUpdates?: SubmissionUpdate[];
     /** An exit the router already closed in the fill's own transaction: no follow-up lifecycle step. */
     closedInTransaction?: boolean;
     onUpdate: (update: SubmissionUpdate) => void;
@@ -1763,6 +1861,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       logs,
       routeLabel,
       leadingUpdates,
+      trailingUpdates = [],
       closedInTransaction = false,
       onUpdate,
     } = fill;
@@ -1844,6 +1943,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const updates: SubmissionUpdate[] = [
       ...leadingUpdates,
       { step: "FILLED", label: "Package filled", detail: `${formatLotCount(filledLots)} filled at ${formatTicksPrice(market, executionPrice)}.`, transactionHash },
+      ...trailingUpdates,
       authorization.intent.side === "EXIT"
         ? {
             step: "POSITION_CLOSED",
@@ -1865,11 +1965,17 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       receipts: [...this.snapshot.receipts, receipt],
       executions: [...this.snapshot.executions, execution],
     });
-    await Promise.all([this.refreshAccount(), this.refreshOrders(), this.refreshPublicBook(), this.refreshActivity()]);
+    // The fill is final; a failed re-read must not turn it into a reported failure.
+    await this.refreshAfter(() => this.refreshAccount(), () => this.refreshOrders(), () => this.refreshPublicBook(), () => this.refreshActivity());
     return result;
   }
 
-  async placeRestingOrder(authorization: SignedOrderAuthorization): Promise<RestingPackageOrder> {
+  async placeRestingOrder(authorization: SignedOrderAuthorization, onProgress?: ProgressListener): Promise<RestingPackageOrder> {
+    const { publicClient } = await this.connected();
+    return this.placeRestingWith(authorization, new ActionSteps(publicClient, 2, onProgress));
+  }
+
+  private async placeRestingWith(authorization: SignedOrderAuthorization, steps: ActionSteps): Promise<RestingPackageOrder> {
     if (authorization.intent.side === "EXIT") throw new Error("EXIT_REQUIRES_FIRM_QUOTE");
     const { setryn, address, walletClient, publicClient } = await this.connected();
     const order = authorization.onchainOrder;
@@ -1877,16 +1983,16 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     if (authorization.signer.toLowerCase() !== address.toLowerCase()) throw new Error("SIGNER_MISMATCH");
     if (order.timeInForce !== 1 && order.timeInForce !== 2) throw new Error("RESTING_TIME_IN_FORCE_REQUIRED");
 
-    const registrationHash = await walletClient.writeContract({
-      account: address,
-      chain: this.chain(setryn),
-      address: setryn.orderState,
-      abi: orderStateAbi,
-      functionName: "registerSignedOrder",
-      args: [order, authorization.signature as Hex],
-    });
-    const registrationReceipt = await publicClient.waitForTransactionReceipt({ hash: registrationHash });
-    if (registrationReceipt.status !== "success") throw new Error("ORDER_REGISTRATION_FAILED");
+    await steps.transaction("Register the order onchain", () =>
+      walletClient.writeContract({
+        account: address,
+        chain: this.chain(setryn),
+        address: setryn.orderState,
+        abi: orderStateAbi,
+        functionName: "registerSignedOrder",
+        args: [order, authorization.signature as Hex],
+      }),
+    );
 
     const bookId = deriveSeriesBookId(setryn, this.orderMarket(setryn, order).seriesId, {
       seriesVersion: order.targetVersion,
@@ -1909,21 +2015,25 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         : null;
       const errorName = reverted instanceof ContractFunctionRevertedError ? reverted.data?.errorName : undefined;
       if (errorName === "PostOnlyWouldCross" || errorName === "RestingOrderWouldCross") {
-        await this.cancelUnmatchedOrder(authorization);
-        throw new Error(errorName === "PostOnlyWouldCross" ? "POST_ONLY_WOULD_CROSS" : "RESTING_ORDER_WOULD_CROSS");
+        return this.withdrawUnfilled(authorization, steps, errorName === "PostOnlyWouldCross" ? "POST_ONLY_WOULD_CROSS" : "RESTING_ORDER_WOULD_CROSS");
       }
+      return this.withdrawUnfilled(authorization, steps, "ORDER_PLACEMENT_FAILED", error);
+    }
+    try {
+      await steps.transaction("Place the order on the book", () =>
+        walletClient.writeContract({
+          account: address,
+          chain: this.chain(setryn),
+          address: setryn.publicOrderBook,
+          abi: publicOrderBookAbi,
+          functionName: "placeSeriesOrder",
+          args: [authorization.orderHash as Hex, hint],
+        }),
+      );
+    } catch (error) {
+      if (error instanceof ActionError && error.code === "TRANSACTION_REVERTED") return this.withdrawUnfilled(authorization, steps, "ORDER_PLACEMENT_FAILED", error);
       throw error;
     }
-    const placementHash = await walletClient.writeContract({
-      account: address,
-      chain: this.chain(setryn),
-      address: setryn.publicOrderBook,
-      abi: publicOrderBookAbi,
-      functionName: "placeSeriesOrder",
-      args: [authorization.orderHash as Hex, hint],
-    });
-    const placementReceipt = await publicClient.waitForTransactionReceipt({ hash: placementHash });
-    if (placementReceipt.status !== "success") throw new Error("ORDER_PLACEMENT_FAILED");
 
     const now = new Date().toISOString();
     const restingOrder: RestingPackageOrder = {
@@ -1961,17 +2071,31 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       collateralRequired: authorization.intent.collateralRequired,
     };
     this.publish({ ...this.snapshot, restingOrders: [...this.snapshot.restingOrders, restingOrder] });
-    await Promise.all([this.refreshAccount(), this.refreshPublicBook()]);
+    await this.refreshAfter(() => this.refreshAccount(), () => this.refreshPublicBook());
     return restingOrder;
   }
 
   async replaceRestingOrder(
     oldOrderId: string,
     authorization: SignedOrderAuthorization,
+    onProgress?: ProgressListener,
   ): Promise<RestingPackageOrder> {
     if (authorization.intent.side === "EXIT") throw new Error("EXIT_REQUIRES_FIRM_QUOTE");
-    const cancelled = await this.cancelRestingOrder(oldOrderId);
-    const replacement = await this.placeRestingOrder(authorization);
+    const { publicClient } = await this.connected();
+    const steps = new ActionSteps(publicClient, 6, onProgress);
+    const cancelled = await this.cancelRestingWith(oldOrderId, steps);
+    let replacement: RestingPackageOrder;
+    try {
+      replacement = await this.placeRestingWith(authorization, steps);
+    } catch (error) {
+      // The original is already gone; the user must not read this as "nothing changed".
+      throw new ActionError("REPLACEMENT_NOT_PLACED", {
+        failedStep: error instanceof ActionError ? error.failedStep : null,
+        completed: [...steps.completed],
+        transactionHash: error instanceof ActionError ? error.transactionHash : null,
+        cause: error,
+      });
+    }
     const replacedAt = new Date().toISOString();
     const replaced = { ...cancelled, state: "REPLACED" as const, replacedByOrderId: replacement.id, replacedAt };
     this.publish({
@@ -1981,8 +2105,13 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     return replacement;
   }
 
-  async cancelRestingOrder(orderId: string): Promise<RestingPackageOrder> {
-    const { setryn, address, walletClient, publicClient } = await this.connected();
+  async cancelRestingOrder(orderId: string, onProgress?: ProgressListener): Promise<RestingPackageOrder> {
+    const { publicClient } = await this.connected();
+    return this.cancelRestingWith(orderId, new ActionSteps(publicClient, 4, onProgress));
+  }
+
+  private async cancelRestingWith(orderId: string, steps: ActionSteps): Promise<RestingPackageOrder> {
+    const { setryn, address, walletClient } = await this.connected();
     const current = this.snapshot.restingOrders.find((order) => order.id === orderId);
     if (!current) throw new Error("RESTING_ORDER_NOT_FOUND");
     if (current.state !== "WORKING" && current.state !== "PARTIALLY_FILLED") {
@@ -1993,27 +2122,33 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       throw new Error("ORDER_AUTHORIZATION_UNAVAILABLE");
     }
     const orderHash = current.orderHash as Hex;
-    const cancelHash = await walletClient.writeContract({
-      account: address,
-      chain: this.chain(setryn),
-      address: setryn.orderState,
-      abi: orderStateAbi,
-      functionName: "cancelOrder",
-      args: [orderHash],
-    });
-    const cancelReceipt = await publicClient.waitForTransactionReceipt({ hash: cancelHash });
-    if (cancelReceipt.status !== "success") throw new Error("ORDER_CANCELLATION_FAILED");
-    const syncHash = await walletClient.writeContract({
-      account: address,
-      chain: this.chain(setryn),
-      address: setryn.publicOrderBook,
-      abi: publicOrderBookAbi,
-      functionName: "syncOrder",
-      args: [orderHash],
-    });
-    const syncReceipt = await publicClient.waitForTransactionReceipt({ hash: syncHash });
-    if (syncReceipt.status !== "success") throw new Error("ORDER_BOOK_SYNC_FAILED");
-    await this.releaseRiskReservation(authorization);
+    try {
+      await steps.transaction("Cancel the order", () =>
+        walletClient.writeContract({
+          account: address,
+          chain: this.chain(setryn),
+          address: setryn.orderState,
+          abi: orderStateAbi,
+          functionName: "cancelOrder",
+          args: [orderHash],
+        }),
+      );
+      await steps.transaction("Remove it from the book", () =>
+        walletClient.writeContract({
+          account: address,
+          chain: this.chain(setryn),
+          address: setryn.publicOrderBook,
+          abi: publicOrderBookAbi,
+          functionName: "syncOrder",
+          args: [orderHash],
+        }),
+      );
+      await this.releaseRiskReservation(authorization, steps);
+    } catch (error) {
+      // A cancel that landed before a later step failed still changed the order: the views re-read it.
+      if (steps.completed.some((step) => step.transactionHash)) await this.refreshAfter(() => this.refreshOrders(), () => this.refreshAccount(), () => this.refreshPublicBook());
+      throw error;
+    }
 
     const cancelled: RestingPackageOrder = {
       ...current,
@@ -2026,7 +2161,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       ...this.snapshot,
       restingOrders: this.snapshot.restingOrders.map((order) => (order.id === orderId ? cancelled : order)),
     });
-    await Promise.all([this.refreshAccount(), this.refreshPublicBook()]);
+    await this.refreshAfter(() => this.refreshAccount(), () => this.refreshPublicBook());
     return cancelled;
   }
 
@@ -4083,8 +4218,10 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     return { previousLevelId: previous, nextLevelId: EMPTY_ID };
   }
 
-  private async releaseRiskReservation(authorization: SignedOrderAuthorization): Promise<void> {
+  /** Releases an order's risk reservation: a cancellation signature, then the transaction that frees the collateral. */
+  private async releaseRiskReservation(authorization: SignedOrderAuthorization, steps?: ActionSteps): Promise<void> {
     const { setryn, address, walletClient, publicClient } = await this.connected();
+    const run = steps ?? new ActionSteps(publicClient, 2, undefined);
     if (!authorization.onchainOrder || !authorization.riskAdmissionId) {
       throw new Error("ORDER_AUTHORIZATION_UNAVAILABLE");
     }
@@ -4108,7 +4245,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       deadline: block.timestamp + BigInt(240),
       cancellationReference,
     } as const;
-    const signature = await walletClient.signTypedData({
+    const signature = await run.signature("Sign the collateral release", () => walletClient.signTypedData({
       account: address,
       domain: {
         name: "Setryn",
@@ -4129,17 +4266,17 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       },
       primaryType: "SetrynRiskAdmissionCancellationV1",
       message: cancellation,
-    });
-    const releaseHash = await walletClient.writeContract({
-      account: address,
-      chain: this.chain(setryn),
-      address: setryn.riskAdmissionBindingRegistry,
-      abi: riskBindingAbi,
-      functionName: "cancelBoundAdmission",
-      args: [cancellation, signature],
-    });
-    const releaseReceipt = await publicClient.waitForTransactionReceipt({ hash: releaseHash });
-    if (releaseReceipt.status !== "success") throw new Error("RISK_RELEASE_FAILED");
+    }));
+    await run.transaction("Release the reserved collateral", () =>
+      walletClient.writeContract({
+        account: address,
+        chain: this.chain(setryn),
+        address: setryn.riskAdmissionBindingRegistry,
+        abi: riskBindingAbi,
+        functionName: "cancelBoundAdmission",
+        args: [cancellation, signature],
+      }),
+    );
   }
 
   private async completeFullExit(sourcePositionId: Hex, closePositionId: Hex): Promise<Hex> {
@@ -4300,19 +4437,42 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     return executionHash;
   }
 
-  private async cancelUnmatchedOrder(authorization: SignedOrderAuthorization): Promise<void> {
+  private async cancelUnmatchedOrder(authorization: SignedOrderAuthorization, steps?: ActionSteps): Promise<void> {
     const { setryn, address, walletClient, publicClient } = await this.connected();
-    const cancelHash = await walletClient.writeContract({
-      account: address,
-      chain: this.chain(setryn),
-      address: setryn.orderState,
-      abi: orderStateAbi,
-      functionName: "cancelOrder",
-      args: [authorization.orderHash as Hex],
-    });
-    const cancelReceipt = await publicClient.waitForTransactionReceipt({ hash: cancelHash });
-    if (cancelReceipt.status !== "success") throw new Error("ORDER_CANCELLATION_FAILED");
-    await this.releaseRiskReservation(authorization);
+    const run = steps ?? new ActionSteps(publicClient, 3, undefined);
+    await run.transaction("Withdraw the unfilled order", () =>
+      walletClient.writeContract({
+        account: address,
+        chain: this.chain(setryn),
+        address: setryn.orderState,
+        abi: orderStateAbi,
+        functionName: "cancelOrder",
+        args: [authorization.orderHash as Hex],
+      }),
+    );
+    await this.releaseRiskReservation(authorization, run);
+  }
+
+  /**
+   * An order that did not clear is withdrawn and its reservation released before the reason is reported, so the
+   * collateral is free again. If the withdrawal itself is declined or fails, the error says the collateral stays
+   * reserved until the order expires (the keeper then releases it) instead of claiming it was released.
+   */
+  private async withdrawUnfilled(authorization: SignedOrderAuthorization, steps: ActionSteps, reason: string, cause?: unknown): Promise<never> {
+    steps.planRemaining(3);
+    try {
+      await this.cancelUnmatchedOrder(authorization, steps);
+    } catch (cleanup) {
+      throw new ActionError(`UNFILLED_ORDER_HELD:${reason}`, {
+        failedStep: cleanup instanceof ActionError ? cleanup.failedStep : null,
+        completed: [...steps.completed],
+        transactionHash: cleanup instanceof ActionError ? cleanup.transactionHash : null,
+        cause: cleanup,
+      });
+    } finally {
+      await this.refreshAfter(() => this.refreshAccount(), () => this.refreshOrders());
+    }
+    throw new ActionError(reason, { completed: [...steps.completed], cause });
   }
 
   /** Local chain only: tops the wallet up with gas through the operator's fund route. */
@@ -4363,7 +4523,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   private async track<T>(
     title: string,
     work: (progress: ProgressListener) => Promise<T>,
-    outcome: (value: T) => { message: string; transactionHash?: string | null; href?: string | null; hrefLabel?: string | null },
+    outcome: (value: T) => TrackedActionOutcome,
     options: { onProgress?: ProgressListener; failure?: (error: unknown) => string } = {},
   ): Promise<T> {
     this.actionSequence += 1;
@@ -4398,7 +4558,14 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       });
       return value;
     } catch (error) {
-      const declined = isWalletRejection(error) && !(error instanceof ActionError && error.completed.length > 0);
+      // Refused before any step reached the wallet (a validation, a stale quote): the surface that started it says why,
+      // and nothing happened that the dock needs to keep.
+      if (!this.actionById(id)?.progress) {
+        this.dismissAction(id);
+        throw error;
+      }
+      // Declined before anything landed onchain; signatures alone change nothing.
+      const declined = isWalletRejection(error) && !(error instanceof ActionError && error.completed.some((step) => step.transactionHash));
       this.patchAction(id, {
         status: declined ? "DECLINED" : "FAILED",
         message: (options.failure ?? ((reason: unknown) => describeActionError(reason)))(error),
@@ -4409,7 +4576,11 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     }
   }
 
-  private actionById(id: string): TrackedAction | undefined {
+  trackAction<T>(title: string, work: (onProgress: ProgressListener) => Promise<T>, outcome: (value: T) => TrackedActionOutcome): Promise<T> {
+    return this.track(title, work, outcome);
+  }
+
+    private actionById(id: string): TrackedAction | undefined {
     return this.snapshot.actions.find((action) => action.id === id);
   }
 
