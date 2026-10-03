@@ -123,6 +123,15 @@ const MESSAGES: Record<string, string> = {
   RFQ_SELECTION_LOCKED: "A selected quote stays locked until the request deadline, so it cannot be cancelled yet.",
   RFQ_NOT_SUBMITTED: "The selection did not reach private clearing yet. Select the quote again.",
   RFQ_CLEARING_FAILED: "Private clearing did not complete. No fill is claimed; the request stays selected.",
+  RFQ_NOT_COLLECTING: "The request is not collecting quotes, so no quote can be locked on it.",
+  RFQ_LOCKED_TO_OTHER_QUOTE: "An earlier attempt already locked another quote on this request. Execute that selection, or expire the request after its deadline.",
+  RFQ_PRICE_UNAVAILABLE: "The selected quote's price could not be read for clearing. No fill is claimed; try again shortly.",
+  RISK_ADMISSION_MISSING: "The taker or maker risk admission is no longer bound, so clearing cannot start. No fill is claimed.",
+  RFQ_CLEARING_EVIDENCE_MISSING: "Clearing confirmed onchain, but its fill evidence could not be read back. Check Activity before trying again.",
+  RFQ_EXECUTION_FAILED: "Private clearing did not complete. No fill is claimed; the request stays selected.",
+  RFQ_ALREADY_SETTLED: "This request already cleared in an earlier attempt. Its fill and receipt are in Activity.",
+  LIFECYCLE_POSITION_NOT_FOUND: "This position's onchain lifecycle could not be read. Refresh and try again.",
+  SETTLEMENT_COORDINATOR_UNAVAILABLE: "No cash settlement coordinator is configured on this network.",
   CAPACITY_LOCK_MISMATCH: "The maker's capacity changed after selection. Request fresh quotes.",
   EXERCISE_WITNESS_FAILED: "The exercise witness could not be built from the final fixing. Try again shortly.",
   FINAL_FIXING_WITNESS_MISMATCH: "The final fixing changed while exercising. Review the position and try again.",
@@ -154,6 +163,17 @@ export const COLLATERAL_COPY: Readonly<Record<string, string>> = {
 };
 
 export const GENERIC_FAILURE = "The action did not reach a final outcome. No completion is claimed; check Activity before trying again.";
+
+/**
+ * A refusal the gateway already phrased for the user: a lifecycle precondition or a decoded contract rule. Its message is
+ * the sentence, said as is wherever the failure is described.
+ */
+export class ActionRefusal extends Error {
+  constructor(sentence: string, options?: { cause?: unknown }) {
+    super(sentence, options);
+    this.name = "ActionRefusal";
+  }
+}
 
 export function shortHash(hash: string): string {
   return hash.length > 14 ? `${hash.slice(0, 8)}…${hash.slice(-6)}` : hash;
@@ -251,6 +271,7 @@ export function describeActionError(
 
 function describeRaw(error: unknown, fallback: string, overrides: Readonly<Record<string, string>>): string {
   if (!(error instanceof Error)) return fallback;
+  if (error instanceof ActionRefusal) return error.message;
   if (isWalletRejection(error)) return "The request was rejected in your wallet. Nothing was signed or submitted.";
   const coded = codeMessage(error.message, overrides);
   if (coded) return coded;

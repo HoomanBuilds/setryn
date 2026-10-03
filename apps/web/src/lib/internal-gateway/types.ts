@@ -187,6 +187,11 @@ export interface OnchainPositionLifecycle {
   settlement: OnchainSettlementRecord | null;
   /** Collateral the position still reserves on this account's side. */
   collateralReservedUsd: number;
+  /**
+   * Collateral this settlement released that the gateway already withdrew to the wallet for this position. The vault's
+   * withdrawals do not name a position, so the gateway records its own Withdraw action per position; zero when none.
+   */
+  releaseWithdrawnUsd: number;
   exerciseTransactionHash: string | null;
   /** Chain time of the read, in unix seconds. */
   observedAtSeconds: number;
@@ -259,6 +264,11 @@ export interface GatewaySnapshot {
   /** Resting public book orders of every onchain market, keyed by catalog market id. */
   publicBooks: Record<string, BookRow[]>;
   rfqRequests: RfqRequest[];
+  /**
+   * True once the connected wallet's private requests were read at least once; until then an unknown request ID is
+   * still loading, not missing. False before any wallet connects and again after the account changes.
+   */
+  rfqsLoaded: boolean;
   /** Onchain terminal lifecycle of every position the account holds or held, keyed by lowercase position id. */
   lifecycles: Record<string, OnchainPositionLifecycle>;
   /** The user's actions in flight and the last few outcomes, newest first. */
@@ -434,6 +444,11 @@ export interface RfqRequest {
   selectedQuoteId: string | null;
   receiptId: string | null;
   quotes: FirmRfqQuote[];
+  /**
+   * The designated maker's refusal code when it declined to quote as the request opened (for example
+   * REFERENCE_UNAVAILABLE). The request is committed and stays open for other makers until its deadline.
+   */
+  houseQuoteError?: string;
 }
 
 export type SubmissionStepId =
@@ -548,9 +563,14 @@ export interface InternalTradingGateway {
   reconcileRestingOrders(markets: readonly PackageMarket[]): RestingPackageOrder[];
   requestRfq(authorization: SignedOrderAuthorization, onProgress?: ProgressListener): Promise<RfqRequest>;
   selectRfqQuote(requestId: string, quoteId: string, onProgress?: ProgressListener): Promise<RfqRequest>;
+  /**
+   * Clears a selected request through private clearing. A selection that stopped after its lock first finishes the
+   * steps it still needs onchain (capacity, authorization, submission), each reported through `onProgress`.
+   */
   executeSelectedRfq(
     requestId: string,
     onUpdate: (update: SubmissionUpdate) => void,
+    onProgress?: ProgressListener,
   ): Promise<PackageExecutionResult>;
   cancelRfq(requestId: string, onProgress?: ProgressListener): Promise<RfqRequest>;
   submitLocalMakerQuote(requestId: string, input: LocalMakerQuoteInput): Promise<RfqRequest>;

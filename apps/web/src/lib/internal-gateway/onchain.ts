@@ -103,7 +103,7 @@ import type {
   WalletSession,
 } from "./types";
 import { ActionError, ActionSteps, isWalletRejection, type ProgressListener, type ReceiptReader } from "./action-progress";
-import { COLLATERAL_COPY, describeActionError } from "./action-errors";
+import { ActionRefusal, COLLATERAL_COPY, describeActionError } from "./action-errors";
 
 const ACCOUNT_SALT = keccak256(stringToHex("SETRYN_PRIMARY_ACCOUNT_V1"));
 const EMPTY_ID = `0x${"0".repeat(64)}` as Hex;
@@ -247,6 +247,18 @@ const EXERCISE_STATE_NAMES = [
   "Lapsed",
 ] as const;
 const STATUS = { live: 1, fixing: 2, settlementReady: 3, settled: 4, lapsed: 7, defaulted: 9, terminalClaim: 10 } as const;
+/** PrivateRfqBook request statuses (RfqStatus), in the order a request moves through them. */
+const RFQ_STATUS = {
+  inviting: 1,
+  collecting: 2,
+  selectionLocked: 3,
+  capacityReserved: 4,
+  authorized: 5,
+  submitted: 6,
+  clearing: 7,
+  settled: 8,
+  cancelled: 9,
+} as const;
 /** Statuses that still carry open exposure and a live terminal reservation. */
 const OPEN_POSITION_STATUSES: readonly number[] = [STATUS.live, STATUS.fixing, STATUS.settlementReady];
 const FIXING_STATUS = { proposed: 1, disputed: 2, finalized: 3 } as const;
@@ -591,6 +603,7 @@ function initialSnapshot(): GatewaySnapshot {
     publicBookOrders: [],
     publicBooks: {},
     rfqRequests: [],
+    rfqsLoaded: false,
     lifecycles: {},
     actions: [],
   };
@@ -607,6 +620,7 @@ function withoutAccount(snapshot: GatewaySnapshot): GatewaySnapshot {
     executions: empty.executions,
     restingOrders: empty.restingOrders,
     rfqRequests: empty.rfqRequests,
+    rfqsLoaded: false,
     lifecycles: empty.lifecycles,
     // Another account's finished outcomes are not this one's; work still in flight keeps reporting.
     actions: snapshot.actions.filter((action) => action.status === "IN_PROGRESS"),
@@ -676,6 +690,66 @@ export function settlementReleasable(view: OnchainPositionLifecycle): number {
   return round2(view.settlement.releasedUsd + Math.max(0, view.settlement.transferUsd));
 }
 
+function rfqHref(id: string): string {
+  return `/rfqs/${encodeURIComponent(id)}`;
+}
+
+/** Wallet prompts a selection still needs from its request's onchain status: sign and lock, capacity, authorization, submission. */
+function rfqSelectionSteps(status: number): number {
+  if (status === RFQ_STATUS.collecting) return 5;
+  return Math.max(0, RFQ_STATUS.submitted - Math.max(status, RFQ_STATUS.selectionLocked));
+}
+
+/** What the action dock calls a lifecycle action: "Exercise 2 lots", "Withdraw released collateral". */
+function lifecycleTitle(action: LifecycleActionKey, view: OnchainPositionLifecycle | undefined): string {
+  if (action === "EXERCISE") return view && view.remainingLots > 0 ? `Exercise ${formatLotCount(view.remainingLots)}` : "Exercise position";
+  if (action === "SETTLE") return "Settle position";
+  if (action === "FINALIZE") return "Finalize position";
+  const claim = view?.settlement?.claim;
+  return claim && claim.status === "ACTIVE" && claim.receivable ? "Claim terminal payout" : "Withdraw released collateral";
+}
+
+/**
+ * A lifecycle failure with a decoded contract revert restated as the condition to meet (describeLifecycleRevert), keeping
+ * the failed step and the steps that already landed.
+ */
+function lifecycleFailure(error: unknown): unknown {
+  const cause = error instanceof ActionError ? error.cause : error;
+  const reverted = revertOf(cause);
+  if (!reverted) return error;
+  const refusal = new ActionRefusal(describeLifecycleRevert(reverted.name, reverted.args), { cause });
+  if (!(error instanceof ActionError)) return refusal;
+  return new ActionError(error.code, {
+    failedStep: error.failedStep,
+    completed: error.completed,
+    transactionHash: error.transactionHash,
+    cause: refusal,
+  });
+}
+
+const RELEASE_WITHDRAWALS_KEY = "setryn:release-withdrawals";
+
+/** Released collateral withdrawn per lowercase position id, as this browser recorded it for one account on one chain. */
+function readReleaseWithdrawals(scope: string): Record<string, number> {
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(`${RELEASE_WITHDRAWALS_KEY}:${scope}`) ?? "{}");
+    if (!parsed || typeof parsed !== "object") return {};
+    return Object.fromEntries(
+      Object.entries(parsed).filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] > 0),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function writeReleaseWithdrawals(scope: string, withdrawals: Record<string, number>): void {
+  try {
+    window.localStorage.setItem(`${RELEASE_WITHDRAWALS_KEY}:${scope}`, JSON.stringify(withdrawals));
+  } catch {
+    // Storage can be unavailable (a private window, blocked site data); the record then lasts for this session only.
+  }
+}
+
 export class OnchainTradingGateway implements InternalTradingGateway {
   private snapshot = initialSnapshot();
   /** What the server renders; hydration uses it too, so live data arrives in the render after hydration. */
@@ -706,6 +780,10 @@ export class OnchainTradingGateway implements InternalTradingGateway {
   private readonly retiredBookOrders = new Set<string>();
   /** Series terminal schedules and fixing slots; both are fixed at qualification, so each is read once. */
   private readonly seriesTerminals = new Map<string, Promise<SeriesTerminal>>();
+  /** The designated maker's refusal code per lowercase RFQ id, kept across RFQ reads for the quote board. */
+  private readonly houseQuoteErrors = new Map<string, string>();
+  /** Released collateral withdrawn per position, by `${chainId}:${accountId}`; loaded from browser storage on first use. */
+  private readonly releaseWithdrawals = new Map<string, Record<string, number>>();
 
   getSnapshot = (): GatewaySnapshot => this.snapshot;
 
@@ -2169,22 +2247,49 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     return this.snapshot.restingOrders;
   }
 
-  async requestRfq(authorization: SignedOrderAuthorization): Promise<RfqRequest> {
+  async requestRfq(authorization: SignedOrderAuthorization, onProgress?: ProgressListener): Promise<RfqRequest> {
+    return this.track(
+      `Request quotes for ${authorization.intent.packageCode}`,
+      (progress) => this.commitRfq(authorization, progress),
+      (created) => ({
+        message:
+          created.quotes.length > 0
+            ? "Request committed privately and the Setryn maker answered with a firm quote. Select it before it expires."
+            : created.houseQuoteError
+              ? "Request committed privately, but the Setryn maker did not quote. Other makers can answer until its deadline; the request page says why."
+              : "Request committed privately and open for quotes until its deadline.",
+        href: rfqHref(created.id),
+        hrefLabel: "Open quote competition",
+      }),
+      { onProgress },
+    );
+  }
+
+  /**
+   * A private request, one wallet prompt per step: register the signed order, sign the request, commit it and open it
+   * for quotes; then the designated maker, where one runs, is asked for a firm quote. Every receipt is checked. A maker
+   * that declines does not fail the request, which is committed and stays open for other makers: its refusal code is
+   * kept on the request for the quote board.
+   */
+  private async commitRfq(authorization: SignedOrderAuthorization, onProgress: ProgressListener): Promise<RfqRequest> {
     if (authorization.intent.side === "EXIT") throw new Error("EXIT_REQUIRES_FIRM_QUOTE");
     const { setryn, address, walletClient, publicClient } = await this.connected();
     if (authorization.intent.disclosure !== "PRIVATE_RFQ") throw new Error("PRIVATE_RFQ_AUTHORIZATION_REQUIRED");
     if (authorization.signer.toLowerCase() !== address.toLowerCase()) throw new Error("SIGNER_MISMATCH");
     const order = authorization.onchainOrder;
-    const registrationHash = await walletClient.writeContract({
-      account: address,
-      chain: this.chain(setryn),
-      address: setryn.orderState,
-      abi: orderStateAbi,
-      functionName: "registerSignedOrder",
-      args: [order, authorization.signature as Hex],
-    });
-    const registrationReceipt = await publicClient.waitForTransactionReceipt({ hash: registrationHash });
-    if (registrationReceipt.status !== "success") throw new Error("ORDER_REGISTRATION_FAILED");
+    const chain = this.chain(setryn);
+    const { makerEnabled } = await this.operatorStatus();
+    const steps = this.steps(publicClient, makerEnabled ? 5 : 4, onProgress);
+    await steps.transaction("Register the signed order", () =>
+      walletClient.writeContract({
+        account: address,
+        chain,
+        address: setryn.orderState,
+        abi: orderStateAbi,
+        functionName: "registerSignedOrder",
+        args: [order, authorization.signature as Hex],
+      }),
+    );
 
     const nonce = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(crypto.getRandomValues(new Uint32Array(1))[0]);
     const request: OnchainPrivateRfqRequest = {
@@ -2216,64 +2321,85 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       nonce,
       salt: keccak256(stringToHex(`${authorization.orderHash}:${nonce}:rfq`)),
     };
-    const signature = await walletClient.signTypedData({
-      account: address,
-      domain: { name: "Setryn", version: "1", chainId: setryn.chainId, verifyingContract: setryn.privateRfqBook },
-      types: privateRfqRequestTypedData,
-      primaryType: "PrivateRfqRequest",
-      message: request,
-    });
+    const signature = await steps.signature("Sign the private request", () =>
+      walletClient.signTypedData({
+        account: address,
+        domain: { name: "Setryn", version: "1", chainId: setryn.chainId, verifyingContract: setryn.privateRfqBook },
+        types: privateRfqRequestTypedData,
+        primaryType: "PrivateRfqRequest",
+        message: request,
+      }),
+    );
     const rfqId = await publicClient.readContract({
       address: setryn.privateRfqBook,
       abi: privateRfqBookAbi,
       functionName: "hashRequest",
       args: [request],
     });
-    const registerHash = await walletClient.writeContract({
-      account: address,
-      chain: this.chain(setryn),
-      address: setryn.privateRfqBook,
-      abi: privateRfqBookAbi,
-      functionName: "registerRequest",
-      args: [request, [], signature],
-    });
-    await publicClient.waitForTransactionReceipt({ hash: registerHash });
-    const openHash = await walletClient.writeContract({
-      account: address,
-      chain: this.chain(setryn),
-      address: setryn.privateRfqBook,
-      abi: privateRfqBookAbi,
-      functionName: "openCollection",
-      args: [rfqId],
-    });
-    await publicClient.waitForTransactionReceipt({ hash: openHash });
-    // The designated maker, where one runs, answers at once from the live reference. Without it (or when it declines,
-    // for example on a stale reference) the request stays open onchain for other makers and can be cancelled.
+    await steps.transaction("Commit the request privately", () =>
+      walletClient.writeContract({
+        account: address,
+        chain,
+        address: setryn.privateRfqBook,
+        abi: privateRfqBookAbi,
+        functionName: "registerRequest",
+        args: [request, [], signature],
+      }),
+    );
+    try {
+      await steps.transaction("Open the request for quotes", () =>
+        walletClient.writeContract({
+          account: address,
+          chain,
+          address: setryn.privateRfqBook,
+          abi: privateRfqBookAbi,
+          functionName: "openCollection",
+          args: [rfqId],
+        }),
+      );
+    } catch (error) {
+      // The request is committed onchain, so it stays listed (and cancellable) though it never opened for quotes.
+      await this.refreshAfter(() => this.refreshRfqs());
+      throw error;
+    }
+
+    // The designated maker, where one runs, answers at once from the live reference. Without it, or when it declines
+    // (for example on a stale reference), the request stays open onchain for other makers and can be cancelled.
     const quotes: RfqRequest["quotes"] = [];
-    if ((await this.operatorStatus()).makerEnabled) {
-      const quoteResponse = await fetch("/api/internal/operator/rfq-quote", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rfqId }),
-      }).catch(() => null);
-      const quoteBody = ((await quoteResponse?.json().catch(() => null)) ?? {}) as {
-        quoteId?: string;
-        packagePrice?: number;
-        feeCap?: number;
-        capacityLots?: number;
-        expiresAt?: string;
-      };
-      if (quoteResponse?.ok && quoteBody.quoteId && quoteBody.expiresAt) {
+    let houseQuoteError: string | undefined;
+    if (makerEnabled) {
+      const answer = await steps.offchain("Ask the Setryn maker for a firm quote", async () => {
+        const response = await fetch("/api/internal/operator/rfq-quote", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rfqId }),
+        }).catch(() => null);
+        const body = ((await response?.json().catch(() => null)) ?? {}) as {
+          quoteId?: string;
+          packagePrice?: number;
+          feeCap?: number;
+          capacityLots?: number;
+          expiresAt?: string;
+          error?: unknown;
+        };
+        return { ok: Boolean(response?.ok && body.quoteId && body.expiresAt), body };
+      });
+      const { body } = answer;
+      if (answer.ok && body.quoteId && body.expiresAt) {
         quotes.push({
-          id: quoteBody.quoteId,
+          id: body.quoteId,
           solverLabel: "Setryn MM",
-          packagePrice: quoteBody.packagePrice ?? authorization.intent.executionPrice,
-          feeCap: quoteBody.feeCap ?? authorization.intent.feeCap,
-          capacityLots: quoteBody.capacityLots ?? authorization.intent.lots,
-          expiresAt: quoteBody.expiresAt,
+          packagePrice: body.packagePrice ?? authorization.intent.executionPrice,
+          feeCap: body.feeCap ?? authorization.intent.feeCap,
+          capacityLots: body.capacityLots ?? authorization.intent.lots,
+          expiresAt: body.expiresAt,
           settlementGuarantee: "Firm capacity, atomic onchain settlement",
           provenance: "SEEDED_SOLVER",
         });
+      } else {
+        // The route answers with a refusal code; anything else (a dropped connection, a non-code message) is a failed quote.
+        houseQuoteError = typeof body.error === "string" && /^[A-Z][A-Z0-9_]{2,63}$/.test(body.error) ? body.error : "RFQ_QUOTE_FAILED";
+        this.houseQuoteErrors.set(rfqId.toLowerCase(), houseQuoteError);
       }
     }
     const created: RfqRequest = {
@@ -2285,80 +2411,99 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       selectedQuoteId: null,
       receiptId: null,
       quotes,
+      ...(houseQuoteError ? { houseQuoteError } : {}),
     };
     this.publish({ ...this.snapshot, rfqRequests: [...this.snapshot.rfqRequests, created] });
     return created;
   }
 
-  async selectRfqQuote(requestId: string, quoteId: string): Promise<RfqRequest> {
+  async selectRfqQuote(requestId: string, quoteId: string, onProgress?: ProgressListener): Promise<RfqRequest> {
+    const known = this.snapshot.rfqRequests.find((request) => request.id === requestId);
+    return this.track(
+      known ? `Lock quote for ${known.authorization.intent.packageCode}` : "Lock quote",
+      (progress) => this.lockRfqSelection(requestId, quoteId, progress),
+      (selected) => ({
+        message: "Quote locked, the maker's capacity reserved and the selection submitted to private clearing. Execute it to fill.",
+        href: rfqHref(selected.id),
+        hrefLabel: "Open request",
+      }),
+      { onProgress },
+    );
+  }
+
+  /**
+   * Selecting a quote takes up to five wallet prompts: sign the selection, lock it, confirm the maker's capacity,
+   * authorize submission and submit. The chain says how far an earlier attempt got, so a retry after a declined or failed
+   * step resumes at the first step that has not landed; locking a locked request again would revert.
+   */
+  private async lockRfqSelection(requestId: string, quoteId: string, onProgress: ProgressListener): Promise<RfqRequest> {
     const { setryn, address, walletClient, publicClient } = await this.connected();
     const current = this.snapshot.rfqRequests.find((request) => request.id === requestId);
-    if (!current || current.state !== "OPEN") throw new Error("RFQ_NOT_OPEN");
+    if (!current || (current.state !== "OPEN" && current.state !== "SELECTED")) throw new Error("RFQ_NOT_OPEN");
     if (current.authorization.intent.side === "EXIT") throw new Error("EXIT_REQUIRES_FIRM_QUOTE");
-    const selectedQuote = current.quotes.find((quote) => quote.id === quoteId);
-    if (!selectedQuote) throw new Error("RFQ_QUOTE_NOT_FOUND");
-    const block = await publicClient.getBlock({ blockTag: "pending" });
-    // The selection may not outlive the request or the quote it selects, so its deadline is the earliest of the three.
-    const deadline = [
-      block.timestamp + BigInt(90),
-      BigInt(Math.floor(Date.parse(current.expiresAt) / 1000)),
-      BigInt(Math.floor(Date.parse(selectedQuote.expiresAt) / 1000)),
-    ].reduce((earliest, candidate) => (candidate < earliest ? candidate : earliest));
-    if (deadline <= block.timestamp) throw new Error("RFQ_QUOTE_EXPIRED");
-    const nonce = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(crypto.getRandomValues(new Uint32Array(1))[0]);
-    const selection: OnchainRfqSelection = {
-      rfqId: requestId as Hex,
-      quoteId: quoteId as Hex,
-      taker: address,
-      executor: setryn.atomicClearingEngine,
-      nonce,
-      deadline,
-      salt: keccak256(stringToHex(`${requestId}:${quoteId}:${nonce}`)),
-    };
-    const signature = await walletClient.signTypedData({
-      account: address,
-      domain: { name: "Setryn", version: "1", chainId: setryn.chainId, verifyingContract: setryn.privateRfqBook },
-      types: rfqSelectionTypedData,
-      primaryType: "RfqSelectionAuthorization",
-      message: selection,
-    });
-    const selectionHash = await walletClient.writeContract({
-      account: address,
-      chain: this.chain(setryn),
+    const rfq = await publicClient.readContract({
       address: setryn.privateRfqBook,
       abi: privateRfqBookAbi,
-      functionName: "lockSelection",
-      args: [selection, signature],
-    });
-    await publicClient.waitForTransactionReceipt({ hash: selectionHash });
-    const capacityHash = await walletClient.writeContract({
-      account: address,
-      chain: this.chain(setryn),
-      address: setryn.privateRfqBook,
-      abi: privateRfqBookAbi,
-      functionName: "confirmSelectedCapacity",
+      functionName: "getRfq",
       args: [requestId as Hex],
     });
-    await publicClient.waitForTransactionReceipt({ hash: capacityHash });
-    const authorizationHash = await walletClient.writeContract({
-      account: address,
-      chain: this.chain(setryn),
-      address: setryn.privateRfqBook,
-      abi: privateRfqBookAbi,
-      functionName: "authorizeSubmission",
-      args: [requestId as Hex],
-    });
-    await publicClient.waitForTransactionReceipt({ hash: authorizationHash });
-    const submissionHash = await walletClient.writeContract({
-      account: address,
-      chain: this.chain(setryn),
-      address: setryn.privateRfqBook,
-      abi: privateRfqBookAbi,
-      functionName: "submitSelectedRfq",
-      args: [requestId as Hex, keccak256(stringToHex(`${requestId}:submitted`))],
-    });
-    const submissionReceipt = await publicClient.waitForTransactionReceipt({ hash: submissionHash });
-    if (submissionReceipt.status !== "success") throw new Error("RFQ_SELECTION_FAILED");
+    const inSelection = rfq.status >= RFQ_STATUS.selectionLocked && rfq.status <= RFQ_STATUS.clearing;
+    if (inSelection && rfq.selectedQuoteId.toLowerCase() !== quoteId.toLowerCase()) {
+      await this.refreshAfter(() => this.refreshRfqs());
+      throw new Error("RFQ_LOCKED_TO_OTHER_QUOTE");
+    }
+    if (!inSelection && rfq.status !== RFQ_STATUS.collecting) {
+      throw new Error(rfq.status === RFQ_STATUS.inviting ? "RFQ_NOT_COLLECTING" : "RFQ_NOT_OPEN");
+    }
+    const steps = this.steps(publicClient, rfqSelectionSteps(rfq.status), onProgress);
+    try {
+      if (rfq.status === RFQ_STATUS.collecting) {
+        const selectedQuote = current.quotes.find((quote) => quote.id === quoteId);
+        if (!selectedQuote) throw new Error("RFQ_QUOTE_NOT_FOUND");
+        const block = await publicClient.getBlock({ blockTag: "pending" });
+        // The selection may not outlive the request or the quote it selects, so its deadline is the earliest of the three.
+        const deadline = [
+          block.timestamp + BigInt(90),
+          BigInt(Math.floor(Date.parse(current.expiresAt) / 1000)),
+          BigInt(Math.floor(Date.parse(selectedQuote.expiresAt) / 1000)),
+        ].reduce((earliest, candidate) => (candidate < earliest ? candidate : earliest));
+        if (deadline <= block.timestamp) throw new Error("RFQ_QUOTE_EXPIRED");
+        const nonce = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(crypto.getRandomValues(new Uint32Array(1))[0]);
+        const selection: OnchainRfqSelection = {
+          rfqId: requestId as Hex,
+          quoteId: quoteId as Hex,
+          taker: address,
+          executor: setryn.atomicClearingEngine,
+          nonce,
+          deadline,
+          salt: keccak256(stringToHex(`${requestId}:${quoteId}:${nonce}`)),
+        };
+        const signature = await steps.signature("Sign the quote selection", () =>
+          walletClient.signTypedData({
+            account: address,
+            domain: { name: "Setryn", version: "1", chainId: setryn.chainId, verifyingContract: setryn.privateRfqBook },
+            types: rfqSelectionTypedData,
+            primaryType: "RfqSelectionAuthorization",
+            message: selection,
+          }),
+        );
+        await steps.transaction("Lock the quote", () =>
+          walletClient.writeContract({
+            account: address,
+            chain: this.chain(setryn),
+            address: setryn.privateRfqBook,
+            abi: privateRfqBookAbi,
+            functionName: "lockSelection",
+            args: [selection, signature],
+          }),
+        );
+      }
+      await this.finishRfqSelection(requestId as Hex, Math.max(rfq.status, RFQ_STATUS.selectionLocked), steps);
+    } catch (error) {
+      // Whatever landed is onchain, so the request is re-read: the next attempt, or Execute, resumes from there.
+      if (steps.completed.length > 0) await this.refreshAfter(() => this.refreshRfqs());
+      throw error;
+    }
     const selected = { ...current, state: "SELECTED" as const, selectedQuoteId: quoteId };
     this.publish({
       ...this.snapshot,
@@ -2367,15 +2512,99 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     return selected;
   }
 
+  /** The selection steps after the lock that a request's onchain status still needs, one wallet prompt each. */
+  private async finishRfqSelection(rfqId: Hex, status: number, steps: ActionSteps): Promise<void> {
+    const { setryn, address, walletClient } = await this.connected();
+    const chain = this.chain(setryn);
+    if (status <= RFQ_STATUS.selectionLocked) {
+      await steps.transaction("Reserve the maker's capacity", () =>
+        walletClient.writeContract({
+          account: address,
+          chain,
+          address: setryn.privateRfqBook,
+          abi: privateRfqBookAbi,
+          functionName: "confirmSelectedCapacity",
+          args: [rfqId],
+        }),
+      );
+    }
+    if (status <= RFQ_STATUS.capacityReserved) {
+      await steps.transaction("Authorize submission", () =>
+        walletClient.writeContract({
+          account: address,
+          chain,
+          address: setryn.privateRfqBook,
+          abi: privateRfqBookAbi,
+          functionName: "authorizeSubmission",
+          args: [rfqId],
+        }),
+      );
+    }
+    if (status <= RFQ_STATUS.authorized) {
+      await steps.transaction("Submit to private clearing", () =>
+        walletClient.writeContract({
+          account: address,
+          chain,
+          address: setryn.privateRfqBook,
+          abi: privateRfqBookAbi,
+          functionName: "submitSelectedRfq",
+          args: [rfqId, keccak256(stringToHex(`${rfqId}:submitted`))],
+        }),
+      );
+    }
+  }
+
   async executeSelectedRfq(
     requestId: string,
     onUpdate: (update: SubmissionUpdate) => void,
+    onProgress?: ProgressListener,
+  ): Promise<PackageExecutionResult> {
+    const known = this.snapshot.rfqRequests.find((request) => request.id === requestId);
+    return this.track(
+      known ? `Execute quote for ${known.authorization.intent.packageCode}` : "Execute quote",
+      (progress) => this.clearSelectedRfq(requestId, onUpdate, progress),
+      (result) => ({
+        message: `Filled ${formatLotCount(result.filledLots)} through private clearing.${result.position ? " The position is open." : ""}`,
+        transactionHash: result.receipt.transactionHash,
+        href: result.position ? `/positions/${encodeURIComponent(result.position.id)}` : `/activity/receipts/${encodeURIComponent(result.receipt.id)}`,
+        hrefLabel: result.position ? "Open position" : "Open receipt",
+      }),
+      { onProgress },
+    );
+  }
+
+  /**
+   * Clears a selected request through the operator's private execution channel. A selection that stopped after its lock
+   * (a declined or failed prompt) first finishes the steps it still needs onchain, so a locked request is never a dead
+   * end. The fill is recorded at once; the reads that follow cannot turn a landed fill into a failure.
+   */
+  private async clearSelectedRfq(
+    requestId: string,
+    onUpdate: (update: SubmissionUpdate) => void,
+    onProgress: ProgressListener,
   ): Promise<PackageExecutionResult> {
     const current = this.snapshot.rfqRequests.find((request) => request.id === requestId);
     if (!current || current.state !== "SELECTED" || !current.selectedQuoteId) throw new Error("RFQ_NOT_SELECTED");
     if (current.authorization.intent.side === "EXIT") throw new Error("EXIT_REQUIRES_FIRM_QUOTE");
     const quote = current.quotes.find((candidate) => candidate.id === current.selectedQuoteId);
     if (!quote) throw new Error("RFQ_QUOTE_NOT_FOUND");
+    const setryn = await this.runtime();
+    const publicClient = this.publicClient;
+    if (!publicClient) throw new Error("RUNTIME_UNAVAILABLE");
+    const { status } = await publicClient.readContract({
+      address: setryn.privateRfqBook,
+      abi: privateRfqBookAbi,
+      functionName: "getRfq",
+      args: [requestId as Hex],
+    });
+    if (status === RFQ_STATUS.settled) {
+      // An earlier attempt cleared it and its answer was lost; the ledger and Activity catch up from the chain.
+      await this.refreshAfter(() => this.refreshRfqs(), () => this.refreshActivity(), () => this.refreshAccount());
+      throw new Error("RFQ_ALREADY_SETTLED");
+    }
+    const unfinished = status >= RFQ_STATUS.selectionLocked && status < RFQ_STATUS.submitted;
+    const steps = this.steps(publicClient, (unfinished ? rfqSelectionSteps(status) : 0) + 1, onProgress);
+    if (unfinished) await this.finishRfqSelection(requestId as Hex, status, steps);
     onUpdate({
       step: "AUTHORIZED",
       label: "RFQ authorized",
@@ -2386,33 +2615,42 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       label: "Private handoff submitted",
       detail: "The selected RFQ is being cleared through the private execution channel.",
     });
-    const response = await fetch("/api/internal/operator/rfq-execute", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rfqId: requestId }),
+    const body = await steps.offchain("Clear the quote privately", async () => {
+      const response = await fetch("/api/internal/operator/rfq-execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rfqId: requestId }),
+      });
+      const answer = (await response.json().catch(() => ({}))) as {
+        fillId?: string;
+        positionId?: string;
+        transactionHash?: string;
+        executionPriceTicks?: string;
+        fillLots?: string;
+        takerFeeMinor?: string;
+        error?: string;
+      };
+      if (
+        !response.ok ||
+        !answer.fillId ||
+        !answer.positionId ||
+        !answer.transactionHash ||
+        answer.executionPriceTicks === undefined ||
+        answer.fillLots === undefined ||
+        answer.takerFeeMinor === undefined
+      ) {
+        throw new Error(answer.error ?? "RFQ_EXECUTION_FAILED");
+      }
+      return {
+        fillId: answer.fillId,
+        positionId: answer.positionId,
+        transactionHash: answer.transactionHash,
+        executionPriceTicks: answer.executionPriceTicks,
+        fillLots: answer.fillLots,
+        takerFeeMinor: answer.takerFeeMinor,
+      };
     });
-    const body = (await response.json()) as {
-      fillId?: string;
-      positionId?: string;
-      transactionHash?: string;
-      executionPriceTicks?: string;
-      fillLots?: string;
-      takerFeeMinor?: string;
-      error?: string;
-    };
-    if (
-      !response.ok ||
-      !body.fillId ||
-      !body.positionId ||
-      !body.transactionHash ||
-      body.executionPriceTicks === undefined ||
-      body.fillLots === undefined ||
-      body.takerFeeMinor === undefined
-    ) {
-      throw new Error(body.error ?? "RFQ_EXECUTION_FAILED");
-    }
     const authorization = current.authorization;
-    const setryn = await this.runtime();
     const packageSide = authorization.intent.packageSide;
     const createdPositionSide: "LONG" | "SHORT" = authorization.onchainOrder.side === 1 ? "LONG" : "SHORT";
     const market = this.orderMarket(setryn, authorization.onchainOrder);
@@ -2516,31 +2754,54 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       executions: [...this.snapshot.executions, execution],
       rfqRequests: this.snapshot.rfqRequests.map((request) => request.id === requestId ? executed : request),
     });
-    await Promise.all([this.refreshAccount(), this.refreshOrders(), this.refreshActivity()]);
+    await this.refreshAfter(() => this.refreshAccount(), () => this.refreshOrders(), () => this.refreshActivity());
     return result;
   }
 
-  async cancelRfq(requestId: string): Promise<RfqRequest> {
+  async cancelRfq(requestId: string, onProgress?: ProgressListener): Promise<RfqRequest> {
+    const known = this.snapshot.rfqRequests.find((request) => request.id === requestId);
+    const expire = known ? Date.parse(known.expiresAt) <= platformNow() : false;
+    return this.track(
+      expire ? "Expire request" : "Cancel request",
+      (progress) => this.closeRfq(requestId, progress),
+      (closed) => ({
+        message: `${expire ? "Request expired" : "Request cancelled"} and its reserved collateral released.`,
+        href: rfqHref(closed.id),
+        hrefLabel: "Open request",
+      }),
+      { onProgress },
+    );
+  }
+
+  /**
+   * Cancels an open request, or expires one past its deadline (a selected request stays locked until then), then
+   * releases the order's risk reservation. Once the close lands the request reads as closed, whatever the release does.
+   */
+  private async closeRfq(requestId: string, onProgress: ProgressListener): Promise<RfqRequest> {
     const { setryn, address, walletClient, publicClient } = await this.connected();
     const current = this.snapshot.rfqRequests.find((request) => request.id === requestId);
     if (!current || (current.state !== "OPEN" && current.state !== "SELECTED")) throw new Error("RFQ_NOT_OPEN");
     const expired = Date.parse(current.expiresAt) <= platformNow();
     if (current.state === "SELECTED" && !expired) throw new Error("RFQ_SELECTION_LOCKED");
-    const hash = await walletClient.writeContract({
-      account: address,
-      chain: this.chain(setryn),
-      address: setryn.privateRfqBook,
-      abi: privateRfqBookAbi,
-      functionName: expired ? "expireRfq" : "cancelRfq",
-      args: [requestId as Hex],
-    });
-    await publicClient.waitForTransactionReceipt({ hash });
-    await this.releaseRiskReservation(current.authorization);
+    const steps = this.steps(publicClient, 2, onProgress);
+    await steps.transaction(expired ? "Expire the request" : "Cancel the request", () =>
+      walletClient.writeContract({
+        account: address,
+        chain: this.chain(setryn),
+        address: setryn.privateRfqBook,
+        abi: privateRfqBookAbi,
+        functionName: expired ? "expireRfq" : "cancelRfq",
+        args: [requestId as Hex],
+      }),
+    );
     const cancelled = { ...current, state: "CANCELLED" as const };
     this.publish({
       ...this.snapshot,
       rfqRequests: this.snapshot.rfqRequests.map((request) => request.id === requestId ? cancelled : request),
     });
+    // The release signs a cancellation and sends it; its receipt is checked inside.
+    await steps.signature("Release the reserved collateral", () => this.releaseRiskReservation(current.authorization));
+    await this.refreshAfter(() => this.refreshAccount());
     return cancelled;
   }
 
@@ -3741,6 +4002,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
       terminalTransferUsd: round2(own(lifecycle.terminalTransferMinor)),
       settlement,
       collateralReservedUsd: open ? positionCollateral(fill.market, fill.packageSide, Number(lifecycle.remainingLots)) : 0,
+      releaseWithdrawnUsd: this.releaseWithdrawalsOf(`${setryn.chainId}:${accountId.toLowerCase()}`)[fill.positionId.toLowerCase()] ?? 0,
       exerciseTransactionHash,
       observedAtSeconds: Number(now),
     };
@@ -3754,21 +4016,40 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     });
   }
 
-  /** Runs one terminal lifecycle action, simulating first so a contract rejection surfaces as a precise reason. */
-  async runLifecycleAction(positionId: string, action: LifecycleActionKey): Promise<LifecycleActionResult> {
-    await this.connected();
+  async runLifecycleAction(positionId: string, action: LifecycleActionKey, onProgress?: ProgressListener): Promise<LifecycleActionResult> {
+    return this.track(
+      lifecycleTitle(action, this.snapshot.lifecycles[positionId.toLowerCase()]),
+      (progress) => this.lifecycleAction(positionId, action, progress),
+      (result) => ({
+        message: result.detail,
+        transactionHash: result.transactionHash,
+        // The position page outlives the panel that started the action, which may swap to the closed summary.
+        href: `/positions/${encodeURIComponent(positionId)}`,
+        hrefLabel: "Open position",
+      }),
+      { onProgress },
+    );
+  }
+
+  /**
+   * One terminal lifecycle action, each call simulated before the wallet signs so a contract rejection surfaces as a
+   * precise reason. The views are re-read after it lands without letting a failed read report it as failed.
+   */
+  private async lifecycleAction(positionId: string, action: LifecycleActionKey, onProgress: ProgressListener): Promise<LifecycleActionResult> {
+    const { publicClient } = await this.connected();
     const key = positionId.toLowerCase();
     await this.refreshActivity();
     const view = this.snapshot.lifecycles[key];
     if (!view) throw new Error("LIFECYCLE_POSITION_NOT_FOUND");
     let result: LifecycleActionResult;
     try {
-      if (action === "EXERCISE") result = await this.exercisePosition(view);
-      else if (action === "CLAIM") result = await this.claimPosition(view);
+      if (action === "EXERCISE") result = await this.exercisePosition(view, onProgress);
+      else if (action === "CLAIM") result = await this.claimPosition(view, onProgress);
       else {
+        const steps = this.steps(publicClient, 1, onProgress);
         const { series } = await this.positionSeries(positionId as Hex);
         if (action === "SETTLE") {
-          const hash = await this.writeSettlement({ kind: "NORMAL", positionId: positionId as Hex, slots: series.slots });
+          const hash = await this.writeSettlement(steps, "Write the settlement record", { kind: "NORMAL", positionId: positionId as Hex, slots: series.slots });
           result = { action, positionId, transactionHash: hash, detail: "Normal settlement recorded by the cash settlement coordinator." };
         } else if (
           view.status === "Lapsed" ||
@@ -3778,19 +4059,17 @@ export class OnchainTradingGateway implements InternalTradingGateway {
             platformNow() < Date.parse(view.schedule.finalResolutionAt))
         ) {
           // An unelected holder-election position lapses permissionlessly between the cutoff and final resolution.
-          const hash = await this.writeSettlement({ kind: "LAPSED", positionId: positionId as Hex });
+          const hash = await this.writeSettlement(steps, "Finalize the lapse", { kind: "LAPSED", positionId: positionId as Hex });
           result = { action, positionId, transactionHash: hash, detail: "Lapsed position finalized; both reservations released." };
         } else {
-          const hash = await this.writeSettlement({ kind: "TERMINAL", positionId: positionId as Hex, slots: series.slots });
+          const hash = await this.writeSettlement(steps, "Complete the terminal fallback", { kind: "TERMINAL", positionId: positionId as Hex, slots: series.slots });
           result = { action, positionId, transactionHash: hash, detail: "Terminal resolution completed through the permissionless fallback." };
         }
       }
     } catch (error) {
-      const reverted = revertOf(error);
-      if (reverted) throw new Error(describeLifecycleRevert(reverted.name, reverted.args));
-      throw error;
+      throw lifecycleFailure(error);
     }
-    await Promise.all([this.refreshActivity(), this.refreshAccount()]);
+    await this.refreshAfter(() => this.refreshActivity(), () => this.refreshAccount());
     return result;
   }
 
@@ -3807,8 +4086,10 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     return { economics, lifecycle, series: await this.seriesTerminal(economics.seriesId, economics.seriesVersion) };
   }
 
-  /** Simulates, then sends, one settlement coordinator completion; every path is permissionless. */
+  /** Simulates, then sends, one settlement coordinator completion as one step; every path is permissionless. */
   private async writeSettlement(
+    steps: ActionSteps,
+    label: string,
     call:
       | { kind: "NORMAL" | "TERMINAL"; positionId: Hex; slots: readonly FixingSlotArg[] }
       | { kind: "LAPSED"; positionId: Hex },
@@ -3817,55 +4098,86 @@ export class OnchainTradingGateway implements InternalTradingGateway {
     const coordinator = setryn.cashSettlementCoordinator;
     if (!coordinator) throw new Error("SETTLEMENT_COORDINATOR_UNAVAILABLE");
     const base = { account: address, address: coordinator, abi: settlementCallAbi } as const;
-    let hash: Hex;
-    if (call.kind === "LAPSED") {
-      const args = [call.positionId, []] as const;
-      await publicClient.simulateContract({ ...base, functionName: "finalizeLapsedPosition", args });
-      hash = await walletClient.writeContract({ ...base, chain: this.chain(setryn), functionName: "finalizeLapsedPosition", args });
-    } else {
+    const receipt = await steps.transaction(label, async () => {
+      if (call.kind === "LAPSED") {
+        const args = [call.positionId, []] as const;
+        await publicClient.simulateContract({ ...base, functionName: "finalizeLapsedPosition", args });
+        return walletClient.writeContract({ ...base, chain: this.chain(setryn), functionName: "finalizeLapsedPosition", args });
+      }
       const functionName = call.kind === "NORMAL" ? "finalizeNormalSettlement" : "finalizeTerminalDisruption";
       const args = [call.positionId, call.slots, []] as const;
       await publicClient.simulateContract({ ...base, functionName, args });
-      hash = await walletClient.writeContract({ ...base, chain: this.chain(setryn), functionName, args });
-    }
-    const receipt = await publicClient.waitForTransactionReceipt({ hash });
-    if (receipt.status !== "success") throw new Error("SETTLEMENT_TRANSACTION_FAILED");
-    return hash;
+      return walletClient.writeContract({ ...base, chain: this.chain(setryn), functionName, args });
+    });
+    return receipt.transactionHash;
   }
 
-  /** Pays out an open terminal claim, or withdraws the collateral a completed settlement released to the account. */
-  private async claimPosition(view: OnchainPositionLifecycle): Promise<LifecycleActionResult> {
+  /** The released collateral already withdrawn per position for an account, loaded from this browser on first use. */
+  private releaseWithdrawalsOf(scope: string): Record<string, number> {
+    let withdrawals = this.releaseWithdrawals.get(scope);
+    if (!withdrawals) {
+      withdrawals = readReleaseWithdrawals(scope);
+      this.releaseWithdrawals.set(scope, withdrawals);
+    }
+    return withdrawals;
+  }
+
+  /** Records released collateral withdrawn for a position, so its Withdraw reads as done, and shows it at once. */
+  private recordReleaseWithdrawal(scope: string, positionId: string, amountUsd: number): void {
+    const key = positionId.toLowerCase();
+    const withdrawals = this.releaseWithdrawalsOf(scope);
+    const total = round2((withdrawals[key] ?? 0) + amountUsd);
+    const next = { ...withdrawals, [key]: total };
+    this.releaseWithdrawals.set(scope, next);
+    writeReleaseWithdrawals(scope, next);
+    const view = this.snapshot.lifecycles[key];
+    if (view) this.publish({ ...this.snapshot, lifecycles: { ...this.snapshot.lifecycles, [key]: { ...view, releaseWithdrawnUsd: total } } });
+  }
+
+  /**
+   * Pays out an open terminal claim, or withdraws the collateral a completed settlement released to the account and
+   * records it against the position, so the same release is never offered twice.
+   */
+  private async claimPosition(view: OnchainPositionLifecycle, onProgress: ProgressListener): Promise<LifecycleActionResult> {
     const { setryn, address, walletClient, publicClient } = await this.connected();
     const settlement = view.settlement;
-    if (!settlement) throw new Error("No settlement is recorded yet; Settle or Finalize the position first.");
+    if (!settlement) throw new ActionRefusal("No settlement is recorded yet; Settle or Finalize the position first.");
     const claim = settlement.claim;
     if (claim && claim.status === "ACTIVE" && claim.receivable) {
       const coordinator = setryn.cashSettlementCoordinator;
       if (!coordinator) throw new Error("SETTLEMENT_COORDINATOR_UNAVAILABLE");
-      await publicClient.simulateContract({ account: address, address: coordinator, abi: settlementCallAbi, functionName: "fulfillClaim", args: [claim.id as Hex] });
-      const hash = await walletClient.writeContract({
-        account: address,
-        chain: this.chain(setryn),
-        address: coordinator,
-        abi: settlementCallAbi,
-        functionName: "fulfillClaim",
-        args: [claim.id as Hex],
+      const steps = this.steps(publicClient, 1, onProgress);
+      const receipt = await steps.transaction("Claim the terminal payout", async () => {
+        await publicClient.simulateContract({ account: address, address: coordinator, abi: settlementCallAbi, functionName: "fulfillClaim", args: [claim.id as Hex] });
+        return walletClient.writeContract({
+          account: address,
+          chain: this.chain(setryn),
+          address: coordinator,
+          abi: settlementCallAbi,
+          functionName: "fulfillClaim",
+          args: [claim.id as Hex],
+        });
       });
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
-      if (receipt.status !== "success") throw new Error("CLAIM_TRANSACTION_FAILED");
-      return { action: "CLAIM", positionId: view.positionId, transactionHash: hash, detail: `Claim paid ${claim.amountUsd.toFixed(2)} USD into the account.` };
+      return { action: "CLAIM", positionId: view.positionId, transactionHash: receipt.transactionHash, detail: `Claim paid ${claim.amountUsd.toFixed(2)} USD into the account.` };
     }
     await this.refreshAccount();
-    const releasable = settlementReleasable(view);
+    const accountId = await this.accountId(address);
+    const scope = `${setryn.chainId}:${accountId.toLowerCase()}`;
+    const withdrawn = this.releaseWithdrawalsOf(scope)[view.positionId.toLowerCase()] ?? 0;
+    const releasable = Math.max(0, settlementReleasable(view) - withdrawn);
     const amount = Math.floor(Math.min(this.snapshot.account.available, releasable) * 100) / 100;
-    if (!(amount > 0)) throw new Error("Nothing released by this settlement is still available to withdraw.");
-    const withdrawal = await this.submitCollateralIntent({
-      kind: "WITHDRAW",
-      accountId: this.snapshot.account.id,
-      asset: this.snapshot.account.collateralAsset,
-      amount,
-      recipient: address,
-    });
+    if (!(amount > 0)) {
+      throw new ActionRefusal(
+        withdrawn > 0
+          ? "The collateral this settlement released was already withdrawn to the wallet."
+          : "Nothing released by this settlement is still available to withdraw.",
+      );
+    }
+    const withdrawal = await this.moveCollateral(
+      { kind: "WITHDRAW", accountId: this.snapshot.account.id, asset: this.snapshot.account.collateralAsset, amount, recipient: address },
+      onProgress,
+    );
+    this.recordReleaseWithdrawal(scope, view.positionId, amount);
     return {
       action: "CLAIM",
       positionId: view.positionId,
@@ -3876,146 +4188,159 @@ export class OnchainTradingGateway implements InternalTradingGateway {
 
   /**
    * Holder election through the signed lifecycle engine: an Exercise action over the position's remaining lots, signed
-   * by the long holder, with the final-fixing witness the position committed to staged for the lifecycle executor.
+   * by the long holder, with the final-fixing witness the position committed to staged for the lifecycle executor. Up
+   * to five steps: accept the final fixing (when the position does not carry it yet), stage the witness, sign, authorize
+   * and execute.
    */
-  private async exercisePosition(view: OnchainPositionLifecycle): Promise<LifecycleActionResult> {
+  private async exercisePosition(view: OnchainPositionLifecycle, onProgress: ProgressListener): Promise<LifecycleActionResult> {
     const { setryn, address, walletClient, publicClient } = await this.connected();
     const positionId = view.positionId as Hex;
     const actorAccountId = await this.accountId(address);
     let { lifecycle, series, economics } = await this.positionSeries(positionId);
     if (lifecycle.lifecycleOwnerAccountId.toLowerCase() !== actorAccountId.toLowerCase()) {
-      throw new Error("Only the position's lifecycle owner, the long holder, can elect.");
+      throw new ActionRefusal("Only the position's lifecycle owner, the long holder, can elect.");
     }
-    if (lifecycle.finalFixingReference === EMPTY_ID) {
+    const acceptFixing = lifecycle.finalFixingReference === EMPTY_ID;
+    const steps = this.steps(publicClient, acceptFixing ? 5 : 4, onProgress);
+    if (acceptFixing) {
       // The settlement coordinator is the only account that accepts a final fixing onto a position. Its permissionless
       // normal-settlement entry does that and, for a holder-election series, leaves the position Live for election.
       // A coordinator that cannot persist the acceptance reverts here with its own reason.
-      await this.writeSettlement({ kind: "NORMAL", positionId, slots: series.slots });
+      await this.writeSettlement(steps, "Accept the final fixing onto the position", { kind: "NORMAL", positionId, slots: series.slots });
       ({ lifecycle, series, economics } = await this.positionSeries(positionId));
-      if (lifecycle.finalFixingReference === EMPTY_ID) throw new Error("The coordinator did not accept the final fixing onto the position.");
     }
-    const fixing = await this.seriesFixing(economics.seriesId, economics.seriesVersion, series);
-    const finalFixings = fixing.encoded;
-    if (!finalFixings || keccak256(finalFixings).toLowerCase() !== lifecycle.finalFixingsHash.toLowerCase()) {
-      throw new Error("The published fixing does not match the final fixing committed on the position.");
-    }
-    const snapshot = await publicClient.readContract({
-      address: setryn.positionEngine,
-      abi: positionLifecycleAbi,
-      functionName: "getLifecyclePosition",
-      args: [positionId],
+    // Everything between the fixing and the signature is one step, so a refusal here still names what already landed.
+    const prepared = await steps.offchain("Stage the exercise witness", async () => {
+      if (lifecycle.finalFixingReference === EMPTY_ID) throw new ActionRefusal("The coordinator did not accept the final fixing onto the position.");
+      const fixing = await this.seriesFixing(economics.seriesId, economics.seriesVersion, series);
+      const finalFixings = fixing.encoded;
+      if (!finalFixings || keccak256(finalFixings).toLowerCase() !== lifecycle.finalFixingsHash.toLowerCase()) {
+        throw new ActionRefusal("The published fixing does not match the final fixing committed on the position.");
+      }
+      const snapshot = await publicClient.readContract({
+        address: setryn.positionEngine,
+        abi: positionLifecycleAbi,
+        functionName: "getLifecyclePosition",
+        args: [positionId],
+      });
+      const inputs = [{
+        positionId,
+        expectedImmutableHash: snapshot.immutableHash,
+        expectedLifecycleHash: snapshot.lifecycleHash,
+        expectedPositionLots: snapshot.positionLots,
+        actionLots: snapshot.remainingExerciseLots,
+      }];
+      // A full exercise leaves no successor, so the holder's replacement terminal liability is zero. The lifecycle engine
+      // commits to a non-empty replacement set, and the holder is the only account an exercise binds.
+      const replacements = [{ accountId: actorAccountId, collateralId: snapshot.collateralId, terminalLiabilityBaseUnits: BigInt(0) }];
+      const [inputsHash, successorsHash, collateralReplacementsHash, participantSetHash, consentsHash] = await Promise.all([
+        publicClient.readContract({ address: setryn.signedLifecycleEngine, abi: signedLifecycleAbi, functionName: "hashLifecycleInputs", args: [inputs] }),
+        publicClient.readContract({ address: setryn.signedLifecycleEngine, abi: signedLifecycleAbi, functionName: "hashLifecycleSuccessors", args: [[]] }),
+        publicClient.readContract({ address: setryn.signedLifecycleEngine, abi: signedLifecycleAbi, functionName: "hashLifecycleCollateralReplacements", args: [replacements] }),
+        publicClient.readContract({ address: setryn.signedLifecycleEngine, abi: signedLifecycleAbi, functionName: "hashLifecycleParticipantSet", args: [actorAccountId, []] }),
+        publicClient.readContract({ address: setryn.signedLifecycleEngine, abi: signedLifecycleAbi, functionName: "hashLifecycleConsentTerms", args: [[]] }),
+      ]);
+      const block = await publicClient.getBlock({ blockTag: "pending" });
+      const nonce = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(crypto.getRandomValues(new Uint32Array(1))[0]);
+      const economicTransitionHash = keccak256(
+        encodeAbiParameters([{ type: "bytes32" }, { type: "bytes32" }], [lifecycle.finalFixingReference, keccak256(finalFixings)]),
+      );
+      let action = {
+        kind: EXERCISE_ACTION_KIND,
+        actor: address,
+        actorAccountId,
+        policyContextHash: EMPTY_ID,
+        inputsHash,
+        successorsHash,
+        collateralReplacementsHash,
+        participantSetHash,
+        consentsHash,
+        riskDomainId: snapshot.riskDomainId,
+        riskDomainVersion: snapshot.riskDomainVersion,
+        feeScheduleId: snapshot.feeScheduleId,
+        feeScheduleVersion: snapshot.feeScheduleVersion,
+        economicTransitionHash,
+        compressionPlanId: EMPTY_ID,
+        breaksPackageProvenance: false,
+        packageBreakPermissionHash: EMPTY_ID,
+        actorMaximumLiabilityIncreaseBaseUnits: BigInt(0),
+        actorMaximumCollateralIncreaseBaseUnits: BigInt(0),
+        inputCount: 1,
+        successorCount: 0,
+        participantCount: 1,
+        deadline: block.timestamp + BigInt(240),
+        nonce,
+        permittedExecutor: address,
+        salt: keccak256(stringToHex(`${address}:${positionId}:exercise:${nonce}`)),
+      } as const;
+      const [policyContextHash] = await publicClient.readContract({
+        address: setryn.lifecyclePolicyValidator,
+        abi: lifecyclePolicyAbi,
+        functionName: "derivePolicyContext",
+        args: [action, [snapshot], []],
+      });
+      action = { ...action, policyContextHash };
+      const [, actionId] = await publicClient.readContract({
+        address: setryn.signedLifecycleEngine,
+        abi: signedLifecycleAbi,
+        functionName: "hashLifecycleAction",
+        args: [action],
+      });
+      const witnessResponse = await fetch("/api/internal/operator/exercise-witness", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actionId, positionId, finalFixings }),
+      });
+      const witness = (await witnessResponse.json().catch(() => ({}))) as { transactionHash?: string; error?: string };
+      if (!witnessResponse.ok || !witness.transactionHash) throw new Error(witness.error ?? "EXERCISE_WITNESS_FAILED");
+      return { action, inputs, replacements, lots: snapshot.remainingExerciseLots };
     });
-    const inputs = [{
-      positionId,
-      expectedImmutableHash: snapshot.immutableHash,
-      expectedLifecycleHash: snapshot.lifecycleHash,
-      expectedPositionLots: snapshot.positionLots,
-      actionLots: snapshot.remainingExerciseLots,
-    }];
-    // A full exercise leaves no successor, so the holder's replacement terminal liability is zero. The lifecycle engine
-    // commits to a non-empty replacement set, and the holder is the only account an exercise binds.
-    const replacements = [{ accountId: actorAccountId, collateralId: snapshot.collateralId, terminalLiabilityBaseUnits: BigInt(0) }];
-    const [inputsHash, successorsHash, collateralReplacementsHash, participantSetHash, consentsHash] = await Promise.all([
-      publicClient.readContract({ address: setryn.signedLifecycleEngine, abi: signedLifecycleAbi, functionName: "hashLifecycleInputs", args: [inputs] }),
-      publicClient.readContract({ address: setryn.signedLifecycleEngine, abi: signedLifecycleAbi, functionName: "hashLifecycleSuccessors", args: [[]] }),
-      publicClient.readContract({ address: setryn.signedLifecycleEngine, abi: signedLifecycleAbi, functionName: "hashLifecycleCollateralReplacements", args: [replacements] }),
-      publicClient.readContract({ address: setryn.signedLifecycleEngine, abi: signedLifecycleAbi, functionName: "hashLifecycleParticipantSet", args: [actorAccountId, []] }),
-      publicClient.readContract({ address: setryn.signedLifecycleEngine, abi: signedLifecycleAbi, functionName: "hashLifecycleConsentTerms", args: [[]] }),
-    ]);
-    const block = await publicClient.getBlock({ blockTag: "pending" });
-    const nonce = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(crypto.getRandomValues(new Uint32Array(1))[0]);
-    const economicTransitionHash = keccak256(
-      encodeAbiParameters([{ type: "bytes32" }, { type: "bytes32" }], [lifecycle.finalFixingReference, keccak256(finalFixings)]),
+    const { action, inputs, replacements } = prepared;
+    const actorSignature = await steps.signature("Sign the exercise", () =>
+      walletClient.signTypedData({
+        account: address,
+        domain: { name: "Setryn", version: "1", chainId: setryn.chainId, verifyingContract: setryn.signedLifecycleEngine },
+        types: lifecycleActionTypes,
+        primaryType: "SetrynLifecycleActionV1",
+        message: { ...action, chainId: BigInt(setryn.chainId), engine: setryn.signedLifecycleEngine },
+      }),
     );
-    let action = {
-      kind: EXERCISE_ACTION_KIND,
-      actor: address,
-      actorAccountId,
-      policyContextHash: EMPTY_ID,
-      inputsHash,
-      successorsHash,
-      collateralReplacementsHash,
-      participantSetHash,
-      consentsHash,
-      riskDomainId: snapshot.riskDomainId,
-      riskDomainVersion: snapshot.riskDomainVersion,
-      feeScheduleId: snapshot.feeScheduleId,
-      feeScheduleVersion: snapshot.feeScheduleVersion,
-      economicTransitionHash,
-      compressionPlanId: EMPTY_ID,
-      breaksPackageProvenance: false,
-      packageBreakPermissionHash: EMPTY_ID,
-      actorMaximumLiabilityIncreaseBaseUnits: BigInt(0),
-      actorMaximumCollateralIncreaseBaseUnits: BigInt(0),
-      inputCount: 1,
-      successorCount: 0,
-      participantCount: 1,
-      deadline: block.timestamp + BigInt(240),
-      nonce,
-      permittedExecutor: address,
-      salt: keccak256(stringToHex(`${address}:${positionId}:exercise:${nonce}`)),
-    } as const;
-    const [policyContextHash] = await publicClient.readContract({
-      address: setryn.lifecyclePolicyValidator,
-      abi: lifecyclePolicyAbi,
-      functionName: "derivePolicyContext",
-      args: [action, [snapshot], []],
-    });
-    action = { ...action, policyContextHash };
-    const [, actionId] = await publicClient.readContract({
-      address: setryn.signedLifecycleEngine,
-      abi: signedLifecycleAbi,
-      functionName: "hashLifecycleAction",
-      args: [action],
-    });
-    const witnessResponse = await fetch("/api/internal/operator/exercise-witness", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ actionId, positionId, finalFixings }),
-    });
-    const witness = (await witnessResponse.json()) as { transactionHash?: string; error?: string };
-    if (!witnessResponse.ok || !witness.transactionHash) throw new Error(witness.error ?? "EXERCISE_WITNESS_FAILED");
-    const actorSignature = await walletClient.signTypedData({
-      account: address,
-      domain: { name: "Setryn", version: "1", chainId: setryn.chainId, verifyingContract: setryn.signedLifecycleEngine },
-      types: lifecycleActionTypes,
-      primaryType: "SetrynLifecycleActionV1",
-      message: { ...action, chainId: BigInt(setryn.chainId), engine: setryn.signedLifecycleEngine },
-    });
     const authorizeArgs = [action, inputs, [], replacements, [], [], actorSignature] as const;
-    await publicClient.simulateContract({ account: address, address: setryn.signedLifecycleEngine, abi: lifecycleCallAbi, functionName: "authorizeAction", args: authorizeArgs });
-    const authorizationHash = await walletClient.writeContract({
-      account: address,
-      chain: this.chain(setryn),
-      address: setryn.signedLifecycleEngine,
-      abi: lifecycleCallAbi,
-      functionName: "authorizeAction",
-      args: authorizeArgs,
+    await steps.transaction("Authorize the exercise", async () => {
+      await publicClient.simulateContract({ account: address, address: setryn.signedLifecycleEngine, abi: lifecycleCallAbi, functionName: "authorizeAction", args: authorizeArgs });
+      return walletClient.writeContract({
+        account: address,
+        chain: this.chain(setryn),
+        address: setryn.signedLifecycleEngine,
+        abi: lifecycleCallAbi,
+        functionName: "authorizeAction",
+        args: authorizeArgs,
+      });
     });
-    const authorization = await publicClient.waitForTransactionReceipt({ hash: authorizationHash });
-    if (authorization.status !== "success") throw new Error("EXERCISE_AUTHORIZATION_FAILED");
     const executeArgs = [action, inputs, [], replacements, []] as const;
-    await publicClient.simulateContract({ account: address, address: setryn.signedLifecycleEngine, abi: lifecycleCallAbi, functionName: "executeAction", args: executeArgs });
-    const executionHash = await walletClient.writeContract({
-      account: address,
-      chain: this.chain(setryn),
-      address: setryn.signedLifecycleEngine,
-      abi: lifecycleCallAbi,
-      functionName: "executeAction",
-      args: executeArgs,
+    const execution = await steps.transaction("Execute the exercise", async () => {
+      await publicClient.simulateContract({ account: address, address: setryn.signedLifecycleEngine, abi: lifecycleCallAbi, functionName: "executeAction", args: executeArgs });
+      return walletClient.writeContract({
+        account: address,
+        chain: this.chain(setryn),
+        address: setryn.signedLifecycleEngine,
+        abi: lifecycleCallAbi,
+        functionName: "executeAction",
+        args: executeArgs,
+      });
     });
-    const execution = await publicClient.waitForTransactionReceipt({ hash: executionHash });
-    if (execution.status !== "success") throw new Error("EXERCISE_EXECUTION_FAILED");
     return {
       action: "EXERCISE",
       positionId: view.positionId,
-      transactionHash: executionHash,
-      detail: `Exercised ${formatLotCount(Number(snapshot.remainingExerciseLots))} against the final fixing.`,
+      transactionHash: execution.transactionHash,
+      detail: `Exercised ${formatLotCount(Number(prepared.lots))} against the final fixing.`,
     };
   }
 
+  /** The connected taker's private requests, read from PrivateRfqBook; the first read for a wallet sets `rfqsLoaded`. */
   private async refreshRfqs(): Promise<void> {
     if (!this.setryn || !this.publicClient || !this.walletAddress) return;
+    const taker = this.walletAddress;
     const { makerAddress: designatedMaker } = await this.operatorStatus();
     const committed = await this.publicClient.getContractEvents({
       address: this.setryn.privateRfqBook,
@@ -4034,7 +4359,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         functionName: "getRfq",
         args: [rfqId],
       });
-      if (rfq.request.taker.toLowerCase() !== this.walletAddress.toLowerCase()) continue;
+      if (rfq.request.taker.toLowerCase() !== taker.toLowerCase()) continue;
       const market = runtimeMarketBySeries(this.setryn, rfq.request.seriesId);
       if (!market) continue;
       const orderRecord = await this.publicClient.readContract({
@@ -4091,7 +4416,7 @@ export class OnchainTradingGateway implements InternalTradingGateway {
           provenance: houseQuote ? "DESIGNATED_MAKER" : "SEEDED_SOLVER",
         });
       }
-      const settled = rfq.status === 8
+      const settled = rfq.status === RFQ_STATUS.settled
         ? await this.publicClient.getContractEvents({
             address: this.setryn.privateRfqBook,
             abi: privateRfqBookAbi,
@@ -4146,13 +4471,15 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         onchainOrder: orderRecord.order as OnchainPublicOrder,
         riskAdmissionId: admissionId,
       };
-      const state: RfqRequest["state"] = rfq.status === 8
+      // A lock that stopped before submission still reads as selected: Execute (or selecting again) finishes it.
+      const state: RfqRequest["state"] = rfq.status === RFQ_STATUS.settled
         ? "EXECUTED"
-        : rfq.status >= 9
+        : rfq.status >= RFQ_STATUS.cancelled
           ? "CANCELLED"
-          : rfq.status >= 3
+          : rfq.status >= RFQ_STATUS.selectionLocked
             ? "SELECTED"
             : "OPEN";
+      const houseQuoteError = this.houseQuoteErrors.get(rfqId.toLowerCase());
       requests.push({
         id: rfqId,
         authorization,
@@ -4162,10 +4489,13 @@ export class OnchainTradingGateway implements InternalTradingGateway {
         selectedQuoteId: rfq.selectedQuoteId === EMPTY_ID ? null : rfq.selectedQuoteId,
         receiptId: settled[settled.length - 1]?.args.settlementReference ?? null,
         quotes,
+        ...(houseQuoteError ? { houseQuoteError } : {}),
       });
     }
+    // Another wallet attached while this one was read: its requests are not this wallet's.
+    if (this.walletAddress !== taker) return;
     requests.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-    this.publish({ ...this.snapshot, rfqRequests: requests });
+    this.publish({ ...this.snapshot, rfqRequests: requests, rfqsLoaded: true });
   }
 
   private restingState(status: number, expired: boolean): RestingPackageOrder["state"] {
