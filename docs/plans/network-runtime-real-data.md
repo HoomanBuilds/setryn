@@ -138,13 +138,16 @@ One coherent feed so marks, quotes, books, routes, and charts never contradict e
   from the active series version's book), recent fills from the clearing engine's events, 24h change and volume, open
   interest, series status, and the Chainlink reference for each underlying, all read at one block. Cached in memory for
   2 s per server.
-- `GET /api/market-data/candles?market=<key>&interval=<1m|5m|15m|1h|4h|1d>`: OHLC bars of the market's own modeled
-  mark, before and after any trade, with its fills as markers, the lots traded per bar as volume, the Chainlink spot as
-  a separate line, and the floor and cap.
+- `GET /api/market-data/candles?market=<key>&interval=<1m|5m|15m|1h|4h|1d>`: OHLC bars of the market's own mark,
+  before and after any trade, with gaps where no fresh reading is known, its fills as markers, the lots traded per bar
+  as volume, the Chainlink spot as a separate line, and the floor and cap. `history.source` says whether the readings
+  came from the database or this server's memory.
 - Mark: one versioned capped-forward model per expiry from the Chainlink spot, floor, cap, time to expiry and MODELED
-  volatility, rate and carry (`markSource: MODEL`); see [the mark methodology](../specs/setryn-mark-methodology.md).
-  Book prices and fills sit beside it and never replace it. Nothing else is invented: no fills means an empty tape, no
-  orders means an empty book.
+  volatility, rate and carry, plus a capped, decaying basis from executed fills (`markSource: MODEL`); see
+  [the mark methodology](../specs/setryn-mark-methodology.md). Book quotes never move it. Nothing else is invented: no
+  fills means an empty tape, no orders means an empty book.
+- Storage: with `SETRYN_DATABASE_URL`, rounds, fills and positions come from the Supabase store that the market-data
+  ingester keeps current ([runbook](../runbooks/market-data.md)); a cold server scans only the blocks after its cursor.
 - Client: `components/market-data/MarketDataProvider.tsx` polls every 3 s and exposes
   `useMarketBoard()`, `useLiveMarket(id)`, `useMarketTrades(id)`, `useMarketCandles(id, interval)`, and
   `useReferencePrices()`. It replaces `PreviewMarketProvider`; the preview modules are deleted.
