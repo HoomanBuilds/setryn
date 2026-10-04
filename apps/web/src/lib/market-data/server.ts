@@ -1,4 +1,4 @@
-import { BaseError, ContractFunctionRevertedError, createPublicClient, http, type Hex, type PublicClient } from "viem";
+import { BaseError, ContractFunctionRevertedError, createPublicClient, type Hex, type PublicClient } from "viem";
 import {
   aggressorSide,
   clearingChannel,
@@ -25,6 +25,7 @@ import {
   referenceSpotsAt,
 } from "@setryn/persistence";
 import { readActiveFeeSchedule, marketTradingVersions, type ActiveFeeSchedule } from "@/lib/internal-gateway/fee-schedule";
+import { serverReadTransport } from "@/lib/internal-gateway/rpc-transport";
 import { orderStateAbi, publicOrderBookAbi, seriesRegistryAbi } from "@/lib/internal-gateway/protocol";
 import type { SetrynRuntime, SetrynRuntimeMarket } from "@/lib/internal-gateway/runtime";
 import { considerationPerPriceUnit, deriveSeriesBookId, ticksToPrice } from "@/lib/internal-gateway/runtime-markets";
@@ -184,12 +185,13 @@ function databaseFailed(error: unknown): void {
   scope.databaseFailedAt = Date.now();
 }
 
-function chainClient(rpcUrl: string): PublicClient {
+function chainClient(rpcUrl: string, chainId: number): PublicClient {
   const clients = holder().clients;
-  let client = clients.get(rpcUrl);
+  const key = `${chainId}:${rpcUrl}`;
+  let client = clients.get(key);
   if (!client) {
-    client = createPublicClient({ transport: http(rpcUrl, { timeout: RPC_TIMEOUT_MS, batch: { batchSize: 64, wait: 4 } }) }) as PublicClient;
-    clients.set(rpcUrl, client);
+    client = createPublicClient({ transport: serverReadTransport(rpcUrl, chainId, { timeout: RPC_TIMEOUT_MS, batch: { batchSize: 64, wait: 4 } }) }) as PublicClient;
+    clients.set(key, client);
   }
   return client;
 }
@@ -677,7 +679,7 @@ async function buildSnapshot(): Promise<MarketDataSnapshot> {
     return unavailable(errorReason(error, "RUNTIME_UNAVAILABLE"), await referencesPromise, network, 0);
   }
   const network = runtime.network ?? "local";
-  const client = chainClient(runtime.rpcUrl);
+  const client = chainClient(runtime.rpcUrl, runtime.chainId);
   let head: { number: bigint; hash: Hex; timestamp: bigint };
   try {
     const block = await client.getBlock({ blockTag: "latest" });

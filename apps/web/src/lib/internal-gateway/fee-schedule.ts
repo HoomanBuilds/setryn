@@ -1,5 +1,6 @@
-import { createPublicClient, http, keccak256, stringToHex, type Address, type Hex, type PublicClient } from "viem";
+import { createPublicClient, keccak256, stringToHex, type Address, type Hex, type PublicClient } from "viem";
 import type { SetrynRuntime, SetrynRuntimeMarket } from "./runtime";
+import { serverReadTransport } from "./rpc-transport";
 
 /*
  * The protocol fee schedule, read from chain. One helper serves the server routes, the public API, and the browser
@@ -435,11 +436,12 @@ export function invalidateFeeScheduleCache(): void {
 
 const clients = new Map<string, ReadClient>();
 
-function clientFor(rpcUrl: string): ReadClient {
-  let client = clients.get(rpcUrl);
+function clientFor(rpcUrl: string, chainId: number): ReadClient {
+  const key = `${chainId}:${rpcUrl}`;
+  let client = clients.get(key);
   if (!client) {
-    client = createPublicClient({ transport: http(rpcUrl) });
-    clients.set(rpcUrl, client);
+    client = createPublicClient({ transport: serverReadTransport(rpcUrl, chainId, { timeout: 8_000 }) });
+    clients.set(key, client);
   }
   return client;
 }
@@ -780,7 +782,7 @@ export function readActiveFeeSchedule(
   const entries = cache();
   const hit = entries.get(key);
   if (hit && Date.now() - hit.at <= maxAgeMs) return hit.value;
-  const client = options.client ?? clientFor(setryn.rpcUrl);
+  const client = options.client ?? clientFor(setryn.rpcUrl, setryn.chainId);
   const value = readFromChain(client, setryn).catch((error: unknown) => {
     if (entries.get(key)?.value === value) entries.delete(key);
     if (options.fallback === false) throw error;

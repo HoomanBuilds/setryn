@@ -230,7 +230,8 @@ The broadcast is idempotent: already accepted contracts are skipped, every recei
 ```bash
 SETRYN_NETWORK=arbitrum-sepolia
 NEXT_PUBLIC_SETRYN_NETWORK=arbitrum-sepolia
-SETRYN_RPC_URL=<Arbitrum Sepolia RPC>              # server reads
+SETRYN_RPC_URL=<Arbitrum Sepolia provider RPC>     # private server primary
+SETRYN_RPC_FALLBACK_URLS=https://sepolia-rollup.arbitrum.io/rpc,https://arbitrum-sepolia-rpc.publicnode.com,https://arbitrum-sepolia.drpc.org
 NEXT_PUBLIC_SETRYN_RPC_URL=<Arbitrum Sepolia RPC>  # wallet and browser reads
 SETRYN_REFERENCE_RPC_URL=https://arb1.arbitrum.io/rpc
 SETRYN_OPERATOR_PRIVATE_KEY=<operator key>         # risk admission, witness staging, keeper calls

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-import { createPublicClient, http, type Address, type PublicClient } from "viem";
+import { createPublicClient, fallback, http, type Address, type PublicClient } from "viem";
 import { arbitrum } from "viem/chains";
 
 import { deploymentKey, deploymentStartBlock, fillStream, REFERENCE_CHAIN_ID, REFERENCE_FEEDS, referenceStream } from "@setryn/market-data";
@@ -76,7 +76,10 @@ const startBlock = BigInt(
     JSON.parse(await readFile(config.manifestPath, "utf8")),
   ) ?? deployment.deploymentBlock,
 );
-const chain = createPublicClient({ transport: http(config.rpcUrl, { timeout: 15_000, batch: { batchSize: 64, wait: 4 } }) }) as PublicClient;
+const chainTransports = config.rpcUrls.map((url) => http(url, { timeout: 15_000, retryCount: 0, batch: { batchSize: 64, wait: 4 } }));
+const chain = createPublicClient({
+  transport: chainTransports.length === 1 ? chainTransports[0] : fallback(chainTransports, { rank: false, retryCount: 0 }),
+}) as PublicClient;
 const reference = createPublicClient({ chain: arbitrum, transport: http(config.referenceRpcUrl, { timeout: 15_000 }) }) as PublicClient;
 const observedChainId = await chain.getChainId();
 if (observedChainId !== deployment.chainId) throw new Error(`RPC is chain ${observedChainId}, the deployment is chain ${deployment.chainId}`);

@@ -1,4 +1,4 @@
-import { createPublicClient, http, parseAbi, type Address, type Hex, type PublicClient } from "viem";
+import { createPublicClient, parseAbi, type Address, type Hex, type PublicClient } from "viem";
 import {
   FEE_ACTION_LABELS,
   feeActionName,
@@ -12,6 +12,7 @@ import {
 } from "@/lib/internal-gateway/fee-schedule";
 import type { SetrynRuntime } from "@/lib/internal-gateway/runtime";
 import { runtimeMarketBySeries } from "@/lib/internal-gateway/runtime-markets";
+import { serverReadTransport } from "@/lib/internal-gateway/rpc-transport";
 import { MARKETS } from "@/lib/terminal/markets";
 import {
   CLEARING_CHANNEL,
@@ -54,11 +55,12 @@ const vaultReadAbi = parseAbi([
 ]);
 
 const clients = new Map<string, PublicClient>();
-function clientFor(rpcUrl: string): PublicClient {
-  let client = clients.get(rpcUrl);
+function clientFor(rpcUrl: string, chainId: number): PublicClient {
+  const key = `${chainId}:${rpcUrl}`;
+  let client = clients.get(key);
   if (!client) {
-    client = createPublicClient({ transport: http(rpcUrl, { batch: true }) }) as PublicClient;
-    clients.set(rpcUrl, client);
+    client = createPublicClient({ transport: serverReadTransport(rpcUrl, chainId, { batch: true, timeout: 8_000 }) }) as PublicClient;
+    clients.set(key, client);
   }
   return client;
 }
@@ -448,7 +450,7 @@ async function buildProjection(client: PublicClient, setryn: SetrynRuntime, head
 
 /** The ledger build at the chain head, memoized per head block so polling viewers share one scan. */
 async function readLedger(setryn: SetrynRuntime): Promise<LedgerBuild & { headBlock: bigint }> {
-  const client = clientFor(setryn.rpcUrl);
+  const client = clientFor(setryn.rpcUrl, setryn.chainId);
   const headBlock = await client.getBlockNumber({ cacheTime: 0 });
   const holder = globalThis as unknown as Record<symbol, { key: string; value: Promise<LedgerBuild> } | undefined>;
   const key = `${setryn.fundedFeeEngine}:${setryn.feeScheduleId}:${headBlock}`;

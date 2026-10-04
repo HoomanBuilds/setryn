@@ -3,7 +3,6 @@ import {
   createPublicClient,
   formatUnits,
   getAddress,
-  http,
   keccak256,
   parseAbi,
   stringToHex,
@@ -11,6 +10,7 @@ import {
   type Hex,
   type PublicClient,
 } from "viem";
+import { serverReadTransport } from "@/lib/internal-gateway/rpc-transport";
 import {
   accountFeesPaidMinor,
   atomicClearingAbi,
@@ -114,20 +114,21 @@ const CLIENTS_KEY = Symbol.for("setryn.public-api.clients");
 const CACHE_KEY = Symbol.for("setryn.public-api.block-cache");
 const PROJECTION_VERSION = 3;
 
-function clientFor(rpcUrl: string): PublicClient {
+function clientFor(rpcUrl: string, chainId: number): PublicClient {
   const holder = globalThis as unknown as Record<symbol, Map<string, PublicClient> | undefined>;
   holder[CLIENTS_KEY] ??= new Map();
-  let client = holder[CLIENTS_KEY].get(rpcUrl);
+  const key = `${chainId}:${rpcUrl}`;
+  let client = holder[CLIENTS_KEY].get(key);
   if (!client) {
-    client = createPublicClient({ transport: http(rpcUrl, { batch: true }) }) as PublicClient;
-    holder[CLIENTS_KEY].set(rpcUrl, client);
+    client = createPublicClient({ transport: serverReadTransport(rpcUrl, chainId, { batch: true, timeout: 8_000 }) }) as PublicClient;
+    holder[CLIENTS_KEY].set(key, client);
   }
   return client;
 }
 
 export async function chainContext(): Promise<ChainContext> {
   const setryn = await readRuntime();
-  const client = clientFor(setryn.rpcUrl);
+  const client = clientFor(setryn.rpcUrl, setryn.chainId);
   const [headBlock, pending, feeSchedule] = await Promise.all([
     client.getBlockNumber({ cacheTime: 0 }),
     client.getBlock({ blockTag: "pending" }),

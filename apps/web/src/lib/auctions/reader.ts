@@ -1,6 +1,7 @@
-import { createPublicClient, http, parseAbi, type Address, type Hex, type PublicClient } from "viem";
+import { createPublicClient, parseAbi, type Address, type Hex, type PublicClient } from "viem";
 import type { SetrynRuntime } from "@/lib/internal-gateway/runtime";
 import { runtimeMarketBySeries } from "@/lib/internal-gateway/runtime-markets";
+import { serverReadTransport } from "@/lib/internal-gateway/rpc-transport";
 import {
   ZERO_BYTES32,
   decodeAuctionKind,
@@ -223,18 +224,19 @@ async function readRoute(client: PublicClient, house: Address, routeId: Bytes32)
 const CLEARED = new Set(["CLEARED", "SETTLED", "FAILED"]);
 const clients = new Map<string, PublicClient>();
 
-function clientFor(rpcUrl: string): PublicClient {
-  let client = clients.get(rpcUrl);
+function clientFor(rpcUrl: string, chainId: number): PublicClient {
+  const key = `${chainId}:${rpcUrl}`;
+  let client = clients.get(key);
   if (!client) {
-    client = createPublicClient({ transport: http(rpcUrl, { batch: true }) }) as PublicClient;
-    clients.set(rpcUrl, client);
+    client = createPublicClient({ transport: serverReadTransport(rpcUrl, chainId, { batch: true, timeout: 8_000 }) }) as PublicClient;
+    clients.set(key, client);
   }
   return client;
 }
 
 /** Every auction version the house has scheduled, newest first. */
 export async function readAuctions(runtime: SetrynRuntime, house: Address): Promise<AuctionRecord[]> {
-  const client = clientFor(runtime.rpcUrl);
+  const client = clientFor(runtime.rpcUrl, runtime.chainId);
   const fromBlock = BigInt(runtime.deploymentBlock ?? 0);
   const [scheduled, commitments] = await Promise.all([
     client.getContractEvents({ address: house, abi: auctionAbi, eventName: "AuctionScheduled", fromBlock, toBlock: "latest" }),

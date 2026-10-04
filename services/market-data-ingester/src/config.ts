@@ -10,6 +10,12 @@ export type IngestEnvironment = "local" | "arbitrum-sepolia";
 
 export const INGEST_CHAIN_IDS: Readonly<Record<IngestEnvironment, number>> = { local: 31337, "arbitrum-sepolia": 421614 };
 
+const ARBITRUM_SEPOLIA_PUBLIC_RPCS = [
+  "https://sepolia-rollup.arbitrum.io/rpc",
+  "https://arbitrum-sepolia-rpc.publicnode.com",
+  "https://arbitrum-sepolia.drpc.org",
+] as const;
+
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -19,6 +25,7 @@ export interface IngestConfig {
   scope: string;
   chainId: number;
   rpcUrl: string;
+  rpcUrls: readonly string[];
   referenceRpcUrl: string;
   runtimePath: string;
   manifestPath: string;
@@ -51,6 +58,12 @@ export function resolveIngestConfig(
   const parsed = new URL(rpcUrl);
   if (local && (parsed.protocol !== "http:" || !LOOPBACK.has(parsed.hostname))) throw new Error("the local RPC must be a loopback http URL");
   if (!local && parsed.protocol !== "https:") throw new Error("SETRYN_RPC_URL must be an https URL");
+  const configuredFallbacks = env.SETRYN_RPC_FALLBACK_URLS?.split(",").map((value) => value.trim()).filter(Boolean);
+  const fallbackUrls = local ? [] : configuredFallbacks?.length ? configuredFallbacks : ARBITRUM_SEPOLIA_PUBLIC_RPCS;
+  for (const fallbackUrl of fallbackUrls) {
+    if (new URL(fallbackUrl).protocol !== "https:") throw new Error("SETRYN_RPC_FALLBACK_URLS must contain only https URLs");
+  }
+  const rpcUrls = [...new Set([rpcUrl, ...fallbackUrls])].slice(0, 4);
 
   const referenceRpcUrl = env.SETRYN_REFERENCE_RPC_URL?.trim() || "https://arb1.arbitrum.io/rpc";
   if (new URL(referenceRpcUrl).protocol !== "https:") throw new Error("SETRYN_REFERENCE_RPC_URL must be an https URL");
@@ -63,6 +76,7 @@ export function resolveIngestConfig(
     scope: environment,
     chainId: INGEST_CHAIN_IDS[environment],
     rpcUrl,
+    rpcUrls,
     referenceRpcUrl,
     runtimePath,
     manifestPath,

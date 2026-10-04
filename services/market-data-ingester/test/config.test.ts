@@ -23,7 +23,24 @@ test("defaults: the network scope, confirmations behind the head, and a 30-day b
   });
   assert.equal(sepolia.scope, "arbitrum-sepolia");
   assert.equal(sepolia.chainId, 421614);
+  assert.equal(sepolia.rpcUrls.length, 4);
+  assert.equal(sepolia.rpcUrls[0], "https://sepolia.example");
   assert.equal(sepolia.confirmations, 3);
   assert.equal(sepolia.backfillDays, 180);
   assert.match(sepolia.runtimePath, /deployments\/arbitrum-sepolia\/runtime\.json$/);
+});
+
+test("configured Sepolia RPC fallbacks are ordered, deduplicated and require HTTPS", () => {
+  const config = resolveIngestConfig(parseArguments(["--environment", "arbitrum-sepolia"]), {
+    SETRYN_RPC_URL: "https://primary.example",
+    SETRYN_RPC_FALLBACK_URLS: "https://one.example,https://primary.example,https://two.example",
+  });
+  assert.deepEqual(config.rpcUrls, ["https://primary.example", "https://one.example", "https://two.example"]);
+  assert.throws(
+    () => resolveIngestConfig(parseArguments(["--environment", "arbitrum-sepolia"]), {
+      SETRYN_RPC_URL: "https://primary.example",
+      SETRYN_RPC_FALLBACK_URLS: "http://fallback.example",
+    }),
+    /https URLs/,
+  );
 });
