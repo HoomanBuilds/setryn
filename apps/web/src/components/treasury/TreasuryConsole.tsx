@@ -46,7 +46,7 @@ function useTreasury(): { reading: Reading; reload: () => void } {
     } catch {
       setReading((current) => ({
         kind: "UNAVAILABLE",
-        reason: "The chain RPC did not answer, so treasury figures could not be refreshed.",
+        reason: "Treasury data could not be refreshed from the live chain. Retry in a moment.",
         checkedAt: new Date().toISOString(),
         last: current.kind === "READY" ? current.data : current.kind === "UNAVAILABLE" ? current.last : null,
       }));

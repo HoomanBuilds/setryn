@@ -76,7 +76,11 @@ const startBlock = BigInt(
     JSON.parse(await readFile(config.manifestPath, "utf8")),
   ) ?? deployment.deploymentBlock,
 );
-const chainTransports = config.rpcUrls.map((url) => http(url, { timeout: 15_000, retryCount: 0, batch: { batchSize: 64, wait: 4 } }));
+const chainTransports = config.rpcUrls.map((url) => http(url, {
+  timeout: 15_000,
+  retryCount: 0,
+  batch: config.rpcUrls.length === 1 ? { batchSize: 64, wait: 4 } : false,
+}));
 const chain = createPublicClient({
   transport: chainTransports.length === 1 ? chainTransports[0] : fallback(chainTransports, { rank: false, retryCount: 0 }),
 }) as PublicClient;

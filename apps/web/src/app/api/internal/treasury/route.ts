@@ -10,6 +10,7 @@ export async function GET() {
     const setryn = await readRuntime();
     return Response.json(await readTreasury(setryn), { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
+    console.error("[treasury] projection failed:", error);
     const message = error instanceof Error ? error.message.split("\n")[0] : "TREASURY_UNAVAILABLE";
     return Response.json({ error: "TREASURY_UNAVAILABLE", message }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }

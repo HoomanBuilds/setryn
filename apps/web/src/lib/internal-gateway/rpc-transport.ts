@@ -23,7 +23,9 @@ export function serverRpcUrls(primaryRpcUrl: string, chainId: number): string[] 
 }
 
 export function serverReadTransport(primaryRpcUrl: string, chainId: number, config: HttpTransportConfig = {}): Transport {
-  const transports = serverRpcUrls(primaryRpcUrl, chainId).map((url) => http(url, { ...config, retryCount: 0 }));
+  const urls = serverRpcUrls(primaryRpcUrl, chainId);
+  const transportConfig = urls.length > 1 ? { ...config, batch: false as const } : config;
+  const transports = urls.map((url) => http(url, { ...transportConfig, retryCount: 0 }));
   if (transports.length === 1) return transports[0];
   return fallback(transports, { rank: false, retryCount: 0 });
 }
