@@ -15,6 +15,7 @@ import {
 import { jsonRpc } from "viem/nonce";
 import { privateKeyToAccount } from "viem/accounts";
 import { networkChain as serverChain } from "./network";
+import { serverReadTransport } from "./rpc-transport";
 import type { SetrynNetwork, SetrynRuntime } from "./runtime";
 import { readRuntime } from "./runtime-server";
 
@@ -144,7 +145,11 @@ function localNodeTransport(url: string): Transport {
 
 function publicClientFor(setryn: SetrynRuntime): PublicClient {
   const network = setryn.network ?? "local";
-  return createPublicClient({ chain: serverChain(network, setryn.rpcUrl), transport: http(setryn.rpcUrl), pollingInterval: network === "local" ? 250 : 1_000 }) as PublicClient;
+  const transport =
+    network === "local"
+      ? http(setryn.rpcUrl)
+      : serverReadTransport(setryn.rpcUrl, setryn.chainId, { timeout: 8_000 });
+  return createPublicClient({ chain: serverChain(network, setryn.rpcUrl), transport, pollingInterval: network === "local" ? 250 : 1_000 }) as PublicClient;
 }
 
 /** A signer for any unlocked account of the local node (the local deployment assigns roles to anvil accounts). */
