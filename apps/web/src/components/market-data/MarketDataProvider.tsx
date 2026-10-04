@@ -164,12 +164,15 @@ export function MarketDataProvider({ children }: { children: ReactNode }) {
   const [quoteClock, setQuoteClock] = useState(() => platformNow());
   const lastQuoteAt = useRef(0);
   const quoteStreamOpen = useRef(false);
+  const quoteReconnectTimer = useRef<number | undefined>(undefined);
   const quoteQuery = quoteMarketId ? `?market=${encodeURIComponent(quoteMarketId)}` : "";
   useEffect(() => {
     if (typeof window === "undefined" || typeof EventSource === "undefined") return;
     const source = new EventSource(`/api/quotes/stream${quoteQuery}`);
     source.onopen = () => {
+      window.clearTimeout(quoteReconnectTimer.current);
       quoteStreamOpen.current = true;
+      if (lastQuoteAt.current > 0) setQuoteStatus("LIVE");
     };
     source.addEventListener("quotes", (event) => {
       try {
@@ -183,9 +186,15 @@ export function MarketDataProvider({ children }: { children: ReactNode }) {
     });
     source.onerror = () => {
       quoteStreamOpen.current = false;
-      if (Date.now() - lastQuoteAt.current > QUOTE_POLL_MS * 2) setQuoteStatus("RECONNECTING");
+      window.clearTimeout(quoteReconnectTimer.current);
+      quoteReconnectTimer.current = window.setTimeout(() => {
+        if (!quoteStreamOpen.current && Date.now() - lastQuoteAt.current > QUOTE_POLL_MS * 2) {
+          setQuoteStatus("RECONNECTING");
+        }
+      }, 2_000);
     };
     return () => {
+      window.clearTimeout(quoteReconnectTimer.current);
       quoteStreamOpen.current = false;
       source.close();
     };
