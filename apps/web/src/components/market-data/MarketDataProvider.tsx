@@ -328,7 +328,6 @@ export function useMarketCandles(
   const [state, setState] = useState<{ key: string; response: MarketCandlesResponse | null }>({ key: "", response: null });
   const [minute, setMinute] = useState(0);
   const key = `${marketId}:${interval}`;
-  const blockNumber = snapshot?.blockNumber ?? 0;
   const tradeCount = snapshot?.markets.find((candidate) => candidate.marketKey === marketId)?.trades[0]?.id ?? "";
 
   useEffect(() => {
@@ -358,7 +357,7 @@ export function useMarketCandles(
     return () => {
       cancelled = true;
     };
-  }, [blockNumber, tradeCount, interval, key, marketId, minute]);
+  }, [tradeCount, interval, key, marketId, minute]);
 
   const response = state.key === key ? state.response : null;
   return {
