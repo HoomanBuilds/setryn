@@ -10,11 +10,9 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: Request) {
   try {
-    const book = await readFirmQuoteBook();
     const marketId = new URL(request.url).searchParams.get("market");
-    const market = marketId ? book.markets[marketId] : null;
-    const response = marketId ? { ...book, markets: market ? { [marketId]: market } : {} } : book;
-    return Response.json(response, { headers: { "Cache-Control": "no-store" } });
+    const book = await readFirmQuoteBook(marketId);
+    return Response.json(book, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return Response.json({ error: "QUOTES_UNAVAILABLE" }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }

@@ -34,14 +34,13 @@ export async function GET(request: Request) {
       let lastWrite = Date.now();
       while (!closed && Date.now() - started < STREAM_MS) {
         try {
-          const book = await readFirmQuoteBook();
+          const book = await readFirmQuoteBook(marketId);
           const market = marketId ? book.markets[marketId] : null;
-          const scoped = marketId ? { ...book, markets: market ? { [marketId]: market } : {} } : book;
           const version = marketId
             ? `${market?.status ?? "MISSING"}:${[...(market?.bids ?? []), ...(market?.asks ?? [])].map((quote) => quote.id).join(":")}`
             : String(book.version);
           if (version !== lastVersion) {
-            write(`event: quotes\ndata: ${JSON.stringify(scoped)}\n\n`);
+            write(`event: quotes\ndata: ${JSON.stringify(book)}\n\n`);
             lastVersion = version;
             lastWrite = Date.now();
           }

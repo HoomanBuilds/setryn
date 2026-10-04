@@ -105,8 +105,8 @@ interface MakerCollateral {
 }
 
 interface EngineState {
-  book: FirmQuoteBook | null;
-  building: Promise<FirmQuoteBook> | null;
+  books: Map<string, FirmQuoteBook>;
+  builds: Map<string, Promise<FirmQuoteBook>>;
   version: number;
   signed: Map<string, { bids: SignedSide[]; asks: SignedSide[] }>;
   capacities: Map<string, { at: number; views: CapacityView[] }>;
@@ -118,13 +118,13 @@ interface EngineState {
   scannedBlock: bigint | null;
 }
 
-const STATE_KEY = Symbol.for("setryn.quote-engine.state");
+const STATE_KEY = Symbol.for("setryn.quote-engine.scoped-state");
 
 function engine(): EngineState {
   const holder = globalThis as unknown as Record<symbol, EngineState | undefined>;
   holder[STATE_KEY] ??= {
-    book: null,
-    building: null,
+    books: new Map(),
+    builds: new Map(),
     version: 0,
     signed: new Map(),
     capacities: new Map(),
@@ -144,31 +144,38 @@ export function noteQuoteConsumed(quoteOrderHash: Hex): void {
   const state = engine();
   state.consumed.set(quoteOrderHash.toLowerCase(), Date.now());
   forgetMarketOf(quoteOrderHash);
-  state.book = null;
+  state.books.clear();
 }
 
-/** The current firm quote book, built at most once per tick per server process. */
-export function readFirmQuoteBook(): Promise<FirmQuoteBook> {
+/** The current firm quote book, built at most once per tick and scope per server process. */
+export function readFirmQuoteBook(marketId?: string | null): Promise<FirmQuoteBook> {
   const state = engine();
-  if (state.book && Date.now() - state.book.asOf < BOOK_TTL_MS) return Promise.resolve(state.book);
-  state.building ??= buildBook()
+  const scope = marketId ?? "*";
+  const current = state.books.get(scope);
+  if (current && Date.now() - current.asOf < BOOK_TTL_MS) return Promise.resolve(current);
+  const activeBuild = state.builds.get(scope);
+  if (activeBuild) return activeBuild;
+  const build = buildBook(marketId)
     .then((book) => {
-      state.book = book;
+      state.books.set(scope, book);
       return book;
     })
     .finally(() => {
-      state.building = null;
+      state.builds.delete(scope);
     });
-  return state.building;
+  state.builds.set(scope, build);
+  return build;
 }
 
-async function buildBook(): Promise<FirmQuoteBook> {
+async function buildBook(marketId?: string | null): Promise<FirmQuoteBook> {
   const state = engine();
   const setryn = await readRuntime();
+  const quotedMarkets = marketId ? setryn.markets.filter((market) => market.marketKey === marketId) : setryn.markets;
+  const scope = marketId ?? "*";
   const nowMs = Date.now();
   const markets: Record<string, MarketQuoteState> = {};
   const unavailable = (reason: string, status: MarketQuoteState["status"] = "UNAVAILABLE") => {
-    for (const market of setryn.markets) {
+    for (const market of quotedMarkets) {
       markets[market.marketKey] = {
         marketId: market.marketKey,
         status,
@@ -184,25 +191,25 @@ async function buildBook(): Promise<FirmQuoteBook> {
 
   if (!setryn.quoteSettlementRouter || !setryn.streamCapacityManager) {
     unavailable("This deployment has no firm-quote settlement router; only the public book trades.");
-    return publish(setryn, null, markets, nowMs);
+    return publish(setryn, null, markets, nowMs, scope);
   }
   let maker: RoleSigner;
   try {
     maker = await makerSigner(setryn);
   } catch (error) {
     unavailable(error instanceof SignerUnavailableError ? error.reason : "The designated maker is unavailable.", "INDICATIVE");
-    return publish(setryn, null, markets, nowMs);
+    return publish(setryn, null, markets, nowMs, scope);
   }
 
   const [prices, fees, accountId] = await Promise.all([
-    makerQuotes(setryn.markets),
+    makerQuotes(quotedMarkets),
     readActiveFeeSchedule(setryn, { client: maker.publicClient }),
     cachedMakerAccount(maker),
     syncSettledQuotes(maker.publicClient as PublicClient, setryn.quoteSettlementRouter as Address),
   ]);
   const collateral = await cachedCollateral(maker, accountId).catch(() => null);
   await Promise.all(
-    setryn.markets.map(async (market) => {
+    quotedMarkets.map(async (market) => {
       try {
         markets[market.marketKey] = await quoteMarket(maker, accountId, fees, market, prices.get(market.marketKey), collateral, nowMs);
       } catch (error) {
@@ -222,12 +229,18 @@ async function buildBook(): Promise<FirmQuoteBook> {
       }
     }),
   );
-  return publish(setryn, maker.address, markets, nowMs);
+  return publish(setryn, maker.address, markets, nowMs, scope);
 }
 
-function publish(setryn: SetrynRuntime, maker: Address | null, markets: Record<string, MarketQuoteState>, nowMs: number): FirmQuoteBook {
+function publish(
+  setryn: SetrynRuntime,
+  maker: Address | null,
+  markets: Record<string, MarketQuoteState>,
+  nowMs: number,
+  scope: string,
+): FirmQuoteBook {
   const state = engine();
-  const previous = state.book;
+  const previous = state.books.get(scope);
   const changed =
     !previous ||
     Object.keys(markets).some((key) => {
