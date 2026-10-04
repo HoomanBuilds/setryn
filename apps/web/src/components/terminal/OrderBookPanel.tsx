@@ -369,6 +369,7 @@ export function OrderBookPanel({
   const [unit, setUnit] = useState<SizeUnit>("LOTS");
   const trades = useMarketTrades(market.id);
   const feed = useMarketFeed();
+  const { status: quoteStatus } = useFirmQuotes();
   const unavailable = feed.status === "ERROR" && market.book.length === 0 && directOrders.length === 0;
 
   const book = useMemo(() => {
@@ -407,6 +408,7 @@ export function OrderBookPanel({
   const centrePrice = last?.price ?? (Number.isFinite(mid) ? mid : market.netPrice);
   const centreLabel = last ? null : Number.isFinite(mid) ? "Mid" : market.markSource === "MODEL" ? "Mark" : null;
   const empty = book.asks.length === 0 && book.bids.length === 0;
+  const connecting = empty && !unavailable && quoteStatus === "CONNECTING" && !market.firmQuotes;
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-panel" aria-label="Order book and trades">
@@ -487,10 +489,14 @@ export function OrderBookPanel({
           <div className="relative flex min-h-0 flex-1 flex-col">
             {empty ? (
               <div className="pointer-events-none absolute inset-x-0 top-1/4 z-10 flex flex-col items-center gap-1 px-6 text-center">
-                <p className="text-xs text-dim">{unavailable ? "Book unavailable" : "No resting orders"}</p>
+                <p className="text-xs text-dim">
+                  {unavailable ? "Book unavailable" : connecting ? "Connecting to maker stream" : "No resting orders"}
+                </p>
                 <p className="text-[11px] leading-snug text-faint">
                   {unavailable
                     ? "The chain did not answer, so the book cannot be read right now."
+                    : connecting
+                      ? "Signed firm quotes will appear as soon as the live book is ready."
                     : "Place a limit order to rest the first bid or offer, or request private quotes."}
                 </p>
               </div>
