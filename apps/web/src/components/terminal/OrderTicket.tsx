@@ -1053,7 +1053,11 @@ function StageArea({
           </p>
         ) : null}
         <p className="border-t border-line px-3 py-2 text-xs leading-snug text-faint">
-          {`The next action asks your wallet to sign and submit on ${networkLabel}; each step shows here until it confirms.`}
+          {requiresRfq
+            ? "Invited makers receive the package request after you confirm."
+            : preview.rests
+              ? `Your wallet signs the order before it is placed on ${networkLabel}. Progress remains visible until confirmation.`
+              : `Your wallet signs the order and risk terms before settlement on ${networkLabel}. Progress remains visible until confirmation.`}
         </p>
         <div className="grid grid-cols-2 gap-2 px-3 py-2">
           <button
@@ -1069,12 +1073,12 @@ function StageArea({
             className="focus-ring h-11 rounded-md bg-brand text-sm font-semibold text-app transition-colors hover:brightness-105 lg:h-9"
           >
             {amendment
-              ? "Authorize replacement"
+              ? "Confirm replacement"
               : requiresRfq
                 ? "Request firm quotes"
                 : preview.rests
-                  ? "Authorize and place"
-                  : "Authorize and execute"}
+                  ? "Sign and place order"
+                  : "Confirm trade"}
           </button>
         </div>
       </div>

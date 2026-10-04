@@ -95,7 +95,7 @@ export function StatusBoard() {
 
   return (
     <main className="scroll-thin min-h-0 flex-1 overflow-y-auto bg-app p-1">
-      <div className="flex flex-col gap-1">
+      <div className="flex min-h-full flex-col gap-1">
         <Panel label="System status">
           <div className="flex flex-col gap-3 px-4 pt-4 pb-3 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0">
@@ -151,8 +151,8 @@ export function StatusBoard() {
           ) : null}
         </Panel>
 
-        <div className="grid gap-1 xl:grid-cols-[minmax(0,1fr)_360px]">
-          <Panel label="Deployed contracts" delay={60}>
+        <div className="grid min-h-[480px] flex-1 gap-1 xl:min-h-0 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <Panel label="Deployed contracts" delay={60} className="min-h-0">
             <PanelHead
               title="Deployed contracts"
               tools={
@@ -172,7 +172,7 @@ export function StatusBoard() {
                 </div>
               }
             />
-            <div role="region" tabIndex={0} aria-label="Contract code checks" className="focus-ring scroll-thin max-h-[560px] overflow-auto">
+            <div role="region" tabIndex={0} aria-label="Contract code checks" className="focus-ring scroll-thin min-h-[320px] flex-1 overflow-auto">
               <table className="w-full min-w-[720px] border-collapse text-xs">
                 <caption className="sr-only">Runtime code hash of each deployed contract compared with its deployment evidence</caption>
                 <thead className="sticky top-0 z-[1] bg-panel">
@@ -215,7 +215,7 @@ export function StatusBoard() {
             </div>
           </Panel>
 
-          <div className="flex flex-col gap-1">
+          <div className="flex min-h-0 flex-col gap-1">
             <Panel label="Build evidence" delay={100}>
               <PanelHead title="Build evidence" />
               <dl className="divide-y divide-line-soft text-xs">

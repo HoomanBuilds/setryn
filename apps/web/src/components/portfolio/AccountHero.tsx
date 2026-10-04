@@ -113,12 +113,15 @@ export function AccountHero({ read }: { read: PortfolioRead }) {
             {loading ? (
               <Skeleton className="h-11 w-44" />
             ) : (
-              <p className="flex items-baseline gap-2 text-ink">
-                <span className="tnum font-serif text-[46px] leading-[44px] font-normal tracking-[-0.02em]">
+              <p className="min-w-0 text-ink">
+                <span
+                  className="tnum block max-w-full truncate whitespace-nowrap font-serif text-[36px] leading-10 font-normal tracking-[-0.02em]"
+                  title={`${formatNumber(account.equity, 2)} ${asset}`}
+                >
                   {whole}
-                  <span className="text-dim">{`.${fraction}`}</span>
+                  <span className="text-[0.72em] text-dim">{`.${fraction}`}</span>
                 </span>
-                <span className="flex items-center gap-1 self-center font-mono text-xs text-faint">
+                <span className="mt-1 flex items-center gap-1 font-mono text-xs text-faint">
                   <CollateralMark size={14} />
                   {asset}
                 </span>
