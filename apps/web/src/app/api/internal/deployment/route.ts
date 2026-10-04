@@ -1,4 +1,5 @@
-import { createPublicClient, http, keccak256, type Address, type Hex } from "viem";
+import { createPublicClient, keccak256, type Address, type Hex } from "viem";
+import { serverReadTransport } from "@/lib/internal-gateway/rpc-transport";
 import { readDeploymentEvidence, readRuntime } from "@/lib/internal-gateway/runtime-server";
 
 export const runtime = "nodejs";
@@ -33,7 +34,7 @@ export async function GET() {
   try {
     const [setryn, evidence] = await Promise.all([readRuntime(), readDeploymentEvidence()]);
     const manifest = evidence as EvidenceManifest;
-    const client = createPublicClient({ transport: http(setryn.rpcUrl, { batch: true }) });
+    const client = createPublicClient({ transport: serverReadTransport(setryn.rpcUrl, setryn.chainId, { timeout: 8_000 }) });
     const entries: { kind: Kind; contract: EvidenceContract }[] = [
       ...(manifest.linkedLibraries ?? []).map((contract) => ({ kind: "library" as const, contract })),
       ...manifest.contracts.map((contract) => ({ kind: "core" as const, contract })),

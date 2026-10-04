@@ -1,6 +1,7 @@
-import { createPublicClient, http, type Address } from "viem";
+import { createPublicClient, type Address } from "viem";
 import { NETWORK_PROFILES, testFundingAvailable } from "@/lib/internal-gateway/network";
 import { signerAvailability } from "@/lib/internal-gateway/operator-signer";
+import { serverReadTransport } from "@/lib/internal-gateway/rpc-transport";
 import { readRuntime } from "@/lib/internal-gateway/runtime-server";
 
 export const runtime = "nodejs";
@@ -47,7 +48,7 @@ export async function GET() {
     feeChanges: network === "local" ? ("LOCAL_OPERATOR" as const) : ("GOVERNANCE_TIMELOCK" as const),
   };
   try {
-    const client = createPublicClient({ transport: http(setryn.rpcUrl) });
+    const client = createPublicClient({ transport: serverReadTransport(setryn.rpcUrl, setryn.chainId, { timeout: 8_000 }) });
     const [chainId, blockNumber, bytecodes] = await Promise.all([
       client.getChainId(),
       client.getBlockNumber(),
