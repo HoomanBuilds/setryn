@@ -295,22 +295,64 @@ export async function referenceRoundBounds(
   return { newest: round(newest[0]), oldest: round(oldest[0]) };
 }
 
-/** Holes in a feed's stored rounds, oldest first. */
-export async function referenceRoundHoles(chainId: number, feed: string, limit = 100): Promise<ReferenceHole[]> {
-  const rows = await database()<
-    { phase_id: number; aggregator_round: string; next_round: string; updated_at: string; next_updated_at: string }[]
-  >`
-    select phase_id, aggregator_round, next_round, updated_at, next_updated_at from (
-      select phase_id, aggregator_round, updated_at,
-        lead(aggregator_round) over (partition by phase_id order by aggregator_round) as next_round,
-        lead(updated_at) over (partition by phase_id order by aggregator_round) as next_updated_at
-      from setryn.reference_rounds
-      where chain_id = ${chainId} and feed = ${feed.toLowerCase()}
-    ) rounds
-    where next_round is not null and next_round <> aggregator_round + 1
-    order by updated_at
-    limit ${limit}
-  `;
+/** Holes in a feed's stored rounds, oldest first. A bounded query includes both readings around the requested window. */
+export async function referenceRoundHoles(
+  chainId: number,
+  feed: string,
+  limit = 100,
+  window?: { since: number; until: number },
+): Promise<ReferenceHole[]> {
+  const sql = database();
+  const key = feed.toLowerCase();
+  const rows = window
+    ? await sql<
+        { phase_id: number; aggregator_round: string; next_round: string; updated_at: string; next_updated_at: string }[]
+      >`
+        with windowed as (
+          select phase_id, aggregator_round, round_id, updated_at
+          from setryn.reference_rounds
+          where chain_id = ${chainId} and feed = ${key}
+            and updated_at >= ${window.since} and updated_at <= ${window.until}
+          union all
+          select * from (
+            select phase_id, aggregator_round, round_id, updated_at
+            from setryn.reference_rounds
+            where chain_id = ${chainId} and feed = ${key} and updated_at < ${window.since}
+            order by updated_at desc, round_id desc limit 1
+          ) previous
+          union all
+          select * from (
+            select phase_id, aggregator_round, round_id, updated_at
+            from setryn.reference_rounds
+            where chain_id = ${chainId} and feed = ${key} and updated_at > ${window.until}
+            order by updated_at, round_id limit 1
+          ) following
+        )
+        select phase_id, aggregator_round, next_round, updated_at, next_updated_at from (
+          select phase_id, aggregator_round, updated_at,
+            lead(aggregator_round) over (partition by phase_id order by aggregator_round) as next_round,
+            lead(updated_at) over (partition by phase_id order by aggregator_round) as next_updated_at
+          from windowed
+        ) rounds
+        where next_round is not null and next_round <> aggregator_round + 1
+          and next_updated_at > ${window.since} and updated_at < ${window.until}
+        order by updated_at
+        limit ${limit}
+      `
+    : await sql<
+        { phase_id: number; aggregator_round: string; next_round: string; updated_at: string; next_updated_at: string }[]
+      >`
+        select phase_id, aggregator_round, next_round, updated_at, next_updated_at from (
+          select phase_id, aggregator_round, updated_at,
+            lead(aggregator_round) over (partition by phase_id order by aggregator_round) as next_round,
+            lead(updated_at) over (partition by phase_id order by aggregator_round) as next_updated_at
+          from setryn.reference_rounds
+          where chain_id = ${chainId} and feed = ${key}
+        ) rounds
+        where next_round is not null and next_round <> aggregator_round + 1
+        order by updated_at
+        limit ${limit}
+      `;
   return rows.map((row) => ({
     phaseId: row.phase_id,
     afterRound: BigInt(row.aggregator_round),

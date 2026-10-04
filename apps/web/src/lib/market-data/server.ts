@@ -838,7 +838,7 @@ async function spotHistory(
       const { step, anchor } = barGrid(interval);
       const [stored, holes] = await Promise.all([
         referenceBuckets({ chainId: REFERENCE_CHAIN_ID, feed, since, until, step, anchor }),
-        referenceRoundHoles(REFERENCE_CHAIN_ID, feed, 500),
+        referenceRoundHoles(REFERENCE_CHAIN_ID, feed, 500, { since, until }),
       ]);
       if (stored.earliest !== null) {
         return {
