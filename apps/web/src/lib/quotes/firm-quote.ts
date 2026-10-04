@@ -101,19 +101,23 @@ export function quoteExecutable(quote: Pick<FirmQuote, "expiresAt">, nowMs: numb
 export function firmQuoteRows(state: MarketQuoteState | undefined, nowMs: number): BookRow[] {
   if (!state || state.status !== "FIRM") return [];
   const rows: BookRow[] = [];
-  for (const quote of [...state.asks, ...state.bids]) {
-    if (!quote || quoteSecondsLeft(quote, nowMs) <= 0) continue;
-    rows.push({
-      id: `firm:${quote.id}`,
-      side: quote.side,
-      source: "STREAM_FIRM",
-      price: quote.price,
-      lots: quote.lots,
-      firmness: "FIRM",
-      executable: quoteExecutable(quote, nowMs),
-      ttlSeconds: Math.max(0, Math.floor(quoteSecondsLeft(quote, nowMs))),
-      origin: "Designated maker",
-    });
+  for (const quotes of [state.asks, state.bids]) {
+    for (const [level, quote] of quotes.entries()) {
+      if (!quote || quoteSecondsLeft(quote, nowMs) <= 0) continue;
+      rows.push({
+        // A renewed signature changes the quote hash, but it is still the same visible ladder level. Keeping the
+        // row identity stable prevents React from replacing the element under the pointer on every renewal.
+        id: `firm:${state.marketId}:${quote.side}:${level}`,
+        side: quote.side,
+        source: "STREAM_FIRM",
+        price: quote.price,
+        lots: quote.lots,
+        firmness: "FIRM",
+        executable: quoteExecutable(quote, nowMs),
+        ttlSeconds: Math.max(0, Math.floor(quoteSecondsLeft(quote, nowMs))),
+        origin: "Designated maker",
+      });
+    }
   }
   return rows;
 }

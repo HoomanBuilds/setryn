@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { platformNow } from "@/lib/terminal/clock";
 import { applyFirmQuotes, overlaySnapshot } from "@/lib/market-data/overlay";
+import { barOpenTime } from "@/lib/market-data/intervals";
 import type { FirmQuoteBook } from "@/lib/quotes/firm-quote";
 import { MARKETS } from "@/lib/terminal/markets";
 import type { PackageMarket } from "@/lib/terminal/types";
@@ -44,6 +45,7 @@ interface MarketDataContextValue {
   quotes: FirmQuoteBook | null;
   quoteStatus: QuoteStreamStatus;
   discardQuote: (quoteId: string) => void;
+  focusQuoteMarket: (marketId: string | null) => void;
 }
 
 const MarketDataContext = createContext<MarketDataContextValue | null>(null);
@@ -93,6 +95,14 @@ function keepHealthyQuoteBook(current: FirmQuoteBook | null, next: FirmQuoteBook
     }
   }
   return retained ? { ...next, markets } : next;
+}
+
+function initialQuoteMarket(): string | null {
+  if (typeof window === "undefined") return null;
+  const match = window.location.pathname.match(/^\/trade\/([^/]+)$/i);
+  if (!match) return null;
+  const segment = decodeURIComponent(match[1]);
+  return MARKETS.find((market) => market.id.toLowerCase() === segment.toLowerCase())?.id ?? null;
 }
 
 export { applyLiveMarket, deriveRoutes, type LiveMarketContext } from "@/lib/market-data/overlay";
@@ -150,11 +160,17 @@ export function MarketDataProvider({ children }: { children: ReactNode }) {
   // without a transaction. The last quotes stay through a reconnect, and every quote still expires on its own clock.
   const [quotes, setQuotes] = useState<FirmQuoteBook | null>(null);
   const [quoteStatus, setQuoteStatus] = useState<QuoteStreamStatus>("CONNECTING");
+  const [quoteMarketId, setQuoteMarketId] = useState<string | null>(initialQuoteMarket);
   const [quoteClock, setQuoteClock] = useState(() => platformNow());
   const lastQuoteAt = useRef(0);
+  const quoteStreamOpen = useRef(false);
+  const quoteQuery = quoteMarketId ? `?market=${encodeURIComponent(quoteMarketId)}` : "";
   useEffect(() => {
     if (typeof window === "undefined" || typeof EventSource === "undefined") return;
-    const source = new EventSource("/api/quotes/stream");
+    const source = new EventSource(`/api/quotes/stream${quoteQuery}`);
+    source.onopen = () => {
+      quoteStreamOpen.current = true;
+    };
     source.addEventListener("quotes", (event) => {
       try {
         const book = JSON.parse((event as MessageEvent<string>).data) as FirmQuoteBook;
@@ -166,10 +182,14 @@ export function MarketDataProvider({ children }: { children: ReactNode }) {
       }
     });
     source.onerror = () => {
+      quoteStreamOpen.current = false;
       if (Date.now() - lastQuoteAt.current > QUOTE_POLL_MS * 2) setQuoteStatus("RECONNECTING");
     };
-    return () => source.close();
-  }, []);
+    return () => {
+      quoteStreamOpen.current = false;
+      source.close();
+    };
+  }, [quoteQuery]);
   // Vercel may close a long-lived stream between function instances. The ordinary snapshot keeps the same signed
   // quote book available through those reconnects; it never requires a transaction and never replaces still-live
   // firm quotes with a transient unavailable response.
@@ -178,10 +198,14 @@ export function MarketDataProvider({ children }: { children: ReactNode }) {
     let timer: number | undefined;
     let inflight = false;
     const load = async () => {
+      if (quoteStreamOpen.current) {
+        timer = window.setTimeout(load, QUOTE_POLL_MS);
+        return;
+      }
       if (inflight) return;
       inflight = true;
       try {
-        const response = await fetch("/api/quotes", { cache: "no-store" });
+        const response = await fetch(`/api/quotes${quoteQuery}`, { cache: "no-store" });
         if (!response.ok) throw new Error(`QUOTES_${response.status}`);
         const book = (await response.json()) as FirmQuoteBook;
         if (cancelled) return;
@@ -195,12 +219,12 @@ export function MarketDataProvider({ children }: { children: ReactNode }) {
         if (!cancelled) timer = window.setTimeout(load, QUOTE_POLL_MS);
       }
     };
-    void load();
+    timer = window.setTimeout(load, 2_000);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, []);
+  }, [quoteQuery]);
   // A quote this browser just settled, or saw refused as already taken, is dropped at once rather than staying
   // executable until the stream replaces it.
   const [discarded, setDiscarded] = useState<ReadonlySet<string>>(() => new Set());
@@ -224,9 +248,10 @@ export function MarketDataProvider({ children }: { children: ReactNode }) {
   }, [snapshot, liveQuotes, quoteClock]);
 
   const refresh = useCallback(() => loadRef.current(), []);
+  const focusQuoteMarket = useCallback((marketId: string | null) => setQuoteMarketId(marketId), []);
   const value = useMemo<MarketDataContextValue>(
-    () => ({ markets, snapshot, status, receivedAt, refresh, quotes: liveQuotes, quoteStatus, discardQuote }),
-    [markets, snapshot, status, receivedAt, refresh, liveQuotes, quoteStatus, discardQuote],
+    () => ({ markets, snapshot, status, receivedAt, refresh, quotes: liveQuotes, quoteStatus, discardQuote, focusQuoteMarket }),
+    [markets, snapshot, status, receivedAt, refresh, liveQuotes, quoteStatus, discardQuote, focusQuoteMarket],
   );
   return <MarketDataContext.Provider value={value}>{children}</MarketDataContext.Provider>;
 }
@@ -285,6 +310,10 @@ export function useFirmQuotes(): {
   return { quotes, status: quoteStatus, discardQuote };
 }
 
+export function useQuoteMarketFocus(): (marketId: string | null) => void {
+  return useMarketDataContext().focusQuoteMarket;
+}
+
 /** Re-reads the feed now, for example right after the viewer's own order changes the book. */
 export function useMarketDataRefresh(): () => void {
   return useMarketDataContext().refresh;
@@ -316,6 +345,31 @@ export function useReferencePrices(): Record<string, ReferenceQuote> {
 
 /** OHLCV bars for one market and interval, refreshed with the feed. */
 const NO_CHART_TRADES: MarketCandlesResponse["trades"] = [];
+const NO_MARKET_CANDLES: MarketCandle[] = [];
+
+function withLiveMark(candles: MarketCandle[], mark: number, at: number, expiryAt: number, interval: ChartInterval): MarketCandle[] {
+  if (!Number.isFinite(mark) || at <= 0 || expiryAt <= 0) return candles;
+  const time = barOpenTime(Math.min(at, expiryAt), interval);
+  const last = candles.at(-1);
+  if (!last || last.time < time) {
+    return [...candles, { time, open: mark, high: mark, low: mark, close: mark, volume: 0 }];
+  }
+  if (last.time !== time) return candles;
+  const next = last.gap
+    ? { time, open: mark, high: mark, low: mark, close: mark, volume: last.volume }
+    : { ...last, high: Math.max(last.high, mark), low: Math.min(last.low, mark), close: mark };
+  if (
+    !last.gap &&
+    next.open === last.open &&
+    next.high === last.high &&
+    next.low === last.low &&
+    next.close === last.close &&
+    next.volume === last.volume
+  ) {
+    return candles;
+  }
+  return [...candles.slice(0, -1), next];
+}
 
 export function useMarketCandles(
   marketId: string,
@@ -367,8 +421,15 @@ export function useMarketCandles(
   }, [tradeCount, interval, key, marketId, minute]);
 
   const response = state.key === key ? state.response : null;
+  const live = snapshot?.markets.find((candidate) => candidate.marketKey === marketId);
+  const rawCandles = response?.candles ?? NO_MARKET_CANDLES;
+  const liveMark = live?.markSource === "MODEL" && live.mark !== null ? live.mark : Number.NaN;
+  const candles = useMemo(
+    () => withLiveMark(rawCandles, liveMark, snapshot?.asOf ?? 0, response?.expiryAt ?? 0, interval),
+    [interval, liveMark, rawCandles, response?.expiryAt, snapshot?.asOf],
+  );
   return {
-    candles: response?.candles ?? [],
+    candles,
     source: response?.source ?? null,
     loading: response === null,
     reference: response?.reference ?? null,

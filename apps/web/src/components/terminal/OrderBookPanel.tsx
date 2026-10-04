@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, ChevronDown, Info } from "lucide-react";
 import { AssetIcon } from "@/components/icons/AssetIcon";
 import { FlashValue } from "@/components/terminal/motion";
@@ -74,7 +74,7 @@ function sizeLabel(lots: number, unit: SizeUnit, market: PackageMarket, price: n
   return unit === "LOTS" ? formatLots(lots) : formatCompactUsd(lots * market.lotSize * price);
 }
 
-function Level({
+const Level = memo(function Level({
   row,
   maxCumulative,
   market,
@@ -94,9 +94,7 @@ function Level({
   // Indicative rows stay legible: a muted price and a hatched depth fill mark them, not reduced opacity.
   const tone = !row.executable ? "text-dim" : ask ? "text-down" : "text-up";
   const fill = ask ? "bg-down/12" : "bg-up/12";
-  const describe = `${SOURCE_LABEL[row.source]}, ${FIRMNESS_LABEL[row.firmness]}${
-    row.ttlSeconds ? `, quote valid ${row.ttlSeconds}s` : ""
-  }${row.origin ? `, from ${row.origin}` : ""}`;
+  const describe = `${SOURCE_LABEL[row.source]}, ${FIRMNESS_LABEL[row.firmness]}${row.origin ? `, from ${row.origin}` : ""}`;
 
   const cells = (
     <>
@@ -113,7 +111,7 @@ function Level({
               }
         }
       />
-      <span className="relative flex justify-center text-off" title={describe}>
+      <span className="relative flex justify-center text-off">
         <SourceMark source={row.source} />
       </span>
       <span className={`tnum relative truncate font-mono text-xs ${tone}`}>{formatPrice(row.price, market)}</span>
@@ -128,7 +126,7 @@ function Level({
 
   if (!row.executable) {
     return (
-      <div className={`${ROW} relative italic`} title={`Indicative. ${describe}. Not executable depth.`}>
+      <div className={`${ROW} relative italic`} aria-label={`Indicative. ${describe}. Not executable depth.`}>
         {cells}
       </div>
     );
@@ -137,7 +135,7 @@ function Level({
     <button
       type="button"
       onClick={() => onSelect(row)}
-      title={`${describe}. Select to set the ticket price.`}
+      aria-label={`${describe}. Select to set the ticket price.`}
       className={`${ROW} focus-ring relative w-full cursor-pointer text-left transition-colors hover:bg-white/[0.04] ${
         active ? "bg-white/[0.06]" : ""
       }`}
@@ -145,7 +143,21 @@ function Level({
       {cells}
     </button>
   );
-}
+}, (previous, next) =>
+  previous.row.id === next.row.id &&
+  previous.row.price === next.row.price &&
+  previous.row.lots === next.row.lots &&
+  previous.row.cumulative === next.row.cumulative &&
+  previous.row.executable === next.row.executable &&
+  previous.row.source === next.row.source &&
+  previous.row.firmness === next.row.firmness &&
+  previous.maxCumulative === next.maxCumulative &&
+  previous.market.priceDecimals === next.market.priceDecimals &&
+  previous.market.lotSize === next.market.lotSize &&
+  previous.unit === next.unit &&
+  previous.active === next.active &&
+  previous.onSelect === next.onSelect,
+);
 
 function ViewIcon({ view }: { view: BookView }) {
   const up = "var(--color-up)";
@@ -333,7 +345,7 @@ function QuoteStreamLine({ market }: { market: PackageMarket }) {
         ? `Maker stream live. Firm quotes valid ${secondsLeft}s, settled in one transaction.`
         : `Maker stream: ${state.status === "INDICATIVE" ? "indicative only" : "unavailable"}. ${state.reason ?? ""}`.trim();
   return (
-    <p className="flex h-6 shrink-0 items-center gap-1.5 truncate px-3 text-[11px] text-faint" role="status" title={text}>
+    <p className="flex h-6 shrink-0 items-center gap-1.5 truncate px-3 text-[11px] text-faint" role="status" aria-label={text}>
       <SourceMark source="STREAM_FIRM" />
       <span className={`truncate ${live && status !== "RECONNECTING" ? "text-dim" : ""}`}>{text}</span>
     </p>

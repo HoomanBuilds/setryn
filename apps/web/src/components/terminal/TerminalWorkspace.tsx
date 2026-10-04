@@ -3,7 +3,13 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useGatewaySnapshot, useInternalGateway } from "@/components/gateway/InternalGatewayProvider";
-import { useFirmQuotes, useLiveMarket, useMarketBoard, useMarketDataRefresh } from "@/components/market-data/MarketDataProvider";
+import {
+  useFirmQuotes,
+  useLiveMarket,
+  useMarketBoard,
+  useMarketDataRefresh,
+  useQuoteMarketFocus,
+} from "@/components/market-data/MarketDataProvider";
 import { AnalysisPanel, type VizTab } from "@/components/terminal/AnalysisPanel";
 import { ConsolePanel } from "@/components/terminal/ConsolePanel";
 import { ContractSpec, MarketHeader, MarketStatGrid } from "@/components/terminal/MarketHeader";
@@ -188,6 +194,11 @@ function WorkspaceContent({ market }: { market: PackageMarket }) {
   const { markets } = useMarketBoard();
   const refreshFeed = useMarketDataRefresh();
   const { discardQuote } = useFirmQuotes();
+  const focusQuoteMarket = useQuoteMarketFocus();
+  useEffect(() => {
+    focusQuoteMarket(market.id);
+    return () => focusQuoteMarket(null);
+  }, [focusQuoteMarket, market.id]);
 
   /* Every listed market settles on its own deployed series, so the ticket prices collateral, fees, and order size
      from the chain's economics, and its routes execute against the onchain book the feed reads. */

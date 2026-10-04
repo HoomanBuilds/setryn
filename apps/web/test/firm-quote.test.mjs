@@ -59,6 +59,13 @@ test("a taker selects the best executable ladder level that can fill its size", 
   assert.equal(firmQuoteRows(book, NOW_MS).length, 2);
 });
 
+test("renewing a quote keeps the visible ladder row identity stable", () => {
+  const first = firmQuoteRows(state(null, quote("ASK", 101, 2, 15)), NOW_MS)[0];
+  const renewed = { ...quote("ASK", 101, 2, 40), id: `0x${"d".repeat(64)}` };
+  const second = firmQuoteRows(state(null, renewed), NOW_MS)[0];
+  assert.equal(first.id, second.id);
+});
+
 test("a relayed risk authorization is parsed strictly", () => {
   const valid = {
     orderHash: `0x${"1".repeat(64)}`,

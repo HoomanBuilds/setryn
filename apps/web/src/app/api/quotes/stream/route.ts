@@ -17,6 +17,7 @@ const HEARTBEAT_MS = 10_000;
  * client: every stream on a server shares the engine's one signing pass per tick.
  */
 export async function GET(request: Request) {
+  const marketId = new URL(request.url).searchParams.get("market");
   const encoder = new TextEncoder();
   let closed = false;
   request.signal.addEventListener("abort", () => {
@@ -29,14 +30,19 @@ export async function GET(request: Request) {
       };
       write("retry: 1000\n\n");
       const started = Date.now();
-      let lastVersion = -1;
+      let lastVersion = "";
       let lastWrite = Date.now();
       while (!closed && Date.now() - started < STREAM_MS) {
         try {
           const book = await readFirmQuoteBook();
-          if (book.version !== lastVersion) {
-            write(`event: quotes\ndata: ${JSON.stringify(book)}\n\n`);
-            lastVersion = book.version;
+          const market = marketId ? book.markets[marketId] : null;
+          const scoped = marketId ? { ...book, markets: market ? { [marketId]: market } : {} } : book;
+          const version = marketId
+            ? `${market?.status ?? "MISSING"}:${[...(market?.bids ?? []), ...(market?.asks ?? [])].map((quote) => quote.id).join(":")}`
+            : String(book.version);
+          if (version !== lastVersion) {
+            write(`event: quotes\ndata: ${JSON.stringify(scoped)}\n\n`);
+            lastVersion = version;
             lastWrite = Date.now();
           }
         } catch {
