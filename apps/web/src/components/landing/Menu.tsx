@@ -13,8 +13,6 @@ import styles from "./Menu.module.css";
 /** Platform surfaces beyond the app's front door; every one is a live route. */
 const PLATFORM_LINKS = [
   { label: "Markets", href: APP_LINKS.markets },
-  { label: "Developers", href: "/developers" },
-  { label: "Partners", href: "/partners" },
   { label: "Status", href: "/status" },
 ];
 
