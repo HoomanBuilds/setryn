@@ -6,10 +6,10 @@ export default function NotFound() {
     <main className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5 px-4 py-10 text-center">
       <div className="max-w-[420px]">
         <p className="text-xs font-medium tracking-[0.08em] text-faint uppercase">404</p>
-        <h1 className="mt-1.5 text-base font-semibold text-ink">That market is not listed</h1>
+        <h1 className="mt-1.5 text-base font-semibold text-ink">This page is unavailable</h1>
         <p className="mt-1.5 text-sm leading-snug text-dim">
-          The URL does not match any market listed on this deployment. Open the directory to see every
-          listed market, or go to the default terminal.
+          This URL is not part of the public product on this deployment. Browse the live markets or return to the
+          trading terminal.
         </p>
       </div>
 
@@ -24,7 +24,7 @@ export default function NotFound() {
           href={DEFAULT_TRADE_HREF}
           className="focus-ring flex h-11 items-center rounded-md border border-line bg-panel px-3.5 text-sm text-dim transition-colors hover:text-ink lg:h-9"
         >
-          Open default terminal
+          Open terminal
         </Link>
       </div>
     </main>
