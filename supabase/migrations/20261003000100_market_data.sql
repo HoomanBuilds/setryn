@@ -90,11 +90,22 @@ create table if not exists setryn.ingest_cursors (
   primary key (scope, stream)
 );
 
-revoke all on setryn.reference_rounds, setryn.market_fills, setryn.market_positions, setryn.ingest_cursors
-  from public, anon, authenticated;
-grant usage on schema setryn to postgres;
+revoke all on setryn.reference_rounds, setryn.market_fills, setryn.market_positions, setryn.ingest_cursors from public;
+
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'anon') then
+    execute 'revoke all on setryn.reference_rounds, setryn.market_fills, setryn.market_positions, setryn.ingest_cursors from anon';
+  end if;
+  if exists (select 1 from pg_roles where rolname = 'authenticated') then
+    execute 'revoke all on setryn.reference_rounds, setryn.market_fills, setryn.market_positions, setryn.ingest_cursors from authenticated';
+  end if;
+end
+$$;
+
+grant usage on schema setryn to current_user;
 grant select, insert, update, delete on setryn.reference_rounds, setryn.market_fills, setryn.market_positions,
-  setryn.ingest_cursors to postgres;
+  setryn.ingest_cursors to current_user;
 
 comment on table setryn.reference_rounds is 'Chainlink aggregator rounds per feed; the observed input of every mark.';
 comment on table setryn.market_fills is 'Clearing fills per deployment; markers, volume and the mark basis read these.';
