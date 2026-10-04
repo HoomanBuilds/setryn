@@ -10,7 +10,7 @@ Arbitrum One (read-only)          deployment chain (Sepolia / devnet)
         \                             /
          market-data ingester (AWS, long-running, no keys)
                        |
-                   AWS RDS Postgres  (schema setryn, server-only)
+                Postgres on rey-aws  (schema setryn, server-only)
                        |
                  web app (reads; falls back to chain on its own)
 ```
@@ -34,23 +34,26 @@ The deployment key is the chain id plus the clearing, position and book addresse
 starts its own history. Scope is the network name (`local`, `arbitrum-sepolia`); reference rounds and their cursors
 use the scope `shared` because they come from Arbitrum One whatever the deployment.
 
-## 1. AWS RDS Postgres
+## 1. AWS-hosted Postgres
 
-Use an encrypted PostgreSQL instance with TLS required and automated backups. Apply the provider-independent SQL
-migrations with `psql`:
+The testnet database runs on the existing `rey-aws` EC2 host to avoid a separate managed-database charge. It uses a
+dedicated database and login, requires TLS for remote clients, and listens locally for the ingester on the same host.
+Install PostgreSQL and apply the provider-independent SQL migrations with `psql`:
 
 ```bash
+sudo apt-get install postgresql postgresql-contrib
 psql "$SETRYN_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261001000100_runtime_documents.sql
 psql "$SETRYN_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261003000100_market_data.sql
 ```
 
 The `setryn` schema is not exposed through PostgREST, and `anon` and `authenticated` have no grants. Only server code
-with the database URL reads or writes it.
+with the database URL reads or writes it. Keep the EC2 database URL in Parameter Store and Vercel, never in tracked
+files. A managed database with automated backups and failover remains the production path for real funds.
 
 ## 2. The ingester on AWS
 
-It reads chains and writes Postgres, holds no private key and signs nothing. One `t4g.nano` or `t4g.micro` (or the host
-that runs the operator timer) is enough. It needs Node 22 and the repository checked out at
+It reads chains and writes Postgres, holds no private key and signs nothing. It runs on the same `rey-aws` host as
+Postgres and the operator timer. It needs Node 22 and the repository checked out at
 `/home/ubuntu/setryn`, with `pnpm install --frozen-lockfile`.
 
 ```bash

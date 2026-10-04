@@ -107,10 +107,10 @@ as Setryn market history.
 
 ## Data
 
-Rounds and fills are stored in AWS RDS Postgres by the market-data ingester ([runbook](../runbooks/market-data.md)). Marks and
-candles are computed on read. Each timestamp selects the append-only parameter set and methodology version effective at
-that time, so a new revision affects only later history and nothing has to be migrated. Without the database the app
-reads the same inputs from chain over a shorter window, and says so.
+Rounds and fills are stored in AWS-hosted Postgres by the market-data ingester ([runbook](../runbooks/market-data.md)).
+Marks and candles are computed on read. Each timestamp selects the append-only parameter set and methodology version
+effective at that time, so a new revision affects only later history and nothing has to be migrated. Without the
+database the app reads the same inputs from chain over a shorter window, and says so.
 
 ## Changes
 
