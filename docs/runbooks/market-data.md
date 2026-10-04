@@ -1,4 +1,4 @@
-# Market data: Supabase store and AWS ingester
+# Market data: AWS Postgres store and ingester
 
 The platform prices every expiry with one mark ([methodology](../specs/setryn-mark-methodology.md)) computed from
 observed inputs: Chainlink rounds and the deployment's fills. This runbook covers where those inputs are stored, the
@@ -10,7 +10,7 @@ Arbitrum One (read-only)          deployment chain (Sepolia / devnet)
         \                             /
          market-data ingester (AWS, long-running, no keys)
                        |
-                 Supabase Postgres  (schema setryn, server-only)
+                   AWS RDS Postgres  (schema setryn, server-only)
                        |
                  web app (reads; falls back to chain on its own)
 ```
@@ -34,14 +34,14 @@ The deployment key is the chain id plus the clearing, position and book addresse
 starts its own history. Scope is the network name (`local`, `arbitrum-sepolia`); reference rounds and their cursors
 use the scope `shared` because they come from Arbitrum One whatever the deployment.
 
-## 1. Supabase
+## 1. AWS RDS Postgres
 
-Apply the migrations (the CLI, or `psql` against the project):
+Use an encrypted PostgreSQL instance with TLS required and automated backups. Apply the provider-independent SQL
+migrations with `psql`:
 
 ```bash
-supabase link --project-ref <project-ref>
-supabase db push
-# or: psql "$SETRYN_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261003000100_market_data.sql
+psql "$SETRYN_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261001000100_runtime_documents.sql
+psql "$SETRYN_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261003000100_market_data.sql
 ```
 
 The `setryn` schema is not exposed through PostgREST, and `anon` and `authenticated` have no grants. Only server code
@@ -99,7 +99,8 @@ that unit's failures, or at the journal's `"ok":false` lines.
 
 ## 3. The web app
 
-Set `SETRYN_DATABASE_URL` on the host (Vercel: the Supabase transaction pooler, port 6543). With it:
+Set `SETRYN_DATABASE_URL` on the host and Vercel. Keep the Vercel pool size at one because each serverless instance can
+create its own database client. With it:
 
 - **Cold starts.** A cold server instance loads the stored fills, open positions and cursor, checks that the cursor's
   block is still on its chain, and scans only the blocks after it. This fixes the partial trade history and open
