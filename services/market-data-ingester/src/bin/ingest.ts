@@ -111,7 +111,7 @@ log({
 async function pass(): Promise<boolean> {
   let busy = false;
   if (only !== "fills") {
-    const backfillTo = Math.floor(Date.now() / 1000) - config.backfillDays * 86_400;
+    const backfillTo = Math.floor((Math.floor(Date.now() / 1000) - config.backfillDays * 86_400) / 86_400) * 86_400;
     for (const [underlying, feed] of Object.entries(REFERENCE_FEEDS)) {
       if (stopping) break;
       try {

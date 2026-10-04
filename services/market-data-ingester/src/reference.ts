@@ -24,6 +24,8 @@ import { referenceRoundBounds, referenceRoundHoles, upsertReferenceRounds, type 
 
 const ONE = BigInt(1);
 const BACKWARD_BATCH = 500;
+const HOLE_SCAN_INTERVAL_MS = 6 * 60 * 60 * 1_000;
+const lastHoleScans = new Map<string, number>();
 
 export interface ReferencePassOptions {
   /** Unix seconds the stored history should reach back to. */
@@ -90,7 +92,8 @@ export async function ingestReferenceFeed(
   const bounds = await referenceRoundBounds(REFERENCE_CHAIN_ID, feed);
   let budget = options.maxRounds;
   let read = 1;
-  const collected: ChainlinkRound[] = [latest];
+  let holeRisk = false;
+  const collected: ChainlinkRound[] = !bounds.newest || bounds.newest.roundId < latest.roundId ? [latest] : [];
 
   // Forward: every round since the newest stored one. An earlier phase is read to its last round before the next phase
   // starts at its first; a pass that runs out of budget leaves a hole that the next pass repairs.
@@ -105,6 +108,7 @@ export async function ingestReferenceFeed(
         const rounds = await readRoundRange(client, feed, to, next);
         collected.push(...rounds);
         const count = Number(to - next + ONE);
+        holeRisk ||= rounds.length !== count;
         budget -= count;
         read += count;
         next = to + ONE;
@@ -134,6 +138,7 @@ export async function ingestReferenceFeed(
     const to = bigMax(phaseStart, from - BigInt(Math.min(budget, BACKWARD_BATCH)) + ONE);
     const rounds = await readRoundRange(client, feed, from, to);
     const count = Number(from - to + ONE);
+    holeRisk ||= rounds.length !== count;
     budget -= count;
     read += count;
     if (rounds.length === 0) break;
@@ -155,13 +160,18 @@ export async function ingestReferenceFeed(
       holes,
     },
   });
-  let inserted = await upsertReferenceRounds(
-    collected.map((round) => record(underlying, feed, decimals, round)),
-    heartbeat(0),
-  );
+  let inserted = collected.length > 0
+    ? await upsertReferenceRounds(collected.map((round) => record(underlying, feed, decimals, round)))
+    : 0;
 
-  // Holes: rounds missing between stored ones, oldest first.
-  const holes = await referenceRoundHoles(REFERENCE_CHAIN_ID, feed, 20);
+  // A full history-wide hole scan is expensive. Run it while backfilling, after an incomplete RPC range, at startup,
+  // and periodically thereafter. Normal forward ingestion is consecutive and transactional.
+  const feedKey = feed.toLowerCase();
+  const now = Date.now();
+  const shouldScanHoles =
+    oldestAt > options.backfillTo || holeRisk || now - (lastHoleScans.get(feedKey) ?? 0) >= HOLE_SCAN_INTERVAL_MS;
+  const holes = shouldScanHoles ? await referenceRoundHoles(REFERENCE_CHAIN_ID, feed, 20) : [];
+  if (shouldScanHoles) lastHoleScans.set(feedKey, now);
   const repaired: ChainlinkRound[] = [];
   for (const hole of holes) {
     if (budget <= 0) break;

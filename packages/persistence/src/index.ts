@@ -279,21 +279,20 @@ export async function upsertReferenceRounds(
 export async function referenceRoundBounds(
   chainId: number,
   feed: string,
-): Promise<{ newest: StoredRound | null; oldest: StoredRound | null; count: number }> {
+): Promise<{ newest: StoredRound | null; oldest: StoredRound | null }> {
   const sql = database();
   const key = feed.toLowerCase();
-  const [newest, oldest, total] = await Promise.all([
+  const [newest, oldest] = await Promise.all([
     sql<{ round_id: string; price: number; updated_at: string }[]>`
       select round_id, price, updated_at from setryn.reference_rounds
       where chain_id = ${chainId} and feed = ${key} order by round_id desc limit 1`,
     sql<{ round_id: string; price: number; updated_at: string }[]>`
       select round_id, price, updated_at from setryn.reference_rounds
       where chain_id = ${chainId} and feed = ${key} order by round_id asc limit 1`,
-    sql<{ count: string }[]>`select count(*) as count from setryn.reference_rounds where chain_id = ${chainId} and feed = ${key}`,
   ]);
   const round = (row: { round_id: string; price: number; updated_at: string } | undefined): StoredRound | null =>
     row ? { roundId: BigInt(row.round_id), price: row.price, updatedAt: Number(row.updated_at) } : null;
-  return { newest: round(newest[0]), oldest: round(oldest[0]), count: Number(total[0]?.count ?? 0) };
+  return { newest: round(newest[0]), oldest: round(oldest[0]) };
 }
 
 /** Holes in a feed's stored rounds, oldest first. */
@@ -614,6 +613,10 @@ async function writeCursor(
     values (${scope}, ${stream}, ${blockNumber}, ${blockHash}, ${sql.json(payload as never)}, now())
     on conflict (scope, stream) do update
     set block_number = excluded.block_number, block_hash = excluded.block_hash, payload = excluded.payload, updated_at = now()
+    where setryn.ingest_cursors.block_number is distinct from excluded.block_number
+      or setryn.ingest_cursors.block_hash is distinct from excluded.block_hash
+      or setryn.ingest_cursors.payload is distinct from excluded.payload
+      or setryn.ingest_cursors.updated_at < now() - interval '60 seconds'
   `;
 }
 
