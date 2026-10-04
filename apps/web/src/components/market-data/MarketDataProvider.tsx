@@ -74,18 +74,25 @@ function withoutDiscarded(book: FirmQuoteBook | null, discarded: ReadonlySet<str
   return { ...book, markets };
 }
 
-function hasUnexpiredFirmQuote(book: FirmQuoteBook | null, nowMs: number): boolean {
-  if (!book) return false;
-  return Object.values(book.markets).some(
-    (market) =>
-      market.status === "FIRM" &&
+function hasUnexpiredFirmQuote(market: FirmQuoteBook["markets"][string] | undefined, nowMs: number): boolean {
+  return Boolean(
+    market?.status === "FIRM" &&
       [...market.bids, ...market.asks].some((quote) => quote.expiresAt * 1_000 > nowMs),
   );
 }
 
 function keepHealthyQuoteBook(current: FirmQuoteBook | null, next: FirmQuoteBook): FirmQuoteBook {
-  if (hasUnexpiredFirmQuote(current, Date.now()) && !hasUnexpiredFirmQuote(next, Date.now())) return current ?? next;
-  return next;
+  if (!current) return next;
+  const now = Date.now();
+  let retained = false;
+  const markets = { ...next.markets };
+  for (const [marketId, currentMarket] of Object.entries(current.markets)) {
+    if (hasUnexpiredFirmQuote(currentMarket, now) && !hasUnexpiredFirmQuote(next.markets[marketId], now)) {
+      markets[marketId] = currentMarket;
+      retained = true;
+    }
+  }
+  return retained ? { ...next, markets } : next;
 }
 
 export { applyLiveMarket, deriveRoutes, type LiveMarketContext } from "@/lib/market-data/overlay";

@@ -42,8 +42,8 @@ import { openCapacityInBackground, readSeriesCapacities, type CapacityView } fro
 const BOOK_TTL_MS = 500;
 /** Lots per quote at most: the market's limit and available capacity may reduce it. */
 const QUOTE_LOTS = 10;
-/** Five firm levels per side give the terminal useful depth without making the signer or payload unnecessarily heavy. */
-const QUOTE_LEVELS = 5;
+/** Ten executable levels per side fill the professional ladder without relying on decorative or duplicated depth. */
+const QUOTE_LEVELS = 10;
 /** Each level is eight basis points farther from the touch. */
 const LEVEL_SPACING_BPS = 8;
 /** Capacity and collateral reads are reused this long; settled fills show up within it. */

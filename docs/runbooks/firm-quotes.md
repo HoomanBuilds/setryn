@@ -21,8 +21,8 @@ the clearing engine consumes it in one transaction, so the 300 s bound no longer
    capacity's expiry. The app opens the current three-day epoch's capacity the first time a series is viewed; each lasts
    two epochs, so lifetimes overlap.
 2. **Quotes (continuous, offchain).** Every tick the quote engine (`apps/web/src/lib/quotes/quote-engine.ts`) prices
-   every market from one Chainlink read and signs a five-level ladder on each side. Every level is a `PublicOrder`
-   (GTD, 30 s deadline, random 128-bit nonce) with a `SetrynOrderRiskAuthorizationV1` naming the router as binder and
+   every market from one Chainlink read and signs a ten-level ladder on each side. Every level is a `PublicOrder`
+   (GTD, 45 s deadline, random 128-bit nonce) with a `SetrynOrderRiskAuthorizationV1` naming the router as binder and
    `hash(SetrynMakerQuoteTermsV1{capacityId})` as binder terms. The levels share one series capacity, and their total
    displayed size per side does not exceed its remaining capacity. Signatures are verified before publication. Quotes
    stream over `GET /api/quotes/stream` (server-sent events); `GET /api/quotes` is the snapshot.
