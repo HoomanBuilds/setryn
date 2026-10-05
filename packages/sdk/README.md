@@ -3,15 +3,22 @@
 TypeScript client for the Setryn public API (v1). It covers market data, account projections, non-custodial order
 entry, position exits, and private firm RFQ. ESM only, and viem is its only dependency.
 
-Every response comes from the same contract state and events as the Setryn platform. The API never holds a private
-key and never sends a transaction for you. Orders and RFQs are prepared by the API, signed in your wallet, relayed to
-the platform's risk admission, and then the transactions the API returns are sent from your wallet.
+Every response comes from the same contract state and events as the Setryn platform. The API never holds the user's
+private key. Orders and RFQs are prepared by the API, signed in the user's wallet, and checked by the same risk and
+execution contracts as the first-party terminal. Direct SDK flows return transactions for the wallet to send; an
+optional protocol relayer is a separate caller and cannot change the signed constraints.
+
+## Release status
+
+The API and SDK are implemented as a controlled developer release. The hosted OpenAPI 3.1 document is public at
+[setryn.vercel.app/api/v1/openapi.json](https://setryn.vercel.app/api/v1/openapi.json). Authenticated reads and writes
+require a Setryn API key; public self-service key issuance is not implied by the availability of the schema or client.
 
 ## Markets
 
 Every market the deployment registers onchain reports `execution: "ONCHAIN"` with its own `onchain` block: `seriesId`,
 `marketId`, `bookId`, `tickSizeMinor`, `priceScale`, `maxOrderLots`, `maxLongDebitMinorPerLot` /
-`maxShortDebitMinorPerLot`, and the fee rates. On the local devnet that is all 16 catalog markets (BTC yield curves,
+`maxShortDebitMinorPerLot`, and the fee rates. The current generated catalog contains 15 markets (BTC yield curves,
 ETH funding carries, ARB basis, EURUSD and XAUUSD forwards). Any other catalog market is `PREVIEW_ONLY`: it serves
 labelled preview data and cannot be traded.
 
@@ -56,7 +63,7 @@ const status = await setryn.status();
 console.log(status.chainId, status.headBlock, status.deployment.state);
 
 const { data: markets } = await setryn.listMarkets({ execution: "ONCHAIN" });
-const book = await setryn.getBook("XAUUSD-FW-29JUN27"); // source: ONCHAIN_PUBLIC_BOOK, that market's own series book
+const book = await setryn.getBook("XAUUSD-FW-25JUN27"); // source: ONCHAIN_PUBLIC_BOOK, that market's own series book
 console.log(book.priceScale, book.asks[0]?.price, book.asks[0]?.priceTicks);
 
 // Pagination: one page at a time, or every item.
@@ -164,7 +171,7 @@ receipts) but stay off the public tape.
 ```ts
 import { executeRfq } from "@setryn/sdk";
 
-const market = await setryn.getMarket("EURUSD-FW-30DEC26");
+const market = await setryn.getMarket("EURUSD-FW-24DEC26");
 const result = await executeRfq(setryn, wallet, publicClient, {
   marketId: market.id,
   side: "LONG",
@@ -231,10 +238,10 @@ pnpm --filter @setryn/sdk example:read     # status, catalog, onchain book and t
 
 # Local devnet only (refuses any chain but 31337): mints test sUSD if needed, seeds the devnet maker, places an IOC.
 export SETRYN_DEVNET_PRIVATE_KEY=0x...      # a local anvil account key, never a real key
-SETRYN_MARKET_ID=XAUUSD-FW-29JUN27 pnpm --filter @setryn/sdk example:order
+SETRYN_MARKET_ID=XAUUSD-FW-25JUN27 pnpm --filter @setryn/sdk example:order
 
 # Local devnet only: a full private RFQ (request, solver quote, selection, atomic settlement).
-SETRYN_MARKET_ID=EURUSD-FW-30DEC26 SETRYN_SIDE=LONG pnpm --filter @setryn/sdk example:rfq
+SETRYN_MARKET_ID=EURUSD-FW-24DEC26 SETRYN_SIDE=LONG pnpm --filter @setryn/sdk example:rfq
 ```
 
 ## Versioning
